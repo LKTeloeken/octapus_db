@@ -53,6 +53,14 @@ export async function getPostgreSchemas(): Promise<IPostgres.IPostgreSchema[]> {
   }));
 }
 
+export async function getPostgreDatabases(
+  serverId: number
+): Promise<IPostgres.IPostgreDatabase[]> {
+  return await invoke<IPostgres.IPostgreDatabase[]>("get_postgre_databases", {
+    serverId,
+  });
+}
+
 export async function getPostgreTables(
   schema: string
 ): Promise<IPostgres.IPostgreTable[]> {

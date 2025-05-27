@@ -1,7 +1,7 @@
 use tauri::State;
 use crate::{
     app_state::AppState,
-    models::postgres::PostgreServer,
+    models::PostgreServer,
 };
 use rusqlite::params;
 use std::time::{SystemTime, UNIX_EPOCH};

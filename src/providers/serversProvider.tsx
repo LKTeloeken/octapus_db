@@ -11,6 +11,7 @@ import {
   getServerById,
   updateServer,
   deleteServer,
+  getPostgreDatabases,
 } from "@/api/postgreMethods";
 import { IPostgreServer, IPostgreServerPrimitive } from "@/models/postgreDb";
 
@@ -57,6 +58,9 @@ export function ServersProvider({ children }: ServersProviderProps) {
     setError(null);
     try {
       const serversList = await getAllServers();
+
+      await getPostgreDatabases(1);
+
       setServers(serversList);
     } catch (err) {
       setError(

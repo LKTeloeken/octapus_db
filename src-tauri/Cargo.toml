@@ -30,3 +30,4 @@ once_cell  = "1"
 # 》Erros bonitos
 thiserror  = "1"
 anyhow = "1" 
+postgres = "0.19"
