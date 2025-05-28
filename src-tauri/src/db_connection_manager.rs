@@ -26,7 +26,7 @@ fn get_server_config(state: &AppState, id: i32) -> Result<PostgreServer> {
     let conn = state.conn.lock().map_err(|e| anyhow!(e.to_string()))?;
     
     let mut stmt = conn.prepare(
-        "SELECT id, name, host, port, username, password, created_at FROM servers WHERE id = ?"
+        "SELECT id, name, host, port, username, password, default_database, created_at FROM servers WHERE id = ?"
     )?;
     
     let server = stmt.query_row([id], |row| {
@@ -37,7 +37,8 @@ fn get_server_config(state: &AppState, id: i32) -> Result<PostgreServer> {
             port: row.get(3)?,
             username: row.get(4)?,
             password: row.get(5)?,
-            created_at: row.get(6)?,
+            default_database: row.get(6)?,
+            created_at: row.get(7)?,
         })
     }).map_err(|e| anyhow!(e.to_string()))?;
     
@@ -47,11 +48,12 @@ fn get_server_config(state: &AppState, id: i32) -> Result<PostgreServer> {
 /// Cria uma conexão nova de acordo com as credenciais
 fn connect_to_server(server: &PostgreServer) -> Result<DbConnection> {
     let conn_str = format!(
-        "host={} port={} user={} password={} dbname=postgres",
+        "host={} port={} user={} password={} dbname={}",
         server.host,
         server.port,
         server.username,
-        server.password
+        server.password,
+        server.default_database.as_deref().unwrap_or("postgres") 
     );
     
     let client = PgClient::connect(&conn_str, NoTls)
@@ -61,7 +63,7 @@ fn connect_to_server(server: &PostgreServer) -> Result<DbConnection> {
 }
 
 /// Cria ou reusa a conexão para o id do servidor
-fn get_or_create_connection(state: &AppState, server_id: i32) -> Result<()> {
+fn get_or_create_connection(state: &AppState, server_id: i32, database_name: Option<String>) -> Result<()> {
     let mut manager = CONNECTION_MANAGER.lock().unwrap();
 
     if !manager.contains_key(&server_id) {
@@ -77,10 +79,10 @@ fn get_or_create_connection(state: &AppState, server_id: i32) -> Result<()> {
 }
 
 /// Executa uma query simples (DDL/DML) na conexão já aberta
-pub fn execute_query(state: &AppState, server_id: i32, query: &str) -> Result<Vec<HashMap<String, String>>> {
+pub fn execute_query(state: &AppState, server_id: i32, query: &str, database_name: Option<String>) -> Result<Vec<HashMap<String, String>>> {
     
     // Garante que a conexão foi criada ou reutilizada
-    get_or_create_connection(state, server_id).map_err(|e| e.to_string());
+    let _ = get_or_create_connection(state, server_id, database_name).map_err(|e| e.to_string());
 
     let mut manager = CONNECTION_MANAGER.lock().unwrap();
 

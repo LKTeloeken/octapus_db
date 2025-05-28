@@ -12,6 +12,7 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
             port        INTEGER NOT NULL DEFAULT 5432,
             username    TEXT,
             password    TEXT,
+            default_database    TEXT,
             created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
         );",
         [],

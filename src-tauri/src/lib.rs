@@ -10,7 +10,7 @@ use tauri::Builder;
 use db::init_database;
 use app_state::AppState;
 use commands::servers_commands::{create_server, get_all_servers, get_server_by_id, update_server, delete_server};
-use commands::postgre_commands::get_postgre_databases;
+use commands::postgre_commands::{get_postgre_databases, get_postgre_schemas};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -30,7 +30,8 @@ pub fn run() {
             update_server,
             delete_server,
 
-            get_postgre_databases
+            get_postgre_databases,
+            get_postgre_schemas
         ])
         .setup(|app| {
             // `anyhow::anyhow!` agora funciona porque adicionamos a dependência

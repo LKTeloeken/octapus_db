@@ -1,3 +1,4 @@
+use serde::de;
 use tauri::State;
 use crate::{
     app_state::AppState,
@@ -14,6 +15,7 @@ pub fn create_server(
     port: i32,
     username: String,
     password: String,
+    default_database: Option<String>,
 ) -> Result<PostgreServer, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     
@@ -24,13 +26,13 @@ pub fn create_server(
     
     let mut stmt = conn.prepare(
         r#"
-        INSERT INTO servers (name, host, port, username, password, created_at) 
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6) 
-        RETURNING id, name, host, port, username, password, created_at
+        INSERT INTO servers (name, host, port, username, password, default_database, created_at) 
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) 
+        RETURNING id, name, host, port, username, password, default_database, created_at
         "#
     ).map_err(|e| e.to_string())?;
     
-    stmt.query_row(params![name, host, port, username, password, created_at], |row| {
+    stmt.query_row(params![name, host, port, username, password, default_database, created_at], |row| {
         Ok(PostgreServer {
             id: Some(row.get(0)?),
             name: row.get(1)?,
@@ -38,7 +40,8 @@ pub fn create_server(
             port: row.get(3)?,
             username: row.get(4)?,
             password: row.get(5)?,
-            created_at: row.get(6)?,
+            default_database: row.get(6)?, 
+            created_at: row.get(7)?,
         })
     })
     .map_err(|e| e.to_string())
@@ -49,7 +52,7 @@ pub fn get_all_servers(state: State<AppState>) -> Result<Vec<PostgreServer>, Str
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     
     let mut stmt = conn.prepare(
-        "SELECT id, name, host, port, username, password, created_at FROM servers ORDER BY name"
+        "SELECT id, name, host, port, username, password, default_database, created_at FROM servers ORDER BY name"
     ).map_err(|e| e.to_string())?;
     
     let rows = stmt.query_map([], |row| {
@@ -60,7 +63,8 @@ pub fn get_all_servers(state: State<AppState>) -> Result<Vec<PostgreServer>, Str
             port: row.get(3)?,
             username: row.get(4)?,
             password: row.get(5)?,
-            created_at: row.get(6)?,
+            default_database: row.get(6)?,
+            created_at: row.get(7)?,
         })
     }).map_err(|e| e.to_string())?;
     
@@ -81,7 +85,7 @@ pub fn get_server_by_id(state: State<AppState>, id: i32) -> Result<PostgreServer
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     
     let mut stmt = conn.prepare(
-        "SELECT id, name, host, port, username, password, created_at FROM servers WHERE id = ?"
+        "SELECT id, name, host, port, username, password, default_database, created_at FROM servers WHERE id = ?"
     ).map_err(|e| e.to_string())?;
     
     let server = stmt.query_row(params![id], |row| {
@@ -92,7 +96,8 @@ pub fn get_server_by_id(state: State<AppState>, id: i32) -> Result<PostgreServer
             port: row.get(3)?,
             username: row.get(4)?,
             password: row.get(5)?,
-            created_at: row.get(6)?,
+            default_database: row.get(6)?,
+            created_at: row.get(7)?,
         })
     }).map_err(|e| e.to_string())?;
     
@@ -116,7 +121,7 @@ pub fn update_server(
         UPDATE servers 
         SET name = ?1, host = ?2, port = ?3, username = ?4, password = ?5 
         WHERE id = ?6
-        RETURNING id, name, host, port, username, password, created_at
+        RETURNING id, name, host, port, username, password, default_database, created_at
         "#
     ).map_err(|e| e.to_string())?;
     
@@ -128,7 +133,8 @@ pub fn update_server(
             port: row.get(3)?,
             username: row.get(4)?,
             password: row.get(5)?,
-            created_at: row.get(6)?,
+            default_database: row.get(6)?,
+            created_at: row.get(7)?,
         })
     })
     .map_err(|e| e.to_string())

@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct PostgreDatabase {
+    pub datname: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PostgreSchema {
     pub name: String,
 }
@@ -81,5 +86,6 @@ pub struct PostgreServer {
     pub port: i32,
     pub username: String,
     pub password: String,
+    pub default_database: Option<String>,
     pub created_at: i64,
 }
