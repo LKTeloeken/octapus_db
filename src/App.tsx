@@ -7,12 +7,11 @@ import {
 
 import { ServersProvider } from "./providers/serversProvider";
 
-import Sidebar from "@/components/layout/Sidebar/index";
+import Sidebar from "@/components/layout/Sidebar";
 import QueryEditor from "@/components/layout/QueryEditor";
 import QueryResults from "@/components/layout/QueryResults";
 
 const App: React.FC = () => {
-  // força tema dark (igual ao seu exemplo)
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove("light", "dark");
@@ -22,8 +21,8 @@ const App: React.FC = () => {
   return (
     <ResizablePanelGroup direction="horizontal" className="h-screen w-full">
       <ResizablePanel
-        defaultSize={20} // 20 % da largura
-        minSize={10}
+        defaultSize={20}
+        minSize={15}
         maxSize={40}
         className="border-r border-border bg-sidebar text-sidebar-foreground"
       >

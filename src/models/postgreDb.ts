@@ -7,6 +7,8 @@ export interface IPostgreServer {
   password: String;
   created_at: number;
   isConnected: boolean;
+  default_database: string | null;
+  databases?: IPostgreDatabase[];
 }
 
 export type IPostgreServerPrimitive = Omit<IPostgreServer, "id" | "created_at">;

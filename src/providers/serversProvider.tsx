@@ -59,8 +59,6 @@ export function ServersProvider({ children }: ServersProviderProps) {
     try {
       const serversList = await getAllServers();
 
-      await getPostgreDatabases(1);
-
       setServers(serversList);
     } catch (err) {
       setError(

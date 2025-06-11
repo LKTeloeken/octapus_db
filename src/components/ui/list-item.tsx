@@ -1,164 +1,116 @@
-import * as React from "react";
-import { Slot } from "@radix-ui/react-slot";
-import { cva, type VariantProps } from "class-variance-authority";
-
+import React, { ReactNode, HTMLAttributes, ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
-const listItemVariants = cva("flex items-center w-full text-sm rounded-md", {
-  variants: {
-    variant: {
-      default: "bg-background",
-      destructive: "text-destructive",
-    },
-    size: {
-      default: "min-h-10",
-      sm: "min-h-8",
-      lg: "min-h-12",
-    },
-    disablePadding: {
-      true: "px-0 py-0",
-      false: "px-4 py-2",
-    },
-    selected: {
-      true: "bg-accent text-accent-foreground",
-      false: "",
-    },
-  },
-  defaultVariants: {
-    variant: "default",
-    size: "default",
-    disablePadding: false,
-    selected: false,
-  },
-});
-
-function ListItem({
-  className,
-  variant,
-  size,
-  disablePadding,
-  selected,
-  secondaryAction,
-  ...props
-}: React.ComponentProps<"div"> &
-  VariantProps<typeof listItemVariants> & {
-    secondaryAction?: React.ReactNode;
-  }) {
-  return (
-    <div className="relative">
-      {secondaryAction && (
-        <div className="absolute right-0 top-1/2 transform -translate-y-1/2">
-          {secondaryAction}
-        </div>
+// ListItem: basic container with optional padding and secondary action
+export interface ListItemProps extends HTMLAttributes<HTMLLIElement> {
+  disablePadding?: boolean;
+  secondaryAction?: ReactNode;
+  children: ReactNode;
+}
+export const ListItem = React.forwardRef<HTMLLIElement, ListItemProps>(
+  (
+    { disablePadding = false, secondaryAction, className, children, ...props },
+    ref
+  ) => (
+    <li
+      ref={ref}
+      className={cn(
+        "flex items-center justify-between w-full",
+        !disablePadding && "px-4 py-2",
+        className
       )}
-      <div
-        data-slot="list-item"
-        className={cn(
-          listItemVariants({ variant, size, disablePadding, selected }),
-          className
-        )}
-        {...props}
-      >
-        {props.children}
-      </div>
-    </div>
-  );
-}
-
-const listItemTextVariants = cva("flex flex-col flex-grow", {
-  variants: {
-    variant: {
-      default: "text-foreground",
-      secondary: "text-muted-foreground",
-    },
-  },
-  defaultVariants: {
-    variant: "default",
-  },
-});
-
-interface ListItemTextProps
-  extends React.ComponentProps<"div">,
-    VariantProps<typeof listItemTextVariants> {
-  primary?: React.ReactNode;
-  secondary?: React.ReactNode;
-}
-
-function ListItemText({
-  className,
-  variant,
-  primary,
-  secondary,
-  ...props
-}: ListItemTextProps) {
-  return (
-    <div
-      data-slot="list-item-text"
-      className={cn(listItemTextVariants({ variant }), className)}
       {...props}
     >
-      {primary && (
-        <span className="text-sm font-medium leading-none">{primary}</span>
+      <div className="flex items-center space-x-4 w-full">{children}</div>
+      {secondaryAction && (
+        <div className="ml-auto flex-shrink-0">{secondaryAction}</div>
       )}
-      {secondary && (
-        <span className="text-xs text-muted-foreground mt-1">{secondary}</span>
-      )}
-      {props.children}
-    </div>
-  );
-}
-
-const listItemButtonVariants = cva(
-  "cursor-pointer flex items-center w-full px-4 py-2 text-sm rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none",
-  {
-    variants: {
-      variant: {
-        default: "hover:bg-accent hover:text-accent-foreground",
-        destructive:
-          "hover:bg-destructive/10 text-destructive hover:text-destructive",
-      },
-      size: {
-        default: "h-10",
-        sm: "h-8",
-        lg: "h-12",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
-  }
+    </li>
+  )
 );
+ListItem.displayName = "ListItem";
 
-interface ListItemButtonProps
-  extends React.ComponentProps<"button">,
-    VariantProps<typeof listItemButtonVariants> {
-  asChild?: boolean;
+// ListItemButton: interactive element with selected state
+export interface ListItemButtonProps
+  extends ButtonHTMLAttributes<HTMLButtonElement> {
+  selected?: boolean;
+  children: ReactNode;
 }
+export const ListItemButton = React.forwardRef<
+  HTMLButtonElement,
+  ListItemButtonProps
+>(({ selected = false, className, children, ...props }, ref) => (
+  <button
+    ref={ref}
+    className={cn(
+      "flex items-center w-full text-left space-x-4 px-4 py-2 rounded-md transition-colors cursor-pointer",
+      selected
+        ? "bg-gray-100 dark:bg-gray-800"
+        : "hover:bg-gray-100 dark:hover:bg-gray-800",
+      className
+    )}
+    {...props}
+  >
+    {children}
+  </button>
+));
+ListItemButton.displayName = "ListItemButton";
 
-function ListItemButton({
+// ListItemIcon: icon wrapper
+export interface ListItemIconProps extends HTMLAttributes<HTMLSpanElement> {
+  children: ReactNode;
+}
+export const ListItemIcon = React.forwardRef<
+  HTMLSpanElement,
+  ListItemIconProps
+>(({ className, children, ...props }, ref) => (
+  <span
+    ref={ref}
+    className={cn(
+      "flex-shrink-0 w-6 h-6 text-gray-500 dark:text-gray-400",
+      className
+    )}
+    {...props}
+  >
+    {children}
+  </span>
+));
+ListItemIcon.displayName = "ListItemIcon";
+
+// ListItemAvatar: avatar wrapper
+export interface ListItemAvatarProps extends HTMLAttributes<HTMLDivElement> {
+  src: string;
+  alt?: string;
+}
+export const ListItemAvatar = React.forwardRef<
+  HTMLDivElement,
+  ListItemAvatarProps
+>(({ className, src, alt = "avatar", ...props }, ref) => (
+  <div ref={ref} className={cn("flex-shrink-0", className)} {...props}>
+    <img src={src} alt={alt} className="w-8 h-8 rounded-full object-cover" />
+  </div>
+));
+ListItemAvatar.displayName = "ListItemAvatar";
+
+// ListItemText: primary and optional secondary text
+export interface ListItemTextProps {
+  primary: ReactNode;
+  secondary?: ReactNode;
+  className?: string;
+}
+export const ListItemText: React.FC<ListItemTextProps> = ({
+  primary,
+  secondary,
   className,
-  variant,
-  size,
-  asChild = false,
-  ...props
-}: ListItemButtonProps) {
-  const Comp = asChild ? Slot : "button";
-
-  return (
-    <Comp
-      data-slot="list-item-button"
-      className={cn(listItemButtonVariants({ variant, size }), className)}
-      {...props}
-    />
-  );
-}
-
-export {
-  ListItem,
-  ListItemText,
-  ListItemButton,
-  listItemVariants,
-  listItemButtonVariants,
-  listItemTextVariants,
-};
+}) => (
+  <div className={cn("flex flex-col", className)}>
+    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+      {primary}
+    </span>
+    {secondary && (
+      <span className="text-xs text-gray-500 dark:text-gray-400">
+        {secondary}
+      </span>
+    )}
+  </div>
+);
