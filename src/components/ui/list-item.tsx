@@ -11,19 +11,24 @@ const listItemVariants = cva("flex items-center w-full text-sm rounded-md", {
       destructive: "text-destructive",
     },
     size: {
-      default: "h-10",
-      sm: "h-8",
-      lg: "h-12",
+      default: "min-h-10",
+      sm: "min-h-8",
+      lg: "min-h-12",
     },
     disablePadding: {
       true: "px-0 py-0",
       false: "px-4 py-2",
+    },
+    selected: {
+      true: "bg-accent text-accent-foreground",
+      false: "",
     },
   },
   defaultVariants: {
     variant: "default",
     size: "default",
     disablePadding: false,
+    selected: false,
   },
 });
 
@@ -32,6 +37,7 @@ function ListItem({
   variant,
   size,
   disablePadding,
+  selected,
   secondaryAction,
   ...props
 }: React.ComponentProps<"div"> &
@@ -48,7 +54,7 @@ function ListItem({
       <div
         data-slot="list-item"
         className={cn(
-          listItemVariants({ variant, size, disablePadding }),
+          listItemVariants({ variant, size, disablePadding, selected }),
           className
         )}
         {...props}
