@@ -1,18 +1,3 @@
-export interface IPostgreServer {
-  id: number;
-  name: String;
-  host: String;
-  port: number;
-  username: String;
-  password: String;
-  created_at: number;
-  isConnected: boolean;
-  default_database: string | null;
-  databases?: IPostgreDatabase[];
-}
-
-export type IPostgreServerPrimitive = Omit<IPostgreServer, "id" | "created_at">;
-
 export interface IPostgreDatabase {
   id: number;
   name: string;

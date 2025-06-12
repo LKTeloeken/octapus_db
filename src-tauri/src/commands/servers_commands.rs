@@ -113,19 +113,20 @@ pub fn update_server(
     port: i32,
     username: String,
     password: String,
+    default_database: Option<String>,
 ) -> Result<PostgreServer, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     
     let mut stmt = conn.prepare(
         r#"
         UPDATE servers 
-        SET name = ?1, host = ?2, port = ?3, username = ?4, password = ?5 
-        WHERE id = ?6
+        SET name = ?1, host = ?2, port = ?3, username = ?4, password = ?5, default_database = ?6
+        WHERE id = ?7
         RETURNING id, name, host, port, username, password, default_database, created_at
         "#
     ).map_err(|e| e.to_string())?;
     
-    stmt.query_row(params![name, host, port, username, password, id], |row| {
+    stmt.query_row(params![name, host, port, username, password, default_database, id], |row| {
         Ok(PostgreServer {
             id: Some(row.get(0)?),
             name: row.get(1)?,

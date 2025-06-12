@@ -1,48 +1,15 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./utils/invokeHandler";
 import * as IPostgres from "@/models/postgreDb";
 
-// Funções para gerenciamento de servidores PostgreSQL
-export async function createServer(
-  server: IPostgres.IPostgreServerPrimitive
-): Promise<IPostgres.IPostgreServer> {
-  return await invoke<IPostgres.IPostgreServer>("create_server", server);
-}
-
-export async function getAllServers(): Promise<IPostgres.IPostgreServer[]> {
-  return await invoke<IPostgres.IPostgreServer[]>("get_all_servers");
-}
-
-export async function getServerById(
-  id: number
-): Promise<IPostgres.IPostgreServer> {
-  return await invoke<IPostgres.IPostgreServer>("get_server_by_id", { id });
-}
-
-export async function updateServer(
-  id: number,
-  name: string,
-  host: string,
-  port: number,
-  username: string,
-  password: string
-): Promise<IPostgres.IPostgreServer> {
-  return await invoke<IPostgres.IPostgreServer>("update_server", {
-    id,
-    name,
-    host,
-    port,
-    username,
-    password,
-  });
-}
-
-export async function deleteServer(id: number): Promise<void> {
-  return await invoke<void>("delete_server", { id });
-}
-
 // Funções para obter dados do PostgreSQL
-export async function getPostgreSchemas(): Promise<IPostgres.IPostgreSchema[]> {
-  const schemas = await invoke<{ name: string }[]>("get_postgre_schemas");
+export async function getPostgreSchemas(
+  serverId: number,
+  databaseName?: string
+): Promise<IPostgres.IPostgreSchema[]> {
+  const schemas = await invoke<IPostgres.IPostgreSchema[]>(
+    "get_postgre_schemas",
+    { serverId, databaseName }
+  );
 
   // Convertendo para o formato esperado pela interface IPostgreSchema
   return schemas.map((schema) => ({
