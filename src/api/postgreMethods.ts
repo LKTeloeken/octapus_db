@@ -1,5 +1,18 @@
 import { invoke } from "./utils/invokeHandler";
 import * as IPostgres from "@/models/postgreDb";
+import { IServer } from "@/models/server";
+
+export async function connectToPostgreServer(
+  serverId: number,
+  databaseName?: string
+): Promise<boolean> {
+  const hasConnected = await invoke<boolean>("connect_to_server", {
+    serverId,
+    databaseName,
+  });
+
+  return hasConnected;
+}
 
 // Funções para obter dados do PostgreSQL
 export async function getPostgreSchemas(
@@ -11,6 +24,8 @@ export async function getPostgreSchemas(
     { serverId, databaseName }
   );
 
+  console.log("Schemas fetched:", schemas);
+
   // Convertendo para o formato esperado pela interface IPostgreSchema
   return schemas.map((schema) => ({
     name: schema.name,
@@ -21,21 +36,21 @@ export async function getPostgreSchemas(
 }
 
 export async function getPostgreDatabases(
-  serverId: number
+  server: IServer
 ): Promise<IPostgres.IPostgreDatabase[]> {
-  const databases = await invoke<IPostgres.IPostgreDatabase[]>(
+  const databases = await invoke<IPostgres.IPostgreDatabasePrimitive[]>(
     "get_postgre_databases",
-    { serverId }
+    { serverId: server.id }
   );
 
-  const schemas = await invoke<IPostgres.IPostgreSchema[]>(
-    "get_postgre_schemas",
-    { serverId, databaseName: "teste" }
-  );
+  console.log("Databases fetched:", databases);
 
-  console.log("Schemas:", schemas);
-
-  return databases;
+  return databases.map((db) => ({
+    name: db.datname,
+    server_id: server.id,
+    isConnected: server.isConnected,
+    schemas: [],
+  }));
 }
 
 export async function getPostgreTables(

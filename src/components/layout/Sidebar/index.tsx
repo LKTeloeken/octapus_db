@@ -11,8 +11,15 @@ import ListServers from "./ListServers";
 import { useServers } from "@/providers/serversProvider";
 
 export default function Sidebar() {
-  const { servers, addServer, editServer, removeServer, isLoading } =
-    useServers();
+  const {
+    servers,
+    isLoading,
+    addServer,
+    editServer,
+    removeServer,
+    connectToServer,
+    getDatabaseSchemas,
+  } = useServers();
 
   return (
     <ScrollArea className="h-full">
@@ -35,6 +42,8 @@ export default function Sidebar() {
         servers={servers}
         onEdit={editServer}
         onRemove={removeServer}
+        connectToServer={connectToServer}
+        getDatabaseSchemas={getDatabaseSchemas}
       />
     </ScrollArea>
   );

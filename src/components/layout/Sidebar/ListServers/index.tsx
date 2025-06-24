@@ -2,19 +2,26 @@ import React from "react";
 
 import BaseServerCell from "./BaseServerCell";
 
-import { IPostgreServer, IPostgreServerPrimitive } from "@/models/postgreDb";
+import { IServer, IServerPrimitive } from "@/models/server";
 
 interface ListServersProps {
-  servers: Array<IPostgreServer>;
-  onClickServer?: (server: IPostgreServer) => Promise<any>;
-  onEdit?: (id: number, serverData: IPostgreServerPrimitive) => Promise<any>;
+  servers: Array<IServer>;
+  onClickServer?: (server: IServer) => Promise<any>;
+  onEdit?: (id: number, serverData: IServerPrimitive) => Promise<any>;
   onRemove?: (serverId: number) => Promise<any>;
+  connectToServer?: (server: IServer) => Promise<boolean | undefined>;
+  getDatabaseSchemas?: (
+    serverId: number,
+    databaseName?: string
+  ) => Promise<any>;
 }
 
 export default function ListServers({
   servers,
   onEdit,
   onRemove,
+  connectToServer,
+  getDatabaseSchemas,
 }: ListServersProps) {
   return (
     <div className="flex flex-col gap-1 p-2">
@@ -24,9 +31,11 @@ export default function ListServers({
           server={server}
           onClick={async (s) => {
             console.log("Server clicked:", s);
+            await connectToServer?.(s);
           }}
           onEdit={onEdit}
           onRemove={onRemove}
+          getDatabaseSchemas={getDatabaseSchemas}
         />
       ))}
     </div>

@@ -15,15 +15,18 @@ export const ListItem = React.forwardRef<HTMLLIElement, ListItemProps>(
     <li
       ref={ref}
       className={cn(
-        "flex items-center justify-between w-full",
+        "relative flex items-center w-full",
         !disablePadding && "px-4 py-2",
         className
       )}
       {...props}
     >
       <div className="flex items-center space-x-4 w-full">{children}</div>
+
       {secondaryAction && (
-        <div className="ml-auto flex-shrink-0">{secondaryAction}</div>
+        <div className="absolute right-4 top-1/2 transform -translate-y-1/2 flex-shrink-0">
+          {secondaryAction}
+        </div>
       )}
     </li>
   )

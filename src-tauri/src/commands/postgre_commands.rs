@@ -2,8 +2,14 @@ use tauri::State;
 use crate::{
     app_state::AppState,
     models::{PostgreDatabase, PostgreSchema},
-    db_connection_manager::{execute_query},
+    db_connection_manager::{execute_query, connect},
 };
+
+#[tauri::command]
+pub fn connect_to_server(state: State<AppState>, server_id: i32, database_name: Option<String>) -> Result<bool, String> {
+    connect(&state, server_id, database_name).map_err(|e| e.to_string())?;
+    Ok(true)
+}
 
 #[tauri::command]
 pub fn get_postgre_databases(state: State<AppState>, server_id: i32) -> Result<Vec<PostgreDatabase>, String> {

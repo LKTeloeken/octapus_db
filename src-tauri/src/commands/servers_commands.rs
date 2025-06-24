@@ -52,7 +52,7 @@ pub fn get_all_servers(state: State<AppState>) -> Result<Vec<PostgreServer>, Str
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     
     let mut stmt = conn.prepare(
-        "SELECT id, name, host, port, username, password, default_database, created_at FROM servers ORDER BY name"
+        "SELECT id, name, host, port, username, password, default_database, created_at FROM servers ORDER BY id DESC"
     ).map_err(|e| e.to_string())?;
     
     let rows = stmt.query_map([], |row| {

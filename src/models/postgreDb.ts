@@ -1,10 +1,12 @@
 export interface IPostgreDatabase {
-  id: number;
   name: string;
   server_id: number;
-  created_at: number;
   isConnected: boolean;
   schemas: IPostgreSchema[];
+}
+
+export interface IPostgreDatabasePrimitive {
+  datname: string;
 }
 
 export interface IPostgreSchema {
