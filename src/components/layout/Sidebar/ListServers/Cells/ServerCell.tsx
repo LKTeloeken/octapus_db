@@ -1,17 +1,11 @@
 import React, { forwardRef } from "react";
-import {
-  ListItem,
-  ListItemText,
-  ListItemButton,
-  ListItemIcon,
-} from "@/components/ui/list-item";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Power, Settings } from "lucide-react";
 
-import ConfigServerDialog from "../ConfigServerDialog";
-import BaseDatabaseCell from "./BaseDatabaseCell";
+import BaseCell from "./BaseCell";
+import ConfigServerDialog from "../../ConfigServerDialog";
+import BaseDatabaseCell from "./DatabaseCell";
 
 import { IServer, IServerPrimitive } from "@/models/server";
 
@@ -35,8 +29,16 @@ export default function BaseServerCell({
 }: BaseServerCellProps) {
   return (
     <>
-      <ListItem
-        disablePadding
+      <BaseCell
+        icon={
+          <Badge variant={server.isConnected ? "default" : "destructive"}>
+            <Power className="size-4" />
+          </Badge>
+        }
+        primaryText={server.name}
+        onClick={() => {
+          onClick?.(server);
+        }}
         secondaryAction={
           <ConfigServerDialog
             DialogTrigger={ServerEditButton}
@@ -47,19 +49,7 @@ export default function BaseServerCell({
           />
         }
       >
-        <ListItemButton onClick={() => onClick?.(server)}>
-          <ListItemIcon>
-            <Badge variant={server.isConnected ? "default" : "destructive"}>
-              <Power className="size-4" />
-            </Badge>
-          </ListItemIcon>
-          <ListItemText primary={server.name} />
-        </ListItemButton>
-      </ListItem>
-
-      {server.databases && server.databases.length > 0 && (
-        <>
-          <Separator className="my-1" />
+        {server && server.databases && server.databases.length > 0 && (
           <div className="flex flex-col gap-1 px-2">
             {server.databases.map((db) => (
               <BaseDatabaseCell
@@ -69,8 +59,8 @@ export default function BaseServerCell({
               />
             ))}
           </div>
-        </>
-      )}
+        )}
+      </BaseCell>
     </>
   );
 }

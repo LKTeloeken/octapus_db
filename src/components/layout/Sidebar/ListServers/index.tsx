@@ -1,6 +1,6 @@
 import React from "react";
 
-import BaseServerCell from "./BaseServerCell";
+import BaseServerCell from "./Cells/ServerCell";
 
 import { IServer, IServerPrimitive } from "@/models/server";
 
