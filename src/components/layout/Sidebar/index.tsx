@@ -19,6 +19,8 @@ export default function Sidebar() {
     removeServer,
     connectToServer,
     getDatabaseSchemas,
+    getSchemaTables,
+    getSchemaColumns,
   } = useServers();
 
   return (
@@ -44,6 +46,8 @@ export default function Sidebar() {
         onRemove={removeServer}
         connectToServer={connectToServer}
         getDatabaseSchemas={getDatabaseSchemas}
+        getSchemaTables={getSchemaTables}
+        getSchemaColumns={getSchemaColumns}
       />
     </ScrollArea>
   );

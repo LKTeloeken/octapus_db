@@ -1,6 +1,6 @@
 import React from "react";
 
-import BaseServerCell from "./Cells/ServerCell";
+import ServerCell from "./Cells/ServerCell";
 
 import { IServer, IServerPrimitive } from "@/models/server";
 
@@ -14,6 +14,17 @@ interface ListServersProps {
     serverId: number,
     databaseName?: string
   ) => Promise<any>;
+  getSchemaTables?: (
+    serverId: number,
+    schemaName: string,
+    databaseName?: string
+  ) => Promise<any>;
+  getSchemaColumns?: (
+    serverId: number,
+    schemaName: string,
+    tableName: string,
+    databaseName?: string
+  ) => Promise<any>;
 }
 
 export default function ListServers({
@@ -22,11 +33,13 @@ export default function ListServers({
   onRemove,
   connectToServer,
   getDatabaseSchemas,
+  getSchemaTables,
+  getSchemaColumns,
 }: ListServersProps) {
   return (
     <div className="flex flex-col gap-1 p-2">
       {servers.map((server) => (
-        <BaseServerCell
+        <ServerCell
           key={server.id}
           server={server}
           onClick={async (s) => {
@@ -36,6 +49,8 @@ export default function ListServers({
           onEdit={onEdit}
           onRemove={onRemove}
           getDatabaseSchemas={getDatabaseSchemas}
+          getSchemaTables={getSchemaTables}
+          getSchemaColumns={getSchemaColumns}
         />
       ))}
     </div>

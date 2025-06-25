@@ -10,6 +10,8 @@ import {
   connectToPostgreServer,
   getPostgreDatabases,
   getPostgreSchemas,
+  getPostgreTables,
+  getPostgreColumns,
 } from "@/api/postgreMethods";
 import { IServer, IServerPrimitive } from "@/models/server";
 
@@ -211,6 +213,123 @@ export function useServersData() {
     []
   );
 
+  const getSchemaTables = useCallback(
+    async (serverId: number, schemaName: string, databaseName?: string) => {
+      initLoadingState();
+
+      try {
+        const tables = await getPostgreTables(
+          serverId,
+          schemaName,
+          databaseName
+        );
+
+        if (!tables || !tables.length) {
+          toast.error("Nenhuma tabela encontrada para este schema.");
+          return [];
+        }
+
+        setServers((prev) =>
+          prev.map((s) =>
+            s.id === serverId
+              ? {
+                  ...s,
+                  databases: s.databases?.map((db) =>
+                    db.name === databaseName
+                      ? {
+                          ...db,
+                          schemas: db.schemas?.map((schema) =>
+                            schema.name === schemaName
+                              ? { ...schema, tables }
+                              : schema
+                          ),
+                        }
+                      : db
+                  ),
+                }
+              : s
+          )
+        );
+
+        toast.success(
+          `Tabelas do schema "${schemaName}" carregadas com sucesso!`
+        );
+
+        return tables;
+      } catch (err) {
+        handleError(err);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
+
+  const getSchemaColumns = useCallback(
+    async (
+      serverId: number,
+      schemaName: string,
+      tableName: string,
+      databaseName?: string
+    ) => {
+      initLoadingState();
+
+      try {
+        const columns = await getPostgreColumns(
+          serverId,
+          schemaName,
+          tableName,
+          databaseName
+        );
+
+        if (!columns || !columns.length) {
+          toast.error("Nenhuma coluna encontrada para esta tabela.");
+          return [];
+        }
+
+        setServers((prev) =>
+          prev.map((s) =>
+            s.id === serverId
+              ? {
+                  ...s,
+                  databases: s.databases?.map((db) =>
+                    db.name === databaseName
+                      ? {
+                          ...db,
+                          schemas: db.schemas?.map((schema) =>
+                            schema.name === schemaName
+                              ? {
+                                  ...schema,
+                                  tables: schema.tables?.map((table) =>
+                                    table.name === tableName
+                                      ? { ...table, columns }
+                                      : table
+                                  ),
+                                }
+                              : schema
+                          ),
+                        }
+                      : db
+                  ),
+                }
+              : s
+          )
+        );
+
+        toast.success(
+          `Colunas da tabela "${tableName}" carregadas com sucesso!`
+        );
+
+        return columns;
+      } catch (err) {
+        handleError(err);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     fetchServers();
   }, [fetchServers]);
@@ -228,5 +347,7 @@ export function useServersData() {
     removeServer,
     connectToServer,
     getDatabaseSchemas,
+    getSchemaTables,
+    getSchemaColumns,
   };
 }

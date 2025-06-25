@@ -12,11 +12,24 @@ interface BaseDatabaseCellProps {
     serverId: number,
     databaseName?: string
   ) => Promise<any>;
+  getSchemaTables?: (
+    serverId: number,
+    schemaName: string,
+    databaseName?: string
+  ) => Promise<any>;
+  getSchemaColumns?: (
+    serverId: number,
+    schemaName: string,
+    tableName: string,
+    databaseName?: string
+  ) => Promise<any>;
 }
 
 export default function BaseDatabaseCell({
   database,
   getDatabaseSchemas,
+  getSchemaTables,
+  getSchemaColumns,
 }: BaseDatabaseCellProps) {
   const handleClick = () => {
     getDatabaseSchemas?.(database.server_id, database.name);
@@ -31,7 +44,14 @@ export default function BaseDatabaseCell({
       >
         {database.schemas?.length > 0 &&
           database.schemas!.map((schema) => (
-            <BaseSchemasCell key={schema.name} schema={schema} />
+            <BaseSchemasCell
+              key={schema.name}
+              schema={schema}
+              serverId={database.server_id}
+              databaseName={database.name}
+              getSchemaTables={getSchemaTables}
+              getSchemaColumns={getSchemaColumns}
+            />
           ))}
       </BaseCell>
     </>

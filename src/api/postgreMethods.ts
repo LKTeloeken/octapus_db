@@ -54,11 +54,13 @@ export async function getPostgreDatabases(
 }
 
 export async function getPostgreTables(
-  schema: string
+  serverId: number,
+  schemaName: string,
+  databaseName?: string
 ): Promise<IPostgres.IPostgreTable[]> {
   const tables = await invoke<
     { name: string; schema: string; table_type: string }[]
-  >("get_postgre_tables", { schema });
+  >("get_postgre_tables", { schemaName, databaseName, serverId });
 
   // Convertendo para o formato esperado pela interface IPostgreTable
   return tables.map((table) => ({
@@ -74,11 +76,15 @@ export async function getPostgreTables(
 }
 
 export async function getPostgreColumns(
-  schema: string,
-  table: string
+  server_id: number,
+  schemaName: string,
+  tableName: string,
+  databaseName?: string
 ): Promise<IPostgres.IPostgreColumn[]> {
   return await invoke<IPostgres.IPostgreColumn[]>("get_postgre_columns", {
-    schema,
-    table,
+    schemaName,
+    tableName,
+    databaseName,
+    server_id,
   });
 }

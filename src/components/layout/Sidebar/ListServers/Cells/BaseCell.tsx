@@ -10,6 +10,7 @@ import {
 interface BaseCellProps {
   icon: React.ReactNode;
   primaryText: string;
+  secondaryText?: string;
   onClick?: () => void;
   secondaryAction?: React.ReactNode;
   children?: React.ReactNode;
@@ -18,6 +19,7 @@ interface BaseCellProps {
 const BaseCell: React.FC<BaseCellProps> = ({
   icon,
   primaryText,
+  secondaryText,
   onClick,
   secondaryAction,
   children,
@@ -49,7 +51,7 @@ const BaseCell: React.FC<BaseCellProps> = ({
           <ListItemIcon className="flex items-center justify-center">
             {icon}
           </ListItemIcon>
-          <ListItemText primary={primaryText} />
+          <ListItemText primary={primaryText} secondary={secondaryText} />
         </ListItemButton>
       </ListItem>
 

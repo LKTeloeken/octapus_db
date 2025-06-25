@@ -5,11 +5,11 @@ import { Power, Settings } from "lucide-react";
 
 import BaseCell from "./BaseCell";
 import ConfigServerDialog from "../../ConfigServerDialog";
-import BaseDatabaseCell from "./DatabaseCell";
+import DatabaseCell from "./DatabaseCell";
 
 import { IServer, IServerPrimitive } from "@/models/server";
 
-interface BaseServerCellProps {
+interface ServerCellProps {
   server: IServer;
   onClick?: (server: IServer) => Promise<any>;
   onEdit?: (id: number, serverData: IServerPrimitive) => Promise<any>;
@@ -18,15 +18,28 @@ interface BaseServerCellProps {
     serverId: number,
     databaseName?: string
   ) => Promise<any>;
+  getSchemaTables?: (
+    serverId: number,
+    schemaName: string,
+    databaseName?: string
+  ) => Promise<any>;
+  getSchemaColumns?: (
+    serverId: number,
+    schemaName: string,
+    tableName: string,
+    databaseName?: string
+  ) => Promise<any>;
 }
 
-export default function BaseServerCell({
+export default function ServerCell({
   server,
   onClick,
   onEdit,
   onRemove,
   getDatabaseSchemas,
-}: BaseServerCellProps) {
+  getSchemaTables,
+  getSchemaColumns,
+}: ServerCellProps) {
   return (
     <>
       <BaseCell
@@ -52,10 +65,12 @@ export default function BaseServerCell({
         {server && server.databases && server.databases.length > 0 && (
           <div className="flex flex-col gap-1 px-2">
             {server.databases.map((db) => (
-              <BaseDatabaseCell
+              <DatabaseCell
                 database={db}
                 key={db.name}
                 getDatabaseSchemas={getDatabaseSchemas}
+                getSchemaTables={getSchemaTables}
+                getSchemaColumns={getSchemaColumns}
               />
             ))}
           </div>
