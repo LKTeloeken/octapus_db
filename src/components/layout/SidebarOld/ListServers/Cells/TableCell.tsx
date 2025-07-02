@@ -4,7 +4,7 @@ import { Table } from "lucide-react";
 import BaseCell from "./BaseCell";
 import BaseColumnCell from "./ColumnCell";
 
-import { IPostgreTable } from "@/models/postgreDb";
+import { IPostgreTable } from "@/shared/models/postgreDb";
 
 interface BaseTableCellProps {
   table: IPostgreTable;

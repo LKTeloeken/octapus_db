@@ -1,5 +1,5 @@
 import { invoke } from "./utils/invokeHandler";
-import { IServer, IServerPrimitive } from "@/models/server";
+import { IServer, IServerPrimitive } from "@/shared/models/server";
 
 // Funções para gerenciamento de servidores PostgreSQL
 export async function createServer(server: IServerPrimitive): Promise<IServer> {

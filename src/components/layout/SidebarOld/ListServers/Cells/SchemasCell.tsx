@@ -4,7 +4,7 @@ import { FolderTree } from "lucide-react";
 import BaseCell from "./BaseCell";
 import BaseTableCell from "./TableCell";
 
-import { IPostgreSchema } from "@/models/postgreDb";
+import { IPostgreSchema } from "@/shared/models/postgreDb";
 
 interface BaseSchemasCellProps {
   schema: IPostgreSchema;

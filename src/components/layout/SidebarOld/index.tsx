@@ -4,11 +4,10 @@ import { Typography } from "@/components/ui/typography";
 import { Separator } from "@/components/ui/separator";
 import { CircularProgress } from "@/components/ui/circular-progress";
 
-import AddServerButton from "@/components/common/server/add-server-button";
-import ConfigServerDialog from "@/components/common/server/config-server-dialog";
-import RecursiveList from "@/components/common/recursive-list";
+import AddServerButton from "../../common/server/add-server-button";
+import ConfigServerDialog from "../../common/server/config-server-dialog";
+import ListServers from "./ListServers";
 
-import { renderItems } from "./render-items";
 import { useServers } from "@/shared/providers/serversProvider";
 
 export default function Sidebar() {
@@ -16,6 +15,8 @@ export default function Sidebar() {
     servers,
     isLoading,
     addServer,
+    editServer,
+    removeServer,
     connectToServer,
     getDatabaseSchemas,
     getSchemaTables,
@@ -39,11 +40,14 @@ export default function Sidebar() {
         />
       </div>
       <Separator />
-
-      <RecursiveList
-        tree={servers}
-        renderItem={renderItems}
-        emptyMessage="Nenhum servidor encontrado."
+      <ListServers
+        servers={servers}
+        onEdit={editServer}
+        onRemove={removeServer}
+        connectToServer={connectToServer}
+        getDatabaseSchemas={getDatabaseSchemas}
+        getSchemaTables={getSchemaTables}
+        getSchemaColumns={getSchemaColumns}
       />
     </ScrollArea>
   );

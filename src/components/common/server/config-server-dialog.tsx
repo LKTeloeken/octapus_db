@@ -4,7 +4,10 @@ import { SimpleAlertDialog } from "@/components/ui/simple-alert-dialog";
 import { Button, ButtonProps } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-import { IPostgreServer, IPostgreServerPrimitive } from "@/models/postgreDb";
+import {
+  IPostgreServer,
+  IPostgreServerPrimitive,
+} from "@/shared/models/postgreDb";
 
 interface ConfigServerProps {
   serverInfo?: IPostgreServer;

@@ -2,7 +2,7 @@ import React from "react";
 
 import ServerCell from "./Cells/ServerCell";
 
-import { IServer, IServerPrimitive } from "@/models/server";
+import { IServer, IServerPrimitive } from "@/shared/models/server";
 
 interface ListServersProps {
   servers: Array<IServer>;

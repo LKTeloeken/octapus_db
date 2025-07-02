@@ -3,7 +3,7 @@ import { Columns } from "lucide-react";
 
 import BaseCell from "./BaseCell";
 
-import { IPostgreColumn } from "@/models/postgreDb";
+import { IPostgreColumn } from "@/shared/models/postgreDb";
 
 interface BaseColumnCellProps {
   column: IPostgreColumn;

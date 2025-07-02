@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Power, Settings } from "lucide-react";
 
 import BaseCell from "./BaseCell";
-import ConfigServerDialog from "../../ConfigServerDialog";
+import ConfigServerDialog from "../../../../common/server/config-server-dialog";
 import DatabaseCell from "./DatabaseCell";
 
-import { IServer, IServerPrimitive } from "@/models/server";
+import { IServer, IServerPrimitive } from "@/shared/models/server";
 
 interface ServerCellProps {
   server: IServer;

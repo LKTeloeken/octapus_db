@@ -6,9 +6,9 @@ import {
 } from "@/components/ui/resizable";
 import { CustomToaster } from "./components/Toaster";
 
-import { ServersProvider } from "./providers/serversProvider";
+import { ServersProvider } from "./shared/providers/serversProvider";
 
-import Sidebar from "@/components/layout/Sidebar";
+import Sidebar from "@/components/layout/sidebar";
 import QueryEditor from "@/components/layout/QueryEditor";
 import QueryResults from "@/components/layout/QueryResults";
 

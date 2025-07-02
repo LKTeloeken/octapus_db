@@ -1,5 +1,5 @@
 import React, { createContext, ReactNode, useContext } from "react";
-import { useServersData } from "@/hooks/useServersData";
+import { useServersData } from "@/shared/hooks/use-server-data";
 
 const ServersContext = createContext<ReturnType<typeof useServersData> | null>(
   null

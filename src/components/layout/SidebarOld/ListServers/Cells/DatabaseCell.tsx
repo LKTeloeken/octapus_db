@@ -4,7 +4,7 @@ import { Database } from "lucide-react";
 import BaseCell from "./BaseCell";
 import BaseSchemasCell from "./SchemasCell";
 
-import { IPostgreDatabase } from "@/models/postgreDb";
+import { IPostgreDatabase } from "@/shared/models/postgreDb";
 
 interface BaseDatabaseCellProps {
   database: IPostgreDatabase;

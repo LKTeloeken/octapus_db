@@ -1,6 +1,6 @@
 import { invoke } from "./utils/invokeHandler";
-import * as IPostgres from "@/models/postgreDb";
-import { IServer } from "@/models/server";
+import * as IPostgres from "@/shared/models/postgreDb";
+import { IServer } from "@/shared/models/server";
 
 export async function connectToPostgreServer(
   serverId: number,
@@ -36,20 +36,18 @@ export async function getPostgreSchemas(
 }
 
 export async function getPostgreDatabases(
-  server: IServer
+  serverId: number
 ): Promise<IPostgres.IPostgreDatabase[]> {
   const databases = await invoke<IPostgres.IPostgreDatabasePrimitive[]>(
     "get_postgre_databases",
-    { serverId: server.id }
+    { serverId }
   );
 
   console.log("Databases fetched:", databases);
 
   return databases.map((db) => ({
     name: db.datname,
-    server_id: server.id,
-    isConnected: server.isConnected,
-    schemas: [],
+    server_id: serverId,
   }));
 }
 
