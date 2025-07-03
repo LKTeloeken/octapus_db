@@ -1,5 +1,11 @@
 import { IServer, IServerPrimitive } from "./server";
-import { IPostgreSchema, IPostgreTable, IPostgreColumn } from "./postgreDb";
+import {
+  IPostgreSchema,
+  IPostgreTable,
+  IPostgreColumn,
+  IPostgreIndex,
+  IPostgreTrigger,
+} from "./postgreDb";
 
 // Individual function types
 export type FetchServersFunction = () => Promise<void>;
@@ -32,12 +38,26 @@ export type GetSchemaTablesFunction = (
   databaseName: string
 ) => Promise<IPostgreTable[] | undefined>;
 
-export type GetSchemaColumnsFunction = (
+export type GetTableColumnsFunction = (
   serverId: number,
   schemaName: string,
   tableName: string,
   databaseName: string
 ) => Promise<IPostgreColumn[] | undefined>;
+
+export type GetTableIndexesFunction = (
+  serverId: number,
+  schemaName: string,
+  tableName: string,
+  databaseName: string
+) => Promise<IPostgreIndex[] | undefined>;
+
+export type GetTableTriggersFunction = (
+  serverId: number,
+  schemaName: string,
+  tableName: string,
+  databaseName: string
+) => Promise<IPostgreTrigger[] | undefined>;
 
 // Helper function types
 export type BuildKeyFunction = (...parts: (string | number)[]) => string;

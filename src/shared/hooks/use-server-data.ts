@@ -12,6 +12,8 @@ import {
   getPostgreSchemas,
   getPostgreTables,
   getPostgreColumns,
+  getPostgreIndexes,
+  getPostgreTriggers,
 } from "@/api/postgreMethods";
 import { IServer, IServerPrimitive } from "@/shared/models/server";
 import { ITreeNode } from "@/shared/models/tree";
@@ -20,7 +22,6 @@ import { toast } from "react-hot-toast";
 
 export function useServersData() {
   const [servers, setServers] = useState<Record<string, ITreeNode>>({});
-  const [selectedServer, setSelectedServer] = useState<IServer | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,20 +45,30 @@ export function useServersData() {
     data: any,
     remove?: boolean
   ) => {
-    const serverKey = buildKey("server", serverId);
+    setServers((prev) => {
+      const updated = { ...prev };
+      const serverKey = buildKey("server", serverId);
 
-    if (remove) {
-      return delete servers[serverKey];
-    }
+      if (remove && !updated[serverKey]) return updated;
+      if (remove && updated[serverKey]) {
+        delete updated[serverKey];
+        return updated;
+      }
 
-    const oldServer = servers[serverKey];
-    if (oldServer) {
-      Object.assign(oldServer, {
-        ...oldServer,
-        name: data.name || oldServer.name,
-        data: { ...(oldServer.data || {}), ...(data || {}) },
-      });
-    }
+      if (!updated[serverKey]) {
+        updated[serverKey] = { name: data.name, children: [], data };
+      }
+
+      if (updated[serverKey]) {
+        updated[serverKey].name = data.name || updated[serverKey].name;
+        updated[serverKey].data = {
+          ...(updated[serverKey].data || {}),
+          ...data,
+        };
+      }
+
+      return updated;
+    });
   };
 
   const fetchServers = useCallback(async () => {
@@ -110,54 +121,50 @@ export function useServersData() {
     }
   }, []);
 
-  const editServer = useCallback(
-    async (id: number, data: IServerPrimitive) => {
-      initLoadingState();
+  const editServer = useCallback(async (id: number, data: IServerPrimitive) => {
+    initLoadingState();
 
-      try {
-        const updated = await updateServer(
-          id,
-          data.name,
-          data.host,
-          data.port,
-          data.username,
-          data.password,
-          data.default_database
-        );
+    try {
+      const updated = await updateServer(
+        id,
+        data.name,
+        data.host,
+        data.port,
+        data.username,
+        data.password,
+        data.default_database
+      );
 
-        updateServerInTree(id, updated);
+      updateServerInTree(id, updated);
 
-        toast.success(`Servidor "${updated.name}" atualizado!`);
-        return updated;
-      } catch (err) {
-        handleError(err);
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [selectedServer]
-  );
+      toast.success(`Servidor "${updated.name}" atualizado!`);
+      return updated;
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-  const removeServer = useCallback(
-    async (id: number) => {
-      initLoadingState();
+  const removeServer = useCallback(async (id: number) => {
+    initLoadingState();
 
-      try {
-        await deleteServer(id);
+    try {
+      await deleteServer(id);
 
-        updateServerInTree(id, {}, true);
+      updateServerInTree(id, {}, true);
 
-        toast.success(`Servidor removido com sucesso!`);
-      } catch (err) {
-        handleError(err);
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [selectedServer]
-  );
+      toast.success(`Servidor removido com sucesso!`);
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   const connectToServer = useCallback(async (server: IServer) => {
+    console.log("Connecting to server:", server);
+
     if (server.isConnected) return true;
     if (isConnecting) return;
 
@@ -168,6 +175,8 @@ export function useServersData() {
         server.id,
         server.default_database
       );
+
+      console.log("Connection result:", hasConnected);
 
       updateServerInTree(server.id, {
         isConnected: hasConnected,
@@ -242,9 +251,21 @@ export function useServersData() {
               databaseName,
               schema.name
             );
+            const schemaTablesKey = buildKey(
+              "schema_table",
+              serverId,
+              databaseName,
+              schema.name
+            );
             schemaKeys.push(schemaKey);
             updated[schemaKey] = {
               name: schema.name,
+              children: [schemaTablesKey],
+              data: { ...schema, server_id: serverId },
+            };
+
+            updated[schemaTablesKey] = {
+              name: "Tabelas",
               children: [],
               data: { ...schema, server_id: serverId },
             };
@@ -290,7 +311,7 @@ export function useServersData() {
         setServers((prev) => {
           const updated = { ...prev };
           const schemaKey = buildKey(
-            "schema",
+            "schema_table",
             serverId,
             databaseName,
             schemaName
@@ -305,9 +326,47 @@ export function useServersData() {
               schemaName,
               tbl.name
             );
+            const tblColumnsKey = buildKey(
+              "table_column",
+              serverId,
+              databaseName,
+              schemaName,
+              tbl.name
+            );
+            const tblIndexesKey = buildKey(
+              "table_index",
+              serverId,
+              databaseName,
+              schemaName,
+              tbl.name
+            );
+            const tblTriggersKey = buildKey(
+              "table_trigger",
+              serverId,
+              databaseName,
+              schemaName,
+              tbl.name
+            );
+
             tableKeys.push(tblKey);
             updated[tblKey] = {
               name: tbl.name,
+              children: [tblColumnsKey, tblIndexesKey, tblTriggersKey],
+              data: { ...tbl, schema: schemaName },
+            };
+
+            updated[tblColumnsKey] = {
+              name: "Colunas",
+              children: [],
+              data: { ...tbl, schema: schemaName },
+            };
+            updated[tblIndexesKey] = {
+              name: "Índices",
+              children: [],
+              data: { ...tbl, schema: schemaName },
+            };
+            updated[tblTriggersKey] = {
+              name: "Triggers",
               children: [],
               data: { ...tbl, schema: schemaName },
             };
@@ -331,7 +390,7 @@ export function useServersData() {
     []
   );
 
-  const getSchemaColumns = useCallback(
+  const getTableColumns = useCallback(
     async (
       serverId: number,
       schemaName: string,
@@ -356,7 +415,7 @@ export function useServersData() {
         setServers((prev) => {
           const updated = { ...prev };
           const tableKey = buildKey(
-            "table",
+            "table_column",
             serverId,
             databaseName,
             schemaName,
@@ -374,7 +433,7 @@ export function useServersData() {
               col.name
             );
             colKeys.push(colKey);
-            updated[colKey] = { name: col.name };
+            updated[colKey] = { name: col.name, data: col };
           });
 
           if (updated[tableKey]) updated[tableKey].children = colKeys;
@@ -395,13 +454,140 @@ export function useServersData() {
     []
   );
 
+  const getTableIndexes = useCallback(
+    async (
+      serverId: number,
+      schemaName: string,
+      tableName: string,
+      databaseName: string
+    ) => {
+      initLoadingState();
+
+      try {
+        const indexes = await getPostgreIndexes(
+          serverId,
+          schemaName,
+          tableName,
+          databaseName
+        );
+
+        if (!indexes || !indexes.length) {
+          toast.error("Nenhum índice encontrado para esta tabela.");
+          return [];
+        }
+
+        setServers((prev) => {
+          const updated = { ...prev };
+          const tableKey = buildKey(
+            "table_index",
+            serverId,
+            databaseName,
+            schemaName,
+            tableName
+          );
+          const idxKeys: string[] = [];
+
+          indexes.forEach((idx) => {
+            const idxKey = buildKey(
+              "index",
+              serverId,
+              databaseName,
+              schemaName,
+              tableName,
+              idx.name
+            );
+            idxKeys.push(idxKey);
+            updated[idxKey] = { name: idx.name, data: idx };
+          });
+
+          if (updated[tableKey]) updated[tableKey].children = idxKeys;
+          return updated;
+        });
+
+        toast.success(
+          `Índices da tabela "${tableName}" carregados com sucesso!`
+        );
+
+        return indexes;
+      } catch (err) {
+        handleError(err);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
+
+  const getTableTriggers = useCallback(
+    async (
+      serverId: number,
+      schemaName: string,
+      tableName: string,
+      databaseName: string
+    ) => {
+      initLoadingState();
+
+      try {
+        const triggers = await getPostgreTriggers(
+          serverId,
+          schemaName,
+          tableName,
+          databaseName
+        );
+
+        if (!triggers || !triggers.length) {
+          toast.error("Nenhum gatilho encontrado para esta tabela.");
+          return [];
+        }
+
+        setServers((prev) => {
+          const updated = { ...prev };
+          const tableKey = buildKey(
+            "table_index",
+            serverId,
+            databaseName,
+            schemaName,
+            tableName
+          );
+          const trgKeys: string[] = [];
+
+          triggers.forEach((trg) => {
+            const trgKey = buildKey(
+              "trigger",
+              serverId,
+              databaseName,
+              schemaName,
+              tableName,
+              trg.name
+            );
+            trgKeys.push(trgKey);
+            updated[trgKey] = { name: trg.name, data: trg };
+          });
+
+          if (updated[tableKey]) updated[tableKey].children = trgKeys;
+          return updated;
+        });
+
+        toast.success(
+          `Gatilhos da tabela "${tableName}" carregados com sucesso!`
+        );
+
+        return triggers;
+      } catch (err) {
+        handleError(err);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     fetchServers();
   }, [fetchServers]);
 
   return {
     servers,
-    selectedServer,
     isLoading,
     isConnecting,
     error,
@@ -413,6 +599,8 @@ export function useServersData() {
     connectToServer,
     getDatabaseSchemas,
     getSchemaTables,
-    getSchemaColumns,
+    getTableColumns,
+    getTableIndexes,
+    getTableTriggers,
   };
 }

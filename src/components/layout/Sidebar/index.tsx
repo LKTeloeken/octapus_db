@@ -19,8 +19,12 @@ export default function Sidebar() {
     connectToServer,
     getDatabaseSchemas,
     getSchemaTables,
-    getSchemaColumns,
+    getTableColumns,
+    getTableIndexes,
+    getTableTriggers,
   } = useServers();
+
+  console.log("Rendering Sidebar with servers:", servers);
 
   return (
     <ScrollArea className="h-full">
@@ -42,7 +46,15 @@ export default function Sidebar() {
 
       <RecursiveList
         tree={servers}
-        renderItem={renderItems}
+        renderItem={renderItems(
+          isLoading,
+          connectToServer,
+          getDatabaseSchemas,
+          getSchemaTables,
+          getTableColumns,
+          getTableIndexes,
+          getTableTriggers
+        )}
         emptyMessage="Nenhum servidor encontrado."
       />
     </ScrollArea>

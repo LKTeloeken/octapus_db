@@ -77,7 +77,7 @@ const ItemRenderer = ({
 
   return (
     <div className={cn(itemClassName)}>
-      <div style={{ paddingLeft: `${level * 16}px` }}>
+      <div style={{ paddingLeft: `${level * 10}px` }}>
         {renderItem(node, handleToggle, level, isExpanded, hasChildren)}
       </div>
       {hasChildren && isExpanded && (

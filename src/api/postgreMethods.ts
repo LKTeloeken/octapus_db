@@ -86,3 +86,31 @@ export async function getPostgreColumns(
     server_id,
   });
 }
+
+export async function getPostgreTriggers(
+  server_id: number,
+  schemaName: string,
+  tableName: string,
+  databaseName?: string
+): Promise<IPostgres.IPostgreTrigger[]> {
+  return await invoke<IPostgres.IPostgreTrigger[]>("get_postgre_triggers", {
+    schemaName,
+    tableName,
+    databaseName,
+    server_id,
+  });
+}
+
+export async function getPostgreIndexes(
+  server_id: number,
+  schemaName: string,
+  tableName: string,
+  databaseName?: string
+): Promise<IPostgres.IPostgreIndex[]> {
+  return await invoke<IPostgres.IPostgreIndex[]>("get_postgre_indexes", {
+    schemaName,
+    tableName,
+    databaseName,
+    server_id,
+  });
+}

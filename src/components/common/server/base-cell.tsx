@@ -15,6 +15,7 @@ interface BaseCellProps {
   secondaryAction?: React.ReactNode;
   isExpanded?: boolean;
   hasChildren?: boolean;
+  disabled?: boolean;
 }
 
 const BaseCell: React.FC<BaseCellProps> = ({
@@ -24,7 +25,8 @@ const BaseCell: React.FC<BaseCellProps> = ({
   onClick,
   secondaryAction,
   isExpanded,
-  hasChildren = false,
+  hasChildren = true,
+  disabled = false,
 }) => {
   const showChevron = true;
 
@@ -33,7 +35,8 @@ const BaseCell: React.FC<BaseCellProps> = ({
       <ListItem
         disablePadding
         secondaryAction={
-          secondaryAction || (
+          secondaryAction ||
+          (hasChildren && (
             <div className="ml-auto pr-2">
               {showChevron &&
                 (isExpanded ? (
@@ -42,10 +45,10 @@ const BaseCell: React.FC<BaseCellProps> = ({
                   <ChevronRight className="size-4" />
                 ))}
             </div>
-          )
+          ))
         }
       >
-        <ListItemButton onClick={onClick} className="py-1">
+        <ListItemButton onClick={onClick} className="py-1" disabled={disabled}>
           <ListItemIcon className="flex items-center justify-center">
             {icon}
           </ListItemIcon>

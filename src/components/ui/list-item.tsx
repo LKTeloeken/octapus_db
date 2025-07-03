@@ -37,26 +37,42 @@ ListItem.displayName = "ListItem";
 export interface ListItemButtonProps
   extends ButtonHTMLAttributes<HTMLButtonElement> {
   selected?: boolean;
+  disabled?: boolean;
   children: ReactNode;
 }
 export const ListItemButton = React.forwardRef<
   HTMLButtonElement,
   ListItemButtonProps
->(({ selected = false, className, children, ...props }, ref) => (
-  <button
-    ref={ref}
-    className={cn(
-      "flex items-center w-full text-left space-x-4 px-4 py-2 rounded-md transition-colors cursor-pointer",
-      selected
-        ? "bg-gray-100 dark:bg-gray-800"
-        : "hover:bg-gray-100 dark:hover:bg-gray-800",
-      className
-    )}
-    {...props}
-  >
-    {children}
-  </button>
-));
+>(
+  (
+    {
+      selected = false,
+      disabled = false,
+      className,
+      children,
+      onClick,
+      ...props
+    },
+    ref
+  ) => (
+    <button
+      ref={ref}
+      disabled={disabled}
+      className={cn(
+        "flex items-center w-full text-left space-x-4 px-4 py-2 rounded-md transition-colors",
+        disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
+        !disabled && selected
+          ? "bg-gray-100 dark:bg-gray-800"
+          : !disabled && "hover:bg-gray-100 dark:hover:bg-gray-800",
+        className
+      )}
+      onClick={disabled ? undefined : onClick}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+);
 ListItemButton.displayName = "ListItemButton";
 
 // ListItemIcon: icon wrapper
