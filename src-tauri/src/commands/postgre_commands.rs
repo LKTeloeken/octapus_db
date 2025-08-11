@@ -6,52 +6,44 @@ use crate::{
 };
 
 #[tauri::command]
-pub fn connect_to_server(state: State<AppState>, server_id: i32, database_name: Option<String>) -> Result<bool, String> {
-    connect(&state, server_id, database_name).map_err(|e| e.to_string())?;
+pub async fn connect_to_server(state: State<'_, AppState>, server_id: i32, database_name: Option<String>) -> Result<bool, String> {
+    connect(&state, server_id, database_name).await.map_err(|e| e.to_string())?;
     Ok(true)
 }
 
 #[tauri::command]
-pub fn get_postgre_databases(state: State<AppState>, server_id: i32) -> Result<Vec<PostgreDatabase>, String> {
+pub async fn get_postgre_databases(state: State<'_, AppState>, server_id: i32) -> Result<Vec<PostgreDatabase>, String> {
     let query = "SELECT * FROM pg_database WHERE datistemplate = false".to_string();
-
-    let result = execute_query(&state, server_id, &query, None).map_err(|e| e.to_string())?;
-
+    let result = execute_query(&state, server_id, &query, None).await.map_err(|e| e.to_string())?;
     let mut databases = Vec::new();
-
     for row in result {
         if let Some(db_name) = row.get("datname") {
-            databases.push(PostgreDatabase {datname: db_name.clone()});
+            databases.push(PostgreDatabase { datname: db_name.clone() });
         }
     }
-
     Ok(databases)
 }
 
 #[tauri::command]
-pub fn get_postgre_schemas(
-    state: State<AppState>,
+pub async fn get_postgre_schemas(
+    state: State<'_, AppState>,
     server_id: i32,
     database_name: String,
 ) -> Result<Vec<PostgreSchema>, String> {
     let query = "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_toast', 'pg_catalog', 'information_schema')".to_string();
-
-    let result = execute_query(&state, server_id, &query, Some(database_name)).map_err(|e| e.to_string())?;
-
+    let result = execute_query(&state, server_id, &query, Some(database_name)).await.map_err(|e| e.to_string())?;
     let mut schemas = Vec::new();
-
     for row in result {
         if let Some(schema_name) = row.get("schema_name") {
             schemas.push(PostgreSchema { name: schema_name.clone() });
         }
     }
-
     Ok(schemas)
 }
 
 #[tauri::command]
-pub fn get_postgre_tables(
-    state: State<AppState>,
+pub async fn get_postgre_tables(
+    state: State<'_, AppState>,
     server_id: i32,
     database_name: String,
     schema_name: String,
@@ -63,7 +55,7 @@ pub fn get_postgre_tables(
          ORDER BY table_name",
         schema_name
     );
-    let result = execute_query(&state, server_id, &query, Some(database_name))
+    let result = execute_query(&state, server_id, &query, Some(database_name)).await
         .map_err(|e| e.to_string())?;
 
     let tables = result.into_iter().filter_map(|row| {
@@ -78,8 +70,8 @@ pub fn get_postgre_tables(
 }
 
 #[tauri::command]
-pub fn get_postgre_columns(
-    state: State<AppState>,
+pub async fn get_postgre_columns(
+    state: State<'_, AppState>,
     server_id: i32,
     database_name: String,
     schema_name: String,
@@ -92,15 +84,11 @@ pub fn get_postgre_columns(
          ORDER BY ordinal_position",
         schema_name, table_name
     );
-    let result = execute_query(&state, server_id, &query, Some(database_name))
+    let result = execute_query(&state, server_id, &query, Some(database_name)).await
         .map_err(|e| e.to_string())?;
 
     let columns = result.into_iter().filter_map(|row| {
-        // is_nullable vem como "YES" ou "NO"
-        let nullable = match row.get("is_nullable")?.as_str() {
-            "YES" => true,
-            _ => false,
-        };
+        let nullable = matches!(row.get("is_nullable")?.as_str(), "YES");
         Some(PostgreColumn {
             name: row.get("column_name")?.clone(),
             ordinal_position: row.get("ordinal_position")?.parse().unwrap_or(0),
@@ -114,8 +102,8 @@ pub fn get_postgre_columns(
 }
 
 #[tauri::command]
-pub fn get_postgre_triggers(
-    state: State<AppState>,
+pub async fn get_postgre_triggers(
+    state: State<'_, AppState>,
     server_id: i32,
     database_name: String,
     schema_name: String,
@@ -128,15 +116,12 @@ pub fn get_postgre_triggers(
          ORDER BY trigger_name",
         schema_name, table_name
     );
-    let result = execute_query(&state, server_id, &query, Some(database_name))
+    let result = execute_query(&state, server_id, &query, Some(database_name)).await
         .map_err(|e| e.to_string())?;
 
     let triggers = result.into_iter().filter_map(|row| {
         let events_csv = row.get("event_manipulation")?;
-        let events = events_csv
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .collect();
+        let events = events_csv.split(',').map(|s| s.trim().to_string()).collect();
         Some(PostgreTrigger {
             schema_name: schema_name.clone(),
             table_name: table_name.clone(),
@@ -151,8 +136,8 @@ pub fn get_postgre_triggers(
 }
 
 #[tauri::command]
-pub fn get_postgre_indexes(
-    state: State<AppState>,
+pub async fn get_postgre_indexes(
+    state: State<'_, AppState>,
     server_id: i32,
     database_name: String,
     schema_name: String,
@@ -165,7 +150,7 @@ pub fn get_postgre_indexes(
          ORDER BY indexname",
         schema_name, table_name
     );
-    let result = execute_query(&state, server_id, &query, Some(database_name))
+    let result = execute_query(&state, server_id, &query, Some(database_name)).await
         .map_err(|e| e.to_string())?;
 
     let indexes = result.into_iter().filter_map(|row| {
