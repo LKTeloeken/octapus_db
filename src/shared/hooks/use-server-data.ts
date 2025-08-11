@@ -20,372 +20,263 @@ import { ITreeNode } from "@/shared/models/tree";
 
 import { toast } from "react-hot-toast";
 
+import { createRunner } from "@/shared/utils/asyncRunner";
+import {
+  NodeKey,
+  key,
+  createTreeActions,
+  createLoadChildren,
+} from "@/shared/utils/serverTree";
+
 export function useServersData() {
   const [servers, setServers] = useState<Record<string, ITreeNode>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const initLoadingState = () => {
-    setIsLoading(false);
-    setIsConnecting(false);
-    setError(null);
-  };
+  const run = createRunner({
+    setIsLoading,
+    setIsConnecting,
+    setError,
+  });
 
-  const handleError = (err: unknown) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    setError(msg);
-    toast.error(msg);
-  };
+  const tree = createTreeActions(setServers);
+  const loadChildren = createLoadChildren(run, tree);
 
-  const buildKey = (...parts: (string | number)[]) => parts.join("::");
-
-  const updateServerInTree = (
-    serverId: number,
-    data: any,
-    remove?: boolean
-  ) => {
-    setServers((prev) => {
-      const updated = { ...prev };
-      const serverKey = buildKey("server", serverId);
-
-      if (remove && !updated[serverKey]) return updated;
-      if (remove && updated[serverKey]) {
-        delete updated[serverKey];
-        return updated;
-      }
-
-      if (!updated[serverKey]) {
-        updated[serverKey] = { name: data.name, children: [], data };
-      }
-
-      if (updated[serverKey]) {
-        updated[serverKey].name = data.name || updated[serverKey].name;
-        updated[serverKey].data = {
-          ...(updated[serverKey].data || {}),
-          ...data,
-        };
-      }
-
-      return updated;
-    });
-  };
+  // =====================
+  // CRUD Servidores
+  // =====================
 
   const fetchServers = useCallback(async () => {
-    initLoadingState();
+    await run({
+      task: async () => {
+        const serverList = await getAllServers();
+        const treeNodes: Record<string, ITreeNode> = {};
 
-    try {
-      const serverList = await getAllServers();
-      const tree: Record<string, ITreeNode> = {};
+        serverList.forEach((srv) => {
+          const srvKey = key("server", srv.id);
+          treeNodes[srvKey] = { name: srv.name, children: [], data: srv };
+        });
 
-      serverList.forEach((srv) => {
-        const srvKey = buildKey("server", srv.id);
-        tree[srvKey] = { name: srv.name, children: [], data: srv };
-      });
-
-      setServers(tree);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsLoading(false);
-    }
+        setServers(treeNodes);
+        return serverList;
+      },
+    });
   }, []);
 
   const addServer = useCallback(async (data: IServerPrimitive) => {
-    initLoadingState();
-
-    try {
-      const newSrv = await createServer(data);
-
-      updateServerInTree(newSrv.id, newSrv);
-
-      toast.success(`Servidor "${newSrv.name}" adicionado!`);
-      return newSrv;
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setIsLoading(false);
-    }
+    return run({
+      task: async () => {
+        const newSrv = await createServer(data);
+        tree.upsertNode(key("server", newSrv.id), newSrv.name, newSrv);
+        toast.success(`Servidor "${newSrv.name}" adicionado!`);
+        return newSrv;
+      },
+    });
   }, []);
 
   const getServer = useCallback(async (id: number) => {
-    initLoadingState();
-
-    try {
-      const srv = await getServerById(id);
-      return srv;
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setIsLoading(false);
-    }
+    return run({
+      task: () => getServerById(id),
+    });
   }, []);
 
   const editServer = useCallback(async (id: number, data: IServerPrimitive) => {
-    initLoadingState();
-
-    try {
-      const updated = await updateServer(
-        id,
-        data.name,
-        data.host,
-        data.port,
-        data.username,
-        data.password,
-        data.default_database
-      );
-
-      updateServerInTree(id, updated);
-
-      toast.success(`Servidor "${updated.name}" atualizado!`);
-      return updated;
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setIsLoading(false);
-    }
+    return run({
+      task: async () => {
+        const updated = await updateServer(
+          id,
+          data.name,
+          data.host,
+          data.port,
+          data.username,
+          data.password,
+          data.default_database
+        );
+        tree.upsertNode(key("server", id), updated.name, updated);
+        toast.success(`Servidor "${updated.name}" atualizado!`);
+        return updated;
+      },
+    });
   }, []);
 
   const removeServer = useCallback(async (id: number) => {
-    initLoadingState();
-
-    try {
-      await deleteServer(id);
-
-      updateServerInTree(id, {}, true);
-
-      toast.success(`Servidor removido com sucesso!`);
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setIsLoading(false);
-    }
+    return run({
+      task: async () => {
+        await deleteServer(id);
+        tree.removeSubtree(key("server", id));
+        toast.success("Servidor removido com sucesso!");
+        return true;
+      },
+    });
   }, []);
 
-  const connectToServer = useCallback(async (server: IServer) => {
-    console.log("Connecting to server:", server);
+  // =====================
+  // Conexão e carregamentos
+  // =====================
 
-    if (server.isConnected) return true;
-    if (isConnecting) return;
+  const connectToServer = useCallback(
+    async (server: IServer) => {
+      if (server.isConnected) return true;
+      if (isConnecting) return; // evita corrida simples
 
-    initLoadingState();
+      return run<boolean>({
+        kind: "connect",
+        task: async () => {
+          const hasConnected = await connectToPostgreServer(
+            server.id,
+            server.default_database
+          );
 
-    try {
-      const hasConnected = await connectToPostgreServer(
-        server.id,
-        server.default_database
-      );
-
-      console.log("Connection result:", hasConnected);
-
-      updateServerInTree(server.id, {
-        isConnected: hasConnected,
-        default_database: server.default_database,
-      });
-
-      toast.success(`Conectado ao servidor "${server.name}"!`);
-
-      try {
-        const serverDatabases = await getPostgreDatabases(server.id);
-
-        if (!serverDatabases || !serverDatabases?.length) return hasConnected;
-
-        setServers((prev) => {
-          const updated = { ...prev };
-          const srvKey = buildKey("server", server.id);
-          const dbKeys: string[] = [];
-
-          serverDatabases.forEach((db) => {
-            const dbKey = buildKey("database", server.id, db.name);
-            dbKeys.push(dbKey);
-            updated[dbKey] = {
-              name: db.name,
-              children: [],
-              data: { ...db, server_id: server.id },
-            };
+          tree.upsertNode(key("server", server.id), server.name, {
+            isConnected: hasConnected,
+            default_database: server.default_database,
           });
 
-          if (updated[srvKey]) {
-            updated[srvKey].children = dbKeys;
-          }
+          toast.success(`Conectado ao servidor "${server.name}"!`);
 
-          return updated;
-        });
+          // Carrega databases do servidor após conectar
+          await loadChildren({
+            parentKey: key("server", server.id),
+            fetcher: () => getPostgreDatabases(server.id),
+            mapItem: (db: any) => ({
+              key: key("database", server.id, db.name),
+              name: db.name,
+              data: { ...db, server_id: server.id },
+            }),
+            emptyMsg: "Nenhum database encontrado para este servidor.",
+            successMsg: `Databases do servidor "${server.name}" carregadas!`,
+          });
 
-        toast.success(`Databases do servidor "${server.name}" carregadas!`);
-
-        return hasConnected;
-      } catch (error) {
-        handleError(error);
-      }
-
-      return hasConnected;
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setIsConnecting(false);
-    }
-  }, []);
+          return hasConnected;
+        },
+      });
+    },
+    [isConnecting]
+  );
 
   const getDatabaseSchemas = useCallback(
     async (serverId: number, databaseName: string) => {
-      initLoadingState();
+      const parent = key("database", serverId, databaseName);
 
-      try {
-        const schemas = await getPostgreSchemas(serverId, databaseName);
-
-        if (!schemas || !schemas.length) {
-          toast.error("Nenhum schema encontrado para este servidor.");
-          return [];
-        }
-
-        setServers((prev) => {
-          const updated = { ...prev };
-          const dbKey = buildKey("database", serverId, databaseName);
-          const schemaKeys: string[] = [];
-
-          schemas.forEach((schema) => {
-            const schemaKey = buildKey(
-              "schema",
-              serverId,
-              databaseName,
-              schema.name
-            );
-            const schemaTablesKey = buildKey(
-              "schema_table",
-              serverId,
-              databaseName,
-              schema.name
-            );
-            schemaKeys.push(schemaKey);
-            updated[schemaKey] = {
-              name: schema.name,
-              children: [schemaTablesKey],
-              data: { ...schema, server_id: serverId },
-            };
-
-            updated[schemaTablesKey] = {
-              name: "Tabelas",
-              children: [],
-              data: { ...schema, server_id: serverId },
-            };
+      const schemas = await loadChildren({
+        parentKey: parent,
+        fetcher: () => getPostgreSchemas(serverId, databaseName),
+        mapItem: (schema: any) => {
+          const schemaKey = key("schema", serverId, databaseName, schema.name);
+          const schemaTablesKey = key(
+            "schema_table",
+            serverId,
+            databaseName,
+            schema.name
+          );
+          // cria agrupador "Tabelas" como filho do schema
+          tree.upsertNode(schemaTablesKey, "Tabelas", {
+            ...schema,
+            server_id: serverId,
           });
+          // o próprio schema apontará para o agrupador após o load
+          return {
+            key: schemaKey,
+            name: schema.name,
+            data: { ...schema, server_id: serverId },
+          };
+        },
+        emptyMsg: "Nenhum schema encontrado para este servidor.",
+        successMsg: `Schemas do database "${databaseName}" carregados com sucesso!`,
+      });
 
-          if (updated[dbKey]) {
-            updated[dbKey].children = schemaKeys;
-          }
-
-          return updated;
+      // Vincula cada schema ao seu agrupador "Tabelas"
+      setServers((prev) => {
+        const next = { ...prev } as Record<string, ITreeNode>;
+        schemas?.forEach((s: any) => {
+          const schemaKey = key("schema", serverId, databaseName, s.name);
+          const schemaTablesKey = key(
+            "schema_table",
+            serverId,
+            databaseName,
+            s.name
+          );
+          if (next[schemaKey])
+            next[schemaKey] = {
+              ...next[schemaKey],
+              children: [schemaTablesKey],
+            };
         });
+        return next;
+      });
 
-        toast.success(
-          `Schemas do database "${databaseName}" carregados com sucesso!`
-        );
-
-        return schemas;
-      } catch (err) {
-        handleError(err);
-      } finally {
-        setIsLoading(false);
-      }
+      return schemas;
     },
     []
   );
 
   const getSchemaTables = useCallback(
     async (serverId: number, schemaName: string, databaseName: string) => {
-      initLoadingState();
+      const parent = key("schema_table", serverId, databaseName, schemaName);
 
-      try {
-        const tables = await getPostgreTables(
-          serverId,
-          schemaName,
-          databaseName
-        );
-
-        if (!tables || !tables.length) {
-          toast.error("Nenhuma tabela encontrada para este schema.");
-          return [];
-        }
-
-        setServers((prev) => {
-          const updated = { ...prev };
-          const schemaKey = buildKey(
-            "schema_table",
+      return loadChildren({
+        parentKey: parent,
+        fetcher: () => getPostgreTables(serverId, schemaName, databaseName),
+        mapItem: (tbl: any) => {
+          const tblKey = key(
+            "table",
             serverId,
             databaseName,
-            schemaName
+            schemaName,
+            tbl.name
           );
-          const tableKeys: string[] = [];
+          const tblColumnsKey = key(
+            "table_column",
+            serverId,
+            databaseName,
+            schemaName,
+            tbl.name
+          );
+          const tblIndexesKey = key(
+            "table_index",
+            serverId,
+            databaseName,
+            schemaName,
+            tbl.name
+          );
+          const tblTriggersKey = key(
+            "table_trigger",
+            serverId,
+            databaseName,
+            schemaName,
+            tbl.name
+          );
 
-          tables.forEach((tbl) => {
-            const tblKey = buildKey(
-              "table",
-              serverId,
-              databaseName,
-              schemaName,
-              tbl.name
-            );
-            const tblColumnsKey = buildKey(
-              "table_column",
-              serverId,
-              databaseName,
-              schemaName,
-              tbl.name
-            );
-            const tblIndexesKey = buildKey(
-              "table_index",
-              serverId,
-              databaseName,
-              schemaName,
-              tbl.name
-            );
-            const tblTriggersKey = buildKey(
-              "table_trigger",
-              serverId,
-              databaseName,
-              schemaName,
-              tbl.name
-            );
-
-            tableKeys.push(tblKey);
-            updated[tblKey] = {
-              name: tbl.name,
-              children: [tblColumnsKey, tblIndexesKey, tblTriggersKey],
-              data: { ...tbl, schema: schemaName },
-            };
-
-            updated[tblColumnsKey] = {
-              name: "Colunas",
-              children: [],
-              data: { ...tbl, schema: schemaName },
-            };
-            updated[tblIndexesKey] = {
-              name: "Índices",
-              children: [],
-              data: { ...tbl, schema: schemaName },
-            };
-            updated[tblTriggersKey] = {
-              name: "Triggers",
-              children: [],
-              data: { ...tbl, schema: schemaName },
-            };
+          // cria nós do agrupamento e define children do nó da tabela
+          tree.upsertNode(tblKey, tbl.name, { ...tbl, schema: schemaName });
+          tree.upsertNode(tblColumnsKey, "Colunas", {
+            ...tbl,
+            schema: schemaName,
           });
+          tree.upsertNode(tblIndexesKey, "Índices", {
+            ...tbl,
+            schema: schemaName,
+          });
+          tree.upsertNode(tblTriggersKey, "Triggers", {
+            ...tbl,
+            schema: schemaName,
+          });
+          tree.setChildren(tblKey, [
+            tblColumnsKey,
+            tblIndexesKey,
+            tblTriggersKey,
+          ]);
 
-          if (updated[schemaKey]) updated[schemaKey].children = tableKeys;
-          return updated;
-        });
-
-        toast.success(
-          `Tabelas do schema "${schemaName}" carregadas com sucesso!`
-        );
-
-        return tables;
-      } catch (err) {
-        handleError(err);
-      } finally {
-        setIsLoading(false);
-      }
+          return {
+            key: tblKey,
+            name: tbl.name,
+            data: { ...tbl, schema: schemaName },
+          };
+        },
+        emptyMsg: `Nenhuma tabela encontrada para o schema "${schemaName}".`,
+        successMsg: `Tabelas do schema "${schemaName}" carregadas com sucesso!`,
+      });
     },
     []
   );
@@ -397,59 +288,33 @@ export function useServersData() {
       tableName: string,
       databaseName: string
     ) => {
-      initLoadingState();
+      const parent = key(
+        "table_column",
+        serverId,
+        databaseName,
+        schemaName,
+        tableName
+      );
 
-      try {
-        const columns = await getPostgreColumns(
-          serverId,
-          schemaName,
-          tableName,
-          databaseName
-        );
-
-        if (!columns || !columns.length) {
-          toast.error("Nenhuma coluna encontrada para esta tabela.");
-          return [];
-        }
-
-        setServers((prev) => {
-          const updated = { ...prev };
-          const tableKey = buildKey(
-            "table_column",
+      return loadChildren({
+        parentKey: parent,
+        fetcher: () =>
+          getPostgreColumns(serverId, schemaName, tableName, databaseName),
+        mapItem: (col: any) => ({
+          key: key(
+            "column",
             serverId,
             databaseName,
             schemaName,
-            tableName
-          );
-          const colKeys: string[] = [];
-
-          columns.forEach((col) => {
-            const colKey = buildKey(
-              "column",
-              serverId,
-              databaseName,
-              schemaName,
-              tableName,
-              col.name
-            );
-            colKeys.push(colKey);
-            updated[colKey] = { name: col.name, data: col };
-          });
-
-          if (updated[tableKey]) updated[tableKey].children = colKeys;
-          return updated;
-        });
-
-        toast.success(
-          `Colunas da tabela "${tableName}" carregadas com sucesso!`
-        );
-
-        return columns;
-      } catch (err) {
-        handleError(err);
-      } finally {
-        setIsLoading(false);
-      }
+            tableName,
+            col.name
+          ),
+          name: col.name,
+          data: col,
+        }),
+        emptyMsg: "Nenhuma coluna encontrada para esta tabela.",
+        successMsg: `Colunas da tabela "${tableName}" carregadas com sucesso!`,
+      });
     },
     []
   );
@@ -461,59 +326,33 @@ export function useServersData() {
       tableName: string,
       databaseName: string
     ) => {
-      initLoadingState();
+      const parent = key(
+        "table_index",
+        serverId,
+        databaseName,
+        schemaName,
+        tableName
+      );
 
-      try {
-        const indexes = await getPostgreIndexes(
-          serverId,
-          schemaName,
-          tableName,
-          databaseName
-        );
-
-        if (!indexes || !indexes.length) {
-          toast.error("Nenhum índice encontrado para esta tabela.");
-          return [];
-        }
-
-        setServers((prev) => {
-          const updated = { ...prev };
-          const tableKey = buildKey(
-            "table_index",
+      return loadChildren({
+        parentKey: parent,
+        fetcher: () =>
+          getPostgreIndexes(serverId, schemaName, tableName, databaseName),
+        mapItem: (idx: any) => ({
+          key: key(
+            "index",
             serverId,
             databaseName,
             schemaName,
-            tableName
-          );
-          const idxKeys: string[] = [];
-
-          indexes.forEach((idx) => {
-            const idxKey = buildKey(
-              "index",
-              serverId,
-              databaseName,
-              schemaName,
-              tableName,
-              idx.name
-            );
-            idxKeys.push(idxKey);
-            updated[idxKey] = { name: idx.name, data: idx };
-          });
-
-          if (updated[tableKey]) updated[tableKey].children = idxKeys;
-          return updated;
-        });
-
-        toast.success(
-          `Índices da tabela "${tableName}" carregados com sucesso!`
-        );
-
-        return indexes;
-      } catch (err) {
-        handleError(err);
-      } finally {
-        setIsLoading(false);
-      }
+            tableName,
+            idx.name
+          ),
+          name: idx.name,
+          data: idx,
+        }),
+        emptyMsg: "Nenhum índice encontrado para esta tabela.",
+        successMsg: `Índices da tabela "${tableName}" carregados com sucesso!`,
+      });
     },
     []
   );
@@ -525,59 +364,33 @@ export function useServersData() {
       tableName: string,
       databaseName: string
     ) => {
-      initLoadingState();
+      const parent = key(
+        "table_trigger", // corrigido: antes usava table_index
+        serverId,
+        databaseName,
+        schemaName,
+        tableName
+      );
 
-      try {
-        const triggers = await getPostgreTriggers(
-          serverId,
-          schemaName,
-          tableName,
-          databaseName
-        );
-
-        if (!triggers || !triggers.length) {
-          toast.error("Nenhum gatilho encontrado para esta tabela.");
-          return [];
-        }
-
-        setServers((prev) => {
-          const updated = { ...prev };
-          const tableKey = buildKey(
-            "table_index",
+      return loadChildren({
+        parentKey: parent,
+        fetcher: () =>
+          getPostgreTriggers(serverId, schemaName, tableName, databaseName),
+        mapItem: (trg: any) => ({
+          key: key(
+            "trigger",
             serverId,
             databaseName,
             schemaName,
-            tableName
-          );
-          const trgKeys: string[] = [];
-
-          triggers.forEach((trg) => {
-            const trgKey = buildKey(
-              "trigger",
-              serverId,
-              databaseName,
-              schemaName,
-              tableName,
-              trg.name
-            );
-            trgKeys.push(trgKey);
-            updated[trgKey] = { name: trg.name, data: trg };
-          });
-
-          if (updated[tableKey]) updated[tableKey].children = trgKeys;
-          return updated;
-        });
-
-        toast.success(
-          `Gatilhos da tabela "${tableName}" carregados com sucesso!`
-        );
-
-        return triggers;
-      } catch (err) {
-        handleError(err);
-      } finally {
-        setIsLoading(false);
-      }
+            tableName,
+            trg.name
+          ),
+          name: trg.name,
+          data: trg,
+        }),
+        emptyMsg: "Nenhum gatilho encontrado para esta tabela.",
+        successMsg: `Gatilhos da tabela "${tableName}" carregados com sucesso!`,
+      });
     },
     []
   );
