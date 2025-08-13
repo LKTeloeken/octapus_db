@@ -1,12 +1,13 @@
-import React, { createContext, ReactNode, useContext } from "react";
-import { useServersData } from "@/shared/hooks/use-server-data";
+import { createContext, ReactNode, useContext } from "react";
+import { useServerConnections } from "@/shared/hooks/use-server-data";
 
-const ServersContext = createContext<ReturnType<typeof useServersData> | null>(
-  null
-);
+export interface ServersProviderReturn
+  extends ReturnType<typeof useServerConnections> {}
+
+const ServersContext = createContext<ServersProviderReturn | null>(null);
 
 export function ServersProvider({ children }: { children: ReactNode }) {
-  const value = useServersData();
+  const value = useServerConnections();
   return (
     <ServersContext.Provider value={value}>{children}</ServersContext.Provider>
   );

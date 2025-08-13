@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { toast } from "react-hot-toast";
 import {
   getAllServers,
   getServerById,
@@ -9,39 +10,56 @@ import {
 import {
   connectToPostgreServer,
   getPostgreDatabases,
+} from "@/api/postgreMethods";
+import {
   getPostgreSchemas,
   getPostgreTables,
   getPostgreColumns,
   getPostgreIndexes,
   getPostgreTriggers,
 } from "@/api/postgreMethods";
-import { IServer, IServerPrimitive } from "@/shared/models/server";
-import { ITreeNode } from "@/shared/models/tree";
-
-import { toast } from "react-hot-toast";
-
 import { createRunner } from "@/shared/utils/asyncRunner";
 import {
-  NodeKey,
   key,
   createTreeActions,
   createLoadChildren,
 } from "@/shared/utils/serverTree";
 
-export function useServersData() {
+import type { IServer, IServerPrimitive } from "@/shared/models/server";
+import type { ITreeNode } from "@/shared/models/tree";
+
+/**
+ * Hook 1 — Responsável por:
+ *  - Buscar/CRUD dos servidores cadastrados
+ *  - Conectar ao servidor
+ *  - Gerenciar o carregamento de *databases* do servidor
+ *
+ * Observação: Este hook mantém seu próprio estado de árvore (`servers`).
+ * Você pode passar `autoFetch=false` para não carregar automaticamente.
+ */
+export function useServerConnections(opts?: { autoFetch?: boolean }) {
+  const autoFetch = opts?.autoFetch ?? true;
+
   const [servers, setServers] = useState<Record<string, ITreeNode>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const run = createRunner({
-    setIsLoading,
-    setIsConnecting,
-    setError,
-  });
+  const run = useMemo(
+    () =>
+      createRunner({
+        setIsLoading,
+        setIsConnecting,
+        setError,
+      }),
+    []
+  );
 
-  const tree = createTreeActions(setServers);
-  const loadChildren = createLoadChildren(run, tree);
+  const tree = useMemo(() => createTreeActions(setServers), []);
+  const loadChildren = useMemo(
+    () => createLoadChildren(run, tree),
+    [run, tree]
+  );
 
   // =====================
   // CRUD Servidores
@@ -62,57 +80,69 @@ export function useServersData() {
         return serverList;
       },
     });
-  }, []);
+  }, [run]);
 
-  const addServer = useCallback(async (data: IServerPrimitive) => {
-    return run({
-      task: async () => {
-        const newSrv = await createServer(data);
-        tree.upsertNode(key("server", newSrv.id), newSrv.name, newSrv);
-        toast.success(`Servidor "${newSrv.name}" adicionado!`);
-        return newSrv;
-      },
-    });
-  }, []);
+  const addServer = useCallback(
+    async (data: IServerPrimitive) => {
+      return run({
+        task: async () => {
+          const newSrv = await createServer(data);
+          tree.upsertNode(key("server", newSrv.id), newSrv.name, newSrv);
+          toast.success(`Servidor "${newSrv.name}" adicionado!`);
+          return newSrv;
+        },
+      });
+    },
+    [run, tree]
+  );
 
-  const getServer = useCallback(async (id: number) => {
-    return run({
-      task: () => getServerById(id),
-    });
-  }, []);
+  const getServer = useCallback(
+    async (id: number) => {
+      return run({
+        task: () => getServerById(id),
+      });
+    },
+    [run]
+  );
 
-  const editServer = useCallback(async (id: number, data: IServerPrimitive) => {
-    return run({
-      task: async () => {
-        const updated = await updateServer(
-          id,
-          data.name,
-          data.host,
-          data.port,
-          data.username,
-          data.password,
-          data.default_database
-        );
-        tree.upsertNode(key("server", id), updated.name, updated);
-        toast.success(`Servidor "${updated.name}" atualizado!`);
-        return updated;
-      },
-    });
-  }, []);
+  const editServer = useCallback(
+    async (id: number, data: IServerPrimitive) => {
+      return run({
+        task: async () => {
+          const updated = await updateServer(
+            id,
+            data.name,
+            data.host,
+            data.port,
+            data.username,
+            data.password,
+            data.default_database
+          );
+          tree.upsertNode(key("server", id), updated.name, updated);
+          toast.success(`Servidor "${updated.name}" atualizado!`);
+          return updated;
+        },
+      });
+    },
+    [run, tree]
+  );
 
-  const removeServer = useCallback(async (id: number) => {
-    return run({
-      task: async () => {
-        await deleteServer(id);
-        tree.removeSubtree(key("server", id));
-        toast.success("Servidor removido com sucesso!");
-        return true;
-      },
-    });
-  }, []);
+  const removeServer = useCallback(
+    async (id: number) => {
+      return run({
+        task: async () => {
+          await deleteServer(id);
+          tree.removeSubtree(key("server", id));
+          toast.success("Servidor removido com sucesso!");
+          return true;
+        },
+      });
+    },
+    [run, tree]
+  );
 
   // =====================
-  // Conexão e carregamentos
+  // Conexão e carregamentos (somente databases)
   // =====================
 
   const connectToServer = useCallback(
@@ -135,7 +165,7 @@ export function useServersData() {
 
           toast.success(`Conectado ao servidor "${server.name}"!`);
 
-          // Carrega databases do servidor após conectar
+          // Carrega databases do servidor após conectar (apenas nomes)
           await loadChildren({
             parentKey: key("server", server.id),
             fetcher: () => getPostgreDatabases(server.id),
@@ -152,7 +182,63 @@ export function useServersData() {
         },
       });
     },
-    [isConnecting]
+    [isConnecting, run, tree, loadChildren]
+  );
+
+  useEffect(() => {
+    if (autoFetch) fetchServers();
+  }, [autoFetch, fetchServers]);
+
+  return {
+    // estado
+    servers,
+    setServers,
+    isLoading,
+    isConnecting,
+    error,
+    // ações
+    fetchServers,
+    addServer,
+    getServer,
+    editServer,
+    removeServer,
+    connectToServer,
+  } as const;
+}
+
+/**
+ * Hook 2 — Responsável por:
+ *  - Carregar e salvar a **estrutura**: schemas, tabelas, colunas, índices, gatilhos
+ *
+ * Requer um `setServers` para operar sobre a mesma árvore do hook de conexão.
+ * Assim, ambos podem ser usados de forma independente e combinados quando necessário.
+ */
+
+export interface IUseDbStructureParams {
+  setServers: React.Dispatch<React.SetStateAction<Record<string, ITreeNode>>>;
+}
+
+export function useDbStructure(params: IUseDbStructureParams) {
+  const { setServers } = params;
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false); // mantido para compatibilidade com createRunner
+  const [error, setError] = useState<string | null>(null);
+
+  const run = useMemo(
+    () =>
+      createRunner({
+        setIsLoading,
+        setIsConnecting,
+        setError,
+      }),
+    []
+  );
+
+  const tree = useMemo(() => createTreeActions(setServers), [setServers]);
+  const loadChildren = useMemo(
+    () => createLoadChildren(run, tree),
+    [run, tree]
   );
 
   const getDatabaseSchemas = useCallback(
@@ -208,7 +294,7 @@ export function useServersData() {
 
       return schemas;
     },
-    []
+    [loadChildren, tree, setServers]
   );
 
   const getSchemaTables = useCallback(
@@ -278,7 +364,7 @@ export function useServersData() {
         successMsg: `Tabelas do schema "${schemaName}" carregadas com sucesso!`,
       });
     },
-    []
+    [loadChildren, tree]
   );
 
   const getTableColumns = useCallback(
@@ -316,7 +402,7 @@ export function useServersData() {
         successMsg: `Colunas da tabela "${tableName}" carregadas com sucesso!`,
       });
     },
-    []
+    [loadChildren]
   );
 
   const getTableIndexes = useCallback(
@@ -351,10 +437,10 @@ export function useServersData() {
           data: idx,
         }),
         emptyMsg: "Nenhum índice encontrado para esta tabela.",
-        successMsg: `Índices da tabela "${tableName}" carregados com sucesso!`,
+        successMsg: `Índices da tabela "${tableName}" carregadas com sucesso!`,
       });
     },
-    []
+    [loadChildren]
   );
 
   const getTableTriggers = useCallback(
@@ -365,7 +451,7 @@ export function useServersData() {
       databaseName: string
     ) => {
       const parent = key(
-        "table_trigger", // corrigido: antes usava table_index
+        "table_trigger",
         serverId,
         databaseName,
         schemaName,
@@ -392,28 +478,17 @@ export function useServersData() {
         successMsg: `Gatilhos da tabela "${tableName}" carregados com sucesso!`,
       });
     },
-    []
+    [loadChildren]
   );
 
-  useEffect(() => {
-    fetchServers();
-  }, [fetchServers]);
-
   return {
-    servers,
     isLoading,
     isConnecting,
     error,
-    fetchServers,
-    addServer,
-    getServer,
-    editServer,
-    removeServer,
-    connectToServer,
     getDatabaseSchemas,
     getSchemaTables,
     getTableColumns,
     getTableIndexes,
     getTableTriggers,
-  };
+  } as const;
 }

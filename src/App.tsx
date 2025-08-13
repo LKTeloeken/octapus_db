@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import { useEffect, type FC } from "react";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -12,7 +12,7 @@ import Sidebar from "@/components/layout/sidebar";
 import QueryEditor from "@/components/layout/QueryEditor";
 import QueryResults from "@/components/layout/QueryResults";
 
-const App: React.FC = () => {
+const App: FC = () => {
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove("light", "dark");
