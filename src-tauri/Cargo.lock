@@ -495,8 +495,10 @@ checksum = "c469d952047f47f91b68d1cba3f10d63c11d73e4636f24f08daf0278abf01c4d"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link",
 ]
 
@@ -2407,6 +2409,7 @@ name = "octapus_db"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "once_cell",
  "postgres",
  "rusqlite",
@@ -2416,6 +2419,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-opener",
  "thiserror 1.0.69",
+ "tokio-postgres",
 ]
 
 [[package]]
@@ -2761,6 +2765,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613283563cd90e1dfc3518d548caee47e0e725455ed619881f5cf21f36de4b48"
 dependencies = [
  "bytes",
+ "chrono",
  "fallible-iterator 0.2.0",
  "postgres-protocol",
 ]

@@ -5,10 +5,41 @@ use crate::{
     db_connection_manager::{execute_query, connect},
 };
 
+use serde::Serialize;
+
+#[derive(Serialize)]
+pub struct QueryResult {
+    pub rows: Vec<std::collections::HashMap<String, String>>,
+}
+
 #[tauri::command]
 pub async fn connect_to_server(state: State<'_, AppState>, server_id: i32, database_name: Option<String>) -> Result<bool, String> {
     connect(&state, server_id, database_name).await.map_err(|e| e.to_string())?;
     Ok(true)
+}
+
+#[tauri::command]
+pub async fn run_postgre_query(
+    state: State<'_, AppState>,
+    server_id: i32,
+    database_name: String,
+    query: String,
+) -> Result<QueryResult, String> {
+    // Validação mínima antes de rodar
+    if query.trim().is_empty() {
+        return Err("Query vazia. Escreva uma instrução SQL válida.".to_string());
+    }
+
+    // Executa a query
+    let result = execute_query(&state, server_id, &query, Some(database_name.clone()))
+        .await
+        .map_err(|e| {
+            format!("Erro ao executar query em '{}': {}", database_name, e.to_string())
+        })?;
+
+    // println!("Query executada com sucesso em '{}'", result);
+
+    Ok(QueryResult { rows: result })
 }
 
 #[tauri::command]

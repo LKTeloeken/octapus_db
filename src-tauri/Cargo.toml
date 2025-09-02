@@ -27,3 +27,5 @@ once_cell  = "1"
 thiserror  = "1"
 anyhow = "1" 
 postgres = "0.19"
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+chrono = { version = "0.4" }

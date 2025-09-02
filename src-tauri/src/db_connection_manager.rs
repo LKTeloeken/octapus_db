@@ -3,8 +3,10 @@ use std::time::Duration;
 use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
+use rusqlite::ffi::NOT_WITHIN;
 use rusqlite::Connection as SqliteConnection;
 use postgres::{Client as PgClient, NoTls, Config as PgConfig};
+use chrono::{NaiveDateTime};
 
 use crate::models::PostgreServer;
 use crate::app_state::AppState;
@@ -15,6 +17,92 @@ use anyhow::{Result, anyhow};
 pub enum DbConnection {
     Sqlite(SqliteConnection),
     Postgres(PgClient),
+}
+
+/// Map of PostgreSQL type name -> Rust type (as a string)
+pub static PG_RUST_TYPE_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
+    let mut m = HashMap::new();
+
+    // Integer types
+    m.insert("int2", "i16");
+    m.insert("smallint", "i16");
+    m.insert("int4", "i32");
+    m.insert("integer", "i32");
+    m.insert("int8", "i64");
+    m.insert("bigint", "i64");
+    m.insert("oid", "u32");
+
+    // Floating point / numeric
+    m.insert("float4", "f32");
+    m.insert("real", "f32");
+    m.insert("float8", "f64");
+    m.insert("double precision", "f64");
+    m.insert("numeric", "String");
+    m.insert("decimal", "String");
+
+    // Boolean
+    m.insert("bool", "bool");
+    m.insert("boolean", "bool");
+
+    // Textual
+    m.insert("text", "String");
+    m.insert("varchar", "String");
+    m.insert("character varying", "String");
+    m.insert("bpchar", "String");
+    m.insert("char", "String");
+    m.insert("character", "String");
+    m.insert("citext", "String");
+    m.insert("uuid", "String");
+    m.insert("name", "String");
+
+    // Binary / JSON
+    m.insert("bytea", "Vec<u8>");
+    m.insert("json", "String");
+    m.insert("jsonb", "String");
+    m.insert("xml", "String");
+
+    // Date/Time
+    m.insert("date", "chrono::NaiveDate");
+    m.insert("time", "chrono::NaiveTime");
+    m.insert("timetz", "chrono::NaiveTime");
+    m.insert("timestamp", "chrono::NaiveDateTime");
+    m.insert("timestamptz", "chrono::DateTime<chrono::Utc>");
+    m.insert("interval", "String");
+
+    // Network
+    m.insert("inet", "String");
+    m.insert("cidr", "String");
+    m.insert("macaddr", "String");
+
+    // Arrays (common)
+    m.insert("_int2", "Vec<i16>");
+    m.insert("_int4", "Vec<i32>");
+    m.insert("_int8", "Vec<i64>");
+    m.insert("_float4", "Vec<f32>");
+    m.insert("_float8", "Vec<f64>");
+    m.insert("_text", "Vec<String>");
+    m.insert("_varchar", "Vec<String>");
+    m.insert("_bool", "Vec<bool>");
+    m.insert("_uuid", "Vec<String>");
+
+    // Misc
+    m.insert("money", "String");
+    m.insert("point", "String");
+    m.insert("line", "String");
+    m.insert("lseg", "String");
+    m.insert("box", "String");
+    m.insert("path", "String");
+    m.insert("polygon", "String");
+    m.insert("circle", "String");
+
+    m
+});
+
+/// Returns the Rust type (as a string) for a given PostgreSQL type name.
+/// Defaults to "String" if unknown.
+pub fn rust_type_for_pg(typname: &str) -> &'static str {
+    let key = typname.to_ascii_lowercase();
+    PG_RUST_TYPE_MAP.get(key.as_str()).copied().unwrap_or("String")
 }
 
 /// { server_id => { db_name => conexão } }
@@ -172,9 +260,29 @@ pub async fn execute_query(
                 let mut results = Vec::new();
                 for row in rows {
                     let mut map = HashMap::new();
+
                     for (i, col) in row.columns().iter().enumerate() {
-                        let v: String = row.try_get(i).unwrap_or_else(|_| "NULL".to_string());
-                        map.insert(col.name().to_string(), v);
+                        let col_name = col.name().to_string();
+                        let type_name = col.type_().name();
+
+                        println!("ROW VALUE {:?}", row.try_get::<usize, Option<i32>>(0).ok().flatten().unwrap_or(NOT_WITHIN).to_string());
+
+                        let value: Option<String> = match type_name {
+                            "int2" => row.try_get::<usize, Option<i16>>(i).ok().flatten().map(|v| v.to_string()),
+                            "int4" | "integer" => row.try_get::<usize, Option<i32>>(i).ok().flatten().map(|v| v.to_string()),
+                            "int8" | "bigint" => row.try_get::<usize, Option<i64>>(i).ok().flatten().map(|v| v.to_string()),
+                            "float4" => row.try_get::<usize, Option<f32>>(i).ok().flatten().map(|v| v.to_string()),
+                            "float8" => row.try_get::<usize, Option<f64>>(i).ok().flatten().map(|v| v.to_string()),
+                            "numeric" => row.try_get::<usize, Option<String>>(i).ok().flatten(),
+                            "bool" => row.try_get::<usize, Option<bool>>(i).ok().flatten().map(|v| v.to_string()),
+                            "timestamp" => row.try_get::<usize, Option<NaiveDateTime>>(i).ok().flatten().map(|v| v.to_string()),
+                            "timestamptz" | "date" => row.try_get::<usize, Option<String>>(i).ok().flatten(),
+                            _ => row.try_get::<usize, Option<String>>(i).ok().flatten(),
+                        };
+
+                        println!("Coluna: {}, Tipo: {}, Valor: {:?}", col_name, type_name, value);
+
+                        map.insert(col_name, value.unwrap_or_else(|| "NULL".to_string()));
                     }
                     results.push(map);
                 }

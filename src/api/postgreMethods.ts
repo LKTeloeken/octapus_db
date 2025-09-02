@@ -1,6 +1,5 @@
 import { invoke } from "./utils/invokeHandler";
 import * as IPostgres from "@/shared/models/postgreDb";
-import { IServer } from "@/shared/models/server";
 
 export async function connectToPostgreServer(
   serverId: number,
@@ -12,6 +11,20 @@ export async function connectToPostgreServer(
   });
 
   return hasConnected;
+}
+
+export async function runPostgreQuery(
+  serverId: number,
+  query: string,
+  databaseName?: string
+): Promise<any[]> {
+  const result = await invoke<any[]>("run_postgre_query", {
+    serverId,
+    query,
+    databaseName,
+  });
+
+  return result;
 }
 
 // Funções para obter dados do PostgreSQL

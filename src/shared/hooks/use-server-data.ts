@@ -10,13 +10,12 @@ import {
 import {
   connectToPostgreServer,
   getPostgreDatabases,
-} from "@/api/postgreMethods";
-import {
   getPostgreSchemas,
   getPostgreTables,
   getPostgreColumns,
   getPostgreIndexes,
   getPostgreTriggers,
+  runPostgreQuery,
 } from "@/api/postgreMethods";
 import { createRunner } from "@/shared/utils/asyncRunner";
 import {
@@ -164,6 +163,14 @@ export function useServerConnections(opts?: { autoFetch?: boolean }) {
           });
 
           toast.success(`Conectado ao servidor "${server.name}"!`);
+
+          const resutlQuery = await runPostgreQuery(
+            server.id,
+            "SELECT * FROM users",
+            "tc_db"
+          ); // teste rápido de query
+
+          console.log("Resultado do teste de query:", resutlQuery);
 
           // Carrega databases do servidor após conectar (apenas nomes)
           await loadChildren({
