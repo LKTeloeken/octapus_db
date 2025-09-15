@@ -6,7 +6,7 @@ import {
 } from "@/components/ui/resizable";
 import { CustomToaster } from "./components/Toaster";
 
-import { ServersProvider } from "./shared/providers/serversProvider";
+import { ServersProvider } from "./shared/providers/servers-provider";
 
 import Sidebar from "@/components/layout/sidebar";
 import QueryEditor from "@/components/layout/QueryEditor";

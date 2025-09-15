@@ -1,7 +1,7 @@
 import { createContext, ReactNode, useContext } from "react";
-import { useDbStructure as _useDbStructure } from "@/shared/hooks/use-server-data";
+import { useDbStructure as _useDbStructure } from "@/shared/hooks/use-db-structure";
 
-import type { IUseDbStructureParams } from "@/shared/hooks/use-server-data";
+import type { IUseDbStructureParams } from "@/shared/hooks/use-db-structure";
 
 export interface DbStructureProviderReturn
   extends ReturnType<typeof _useDbStructure> {}

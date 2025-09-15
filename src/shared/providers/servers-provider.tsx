@@ -1,5 +1,5 @@
 import { type ReactNode, useContext, createContext } from "react";
-import { useServerConnections } from "@/shared/hooks/use-server-data";
+import { useServerConnections } from "@/shared/hooks/use-server-connections";
 
 export interface ServersProviderReturn
   extends ReturnType<typeof useServerConnections> {}

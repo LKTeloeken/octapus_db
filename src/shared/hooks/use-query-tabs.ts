@@ -1,18 +1,10 @@
-import { createContext, useState } from "react";
-import { runPostgreQuery } from "@/api/postgreMethods";
+import { useState } from "react";
+import { useRunQuery } from "./use-run-query";
 
-import type { userQueryTabsProps } from "@/shared/models/query-tabs";
+import type { QueryTab } from "../models/query-tabs";
 
-interface QueryTab {
-  id: string;
-  serverId: number;
-  databaseName: string;
-  title: string;
-  content: string;
-  result?: { rows: any[]; fields?: string[] };
-}
-
-export function useQueryTabs({ servers }: userQueryTabsProps) {
+export function useQueryTabs() {
+  const { runQuery } = useRunQuery();
   const [tabs, setTabs] = useState<QueryTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>();
 
@@ -34,16 +26,27 @@ export function useQueryTabs({ servers }: userQueryTabsProps) {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, content } : t)));
   };
 
-  const runQuery = async (id: string) => {
+  const executeQuery = async (id: string, query: string) => {
     const tab = tabs.find((t) => t.id === id);
     if (!tab) return;
-    const result = await runPostgreQuery(
+    const { rows, fields } = await runQuery(
       tab.serverId,
       tab.databaseName,
-      tab.content
+      query
     );
+
     setTabs((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, result: { rows: result } } : t))
+      prev.map((t) => (t.id === id ? { ...t, result: { rows, fields } } : t))
     );
+  };
+
+  return {
+    tabs,
+    activeTabId,
+    openTab,
+    closeTab,
+    setActiveTabId,
+    setContent,
+    executeQuery,
   };
 }

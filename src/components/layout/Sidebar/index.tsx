@@ -1,6 +1,6 @@
-import { DbStructureProvider } from "@/shared/providers/dbStructureProvider";
+import { DbStructureProvider } from "@/shared/providers/db-structure-provider";
 import SidebarBody from "./sidebar-body";
-import { useServers } from "@/shared/providers/serversProvider";
+import { useServers } from "@/shared/providers/servers-provider";
 
 export default function Sidebar() {
   const serverProps = useServers();

@@ -17,14 +17,14 @@ export async function runPostgreQuery(
   serverId: number,
   query: string,
   databaseName?: string
-): Promise<any[]> {
+): Promise<{ rows: any[]; fields?: string[] }> {
   const result = await invoke<any[]>("run_postgre_query", {
     serverId,
     query,
     databaseName,
   });
 
-  return result;
+  return { fields: Object.keys(result?.[0]), rows: result };
 }
 
 // Funções para obter dados do PostgreSQL

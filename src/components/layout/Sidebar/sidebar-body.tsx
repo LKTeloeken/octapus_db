@@ -9,9 +9,9 @@ import RecursiveList from "@/components/common/recursive-list";
 
 import { renderItems } from "./render-items";
 
-import { useDbStructure } from "@/shared/providers/dbStructureProvider";
+import { useDbStructure } from "@/shared/providers/db-structure-provider";
 
-import type { ServersProviderReturn } from "@/shared/providers/serversProvider";
+import type { ServersProviderReturn } from "@/shared/providers/servers-provider";
 
 export default function SidebarBody({
   servers,
