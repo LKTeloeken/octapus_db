@@ -1,0 +1,69 @@
+/* prism-purple-theme.css */
+
+code[class*="language-"],
+pre[class*="language-"] {
+  background: #2d133c;
+  color: #d8b4fe;
+  font-family: monospace;
+  font-size: 1em;
+  /* outras definições básicas */
+}
+
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #7e22ce; /* comentário roxo médio */
+  font-style: italic;
+}
+
+.token.keyword,
+.token.selector,
+.token.tag,
+.token.property,
+.token.pseudo-class,
+.token.pseudo-element {
+  color: #c084fc; /* roxo vibrante para keywords */
+}
+
+.token.string,
+.token.char,
+.token.attr-value,
+.token.regex,
+.token.inserted {
+  color: #f9a8d4; /* strings rosadas suaves */
+}
+
+.token.number,
+.token.constant,
+.token.boolean {
+  color: #ede9fe; /* quase branco lilás */
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.token.symbol {
+  color: #b083f0;
+}
+
+.token.function {
+  color: #d8b4fe;
+}
+
+.token.variable {
+  color: #e0c3fc;
+}
+
+.token.attr-name {
+  color: #b794f4;
+}
+
+/* Ajuste de seleção de texto */
+pre[class*="language-"] ::selection,
+code[class*="language-"] ::selection,
+pre[class*="language-"]::-moz-selection,
+code[class*="language-"]::-moz-selection {
+  background: #4c1d95; /* roxo mais escuro de seleção */
+  color: #faf5ff; /* texto claro numa seleção */
+}

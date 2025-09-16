@@ -13,6 +13,7 @@ interface BaseCellProps {
   secondaryText?: string;
   onClick?: () => void;
   secondaryAction?: React.ReactNode;
+  actions?: React.ReactNode; // custom action elements (e.g., popover trigger)
   isExpanded?: boolean;
   hasChildren?: boolean;
   disabled?: boolean;
@@ -24,6 +25,7 @@ const BaseCell: React.FC<BaseCellProps> = ({
   secondaryText,
   onClick,
   secondaryAction,
+  actions,
   isExpanded,
   hasChildren = true,
   disabled = false,
@@ -35,17 +37,20 @@ const BaseCell: React.FC<BaseCellProps> = ({
       <ListItem
         disablePadding
         secondaryAction={
-          secondaryAction ||
-          (hasChildren && (
-            <div className="ml-auto pr-2">
-              {showChevron &&
-                (isExpanded ? (
-                  <ChevronDown className="size-4" />
-                ) : (
-                  <ChevronRight className="size-4" />
-                ))}
-            </div>
-          ))
+          <div className="flex items-center space-x-1">
+            {actions && <div className="flex items-center">{actions}</div>}
+            {secondaryAction ||
+              (hasChildren && (
+                <div className="ml-auto pr-2">
+                  {showChevron &&
+                    (isExpanded ? (
+                      <ChevronDown className="size-4" />
+                    ) : (
+                      <ChevronRight className="size-4" />
+                    ))}
+                </div>
+              ))}
+          </div>
         }
       >
         <ListItemButton onClick={onClick} className="py-1" disabled={disabled}>

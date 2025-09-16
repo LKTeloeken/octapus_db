@@ -1,5 +1,11 @@
-import React from "react";
 import BaseCell from "@/components/common/server/base-cell";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { MoreHorizontal } from "lucide-react";
 import {
   Columns,
   Database,
@@ -16,8 +22,8 @@ import {
 
 import type { renderItemFunction } from "@/components/common/recursive-list";
 import type * as HookTypes from "@/shared/models/server-functions";
-import { IServer } from "@/shared/models/server";
-import { IPostgreColumn } from "@/shared/models/postgreDb";
+import type { IServer } from "@/shared/models/server";
+import type { IPostgreColumn } from "@/shared/models/postgreDb";
 
 export const renderItems =
   (
@@ -27,7 +33,8 @@ export const renderItems =
     getSchemaTables: HookTypes.GetSchemaTablesFunction,
     getTableColumns: HookTypes.GetTableColumnsFunction,
     getTableIndexes: HookTypes.GetTableIndexesFunction,
-    getTableTriggers: HookTypes.GetTableTriggersFunction
+    getTableTriggers: HookTypes.GetTableTriggersFunction,
+    openTab?: (serverId: number, database: string) => void
   ): renderItemFunction =>
   (item, onClick, _, isExpanded, __) => {
     const { type } = item;
@@ -150,6 +157,42 @@ export const renderItems =
       if (func && !isExpanded) await func();
     };
 
+    const renderActions = () => {
+      if (type === "database" && openTab) {
+        const [, serverId, databaseName] = item.itemKey.split("::");
+        return (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                onClick={(e) => {
+                  // Prevent row click expand when pressing the action button
+                  e.stopPropagation();
+                }}
+              >
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-fit p-1" sideOffset={4} align="end">
+              <Button
+                variant="ghost"
+                className="h-7 px-2 text-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openTab?.(Number(serverId), databaseName);
+                }}
+              >
+                Open new tab
+              </Button>
+            </PopoverContent>
+          </Popover>
+        );
+      }
+      return null;
+    };
+
     return (
       <BaseCell
         icon={getIconForType(type)}
@@ -159,6 +202,7 @@ export const renderItems =
         isExpanded={isExpanded}
         hasChildren={hasChildren}
         disabled={isLoading}
+        actions={renderActions()}
       />
     );
   };

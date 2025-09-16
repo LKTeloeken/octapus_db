@@ -10,6 +10,7 @@ import RecursiveList from "@/components/common/recursive-list";
 import { renderItems } from "./render-items";
 
 import { useDbStructure } from "@/shared/providers/db-structure-provider";
+import { useTabs } from "@/shared/providers/tabs-provider";
 
 import type { ServersProviderReturn } from "@/shared/providers/servers-provider";
 
@@ -26,8 +27,7 @@ export default function SidebarBody({
     getTableIndexes,
     getTableTriggers,
   } = useDbStructure();
-
-  console.log("Rendering Sidebar with servers:", servers);
+  const { openTab } = useTabs();
 
   return (
     <ScrollArea className="h-full">
@@ -56,7 +56,8 @@ export default function SidebarBody({
           getSchemaTables,
           getTableColumns,
           getTableIndexes,
-          getTableTriggers
+          getTableTriggers,
+          openTab
         )}
         emptyMessage="Nenhum servidor encontrado."
       />
