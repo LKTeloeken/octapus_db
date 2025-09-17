@@ -1,8 +1,9 @@
-import { useRef, useEffect, useCallback, type FC } from "react";
-import Editor from "react-simple-code-editor";
-import Prism from "prismjs";
-import "prismjs/components/prism-sql";
-import "./prism.css"; // ajustar tema conforme quiser
+import { useMemo, useCallback, type FC } from "react";
+import CodeMirror from "@uiw/react-codemirror";
+import { sql } from "@codemirror/lang-sql";
+import { oneDark } from "@codemirror/theme-one-dark";
+import { EditorView, keymap, type ViewUpdate } from "@codemirror/view";
+import { format as formatSQL } from "sql-formatter";
 
 import type { SQLEditorProps } from "./query-editor.types";
 
@@ -11,49 +12,110 @@ const SQLEditor: FC<SQLEditorProps> = ({
   onChange,
   onChangeSelection,
   className = "",
-  customRef,
 }) => {
-  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  // Tema para fundo transparente e fontes monoespaçadas
+  const transparentDarkTheme = useMemo(
+    () =>
+      EditorView.theme(
+        {
+          "&": {
+            backgroundColor: "transparent",
+            color: "white",
+            fontFamily:
+              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace",
+            fontSize: "14px",
+          },
+          ".cm-scroller": { overflow: "auto" },
+          ".cm-content": { caretColor: "#ffffff" },
+          "&.cm-editor.cm-focused": { outline: "none" },
+          ".cm-gutters": {
+            backgroundColor: "transparent",
+            borderRight: "none",
+          },
+        },
+        { dark: true }
+      ),
+    []
+  );
 
-  // Callback para destacar sintaxe
-  const highlight = useCallback((code: string) => {
-    return Prism.highlight(code, Prism.languages.sql, "sql");
-  }, []);
+  // Função de formatação do SQL
+  const formatAndApply = useCallback(
+    (src: string) => {
+      try {
+        const formatted = formatSQL(src ?? "", {
+          language: "sql", // ajuste para seu dialeto: 'postgresql', 'mysql', 'sqlite', etc.
+          keywordCase: "upper",
+          indentStyle: "standard",
+        });
+        if (formatted !== src) onChange(formatted);
+      } catch {
+        // Silencia erros de formatação para não travar a edição
+      }
+    },
+    [onChange]
+  );
 
-  // Efeito para ouvir seleção se tiver o onChangeSelection
-  useEffect(() => {
-    if (!onChangeSelection) return;
+  // Keybinding para formatar com Cmd/Ctrl+Shift+F
+  const formatKeymap = useMemo(
+    () =>
+      keymap.of([
+        {
+          key: "Mod-Shift-f",
+          run: (view) => {
+            formatAndApply(view.state.doc.toString());
+            return true;
+          },
+        },
+      ]),
+    [formatAndApply]
+  );
 
-    const textarea = editorRef.current;
-    if (!textarea) return;
+  const extensions = useMemo(
+    () => [
+      sql(), // realce de sintaxe SQL
+      oneDark,
+      transparentDarkTheme,
+      EditorView.lineWrapping,
+      formatKeymap,
+    ],
+    [transparentDarkTheme, formatKeymap]
+  );
 
-    const handleSelect = () => {
-      onChangeSelection({
-        start: textarea.selectionStart,
-        end: textarea.selectionEnd,
-      });
-    };
+  const handleChange = useCallback(
+    (next: string) => {
+      onChange(next);
+    },
+    [onChange]
+  );
 
-    textarea.addEventListener("select", handleSelect);
-    return () => {
-      textarea.removeEventListener("select", handleSelect);
-    };
-  }, [onChangeSelection]);
+  const handleUpdate = useCallback(
+    (vu: ViewUpdate) => {
+      if (!onChangeSelection) return;
+      if (vu.selectionSet || vu.focusChanged) {
+        const sel = vu.state.selection.main;
+        onChangeSelection({ start: sel.from, end: sel.to });
+      }
+    },
+    [onChangeSelection]
+  );
 
   return (
-    <Editor
-      ref={customRef}
+    <CodeMirror
       value={value}
-      onValueChange={onChange}
-      highlight={highlight}
-      padding={10}
-      textareaId="sql-editor-textarea"
-      style={{
-        fontFamily: "monospace",
-        fontSize: 14,
-        outline: "none",
+      onChange={handleChange}
+      onUpdate={handleUpdate}
+      extensions={extensions}
+      // formata ao perder o foco
+      // onBlur={() => formatAndApply(value)}
+      theme={oneDark}
+      basicSetup={{
+        lineNumbers: true,
+        highlightActiveLine: true,
+        highlightActiveLineGutter: true,
+        foldGutter: true,
       }}
-      className="bg-transparent border-none text-white overflow-scroll max-h-72"
+      height="18rem" // equivalente ao max-h-72
+      className={`bg-transparent border-none text-white max-h-full h-full ${className}`}
     />
   );
 };

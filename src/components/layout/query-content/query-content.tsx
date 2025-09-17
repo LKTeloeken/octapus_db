@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   ResizablePanel,
   ResizablePanelGroup,
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Play } from "lucide-react";
 import QueryTabs from "@/components/layout/query-tabs/query-tabs";
 import SQLEditor from "@/components/layout/query-editor/query-editor";
+import QueryResultsTable from "../query-results/query-results";
 import { useTabs } from "@/shared/providers/tabs-provider";
 
 import type { FC } from "react";
@@ -15,8 +16,15 @@ import type { FC } from "react";
 import QueryResults from "../QueryResults";
 
 const QueryContent: FC = () => {
-  const { tabs, activeTabId, setActiveTabId, setContent } = useTabs();
-  const textBaseRef = useRef<HTMLTextAreaElement>(null);
+  const {
+    tabs,
+    activeTabId,
+    loadingQuery,
+    setActiveTabId,
+    setContent,
+    executeQuery,
+  } = useTabs();
+  const [query, setQuery] = useState<string>("");
 
   const activeTab = useMemo(() => {
     return tabs.find((tab) => tab.id === activeTabId);
@@ -25,6 +33,18 @@ const QueryContent: FC = () => {
   const onChange = (newValue: string) => {
     if (!activeTab) return;
     setContent(activeTab.id, newValue);
+  };
+
+  const onChangeSelection = (selection: { start: number; end: number }) => {
+    const _query =
+      activeTab?.content.slice(selection.start, selection.end) || "";
+
+    setQuery(_query);
+  };
+
+  const runQuery = () => {
+    if (!activeTab) return;
+    executeQuery(activeTab.id, query || activeTab.content);
   };
 
   return (
@@ -45,20 +65,17 @@ const QueryContent: FC = () => {
                 onTabClose={() => {}}
               />
 
-              <Button variant="default" size="sm">
+              <Button variant="default" size="sm" onClick={runQuery}>
                 <Play />
                 Run query
               </Button>
             </div>
 
-            <div
-              className="h-full w-full bg-violet-300/20 rounded-lg"
-              onClick={() => textBaseRef.current?.focus()}
-            >
+            <div className="h-full w-full bg-violet-300/20 rounded-lg">
               <SQLEditor
                 value={activeTab?.content || ""}
                 onChange={onChange}
-                customRef={textBaseRef}
+                onChangeSelection={onChangeSelection}
               />
             </div>
           </ResizablePanel>
@@ -66,12 +83,11 @@ const QueryContent: FC = () => {
           <ResizableHandle withHandle />
 
           <ResizablePanel defaultSize={60} minSize={20}>
-            {activeTab.result && <QueryResults />}
-            {!activeTab.result && (
-              <div className="flex h-full w-full items-center justify-center">
-                <p className="text-muted-foreground">No results to show</p>
-              </div>
-            )}
+            <QueryResultsTable
+              rows={activeTab.result?.rows || []}
+              columns={activeTab.result?.fields || []}
+              emptyMessage="No results yet"
+            />
           </ResizablePanel>
         </ResizablePanelGroup>
       )}

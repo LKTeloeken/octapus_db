@@ -4,7 +4,7 @@ import { useRunQuery } from "./use-run-query";
 import type { QueryTab } from "../models/query-tabs";
 
 export function useQueryTabs() {
-  const { runQuery } = useRunQuery();
+  const { runQuery, loading: loadingQuery } = useRunQuery();
   const [tabs, setTabs] = useState<QueryTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>();
 
@@ -43,6 +43,7 @@ export function useQueryTabs() {
   return {
     tabs,
     activeTabId,
+    loadingQuery,
     openTab,
     closeTab,
     setActiveTabId,
