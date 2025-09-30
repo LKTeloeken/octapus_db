@@ -8,12 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Play } from "lucide-react";
 import QueryTabs from "@/components/layout/query-tabs/query-tabs";
 import SQLEditor from "@/components/layout/query-editor/query-editor";
-import QueryResultsTable from "../query-results/query-results";
+import { QueryResultsTable } from "../query-results/query-results";
 import { useTabs } from "@/shared/providers/tabs-provider";
 
 import type { FC } from "react";
-
-import QueryResults from "../QueryResults";
 
 const QueryContent: FC = () => {
   const {

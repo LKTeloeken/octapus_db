@@ -98,13 +98,6 @@ pub static PG_RUST_TYPE_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::n
     m
 });
 
-/// Returns the Rust type (as a string) for a given PostgreSQL type name.
-/// Defaults to "String" if unknown.
-pub fn rust_type_for_pg(typname: &str) -> &'static str {
-    let key = typname.to_ascii_lowercase();
-    PG_RUST_TYPE_MAP.get(key.as_str()).copied().unwrap_or("String")
-}
-
 /// { server_id => { db_name => conexão } }
 static CONNECTION_MANAGER: Lazy<Arc<Mutex<HashMap<i32, HashMap<String, DbConnection>>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));

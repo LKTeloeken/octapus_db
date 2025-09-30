@@ -4,17 +4,14 @@ import { SimpleAlertDialog } from "@/components/ui/simple-alert-dialog";
 import { Button, ButtonProps } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-import {
-  IPostgreServer,
-  IPostgreServerPrimitive,
-} from "@/shared/models/postgreDb";
+import { IServer, IServerPrimitive } from "@/shared/models/server";
 
 interface ConfigServerProps {
-  serverInfo?: IPostgreServer;
+  serverInfo?: IServer;
   editing?: boolean;
   DialogTrigger: React.ForwardRefExoticComponent<any>;
-  onCreate?: (data: IPostgreServerPrimitive) => Promise<any>;
-  onEdit?: (id: number, data: IPostgreServerPrimitive) => Promise<any>;
+  onCreate?: (data: IServerPrimitive) => Promise<any>;
+  onEdit?: (id: number, data: IServerPrimitive) => Promise<any>;
   onRemove?: (data: number) => Promise<any>;
 }
 
@@ -32,7 +29,7 @@ export default function ConfigServerDialog({
   onRemove,
 }: ConfigServerProps) {
   const [open, setOpen] = useState(false);
-  const [serverData, setServerData] = useState<IPostgreServerPrimitive>({
+  const [serverData, setServerData] = useState<IServerPrimitive>({
     name: "",
     username: "postgres",
     host: "",
@@ -59,10 +56,14 @@ export default function ConfigServerDialog({
   };
 
   const handleChange =
-    (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    (field: string, type: "number" | "string") =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
       setServerData((prevData) => ({
         ...prevData,
-        [field]: event.target.value,
+        [field]:
+          type === "number"
+            ? Number(event.target.value) || 0
+            : event.target.value,
       }));
     };
 
@@ -71,6 +72,8 @@ export default function ConfigServerDialog({
 
     setServerData({ ...serverInfo });
   }, [open, serverInfo]);
+
+  console.log("serverData", serverData);
 
   return (
     <SimpleDialog
@@ -94,9 +97,13 @@ export default function ConfigServerDialog({
         {inputs.map((input, i) => (
           <Input
             key={i}
+            type={input.type}
             placeholder={input.placeholder}
             value={serverData[input.value] as string}
-            onChange={handleChange(input.value)}
+            onChange={handleChange(
+              input.value,
+              input.type === "number" ? "number" : "string"
+            )}
           />
         ))}
       </div>

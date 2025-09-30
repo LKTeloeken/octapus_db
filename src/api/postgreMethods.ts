@@ -23,8 +23,9 @@ export async function runPostgreQuery(
     query,
     databaseName,
   });
+  const fields = rows ? Object.keys(rows?.[0]).sort() : [];
 
-  return { fields: rows ? Object.keys(rows?.[0]) : [], rows: rows };
+  return { fields, rows };
 }
 
 // Funções para obter dados do PostgreSQL
