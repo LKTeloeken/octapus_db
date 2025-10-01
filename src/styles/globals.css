@@ -74,6 +74,11 @@
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
   --sidebar-border: oklch(0.92 0.004 286.32);
   --sidebar-ring: oklch(0.606 0.25 292.717);
+  /* Scrollbar (light) */
+  --scrollbar-track: var(--background);
+  --scrollbar-thumb: oklch(0.88 0.01 286.32);
+  --scrollbar-thumb-hover: oklch(0.82 0.02 286.32);
+  --scrollbar-corner: var(--background);
 }
 
 .dark {
@@ -108,6 +113,11 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.541 0.281 293.009);
+  /* Scrollbar (dark) */
+  --scrollbar-track: oklch(0.21 0.006 285.885);
+  --scrollbar-thumb: oklch(0.32 0.01 285.9);
+  --scrollbar-thumb-hover: oklch(0.38 0.015 285.9);
+  --scrollbar-corner: oklch(0.21 0.006 285.885);
 }
 
 @layer base {
@@ -117,4 +127,40 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* ===== Scrollbar Global Styles ===== */
+/* Firefox */
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* WebKit (Chromium, Safari, Edge) */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  border: 2px solid var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--scrollbar-corner);
+}
+
+/* Utilitário opcional para forçar um container com scrollbar fino custom */
+.thin-scrollbar {
+  scrollbar-width: thin;
 }

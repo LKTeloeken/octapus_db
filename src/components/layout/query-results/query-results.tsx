@@ -1,7 +1,8 @@
 // src/components/query-results-table/QueryResultsTable.tsx
 import * as React from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { cn } from "@/lib/utils"; // Importe sua função `cn` do shadcn
+import { useLayoutEffect, useRef, useState } from "react";
+import useVirtualization from "@/shared/hooks/use-virtualization";
+import { cn } from "@/lib/utils";
 
 import {
   Table,
@@ -12,11 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import type {
-  QueryResultsColumn,
-  QueryResultsRow,
-  QueryResultsTableProps,
-} from "./query-results.types";
+import type { QueryResultsTableProps } from "./query-results.types";
 
 export function QueryResultsTable({
   columns,
@@ -26,30 +23,42 @@ export function QueryResultsTable({
   className,
   emptyMessage = "Nenhum resultado encontrado.",
 }: QueryResultsTableProps) {
-  // Referência para o elemento que terá o scroll
-  const tableContainerRef = React.useRef<HTMLDivElement>(null);
-  console.log("columns", columns);
+  const { parentRef, rowVirtualizer } = useVirtualization(
+    rows.length,
+    rowHeight,
+    overscan
+  );
 
-  // Normaliza as colunas para sempre terem o formato { key, header }
-  // Isso simplifica o resto do código.
-  const normalizedColumns = React.useMemo<QueryResultsColumn[]>(() => {
-    return columns.map((col) =>
-      typeof col === "string" ? { key: col, header: col } : col
+  const virtualItems = rowVirtualizer.getVirtualItems();
+
+  // Refs e estado para alinhamento de colunas
+  const headerRefs = useRef<(HTMLTableCellElement | null)[]>([]);
+  const [colWidths, setColWidths] = useState<number[]>([]);
+
+  // Mede larguras após renderização do header (inclui resize e mudança de colunas)
+  useLayoutEffect(() => {
+    if (!columns.length) return;
+    const widths = headerRefs.current.map(
+      (el) => el?.getBoundingClientRect().width || 0
     );
-  }, [columns]);
+    // Evita re-render desnecessário se nada mudou
+    if (widths.length && widths.some((w, i) => w !== colWidths[i])) {
+      setColWidths(widths);
+    }
+  }, [columns, rows.length]);
 
-  const rowVirtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => tableContainerRef.current,
-    estimateSize: () => rowHeight, // Altura fixa para cada linha
-    overscan,
-  });
+  // Recalcular em resize da janela
+  useLayoutEffect(() => {
+    const handle = () => {
+      const widths = headerRefs.current.map(
+        (el) => el?.getBoundingClientRect().width || 0
+      );
+      setColWidths(widths);
+    };
+    window.addEventListener("resize", handle);
+    return () => window.removeEventListener("resize", handle);
+  }, []);
 
-  console.log("rows", rows);
-
-  console.log("rowVirtualizer", rowVirtualizer.getVirtualItems());
-
-  // Se não houver linhas, exibe a mensagem de "vazio"
   if (rows.length === 0) {
     return (
       <div
@@ -64,44 +73,75 @@ export function QueryResultsTable({
   }
 
   return (
-    <div
-      ref={tableContainerRef}
-      className={cn(
+    <Table
+      ref={parentRef as React.RefObject<HTMLDivElement>}
+      // Classes aplicadas ao container scroll
+      containerClassName={cn(
         "relative h-full w-full overflow-auto rounded-md border",
         className
       )}
     >
-      <Table>
-        <TableHeader className="sticky top-0 z-20 bg-background shadow-sm">
-          <TableRow>
-            {normalizedColumns.map((col) => (
-              <TableHead key={col.key}>{col.key}</TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody
-          style={{
-            height: `${rowVirtualizer.getTotalSize()}px`, // Altura total para criar o espaço de scroll
-            position: "relative",
-          }}
-        >
-          {/* Renderiza apenas os itens virtualizados */}
-          {rows.map((row, i) => {
-            return (
-              <TableRow key={i}>
-                {normalizedColumns.map((col, i) => (
-                  <TableCell key={`${col.key}-${i}`}>
-                    {/* Usamos font-mono para dados tabulares, fica mais alinhado */}
-                    <span className="font-mono text-sm">
-                      {row[col.key] as string}
+      {/* Header sticky - usar background para não vazar conteúdo */}
+      <TableHeader className="sticky top-0 z-20 bg-background shadow-sm">
+        <TableRow>
+          {columns.map((col, idx) => (
+            <TableHead
+              key={col}
+              ref={(el) => {
+                headerRefs.current[idx] = el;
+              }}
+              style={colWidths[idx] ? { width: colWidths[idx] } : undefined}
+            >
+              {col}
+            </TableHead>
+          ))}
+        </TableRow>
+      </TableHeader>
+
+      <TableBody
+        style={{
+          height: `${rowVirtualizer.getTotalSize()}px`,
+          position: "relative",
+        }}
+      >
+        {virtualItems.map((virtualItem) => {
+          const row = rows[virtualItem.index];
+          if (!row) return null;
+
+          return (
+            <TableRow
+              key={virtualItem.key}
+              data-index={virtualItem.index}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: `${rowHeight}px`,
+                transform: `translateY(${virtualItem.start}px)`,
+              }}
+            >
+              {columns.map((col, cIdx) => {
+                const width = colWidths[cIdx];
+                return (
+                  <TableCell
+                    key={`${col}-${virtualItem.index}`}
+                    style={
+                      width
+                        ? { width, minWidth: width, maxWidth: width }
+                        : undefined
+                    }
+                  >
+                    <span className="font-mono text-xs truncate inline-block w-full">
+                      {String(row[col] ?? "")}
                     </span>
                   </TableCell>
-                ))}
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+                );
+              })}
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
   );
 }

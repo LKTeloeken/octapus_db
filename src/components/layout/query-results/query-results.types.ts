@@ -15,7 +15,7 @@ export type QueryResultsRow = Record<string, unknown>;
 
 export interface QueryResultsTableProps {
   /** Column definitions or simple keys (string) */
-  columns: Array<string | QueryResultsColumn>;
+  columns: Array<string>;
   /** Array of row objects. Values can be string/number/ReactNode */
   rows: QueryResultsRow[];
   /** Fixed row height in pixels used for virtualization math. Default: 36 */
