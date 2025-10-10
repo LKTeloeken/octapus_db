@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "octapus_db",
+  "productName": "octapus-db",
   "version": "0.1.0",
-  "identifier": "com.octapus_db.app",
+  "identifier": "com.octapus-db.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "octapus_db",
+        "title": "octapus-db",
         "width": 800,
         "height": 600
       }
