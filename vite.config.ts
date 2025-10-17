@@ -15,6 +15,13 @@ export default defineConfig(() => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    outDir: "dist", // Custom output directory (default is 'dist')
+    // Or use a different folder name:
+    // outDir: "build",
+    // outDir: "web-build",
+    emptyOutDir: true, // Clean the output directory before building
+  },
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent vite from obscuring rust errors
