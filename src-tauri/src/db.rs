@@ -1,6 +1,7 @@
 use rusqlite::{Connection, Result};
+use std::path::Path;
 
-pub fn init_database(db_path: &str) -> Result<Connection> {
+pub fn init_database<P: AsRef<Path>>(db_path: P) -> Result<Connection> {
     let conn = Connection::open(db_path)?;
 
     // Tabela de categorias
