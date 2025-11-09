@@ -11,13 +11,13 @@ import type { TreeState, TreeNode } from "./use-data-structure.types";
 import type { TreeNodeType } from "@/shared/models/database.types";
 
 export const useDataStructure = () => {
-  const [state, setState] = useState<TreeState>({
+  const [nodes, setNodes] = useState<TreeState>({
     nodes: new Map(),
     childrenMap: new Map(),
   });
 
   const addChildrenToState = useCallback((childrens: TreeNode[]) => {
-    setState((prev) => {
+    setNodes((prev) => {
       const newNodes = new Map(prev.nodes);
       const newChildrenMap = new Map(prev.childrenMap);
 
@@ -37,7 +37,7 @@ export const useDataStructure = () => {
   }, []);
 
   const removeChildrenFromState = useCallback((parentId: string) => {
-    setState((prev) => {
+    setNodes((prev) => {
       const newNodes = new Map(prev.nodes);
       const newChildrenMap = new Map(prev.childrenMap);
 
@@ -51,7 +51,7 @@ export const useDataStructure = () => {
 
   const getChildren = useCallback(
     async (nodeType: TreeNodeType, nodeId: string): Promise<TreeNode[]> => {
-      const node = state.nodes.get(nodeId);
+      const node = nodes.nodes.get(nodeId);
       if (!node) return [];
 
       const serverId = node.metadata?.serverId;
@@ -86,7 +86,7 @@ export const useDataStructure = () => {
       }
 
       if (nodeType === "schema") {
-        const databaseName = state.nodes.get(node.parentId!)?.name!;
+        const databaseName = nodes.nodes.get(node.parentId!)?.name!;
         const schemaName = node.name;
         const tables = await getTables(serverId, databaseName, schemaName);
 
@@ -102,10 +102,10 @@ export const useDataStructure = () => {
       }
 
       if (nodeType === "table") {
-        const databaseName = state.nodes.get(
-          state.nodes.get(node.parentId!)?.parentId!
+        const databaseName = nodes.nodes.get(
+          nodes.nodes.get(node.parentId!)?.parentId!
         )?.name!;
-        const schemaName = state.nodes.get(node.parentId!)?.name!;
+        const schemaName = nodes.nodes.get(node.parentId!)?.name!;
         const tableName = node.name;
         const columns = await getColumns(
           serverId,
@@ -127,16 +127,16 @@ export const useDataStructure = () => {
 
       return [];
     },
-    [state.nodes]
+    [nodes.nodes]
   );
 
   // Lazy load children when node expands
   const loadChildren = useCallback(
     async (nodeId: string) => {
-      const node = state.nodes.get(nodeId);
+      const node = nodes.nodes.get(nodeId);
       if (!node || !node.hasChildren) return;
 
-      setState((prev) => {
+      setNodes((prev) => {
         const newNodes = new Map(prev.nodes);
         newNodes.set(nodeId, { ...node, isLoading: true });
         return { ...prev, nodes: newNodes };
@@ -147,7 +147,7 @@ export const useDataStructure = () => {
 
         if (childrens.length === 0) return;
 
-        setState((prev) => {
+        setNodes((prev) => {
           const newNodes = new Map(prev.nodes);
           const newChildrenMap = new Map(prev.childrenMap);
 
@@ -164,24 +164,24 @@ export const useDataStructure = () => {
       } catch (error) {
         toast.error("Failed to load children.");
       } finally {
-        setState((prev) => {
+        setNodes((prev) => {
           const newNodes = new Map(prev.nodes);
           newNodes.set(nodeId, { ...node, isLoading: false });
           return { ...prev, nodes: newNodes };
         });
       }
     },
-    [state.nodes, getChildren]
+    [nodes.nodes, getChildren]
   );
 
   const toggleNode = useCallback(
     (nodeId: string) => {
-      const node = state.nodes.get(nodeId);
+      const node = nodes.nodes.get(nodeId);
       if (!node) return;
 
       const shouldExpand = !node.isExpanded;
 
-      setState((prev) => ({
+      setNodes((prev) => ({
         ...prev,
         nodes: new Map(prev.nodes).set(nodeId, {
           ...node,
@@ -189,15 +189,15 @@ export const useDataStructure = () => {
         }),
       }));
 
-      if (shouldExpand && !state.childrenMap.has(nodeId)) {
+      if (shouldExpand && !nodes.childrenMap.has(nodeId)) {
         loadChildren(nodeId);
       }
     },
-    [state, loadChildren]
+    [nodes, loadChildren]
   );
 
   return {
-    state,
+    nodes,
     toggleNode,
     loadChildren,
     addChildrenToState,
