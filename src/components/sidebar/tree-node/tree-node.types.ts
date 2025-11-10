@@ -5,4 +5,6 @@ export interface TreeNodeProps {
   nodes: Map<string, TreeNode>;
   childrenMap: Map<string, string[]>;
   onToggle: (nodeId: string) => void;
+  level?: number;
+  isLastChild?: boolean;
 }

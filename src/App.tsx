@@ -47,6 +47,10 @@ const App: FC = () => {
             onDeleteServer={() => {}}
           />
         </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel className="bg-main text-main-foreground">
+          {/* Main content goes here */}
+        </ResizablePanel>
       </ResizablePanelGroup>
     </>
   );

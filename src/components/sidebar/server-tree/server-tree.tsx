@@ -11,22 +11,24 @@ export const ServerTree = memo(
     }, [nodes]);
 
     return (
-      <div className="p-2">
-        <div className="border rounded-lg p-4 ">
-          {rootNodeIds.length === 0 ? (
-            <p className="text-gray-500">No servers connected</p>
-          ) : (
-            rootNodeIds.map((rootId) => (
+      <div className="p-2 h-full">
+        {rootNodeIds.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No servers connected</p>
+        ) : (
+          <div className="space-y-1">
+            {rootNodeIds.map((rootId, index) => (
               <TreeNode
                 key={rootId}
                 nodeId={rootId}
                 nodes={nodes}
                 childrenMap={childrenMap}
                 onToggle={toggleNode}
+                level={0}
+                isLastChild={index === rootNodeIds.length - 1}
               />
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
