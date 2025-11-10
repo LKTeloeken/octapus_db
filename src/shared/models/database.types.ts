@@ -18,6 +18,17 @@ export interface Column {
   columnDefault: string | null;
 }
 
+export interface TreeNode {
+  id: string;
+  type: TreeNodeType;
+  name: string;
+  parentId: string | null;
+  hasChildren: boolean;
+  isExpanded: boolean;
+  isLoading: boolean;
+  metadata?: Record<string, any>; // type info, constraints, etc.
+}
+
 export type TreeNodeType =
   | "server"
   | "database"

@@ -7,8 +7,8 @@ import {
 } from "@/api/postgres/methods";
 import { formatTreeNode } from "@/lib/format-tree-node";
 import toast from "react-hot-toast";
-import type { TreeState, TreeNode } from "./use-data-structure.types";
-import type { TreeNodeType } from "@/shared/models/database.types";
+import type { TreeState } from "./use-data-structure.types";
+import type { TreeNode, TreeNodeType } from "@/shared/models/database.types";
 
 export const useDataStructure = () => {
   const [nodes, setNodes] = useState<TreeState>({
@@ -175,22 +175,43 @@ export const useDataStructure = () => {
   );
 
   const toggleNode = useCallback(
-    (nodeId: string) => {
+    async (nodeId: string) => {
       const node = nodes.nodes.get(nodeId);
       if (!node) return;
 
       const shouldExpand = !node.isExpanded;
 
-      setNodes((prev) => ({
-        ...prev,
-        nodes: new Map(prev.nodes).set(nodeId, {
-          ...node,
-          isExpanded: shouldExpand,
-        }),
-      }));
+      if (!shouldExpand) {
+        setNodes((prev) => {
+          const newNodes = new Map(prev.nodes);
+          newNodes.set(nodeId, {
+            ...node,
+            isExpanded: false,
+          });
+          return { ...prev, nodes: newNodes };
+        });
+        return;
+      }
 
-      if (shouldExpand && !nodes.childrenMap.has(nodeId)) {
-        loadChildren(nodeId);
+      if (!nodes.childrenMap.has(nodeId)) {
+        // Carrega filhos
+        await loadChildren(nodeId);
+
+        // Expande após carregar
+        setNodes((prev) => {
+          const newNodes = new Map(prev.nodes);
+          newNodes.set(nodeId, {
+            ...node,
+            isExpanded: true,
+          });
+          return { ...prev, nodes: newNodes };
+        });
+      } else {
+        setNodes((prev) => {
+          const newNodes = new Map(prev.nodes);
+          newNodes.set(nodeId, { ...node, isExpanded: true });
+          return { ...prev, nodes: newNodes };
+        });
       }
     },
     [nodes, loadChildren]

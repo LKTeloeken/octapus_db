@@ -5,14 +5,21 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable";
 import { CustomToaster } from "./components/Toaster";
-
-import { ServersProvider } from "./shared/providers/servers-provider";
-import { TabsProvider } from "./shared/providers/tabs-provider";
-
-import Sidebar from "@/components/layout/sidebar";
-import QueryContent from "@/components/layout/query-content/query-content";
+import { SidebarBody } from "./components/sidebar/sidebar-body/sidebar-body";
+import { useServers } from "@/shared/hooks/use-servers/use-servers";
+import { useDataStructure } from "@/shared/hooks/use-data-structure/use-data-structure";
 
 const App: FC = () => {
+  const { nodes, toggleNode, addChildrenToState, removeChildrenFromState } =
+    useDataStructure();
+  const { addServer, fetchServers, isLoading } = useServers({
+    addChildren: addChildrenToState,
+  });
+
+  useEffect(() => {
+    fetchServers();
+  }, []);
+
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove("light", "dark");
@@ -24,22 +31,22 @@ const App: FC = () => {
       <CustomToaster />
 
       <ResizablePanelGroup direction="horizontal" className="h-screen w-full">
-        <TabsProvider>
-          <ResizablePanel
-            defaultSize={20}
-            minSize={15}
-            maxSize={40}
-            className="border-r border-border bg-sidebar text-sidebar-foreground"
-          >
-            <ServersProvider>
-              <Sidebar />
-            </ServersProvider>
-          </ResizablePanel>
-
-          <ResizableHandle withHandle />
-
-          <QueryContent />
-        </TabsProvider>
+        <ResizablePanel
+          defaultSize={20}
+          minSize={15}
+          maxSize={40}
+          className="border-r border-border bg-sidebar text-sidebar-foreground"
+        >
+          <SidebarBody
+            nodes={nodes.nodes}
+            childrenMap={nodes.childrenMap}
+            isLoading={isLoading}
+            toggleNode={toggleNode}
+            onCreateServer={() => {}}
+            onEditServer={() => {}}
+            onDeleteServer={() => {}}
+          />
+        </ResizablePanel>
       </ResizablePanelGroup>
     </>
   );

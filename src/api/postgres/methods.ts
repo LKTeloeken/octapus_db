@@ -35,14 +35,14 @@ export async function executeQuery(
 export async function getDatabases(
   serverId: number
 ): Promise<Database.Database[]> {
-  const databases = await invoke<Database.Database[]>(
+  const databases = await invoke<{ datname: string }[]>(
     RustMethods.GET_POSTGRE_DATABASES,
     {
       serverId,
     }
   );
 
-  return databases;
+  return databases.map((db) => ({ name: db.datname, serverId }));
 }
 
 export async function getSchemas(
