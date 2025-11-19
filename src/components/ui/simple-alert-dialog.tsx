@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 interface SimpleAlertDialogProps {
-  Trigger: React.ForwardRefExoticComponent<any> | React.ComponentType<any>;
+  Trigger?: React.ForwardRefExoticComponent<any> | React.ComponentType<any>;
   title: React.ReactNode;
   description?: React.ReactNode;
   children?: React.ReactNode;
@@ -36,7 +36,9 @@ export function SimpleAlertDialog({
 }: SimpleAlertDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogTrigger asChild>{<Trigger />}</AlertDialogTrigger>
+      {Trigger && (
+        <AlertDialogTrigger asChild>{<Trigger />}</AlertDialogTrigger>
+      )}
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>

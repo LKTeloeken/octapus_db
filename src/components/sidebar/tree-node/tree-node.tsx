@@ -16,6 +16,7 @@ export const TreeNode = memo(
   }: TreeNodeProps) => {
     const { getNodeIcon } = useTreeNode();
     const node = nodes.get(nodeId);
+
     if (!node) return null;
 
     const childrenIds = childrenMap.get(nodeId) || [];
@@ -28,10 +29,10 @@ export const TreeNode = memo(
         {level > 0 && (
           <div
             className={cn(
-              "absolute left-0 top-0 w-0.5 bg-secondary",
+              "absolute top-0 w-0.5 bg-secondary",
               isLastChild ? "h-[1.125rem]" : "h-full"
             )}
-            style={{ left: `${(level - 1) * 1.25}rem` }}
+            style={{ left: `${(level - 1) * 1.25 + 0.95}rem` }}
           />
         )}
 
@@ -40,8 +41,8 @@ export const TreeNode = memo(
           <div
             className="absolute top-[1.125rem] h-0.5 bg-secondary"
             style={{
-              left: `${(level - 1) * 1.25}rem`,
-              width: "1rem",
+              left: `${(level - 1) * 1.25 + 0.95}rem`,
+              width: "0.5rem",
             }}
           />
         )}

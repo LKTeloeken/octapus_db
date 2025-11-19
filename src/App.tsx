@@ -12,7 +12,7 @@ import { useDataStructure } from "@/shared/hooks/use-data-structure/use-data-str
 const App: FC = () => {
   const { nodes, toggleNode, addChildrenToState, removeChildrenFromState } =
     useDataStructure();
-  const { addServer, fetchServers, isLoading } = useServers({
+  const { addServer, editServer, fetchServers, isLoading } = useServers({
     addChildren: addChildrenToState,
   });
 
@@ -34,7 +34,7 @@ const App: FC = () => {
         <ResizablePanel
           defaultSize={20}
           minSize={15}
-          maxSize={40}
+          maxSize={50}
           className="border-r border-border bg-sidebar text-sidebar-foreground"
         >
           <SidebarBody

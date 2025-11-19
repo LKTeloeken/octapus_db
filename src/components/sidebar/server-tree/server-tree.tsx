@@ -11,7 +11,7 @@ export const ServerTree = memo(
     }, [nodes]);
 
     return (
-      <div className="p-2 h-full">
+      <div className="p-2 h-full overflow-auto">
         {rootNodeIds.length === 0 ? (
           <p className="text-sm text-muted-foreground">No servers connected</p>
         ) : (

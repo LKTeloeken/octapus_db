@@ -11,7 +11,7 @@ import {
 
 export interface SimpleDialogProps {
   /** Conteúdo do gatilho (botão ou elemento que abre o diálogo) */
-  trigger: React.ForwardRefExoticComponent<any> | React.ComponentType<any>;
+  trigger?: React.ForwardRefExoticComponent<any> | React.ComponentType<any>;
   /** Título do diálogo */
   title: React.ReactNode;
   /** Descrição ou subtítulo */
@@ -37,7 +37,7 @@ export const SimpleDialog: React.FC<SimpleDialogProps> = ({
 }) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>{<Trigger />}</DialogTrigger>
+      {Trigger && <DialogTrigger asChild>{<Trigger />}</DialogTrigger>}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

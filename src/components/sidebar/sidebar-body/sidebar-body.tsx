@@ -1,5 +1,4 @@
 import { memo } from "react";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Typography } from "@/components/ui/typography";
 import { Spinner } from "@/components/ui/spinner";
 import { Separator } from "@/components/ui/separator";
@@ -25,7 +24,7 @@ export const SidebarBody = memo(
     onDeleteServer,
   }: SidebarBodyProps) => {
     return (
-      <ScrollArea className="h-full">
+      <div className="h-full flex flex-col">
         <div className="flex items-center justify-between px-4 py-2">
           <div className="flex items-center gap-2">
             <Typography variant="p" className="font-semibold">
@@ -54,7 +53,7 @@ export const SidebarBody = memo(
           childrenMap={childrenMap}
           toggleNode={toggleNode}
         />
-      </ScrollArea>
+      </div>
     );
   }
 );

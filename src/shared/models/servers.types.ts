@@ -5,7 +5,7 @@ export interface Server {
   port: number;
   username: string;
   password: string;
-  created_at: number;
+  created_at?: number;
   isConnected?: boolean;
   default_database?: string;
 }
