@@ -10,11 +10,13 @@ import { useServers } from "@/shared/hooks/use-servers/use-servers";
 import { useDataStructure } from "@/shared/hooks/use-data-structure/use-data-structure";
 
 const App: FC = () => {
-  const { nodes, toggleNode, addChildrenToState, removeChildrenFromState } =
+  const { nodes, toggleNode, addChildrenToState, removeNode } =
     useDataStructure();
-  const { addServer, editServer, fetchServers, isLoading } = useServers({
-    addChildren: addChildrenToState,
-  });
+  const { addServer, removeServer, editServer, fetchServers, isLoading } =
+    useServers({
+      addChildren: addChildrenToState,
+      removeNode,
+    });
 
   useEffect(() => {
     fetchServers();
@@ -42,9 +44,9 @@ const App: FC = () => {
             childrenMap={nodes.childrenMap}
             isLoading={isLoading}
             toggleNode={toggleNode}
-            onCreateServer={() => {}}
-            onEditServer={() => {}}
-            onDeleteServer={() => {}}
+            onCreateServer={addServer}
+            onEditServer={editServer}
+            onDeleteServer={removeServer}
           />
         </ResizablePanel>
         <ResizableHandle />

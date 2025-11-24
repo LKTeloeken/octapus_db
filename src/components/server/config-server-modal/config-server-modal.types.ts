@@ -8,7 +8,6 @@ export type ConfigServerModalProps =
       isLoading: boolean;
       onClose: () => void;
       onCreateServer: (server: ServerPrimitive) => Promise<void>;
-      onEditServer: (server: Server) => Promise<void>;
       onRemoveServer: (serverId: number) => Promise<void>;
     }
   | {
@@ -18,7 +17,6 @@ export type ConfigServerModalProps =
       isOpen: boolean;
       isLoading: boolean;
       onClose: () => void;
-      onCreateServer: (server: ServerPrimitive) => Promise<void>;
       onEditServer: (server: Server) => Promise<void>;
       onRemoveServer: (serverId: number) => Promise<void>;
     };

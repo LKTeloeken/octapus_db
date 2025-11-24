@@ -7,10 +7,11 @@ import { configs } from "./server-configs";
 import type { ConfigServerModalProps } from "./config-server-modal.types";
 
 export function ConfigServerModal(props: ConfigServerModalProps) {
-  const { isOpen, isLoading, isEditMode, onClose } = props;
+  const { isOpen, isEditMode, onClose } = props;
   const {
     localServerData,
     openRemoveDialog,
+    disableSave,
     handleChangeInput,
     handleRemove,
     handleSave,
@@ -35,7 +36,7 @@ export function ConfigServerModal(props: ConfigServerModalProps) {
               </Button>
             )}
             {!isEditMode && (
-              <Button variant="link" size="sm" onClick={onClose}>
+              <Button variant="ghost" size="sm" onClick={onClose}>
                 Fechar
               </Button>
             )}
@@ -43,7 +44,7 @@ export function ConfigServerModal(props: ConfigServerModalProps) {
               size="sm"
               variant="default"
               onClick={handleSave}
-              disabled={isLoading}
+              disabled={disableSave}
             >
               Salvar
             </Button>

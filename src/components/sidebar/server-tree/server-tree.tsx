@@ -3,7 +3,7 @@ import { TreeNode } from "../tree-node/tree-node";
 import type { ServerTreeProps } from "./server-tree.types";
 
 export const ServerTree = memo(
-  ({ nodes, childrenMap, toggleNode }: ServerTreeProps) => {
+  ({ nodes, childrenMap, toggleNode, onNodeClick }: ServerTreeProps) => {
     const rootNodeIds = useMemo(() => {
       return Array.from(nodes.values())
         .filter((node) => !node.parentId)
@@ -25,6 +25,7 @@ export const ServerTree = memo(
                 onToggle={toggleNode}
                 level={0}
                 isLastChild={index === rootNodeIds.length - 1}
+                onNodeClick={onNodeClick}
               />
             ))}
           </div>

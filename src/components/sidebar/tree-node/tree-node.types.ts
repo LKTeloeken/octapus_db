@@ -1,4 +1,5 @@
 import type { TreeNode } from "@/shared/models/database.types";
+import type { Server } from "@/shared/models/servers.types";
 
 export interface TreeNodeProps {
   nodeId: string;
@@ -7,4 +8,5 @@ export interface TreeNodeProps {
   onToggle: (nodeId: string) => void;
   level?: number;
   isLastChild?: boolean;
+  onNodeClick?: (server: Server) => void;
 }

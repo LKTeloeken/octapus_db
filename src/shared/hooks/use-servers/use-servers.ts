@@ -8,9 +8,14 @@ import {
 } from "@/api/server/methods";
 import { formatTreeNode } from "@/lib/format-tree-node";
 import type { Server, ServerPrimitive } from "@/shared/models/servers.types";
-import type { UserServersProps } from "./user-servers.types";
+import type {
+  UserServersProps,
+  AddServer,
+  EditServer,
+  DeleteServer,
+} from "./user-servers.types";
 
-export const useServers = ({ addChildren }: UserServersProps) => {
+export const useServers = ({ addChildren, removeNode }: UserServersProps) => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const fetchServers = async () => {
@@ -36,7 +41,7 @@ export const useServers = ({ addChildren }: UserServersProps) => {
     }
   };
 
-  const addServer = async (server: ServerPrimitive) => {
+  const addServer: AddServer = async (server: ServerPrimitive) => {
     setIsLoading(true);
     try {
       const newServer = await createServer(server);
@@ -60,7 +65,7 @@ export const useServers = ({ addChildren }: UserServersProps) => {
     }
   };
 
-  const editServer = async (server: Server) => {
+  const editServer: EditServer = async (server: Server) => {
     setIsLoading(true);
     try {
       const updatedServer = await updateServer(server);
@@ -84,10 +89,11 @@ export const useServers = ({ addChildren }: UserServersProps) => {
     }
   };
 
-  const removeServer = async (id: number) => {
+  const removeServer: DeleteServer = async (id: number) => {
     setIsLoading(true);
     try {
       await deleteServer(id);
+      removeNode(`server-${id}`);
       toast.success("Server deleted successfully.");
     } catch (error) {
       toast.error("Failed to delete server.");

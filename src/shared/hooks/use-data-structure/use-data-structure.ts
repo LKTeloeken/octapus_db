@@ -36,14 +36,21 @@ export const useDataStructure = () => {
     });
   }, []);
 
-  const removeChildrenFromState = useCallback((parentId: string) => {
+  const removeNode = useCallback((nodeId: string) => {
     setNodes((prev) => {
       const newNodes = new Map(prev.nodes);
       const newChildrenMap = new Map(prev.childrenMap);
 
-      const childrenIds = newChildrenMap.get(parentId) || [];
-      childrenIds.forEach((childId) => newNodes.delete(childId));
-      newChildrenMap.delete(parentId);
+      const deleteNodeRecursively = (id: string) => {
+        const children = newChildrenMap.get(id);
+        if (children) {
+          children.forEach(deleteNodeRecursively);
+          newChildrenMap.delete(id);
+        }
+        newNodes.delete(id);
+      };
+
+      deleteNodeRecursively(nodeId);
 
       return { nodes: newNodes, childrenMap: newChildrenMap };
     });
@@ -65,7 +72,11 @@ export const useDataStructure = () => {
             "database",
             serverId,
             db.name,
-            nodeId
+            nodeId,
+            {
+              type: "database",
+              serverId,
+            }
           )
         );
       }
@@ -80,7 +91,11 @@ export const useDataStructure = () => {
             "schema",
             serverId,
             schema.name,
-            nodeId
+            nodeId,
+            {
+              type: "schema",
+              serverId,
+            }
           )
         );
       }
@@ -96,7 +111,11 @@ export const useDataStructure = () => {
             "table",
             serverId,
             table.name,
-            nodeId
+            nodeId,
+            {
+              type: "table",
+              serverId,
+            }
           )
         );
       }
@@ -120,7 +139,14 @@ export const useDataStructure = () => {
             "column",
             serverId,
             column.name,
-            nodeId
+            nodeId,
+            {
+              type: "column",
+              serverId,
+              dataType: column.data_type,
+              isNullable: column.is_nullable,
+              columnDefault: column.column_default,
+            }
           )
         );
       }
@@ -222,6 +248,6 @@ export const useDataStructure = () => {
     toggleNode,
     loadChildren,
     addChildrenToState,
-    removeChildrenFromState,
+    removeNode,
   };
 };

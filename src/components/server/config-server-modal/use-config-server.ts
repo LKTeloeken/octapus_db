@@ -1,16 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import type { ServerPrimitive } from "@/shared/models/servers.types";
 import type { ConfigServerModalProps } from "./config-server-modal.types";
 
 export const useConfigServer = (props: ConfigServerModalProps) => {
-  const {
-    isEditMode,
-    serverData,
-    onClose,
-    onCreateServer,
-    onEditServer,
-    onRemoveServer,
-  } = props;
+  const { isEditMode, serverData, isLoading, onClose, onRemoveServer } = props;
   const [openRemoveDialog, setOpenRemoveDialog] = useState<boolean>(false);
   const [localServerData, setLocalServerData] = useState<ServerPrimitive>({
     name: "",
@@ -21,6 +14,17 @@ export const useConfigServer = (props: ConfigServerModalProps) => {
     password: "",
     isConnected: false,
   });
+  const disableSave = useMemo(() => {
+    return (
+      !localServerData.name ||
+      !localServerData.host ||
+      !localServerData.port ||
+      !localServerData.default_database ||
+      !localServerData.username ||
+      !localServerData.password ||
+      isLoading
+    );
+  }, [localServerData]);
 
   const handleChangeInput = useCallback(
     (key: string) => (value: string) => {
@@ -34,13 +38,15 @@ export const useConfigServer = (props: ConfigServerModalProps) => {
 
   const handleSave = async () => {
     if (isEditMode) {
-      const { serverId } = props;
+      const { serverId, onEditServer } = props;
 
       await onEditServer({ ...localServerData, id: serverId });
 
       onClose();
       return;
     }
+
+    const { onCreateServer } = props;
 
     await onCreateServer(localServerData);
     onClose();
@@ -63,6 +69,7 @@ export const useConfigServer = (props: ConfigServerModalProps) => {
   return {
     openRemoveDialog,
     localServerData,
+    disableSave,
     handleChangeInput,
     handleSave,
     handleRemove,

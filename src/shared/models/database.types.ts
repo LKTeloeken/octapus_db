@@ -1,3 +1,5 @@
+import type { Server } from "./servers.types";
+
 export interface Database {
   name: string;
   serverId: number;
@@ -13,9 +15,9 @@ export interface Table {
 
 export interface Column {
   name: string;
-  dataType: string;
-  isNullable: boolean;
-  columnDefault: string | null;
+  data_type: string;
+  is_nullable: boolean;
+  column_default: string | null;
 }
 
 export interface TreeNode {
@@ -26,7 +28,7 @@ export interface TreeNode {
   hasChildren: boolean;
   isExpanded: boolean;
   isLoading: boolean;
-  metadata?: Record<string, any>; // type info, constraints, etc.
+  metadata: TreeNodeMetadata; // type info, constraints, etc.
 }
 
 export type TreeNodeType =
@@ -35,3 +37,21 @@ export type TreeNodeType =
   | "schema"
   | "table"
   | "column";
+
+export type TreeNodeMetadata =
+  | {
+      type: "server";
+      serverId: number;
+      serverData?: Server;
+    }
+  | {
+      type: "column";
+      serverId: number;
+      dataType: string;
+      isNullable: boolean;
+      columnDefault: string | null;
+    }
+  | {
+      type: Exclude<TreeNodeType, "column" | "server">;
+      serverId: number;
+    };

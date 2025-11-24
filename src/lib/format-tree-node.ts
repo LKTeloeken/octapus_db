@@ -1,4 +1,8 @@
-import type { TreeNodeType } from "@/shared/models/database.types";
+import type {
+  TreeNode,
+  TreeNodeType,
+  TreeNodeMetadata,
+} from "@/shared/models/database.types";
 
 export function formatTreeNode(
   id: string,
@@ -6,9 +10,15 @@ export function formatTreeNode(
   serverId: number,
   name: string,
   parentId: string | null,
-  metaData?: Record<string, any>
-) {
+  metaData: Partial<TreeNodeMetadata> = {}
+): TreeNode {
   const hasChildren = type !== "column";
+
+  const metadata = {
+    type,
+    serverId,
+    ...metaData,
+  } as TreeNodeMetadata;
 
   return {
     id,
@@ -18,6 +28,6 @@ export function formatTreeNode(
     hasChildren,
     isExpanded: false,
     isLoading: false,
-    metadata: { serverId, ...(metaData || {}) },
+    metadata,
   };
 }
