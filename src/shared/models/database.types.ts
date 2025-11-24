@@ -28,7 +28,7 @@ export interface TreeNode {
   hasChildren: boolean;
   isExpanded: boolean;
   isLoading: boolean;
-  metadata: TreeNodeMetadata; // type info, constraints, etc.
+  metadata: TreeNodeMetadata;
 }
 
 export type TreeNodeType =

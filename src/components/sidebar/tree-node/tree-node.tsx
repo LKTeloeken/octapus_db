@@ -81,10 +81,10 @@ export const TreeNode = memo(
           <div className="flex items-center gap-2">
             {getNodeIcon(node.type)}
 
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 ">
               <div className="text-sm truncate">{node.name}</div>
               {metadata && metadata.type === "column" && (
-                <div className="text-xs text-muted-foreground">
+                <div className="text-xs text-muted-foreground truncate">
                   {metadata.dataType}
                 </div>
               )}
