@@ -24,6 +24,7 @@ export const SidebarBody = memo(
     onCreateServer,
     onEditServer,
     onDeleteServer,
+    openTab,
   }: SidebarBodyProps) => {
     const {
       isConfigServerModalOpen,
@@ -88,7 +89,8 @@ export const SidebarBody = memo(
           nodes={nodes}
           childrenMap={childrenMap}
           toggleNode={toggleNode}
-          onNodeClick={openConfigServerModal}
+          openServerModal={openConfigServerModal}
+          openNewTab={openTab}
         />
       </div>
     );

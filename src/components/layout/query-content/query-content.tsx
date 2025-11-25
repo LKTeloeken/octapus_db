@@ -6,7 +6,7 @@ import {
 } from "@/components/ui/resizable";
 import { Button } from "@/components/ui/button";
 import { Play } from "lucide-react";
-import QueryTabs from "@/components/layout/query-tabs/query-tabs";
+import QueryTabs from "@/components/query-tabs/query-tabs";
 import SQLEditor from "@/components/layout/query-editor/query-editor";
 import { QueryResultsTable } from "../query-results/query-results";
 import { useTabs } from "@/shared/providers/tabs-provider";

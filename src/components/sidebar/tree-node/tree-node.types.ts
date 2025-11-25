@@ -1,3 +1,4 @@
+import type { OpenTab } from "@/shared/hooks/use-query-tabs/use-query-tabs.types";
 import type { TreeNode } from "@/shared/models/database.types";
 import type { Server } from "@/shared/models/servers.types";
 
@@ -8,5 +9,6 @@ export interface TreeNodeProps {
   onToggle: (nodeId: string) => void;
   level?: number;
   isLastChild?: boolean;
-  onNodeClick?: (server: Server) => void;
+  openServerModal: (server: Server) => void;
+  openNewTab: OpenTab;
 }

@@ -76,6 +76,7 @@ export const useDataStructure = () => {
             {
               type: "database",
               serverId,
+              databaseName: db.name,
             }
           )
         );
@@ -95,6 +96,7 @@ export const useDataStructure = () => {
             {
               type: "schema",
               serverId,
+              databaseName,
             }
           )
         );
@@ -115,6 +117,7 @@ export const useDataStructure = () => {
             {
               type: "table",
               serverId,
+              databaseName,
             }
           )
         );
@@ -143,6 +146,7 @@ export const useDataStructure = () => {
             {
               type: "column",
               serverId,
+              databaseName,
               dataType: column.data_type,
               isNullable: column.is_nullable,
               columnDefault: column.column_default,
@@ -155,6 +159,8 @@ export const useDataStructure = () => {
     },
     [nodes.nodes]
   );
+
+  console.log("nodes", nodes);
 
   // Lazy load children when node expands
   const loadChildren = useCallback(

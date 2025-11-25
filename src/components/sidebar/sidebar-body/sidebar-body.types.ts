@@ -4,6 +4,7 @@ import type {
   EditServer,
   DeleteServer,
 } from "@/shared/hooks/use-servers/user-servers.types";
+import type { OpenTab } from "@/shared/hooks/use-query-tabs/use-query-tabs.types";
 
 export interface SidebarBodyProps {
   nodes: Map<string, TreeNode>;
@@ -13,4 +14,5 @@ export interface SidebarBodyProps {
   onCreateServer: AddServer;
   onEditServer: EditServer;
   onDeleteServer: DeleteServer;
+  openTab: OpenTab;
 }

@@ -1,6 +1,12 @@
-import { memo, useState } from "react";
+import { memo } from "react";
 import { Spinner } from "@/components/ui/spinner";
-import { ChevronDown, ChevronRight, MoreHorizontal, Edit } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  MoreHorizontal,
+  Edit,
+  Plus,
+} from "lucide-react";
 import { useTreeNode } from "./use-tree-node";
 import type { TreeNodeProps } from "./tree-node.types";
 import { cn } from "@/lib/utils";
@@ -19,39 +25,25 @@ export const TreeNode = memo(
     onToggle,
     level = 0,
     isLastChild = false,
-    onNodeClick,
+    openServerModal,
+    openNewTab,
   }: TreeNodeProps) => {
-    const { getNodeIcon } = useTreeNode();
     const node = nodes.get(nodeId);
 
     if (!node) return null;
 
-    const childrenIds = childrenMap.get(nodeId) || [];
-    const hasChildren = node.hasChildren;
-    const isExpanded = node.isExpanded;
-    const metadata = node.metadata;
-
-    const [isMenuOpen, setIsMenuOpen] = useState(false);
-
-    const handleContextMenu = (e: React.MouseEvent) => {
-      if (node.type === "server" && onNodeClick) {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsMenuOpen(true);
-      }
-    };
-
-    const handleEdit = (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (
-        onNodeClick &&
-        metadata &&
-        metadata.type === "server" &&
-        metadata.serverData
-      ) {
-        onNodeClick(metadata.serverData);
-      }
-    };
+    const {
+      isMenuOpen,
+      childrenIds,
+      hasChildren,
+      isExpanded,
+      metadata,
+      getNodeIcon,
+      handleContextMenu,
+      handleServerEdit,
+      setIsMenuOpen,
+      handleOpenNewTab,
+    } = useTreeNode(node, nodeId, childrenMap, openServerModal, openNewTab);
 
     return (
       <div className="relative">
@@ -91,41 +83,54 @@ export const TreeNode = memo(
             </div>
           </div>
 
-          {node.type === "server" && onNodeClick && (
-            <div
-              className={cn(
-                "absolute right-2 transition-opacity",
-                isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-              )}
-            >
-              <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-32 p-1" align="end">
+          <div
+            className={cn(
+              "absolute right-2 transition-opacity",
+              isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            )}
+          >
+            <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-32 p-1" align="end">
+                {node.type === "server" && (
                   <Button
                     variant="ghost"
                     size="sm"
                     className="w-full justify-start gap-2"
                     onClick={(e) => {
-                      handleEdit(e);
+                      handleServerEdit(e);
                       setIsMenuOpen(false);
                     }}
                   >
                     <Edit className="h-3 w-3" />
                     Editar
                   </Button>
-                </PopoverContent>
-              </Popover>
-            </div>
-          )}
+                )}
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start gap-2"
+                  onClick={(e) => {
+                    handleOpenNewTab(e);
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  <Plus className="h-3 w-3" />
+                  Nova aba
+                </Button>
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
 
         {/* Renderiza filhos apenas se expandido */}
@@ -140,7 +145,8 @@ export const TreeNode = memo(
                 onToggle={onToggle}
                 level={level + 1}
                 isLastChild={index === childrenIds.length - 1}
-                onNodeClick={onNodeClick}
+                openServerModal={openServerModal}
+                openNewTab={openNewTab}
               />
             ))}
           </div>

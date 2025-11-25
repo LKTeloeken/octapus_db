@@ -1,14 +1,17 @@
-import { memo, useMemo } from "react";
+import { memo } from "react";
 import { TreeNode } from "../tree-node/tree-node";
+import { useServerTree } from "./use-server-tree";
 import type { ServerTreeProps } from "./server-tree.types";
 
 export const ServerTree = memo(
-  ({ nodes, childrenMap, toggleNode, onNodeClick }: ServerTreeProps) => {
-    const rootNodeIds = useMemo(() => {
-      return Array.from(nodes.values())
-        .filter((node) => !node.parentId)
-        .map((node) => node.id);
-    }, [nodes]);
+  ({
+    nodes,
+    childrenMap,
+    toggleNode,
+    openServerModal,
+    openNewTab,
+  }: ServerTreeProps) => {
+    const { rootNodeIds } = useServerTree(nodes);
 
     return (
       <div className="p-2 h-full overflow-auto">
@@ -25,7 +28,8 @@ export const ServerTree = memo(
                 onToggle={toggleNode}
                 level={0}
                 isLastChild={index === rootNodeIds.length - 1}
-                onNodeClick={onNodeClick}
+                openServerModal={openServerModal}
+                openNewTab={openNewTab}
               />
             ))}
           </div>

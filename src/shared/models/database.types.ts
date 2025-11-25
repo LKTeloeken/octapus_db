@@ -47,6 +47,7 @@ export type TreeNodeMetadata =
   | {
       type: "column";
       serverId: number;
+      databaseName: string;
       dataType: string;
       isNullable: boolean;
       columnDefault: string | null;
@@ -54,4 +55,5 @@ export type TreeNodeMetadata =
   | {
       type: Exclude<TreeNodeType, "column" | "server">;
       serverId: number;
+      databaseName: string;
     };
