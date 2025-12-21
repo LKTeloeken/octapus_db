@@ -71,7 +71,7 @@ export const TreeNode = memo(
           </div>
 
           <div className="flex items-center gap-2">
-            {getNodeIcon(node.type)}
+            {getNodeIcon(node.type, !!node.isConnected)}
 
             <div className="flex flex-col gap-1 ">
               <div className="text-sm truncate">{node.name}</div>

@@ -29,6 +29,7 @@ export interface TreeNode {
   isExpanded: boolean;
   isLoading: boolean;
   metadata: TreeNodeMetadata;
+  isConnected?: boolean;
 }
 
 export type TreeNodeType =
@@ -57,3 +58,5 @@ export type TreeNodeMetadata =
       serverId: number;
       databaseName: string;
     };
+
+export type QueryResultsRow = Record<string, unknown>;

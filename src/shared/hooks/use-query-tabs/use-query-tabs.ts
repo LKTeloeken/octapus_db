@@ -9,6 +9,7 @@ import type {
   ExecuteQuery,
 } from "@/shared/hooks/use-query-tabs/use-query-tabs.types";
 import type { QueryTab } from "@/shared/models/query-tabs.types";
+import toast from "react-hot-toast";
 
 export function useQueryTabs() {
   const { runQuery, loading: loadingQuery } = useRunQuery();
@@ -57,6 +58,15 @@ export function useQueryTabs() {
     []
   );
 
+  const setTabQuery: SetTabContent = useCallback(
+    (id: string, query: string) => {
+      setTabs((prevTabs) =>
+        prevTabs.map((tab) => (tab.id === id ? { ...tab, query } : tab))
+      );
+    },
+    []
+  );
+
   const executeQuery: ExecuteQuery = useCallback(
     async (id: string, query: string) => {
       const tab = tabs.find((t) => t.id === id);
@@ -66,17 +76,34 @@ export function useQueryTabs() {
         prevTabs.map((t) => (t.id === id ? { ...t, loading: true } : t))
       );
 
-      const { rows, fields } = await runQuery(
-        tab.serverId,
-        tab.databaseName,
-        query
-      );
+      try {
+        const { rows, fields } = await runQuery(
+          tab.serverId,
+          tab.databaseName,
+          query
+        );
 
-      setTabs((prevTabs) =>
-        prevTabs.map((t) =>
-          t.id === id ? { ...t, result: { rows, fields }, loading: false } : t
-        )
-      );
+        setTabs((prevTabs) =>
+          prevTabs.map((t) =>
+            t.id === id ? { ...t, result: { rows, fields }, loading: false } : t
+          )
+        );
+      } catch (error) {
+        toast.error("Failed to execute query: " + String(error));
+
+        setTabs((prevTabs) =>
+          prevTabs.map((t) =>
+            t.id === id
+              ? {
+                  ...t,
+                  error: String(error),
+                  loading: false,
+                  result: { rows: [] },
+                }
+              : t
+          )
+        );
+      }
     },
     [tabs, runQuery]
   );
@@ -89,6 +116,7 @@ export function useQueryTabs() {
     closeTab,
     setActiveTabId,
     setTabContent,
+    setTabQuery,
     executeQuery,
   };
 }

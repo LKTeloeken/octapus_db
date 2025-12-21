@@ -9,6 +9,7 @@ import {
 import type { TreeNode, TreeNodeType } from "@/shared/models/database.types";
 import type { Server } from "@/shared/models/servers.types";
 import type { OpenTab } from "@/shared/hooks/use-query-tabs/use-query-tabs.types";
+import { cn } from "@/lib/utils";
 
 export const useTreeNode = (
   node: TreeNode,
@@ -57,10 +58,12 @@ export const useTreeNode = (
     setIsMenuOpen(false);
   };
 
-  const getNodeIcon = (type: TreeNodeType) => {
+  const getNodeIcon = (type: TreeNodeType, isConnected: boolean) => {
     switch (type) {
       case "server":
-        return <ServerIcon className="size-4" />;
+        return (
+          <ServerIcon className={cn("size-4", isConnected && "text-primary")} />
+        );
       case "database":
         return <Database className="size-4" />;
       case "schema":

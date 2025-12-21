@@ -44,7 +44,7 @@ export const SidebarBody = memo(
             {isLoading && <Spinner />}
           </div>
 
-          <TooltipProvider>
+          {/* <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -57,7 +57,7 @@ export const SidebarBody = memo(
               </TooltipTrigger>
               <TooltipContent side="left">Adicionar servidor</TooltipContent>
             </Tooltip>
-          </TooltipProvider>
+          </TooltipProvider> */}
 
           {editingServer ? (
             <ConfigServerModal
@@ -85,13 +85,22 @@ export const SidebarBody = memo(
 
         <Separator />
 
-        <ServerTree
-          nodes={nodes}
-          childrenMap={childrenMap}
-          toggleNode={toggleNode}
-          openServerModal={openConfigServerModal}
-          openNewTab={openTab}
-        />
+        <div className="p-2 flex flex-col gap-2 overflow-y-auto flex-1">
+          <div
+            className="w-full p-1 flex items-center justify-center gap-2 text-xs font-bold text-muted-foreground cursor-pointer hover:bg-accent hover:text-accent-foreground rounded-sm"
+            onClick={() => openConfigServerModal()}
+          >
+            <Plus className="size-4" />
+            Adicionar
+          </div>
+          <ServerTree
+            nodes={nodes}
+            childrenMap={childrenMap}
+            toggleNode={toggleNode}
+            openServerModal={openConfigServerModal}
+            openNewTab={openTab}
+          />
+        </div>
       </div>
     );
   }

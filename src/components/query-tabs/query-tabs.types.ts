@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { QueryTab } from "@/shared/models/query-tabs.types";
 import type {
   CloseTab,
@@ -6,7 +7,8 @@ import type {
 
 export interface QueryTabsProps {
   tabs: QueryTab[];
-  activeTabId: string;
+  activeTabId?: string;
   onTabChange: SetActiveTabId;
   onTabClose: CloseTab;
+  children: ReactNode;
 }

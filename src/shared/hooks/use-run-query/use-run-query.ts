@@ -10,10 +10,16 @@ export function useRunQuery() {
     query: string
   ) => {
     setLoading(true);
-    const result = await executeQuery(serverId, query, db);
-    setLoading(false);
 
-    return result;
+    try {
+      const result = await executeQuery(serverId, query, db);
+      setLoading(false);
+
+      return result;
+    } catch (error) {
+      setLoading(false);
+      return Promise.reject(error);
+    }
   };
 
   return { runQuery, loading };

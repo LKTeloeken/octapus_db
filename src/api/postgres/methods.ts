@@ -19,17 +19,21 @@ export async function executeQuery(
   query: string,
   databaseName?: string
 ): Promise<{ rows: any[]; fields?: string[] }> {
-  const { rows } = await invoke<{ rows: any[] }>(
-    RustMethods.RUN_POSTGRE_QUERY,
-    {
-      serverId,
-      query,
-      databaseName,
-    }
-  );
-  const fields = rows ? Object.keys(rows?.[0]).sort() : [];
+  try {
+    const { rows } = await invoke<{ rows: any[] }>(
+      RustMethods.RUN_POSTGRE_QUERY,
+      {
+        serverId,
+        query,
+        databaseName,
+      }
+    );
+    const fields = rows ? Object.keys(rows?.[0]).sort() : [];
 
-  return { fields, rows };
+    return { fields, rows };
+  } catch (error) {
+    return Promise.reject(error);
+  }
 }
 
 export async function getDatabases(

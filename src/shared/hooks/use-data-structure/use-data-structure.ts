@@ -159,13 +159,12 @@ export const useDataStructure = () => {
     },
     [nodes.nodes]
   );
-
-  console.log("nodes", nodes);
-
   // Lazy load children when node expands
   const loadChildren = useCallback(
     async (nodeId: string) => {
       const node = nodes.nodes.get(nodeId);
+      console.log("load node", node);
+
       if (!node || !node.hasChildren) return;
 
       setNodes((prev) => {
@@ -189,7 +188,10 @@ export const useDataStructure = () => {
             childrens.map((c) => c.id)
           );
 
-          newNodes.set(nodeId, { ...node, isLoading: false });
+          newNodes.set(nodeId, {
+            ...node,
+            isLoading: false,
+          });
 
           return { nodes: newNodes, childrenMap: newChildrenMap };
         });
@@ -235,6 +237,10 @@ export const useDataStructure = () => {
           newNodes.set(nodeId, {
             ...node,
             isExpanded: true,
+            isConnected:
+              node.type === "server" && !!prev.childrenMap.get(nodeId)?.length
+                ? true
+                : undefined,
           });
           return { ...prev, nodes: newNodes };
         });
