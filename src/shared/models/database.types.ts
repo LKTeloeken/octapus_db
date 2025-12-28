@@ -59,4 +59,4 @@ export type TreeNodeMetadata =
       databaseName: string;
     };
 
-export type QueryResultsRow = Record<string, unknown>;
+export type QueryResultsRow = string[][];

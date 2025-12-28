@@ -10,7 +10,7 @@ use tauri::{Builder, Manager};
 use db::init_database;
 use app_state::AppState;
 use commands::servers_commands::{create_server, get_all_servers, get_server_by_id, update_server, delete_server};
-use commands::postgre_commands::{run_postgre_query, connect_to_server, get_postgre_databases, get_postgre_schemas, get_postgre_tables, get_postgre_columns, get_postgre_triggers, get_postgre_indexes};
+use commands::postgre_commands::{run_postgre_query, connect_to_server, get_postgre_databases, get_postgre_schemas, get_postgre_tables, get_postgre_columns, get_postgre_triggers, get_postgre_indexes, get_database_structure};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -51,7 +51,8 @@ pub fn run() {
             get_postgre_tables,
             get_postgre_columns,
             get_postgre_triggers,
-            get_postgre_indexes
+            get_postgre_indexes,
+            get_database_structure
         ])
         .plugin(tauri_plugin_opener::init())
         .run(tauri::generate_context!())

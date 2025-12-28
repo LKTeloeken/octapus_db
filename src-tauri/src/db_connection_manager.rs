@@ -1,110 +1,90 @@
+// src/db_connection_manager.rs
+
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
-use std::sync::{Arc, Mutex};
 
+use anyhow::{anyhow, Result};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use deadpool_postgres::{
+    Config, CreatePoolError, ManagerConfig, Object, Pool, RecyclingMethod, Runtime,
+};
 use once_cell::sync::Lazy;
-use rusqlite::ffi::NOT_WITHIN;
-use rusqlite::Connection as SqliteConnection;
-use postgres::{Client as PgClient, NoTls, Config as PgConfig};
-use chrono::{NaiveDateTime};
+use serde::Serialize;
+use tokio::sync::RwLock;
+use tokio_postgres::types::{FromSql, Type};
+use tokio_postgres::{NoTls, Row};
 
-use crate::models::PostgreServer;
 use crate::app_state::AppState;
+use crate::models::PostgreServer;
 
-use anyhow::{Result, anyhow};
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 
-/// Conexão aberta (Postgres ou SQLite)
-pub enum DbConnection {
-    Sqlite(SqliteConnection),
-    Postgres(PgClient),
+#[derive(Debug, Serialize, Clone)]
+pub struct QueryResult {
+    pub columns: Vec<ColumnInfo>,
+    pub rows: Vec<Vec<Option<String>>>,
+    pub row_count: usize,
+    /// Total rows available (if count query was executed)
+    pub total_count: Option<i64>,
+    /// Whether more rows exist beyond what was returned
+    pub has_more: bool,
 }
 
-/// Map of PostgreSQL type name -> Rust type (as a string)
-pub static PG_RUST_TYPE_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
-    let mut m = HashMap::new();
+#[derive(Debug, Serialize, Clone)]
+pub struct ColumnInfo {
+    pub name: String,
+    pub type_name: String,
+}
 
-    // Integer types
-    m.insert("int2", "i16");
-    m.insert("smallint", "i16");
-    m.insert("int4", "i32");
-    m.insert("integer", "i32");
-    m.insert("int8", "i64");
-    m.insert("bigint", "i64");
-    m.insert("oid", "u32");
+#[derive(Debug, Clone, Serialize)]
+pub struct PoolStats {
+    pub size: usize,
+    pub available: usize,
+    pub waiting: usize,
+}
 
-    // Floating point / numeric
-    m.insert("float4", "f32");
-    m.insert("real", "f32");
-    m.insert("float8", "f64");
-    m.insert("double precision", "f64");
-    m.insert("numeric", "String");
-    m.insert("decimal", "String");
+/// Query options for pagination and limits
+#[derive(Debug, Clone, Default)]
+pub struct QueryOptions {
+    /// Maximum rows to return (default: 500)
+    pub limit: Option<i64>,
+    /// Offset for pagination
+    pub offset: Option<i64>,
+    /// Whether to count total rows (slower but useful for pagination UI)
+    pub count_total: bool,
+    /// Skip limit entirely (for exports) - use with caution
+    pub unlimited: bool,
+}
 
-    // Boolean
-    m.insert("bool", "bool");
-    m.insert("boolean", "bool");
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
 
-    // Textual
-    m.insert("text", "String");
-    m.insert("varchar", "String");
-    m.insert("character varying", "String");
-    m.insert("bpchar", "String");
-    m.insert("char", "String");
-    m.insert("character", "String");
-    m.insert("citext", "String");
-    m.insert("uuid", "String");
-    m.insert("name", "String");
+/// Default row limit to prevent accidental large loads
+const DEFAULT_ROW_LIMIT: i64 = 500;
 
-    // Binary / JSON
-    m.insert("bytea", "Vec<u8>");
-    m.insert("json", "String");
-    m.insert("jsonb", "String");
-    m.insert("xml", "String");
+// ─────────────────────────────────────────────────────────────────────────────
+// Pool Manager
+// ─────────────────────────────────────────────────────────────────────────────
 
-    // Date/Time
-    m.insert("date", "chrono::NaiveDate");
-    m.insert("time", "chrono::NaiveTime");
-    m.insert("timetz", "chrono::NaiveTime");
-    m.insert("timestamp", "chrono::NaiveDateTime");
-    m.insert("timestamptz", "chrono::DateTime<chrono::Utc>");
-    m.insert("interval", "String");
+type PoolKey = (i32, String);
 
-    // Network
-    m.insert("inet", "String");
-    m.insert("cidr", "String");
-    m.insert("macaddr", "String");
+static POOL_MANAGER: Lazy<Arc<RwLock<HashMap<PoolKey, Pool>>>> =
+    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
-    // Arrays (common)
-    m.insert("_int2", "Vec<i16>");
-    m.insert("_int4", "Vec<i32>");
-    m.insert("_int8", "Vec<i64>");
-    m.insert("_float4", "Vec<f32>");
-    m.insert("_float8", "Vec<f64>");
-    m.insert("_text", "Vec<String>");
-    m.insert("_varchar", "Vec<String>");
-    m.insert("_bool", "Vec<bool>");
-    m.insert("_uuid", "Vec<String>");
+const POOL_MAX_SIZE: usize = 16;
+const CONNECT_TIMEOUT_SECS: u64 = 5;
 
-    // Misc
-    m.insert("money", "String");
-    m.insert("point", "String");
-    m.insert("line", "String");
-    m.insert("lseg", "String");
-    m.insert("box", "String");
-    m.insert("path", "String");
-    m.insert("polygon", "String");
-    m.insert("circle", "String");
+// ─────────────────────────────────────────────────────────────────────────────
+// Server Config
+// ─────────────────────────────────────────────────────────────────────────────
 
-    m
-});
-
-/// { server_id => { db_name => conexão } }
-static CONNECTION_MANAGER: Lazy<Arc<Mutex<HashMap<i32, HashMap<String, DbConnection>>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
-
-/// Lê credenciais do servidor no SQLite local
 fn get_server_config(state: &AppState, id: i32) -> Result<PostgreServer> {
-    let conn = state.conn.lock().map_err(|e| anyhow!(e.to_string()))?;
+    let conn = state.conn.lock().map_err(|e| anyhow!("{}", e))?;
+
     let mut stmt = conn.prepare(
         "SELECT id, name, host, port, username, password, default_database, created_at
          FROM servers WHERE id = ?",
@@ -126,191 +106,360 @@ fn get_server_config(state: &AppState, id: i32) -> Result<PostgreServer> {
     Ok(server)
 }
 
-/// Conecta ao Postgres com timeout (roda em thread de bloqueio)
-async fn connect_to_postgres_with_timeout(server: &PostgreServer, db_name: &str) -> Result<PgClient> {
-    let host = server.host.clone();
-    let user = server.username.clone();
-    let pass = server.password.clone();
-    let port_u16: u16 = server.port.try_into().unwrap_or(5432);
-    let db = db_name.to_string();
+// ─────────────────────────────────────────────────────────────────────────────
+// Pool Management
+// ─────────────────────────────────────────────────────────────────────────────
 
-    // Executa a conexão em pool de tarefas bloqueantes do Tauri
-    let client = tauri::async_runtime::spawn_blocking(move || {
-        let mut cfg = PgConfig::new();
-        cfg.host(&host)
-            .port(port_u16)
-            .user(&user)
-            .password(&pass)
-            .dbname(&db)
-            // timeout real para handshake/DNS (aplicado por endereço)
-            .connect_timeout(Duration::from_secs(5)); // ajuste se quiser
+fn create_pool(server: &PostgreServer, db_name: &str) -> Result<Pool, CreatePoolError> {
+    let mut cfg = Config::new();
 
-        cfg.connect(NoTls).map_err(|e| anyhow!("Erro ao conectar: {e}"))
-    })
-    .await
-    .map_err(|e| anyhow!("JoinError conectando: {e}"))??;
+    cfg.host = Some(server.host.clone());
+    cfg.port = Some(server.port as u16);
+    cfg.user = Some(server.username.clone());
+    cfg.password = Some(server.password.clone());
+    cfg.dbname = Some(db_name.to_string());
+    cfg.connect_timeout = Some(Duration::from_secs(CONNECT_TIMEOUT_SECS));
 
-    Ok(client)
+    cfg.manager = Some(ManagerConfig {
+        recycling_method: RecyclingMethod::Fast,
+    });
+
+    cfg.pool = Some(deadpool_postgres::PoolConfig {
+        max_size: POOL_MAX_SIZE,
+        timeouts: deadpool::managed::Timeouts {
+            wait: Some(Duration::from_secs(30)),
+            create: Some(Duration::from_secs(CONNECT_TIMEOUT_SECS)),
+            recycle: Some(Duration::from_secs(5)),
+        },
+        ..Default::default()
+    });
+
+    cfg.create_pool(Some(Runtime::Tokio1), NoTls)
 }
 
-/// Obtém (ou cria) a conexão {server_id, db_name} de forma assíncrona,
-/// sem segurar o mutex durante a operação bloqueante.
-pub async fn connect(
+pub async fn get_pool(
     state: &AppState,
     server_id: i32,
     database_name: Option<String>,
-) -> Result<()> {
-    // 1) Lê config fora de qualquer lock
+) -> Result<Pool> {
     let server_cfg = get_server_config(state, server_id)?;
 
-    // 2) Decide o db alvo
-    let db_name = database_name
-        .unwrap_or_else(|| server_cfg
+    let db_name = database_name.unwrap_or_else(|| {
+        server_cfg
             .default_database
             .clone()
-            .unwrap_or_else(|| "postgres".to_string()));
+            .unwrap_or_else(|| "postgres".to_string())
+    });
 
-    // 3) Checa se já existe conexão (lock curto)
+    let key = (server_id, db_name.clone());
+
     {
-        let manager = CONNECTION_MANAGER.lock().unwrap();
-        if let Some(db_map) = manager.get(&server_id) {
-            if db_map.contains_key(&db_name) {
-                // Já existe, nada a fazer
-                return Ok(());
-            }
+        let manager = POOL_MANAGER.read().await;
+        if let Some(pool) = manager.get(&key) {
+            return Ok(pool.clone());
         }
     }
 
-    // 4) Conecta sem segurar o lock
-    let client = connect_to_postgres_with_timeout(&server_cfg, &db_name).await?;
+    let mut manager = POOL_MANAGER.write().await;
 
-    // 5) Insere no manager (lock curto) — trata corrida com outro thread
-    let mut manager = CONNECTION_MANAGER.lock().unwrap();
-    let db_map = manager.entry(server_id).or_insert_with(HashMap::new);
-    db_map.entry(db_name.clone())
-        .or_insert_with(|| {
-            println!("🟢 Nova conexão criada | server_id={} | db={}", server_id, db_name);
-            DbConnection::Postgres(client)
-        });
+    if let Some(pool) = manager.get(&key) {
+        return Ok(pool.clone());
+    }
 
+    let pool =
+        create_pool(&server_cfg, &db_name).map_err(|e| anyhow!("Failed to create pool: {e}"))?;
+
+    manager.insert(key, pool.clone());
+    Ok(pool)
+}
+
+pub async fn get_connection(
+    state: &AppState,
+    server_id: i32,
+    database_name: Option<String>,
+) -> Result<Object> {
+    let pool = get_pool(state, server_id, database_name).await?;
+    pool.get()
+        .await
+        .map_err(|e| anyhow!("Failed to get connection: {e}"))
+}
+
+pub async fn test_connection(state: &AppState, server_id: i32) -> Result<()> {
+    let conn = get_connection(state, server_id, None).await?;
+    conn.query_one("SELECT 1", &[])
+        .await
+        .map_err(|e| anyhow!("Connection test failed: {e}"))?;
     Ok(())
 }
 
-/// Executa query e retorna Vec<HashMap<col, val>>.
-/// Tira a conexão do mapa, executa em thread bloqueante, e devolve a conexão ao mapa.
+pub async fn get_pool_stats(
+    state: &AppState,
+    server_id: i32,
+    database_name: Option<String>,
+) -> Result<PoolStats> {
+    let pool = get_pool(state, server_id, database_name).await?;
+    let status = pool.status();
+
+    Ok(PoolStats {
+        size: status.size,
+        available: status.available as usize,
+        waiting: status.waiting,
+    })
+}
+
+pub async fn disconnect_server(server_id: i32) {
+    let mut manager = POOL_MANAGER.write().await;
+    manager.retain(|(sid, _), _| *sid != server_id);
+}
+
+pub async fn disconnect_database(server_id: i32, database_name: &str) {
+    let mut manager = POOL_MANAGER.write().await;
+    manager.remove(&(server_id, database_name.to_string()));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Value Extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug)]
+struct EnumValue(String);
+
+impl<'a> FromSql<'a> for EnumValue {
+    fn from_sql(
+        _ty: &Type,
+        raw: &'a [u8],
+    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        let s = std::str::from_utf8(raw)?;
+        Ok(EnumValue(s.to_string()))
+    }
+
+    fn accepts(_ty: &Type) -> bool {
+        true
+    }
+}
+
+#[inline]
+fn extract_value(row: &Row, idx: usize, pg_type: &Type) -> Option<String> {
+    match pg_type.name() {
+        "int2" | "smallint" => row.get::<_, Option<i16>>(idx).map(|v| v.to_string()),
+        "int4" | "integer" | "serial" => row.get::<_, Option<i32>>(idx).map(|v| v.to_string()),
+        "int8" | "bigint" | "bigserial" => row.get::<_, Option<i64>>(idx).map(|v| v.to_string()),
+        "oid" => row.get::<_, Option<u32>>(idx).map(|v| v.to_string()),
+        "float4" | "real" => row.get::<_, Option<f32>>(idx).map(|v| v.to_string()),
+        "float8" | "double precision" => row.get::<_, Option<f64>>(idx).map(|v| v.to_string()),
+        "bool" | "boolean" => row.get::<_, Option<bool>>(idx).map(|v| v.to_string()),
+        "timestamp" => row
+            .get::<_, Option<NaiveDateTime>>(idx)
+            .map(|v| v.to_string()),
+        "timestamptz" => row
+            .get::<_, Option<DateTime<Utc>>>(idx)
+            .map(|v| v.to_string()),
+        "date" => row.get::<_, Option<NaiveDate>>(idx).map(|v| v.to_string()),
+        "time" | "timetz" => row
+            .get::<_, Option<NaiveTime>>(idx)
+            .map(|v| v.to_string()),
+        "bytea" => row.get::<_, Option<Vec<u8>>>(idx).map(hex::encode),
+        "_int4" => row
+            .get::<_, Option<Vec<i32>>>(idx)
+            .map(|v| format!("{:?}", v)),
+        "_int8" => row
+            .get::<_, Option<Vec<i64>>>(idx)
+            .map(|v| format!("{:?}", v)),
+        "_text" | "_varchar" => row
+            .get::<_, Option<Vec<String>>>(idx)
+            .map(|v| format!("{:?}", v)),
+        "text" | "varchar" | "char" | "bpchar" | "name" | "citext" | "uuid" | "json" | "jsonb"
+        | "xml" | "numeric" | "decimal" | "money" | "inet" | "cidr" | "macaddr" => {
+            row.get::<_, Option<String>>(idx)
+        }
+        // Custom types (enums, etc.)
+        _ => row
+            .try_get::<_, Option<String>>(idx)
+            .ok()
+            .flatten()
+            .or_else(|| row.get::<_, Option<EnumValue>>(idx).map(|v| v.0)),
+    }
+}
+
+fn process_rows(rows: &[Row]) -> (Vec<ColumnInfo>, Vec<Vec<Option<String>>>) {
+    if rows.is_empty() {
+        return (vec![], vec![]);
+    }
+
+    let columns: Vec<ColumnInfo> = rows[0]
+        .columns()
+        .iter()
+        .map(|c| ColumnInfo {
+            name: c.name().to_string(),
+            type_name: c.type_().name().to_string(),
+        })
+        .collect();
+
+    let col_types: Vec<&Type> = rows[0].columns().iter().map(|c| c.type_()).collect();
+    let col_count = col_types.len();
+
+    let result_rows: Vec<Vec<Option<String>>> = rows
+        .iter()
+        .map(|row| {
+            let mut values = Vec::with_capacity(col_count);
+            for (i, pg_type) in col_types.iter().enumerate() {
+                values.push(extract_value(row, i, pg_type));
+            }
+            values
+        })
+        .collect();
+
+    (columns, result_rows)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Query Execution
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Execute a query with automatic pagination (default: 500 rows)
 pub async fn execute_query(
     state: &AppState,
     server_id: i32,
     query: &str,
     database_name: Option<String>,
-) -> Result<Vec<HashMap<String, String>>> {
-    // Garante conexão criada
-    connect(state, server_id, database_name.clone()).await?;
-    let query_owned = query.to_string();
+    options: Option<QueryOptions>,
+) -> Result<QueryResult> {
+    let opts = options.unwrap_or_default();
+    let client = get_connection(state, server_id, database_name).await?;
 
-    // remove a conexão do mapa para usá-la no spawn_blocking
-    let (db_name, conn) = {
-        let mut manager = CONNECTION_MANAGER.lock().unwrap();
-        let db_name = database_name.clone().unwrap_or_else(|| "postgres".to_string());
-        let db_map = manager.get_mut(&server_id)
-            .ok_or_else(|| anyhow!("Servidor {} não encontrado no manager", server_id))?;
+    let trimmed = query.trim().trim_end_matches(';');
 
-        let conn = db_map.remove(&db_name)
-            .ok_or_else(|| anyhow!("Conexão não encontrada para db {}", db_name))?;
+    // Determine if this is a SELECT-like query that can be paginated
+    let is_select = trimmed
+        .to_uppercase()
+        .split_whitespace()
+        .next()
+        .map_or(false, |first| {
+            matches!(first, "SELECT" | "TABLE" | "WITH")
+        });
 
-        (db_name, conn)
+    // Build the actual query to execute
+    let (exec_query, limit_applied) = if is_select && !opts.unlimited {
+        let limit = opts.limit.unwrap_or(DEFAULT_ROW_LIMIT);
+        let offset = opts.offset.unwrap_or(0);
+
+        // Request one extra row to check if more data exists
+        let query_with_limit = format!(
+            "SELECT * FROM ({}) AS __q LIMIT {} OFFSET {}",
+            trimmed,
+            limit + 1,
+            offset
+        );
+        (query_with_limit, Some(limit))
+    } else {
+        (trimmed.to_string(), None)
     };
 
-    // Executa a consulta fora do runtime principal
-    let (conn_back, results) = tauri::async_runtime::spawn_blocking(move || -> Result<(DbConnection, Vec<HashMap<String, String>>)> {
-        match conn {
-            DbConnection::Sqlite(mut sqlite_conn) => {
-                let results = {
-                    let mut stmt = sqlite_conn.prepare(&query_owned)?;
-                    let col_count = stmt.column_count();
-                    let col_names: Vec<String> = (0..col_count)
-                        .map(|i| stmt.column_name(i).unwrap_or("unknown").to_string())
-                        .collect();
+    // Execute main query
+    let rows = client
+        .query(&exec_query, &[])
+        .await
+        .map_err(|e| anyhow!("Query error: {e}"))?;
 
-                    let mut rows = stmt.query([])?;
-                    let mut results = Vec::new();
-                    while let Some(row) = rows.next()? {
-                        let mut map = HashMap::new();
-                        for i in 0..col_count {
-                            let v: rusqlite::Result<String, _> = row.get(i);
-                            map.insert(col_names[i].clone(), v.unwrap_or_else(|_| "NULL".into()));
-                        }
-                        results.push(map);
-                    }
-                    results
-                }; // `stmt` and `rows` dropped here before we move `sqlite_conn`
-                Ok((DbConnection::Sqlite(sqlite_conn), results))
-            }
-            DbConnection::Postgres(mut pg_client) => {
-                let rows = pg_client.query(&query_owned, &[])
-                    .map_err(|e| anyhow!("Erro na query: {e}"))?;
+    // Check if there are more rows
+    let (rows_to_process, has_more) = if let Some(limit) = limit_applied {
+        let has_more = rows.len() as i64 > limit;
+        let rows_to_process = if has_more {
+            &rows[..limit as usize]
+        } else {
+            &rows[..]
+        };
+        (rows_to_process, has_more)
+    } else {
+        (&rows[..], false)
+    };
 
-                let mut results = Vec::new();
-                for row in rows {
-                    let mut map = HashMap::new();
+    // Get total count if requested
+    let total_count = if opts.count_total && is_select {
+        let count_query = format!("SELECT COUNT(*) FROM ({}) AS __count_q", trimmed);
+        client
+            .query_one(&count_query, &[])
+            .await
+            .ok()
+            .and_then(|row| row.get::<_, Option<i64>>(0))
+    } else {
+        None
+    };
 
-                    for (i, col) in row.columns().iter().enumerate() {
-                        let col_name = col.name().to_string();
-                        let type_name = col.type_().name();
+    let row_count = rows_to_process.len();
+    let (columns, result_rows) = process_rows(rows_to_process);
 
-                        println!("ROW VALUE {:?}", row.try_get::<usize, Option<i32>>(0).ok().flatten().unwrap_or(NOT_WITHIN).to_string());
-
-                        let value: Option<String> = match type_name {
-                            "int2" => row.try_get::<usize, Option<i16>>(i).ok().flatten().map(|v| v.to_string()),
-                            "int4" | "integer" => row.try_get::<usize, Option<i32>>(i).ok().flatten().map(|v| v.to_string()),
-                            "int8" | "bigint" => row.try_get::<usize, Option<i64>>(i).ok().flatten().map(|v| v.to_string()),
-                            "float4" => row.try_get::<usize, Option<f32>>(i).ok().flatten().map(|v| v.to_string()),
-                            "float8" => row.try_get::<usize, Option<f64>>(i).ok().flatten().map(|v| v.to_string()),
-                            "numeric" => row.try_get::<usize, Option<String>>(i).ok().flatten(),
-                            "bool" => row.try_get::<usize, Option<bool>>(i).ok().flatten().map(|v| v.to_string()),
-                            "timestamp" => row.try_get::<usize, Option<NaiveDateTime>>(i).ok().flatten().map(|v| v.to_string()),
-                            "timestamptz" | "date" => row.try_get::<usize, Option<String>>(i).ok().flatten(),
-                            _ => row.try_get::<usize, Option<String>>(i).ok().flatten(),
-                        };
-
-                        println!("Coluna: {}, Tipo: {}, Valor: {:?}", col_name, type_name, value);
-
-                        map.insert(col_name, value.unwrap_or_else(|| "NULL".to_string()));
-                    }
-                    results.push(map);
-                }
-                Ok((DbConnection::Postgres(pg_client), results))
-            }
-        }
+    Ok(QueryResult {
+        columns,
+        rows: result_rows,
+        row_count,
+        total_count,
+        has_more,
     })
-    .await
-    .map_err(|e| anyhow!("JoinError query: {e}"))??;
-
-    // Devolve a conexão ao mapa
-    {
-        let mut manager = CONNECTION_MANAGER.lock().unwrap();
-        let db_map = manager.entry(server_id).or_insert_with(HashMap::new);
-        db_map.insert(db_name.clone(), conn_back);
-    }
-
-    Ok(results)
 }
 
-/// Fecha uma conexão (ou todas)
-pub fn disconnect(server_id: i32, db_name: Option<String>) -> Result<()> {
-    let mut manager = CONNECTION_MANAGER.lock().unwrap();
-    match manager.get_mut(&server_id) {
-        None => Err(anyhow!("Nenhuma conexão para server_id {}", server_id)),
-        Some(db_map) => {
-            if let Some(name) = db_name {
-                if db_map.remove(&name).is_some() {
-                    println!("🔴 Conexão fechada | server_id={} | db={}", server_id, name);
-                }
-            } else {
-                manager.remove(&server_id);
-                println!("🔴 Todas as conexões fechadas para server_id={}", server_id);
-            }
-            Ok(())
-        }
+/// Execute a query without any limits (for exports, be careful!)
+pub async fn execute_query_unlimited(
+    state: &AppState,
+    server_id: i32,
+    query: &str,
+    database_name: Option<String>,
+) -> Result<QueryResult> {
+    execute_query(
+        state,
+        server_id,
+        query,
+        database_name,
+        Some(QueryOptions {
+            unlimited: true,
+            ..Default::default()
+        }),
+    )
+    .await
+}
+
+/// Execute a statement (INSERT, UPDATE, DELETE, etc.)
+pub async fn execute_statement(
+    state: &AppState,
+    server_id: i32,
+    statement: &str,
+    database_name: Option<String>,
+) -> Result<u64> {
+    let client = get_connection(state, server_id, database_name).await?;
+
+    client
+        .execute(statement, &[])
+        .await
+        .map_err(|e| anyhow!("Statement error: {e}"))
+}
+
+/// Execute multiple statements in a transaction
+pub async fn execute_transaction(
+    state: &AppState,
+    server_id: i32,
+    statements: Vec<String>,
+    database_name: Option<String>,
+) -> Result<Vec<u64>> {
+    let mut client = get_connection(state, server_id, database_name).await?;
+
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| anyhow!("Failed to start transaction: {e}"))?;
+
+    let mut results = Vec::with_capacity(statements.len());
+
+    for stmt in &statements {
+        let rows = tx
+            .execute(stmt.as_str(), &[])
+            .await
+            .map_err(|e| anyhow!("Transaction error: {e}"))?;
+        results.push(rows);
     }
+
+    tx.commit()
+        .await
+        .map_err(|e| anyhow!("Failed to commit: {e}"))?;
+
+    Ok(results)
 }

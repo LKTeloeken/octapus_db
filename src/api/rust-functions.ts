@@ -13,4 +13,5 @@ export enum RustMethods {
   GET_POSTGRE_DATABASES = "get_postgre_databases",
   GET_POSTGRE_TABLES = "get_postgre_tables",
   GET_POSTGRE_COLUMNS = "get_postgre_columns",
+  GET_POSTGRE_STRUCTURE = "get_database_structure",
 }

@@ -1,15 +1,23 @@
 import { invoke } from "../utils/invokeHandler";
 import { RustMethods } from "../rust-functions";
 import type * as Database from "@/shared/models/database.types";
+import type {
+  ConnectToServerResponse,
+  ExecutePostgreQueryResponse,
+  ExecuteQueryResponse,
+} from "./response.types";
 
 export async function connectToServer(
   serverId: number,
   databaseName?: string
-): Promise<boolean> {
-  const hasConnected = await invoke<boolean>(RustMethods.CONNECT_TO_SERVER, {
-    serverId,
-    databaseName,
-  });
+): Promise<ConnectToServerResponse> {
+  const hasConnected = await invoke<ConnectToServerResponse>(
+    RustMethods.CONNECT_TO_SERVER,
+    {
+      serverId,
+      databaseName,
+    }
+  );
 
   return hasConnected;
 }
@@ -18,17 +26,17 @@ export async function executeQuery(
   serverId: number,
   query: string,
   databaseName?: string
-): Promise<{ rows: any[]; fields?: string[] }> {
+): Promise<ExecuteQueryResponse> {
   try {
-    const { rows } = await invoke<{ rows: any[] }>(
-      RustMethods.RUN_POSTGRE_QUERY,
-      {
+    const { rows, columns, has_more, row_count, total_count } =
+      await invoke<ExecutePostgreQueryResponse>(RustMethods.RUN_POSTGRE_QUERY, {
         serverId,
         query,
         databaseName,
-      }
-    );
-    const fields = rows ? Object.keys(rows?.[0]).sort() : [];
+        options: { unlimited: true },
+      });
+
+    const fields = columns ? columns.map(({ name }) => name) : [];
 
     return { fields, rows };
   } catch (error) {
@@ -98,4 +106,16 @@ export async function getColumns(
   );
 
   return columns;
+}
+
+export async function getPostgreStructure(
+  serverId: number,
+  databaseName: string
+) {
+  const structure = await invoke<any>(RustMethods.GET_POSTGRE_STRUCTURE, {
+    serverId,
+    databaseName,
+  });
+
+  console.log("structure", structure);
 }

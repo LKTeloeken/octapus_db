@@ -1,9 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   getDatabases,
   getSchemas,
   getTables,
   getColumns,
+  getPostgreStructure,
 } from "@/api/postgres/methods";
 import { formatTreeNode } from "@/lib/format-tree-node";
 import toast from "react-hot-toast";
@@ -65,6 +66,15 @@ export const useDataStructure = () => {
 
       if (nodeType === "server") {
         const databases = await getDatabases(serverId);
+
+        databases.forEach((db) => {
+          getPostgreStructure(serverId, db.name).catch((error) => {
+            console.error(
+              `Failed to prefetch structure for database ${db.name}:`,
+              error
+            );
+          });
+        });
 
         return databases.map((db) =>
           formatTreeNode(
@@ -163,7 +173,6 @@ export const useDataStructure = () => {
   const loadChildren = useCallback(
     async (nodeId: string) => {
       const node = nodes.nodes.get(nodeId);
-      console.log("load node", node);
 
       if (!node || !node.hasChildren) return;
 

@@ -137,7 +137,7 @@ export const ResultsTable = memo(function ResultsTable({
                     }
                   >
                     <span className="font-mono text-xs truncate inline-block w-full">
-                      {String(row[col] ?? "")}
+                      {String(row[cIdx] ?? "")}
                     </span>
                   </TableCell>
                 );
