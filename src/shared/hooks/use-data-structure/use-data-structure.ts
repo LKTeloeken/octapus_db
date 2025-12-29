@@ -1,43 +1,80 @@
-import { useCallback, useEffect, useState } from "react";
-import {
-  getDatabases,
-  getSchemas,
-  getTables,
-  getColumns,
-  getPostgreStructure,
-} from "@/api/postgres/methods";
+import { useCallback, useState } from "react";
+import { getDatabases } from "@/api/postgres/methods";
 import { formatTreeNode } from "@/lib/format-tree-node";
+import { convertDatabaseStructureToNodes } from "./utils";
 import toast from "react-hot-toast";
-import type { TreeState } from "./use-data-structure.types";
-import type { TreeNode, TreeNodeType } from "@/shared/models/database.types";
+import type {
+  RemoveNode,
+  TreeState,
+  AddNodes,
+  HandleFetchStructure,
+} from "./use-data-structure.types";
+import { useStore } from "@/stores";
+import { type TreeNode, TreeNodeType } from "@/shared/models/database.types";
 
 export const useDataStructure = () => {
+  const { fetchStructure, getStructure } = useStore();
   const [nodes, setNodes] = useState<TreeState>({
     nodes: new Map(),
     childrenMap: new Map(),
   });
 
-  const addChildrenToState = useCallback((childrens: TreeNode[]) => {
+  const handleSetNode = useCallback(
+    (nodeId: string, nodeData: Partial<TreeNode>) => {
+      setNodes((prev) => {
+        const newNodes = new Map(prev.nodes);
+        const existingNode = newNodes.get(nodeId);
+
+        if (existingNode) {
+          newNodes.set(nodeId, { ...existingNode, ...nodeData });
+        }
+
+        return { ...prev, nodes: newNodes };
+      });
+    },
+    []
+  );
+
+  const handleSetNodes = useCallback((nodesToUpdate: TreeNode[]) => {
     setNodes((prev) => {
       const newNodes = new Map(prev.nodes);
       const newChildrenMap = new Map(prev.childrenMap);
 
-      childrens.forEach((child) => newNodes.set(child.id, child));
-      if (childrens.length > 0) {
-        const parentId = childrens[0].parentId;
-        if (parentId) {
-          newChildrenMap.set(
-            parentId,
-            childrens.map((c) => c.id)
-          );
+      const childrentsToUpdateMap: Map<string, string[]> = new Map();
+
+      nodesToUpdate.forEach((node) => {
+        const existingNode = newNodes.get(node.id) || node;
+
+        newNodes.set(node.id, {
+          ...node,
+          isConnected: existingNode.isConnected,
+          isExpanded: existingNode.isExpanded,
+          hasLoadedChildren: existingNode.hasLoadedChildren,
+        });
+
+        if (node.parentId) {
+          if (!childrentsToUpdateMap.has(node.parentId)) {
+            childrentsToUpdateMap.set(node.parentId, []);
+          }
+
+          childrentsToUpdateMap.get(node.parentId)?.push(node.id);
         }
-      }
+      });
+
+      childrentsToUpdateMap.forEach((childrenIds, parentId) => {
+        newChildrenMap.set(parentId, childrenIds);
+      });
 
       return { nodes: newNodes, childrenMap: newChildrenMap };
     });
   }, []);
 
-  const removeNode = useCallback((nodeId: string) => {
+  const addNodes: AddNodes = useCallback(
+    (nodesToAdd: TreeNode[]) => handleSetNodes(nodesToAdd),
+    [handleSetNodes]
+  );
+
+  const removeNode: RemoveNode = useCallback((nodeId: string) => {
     setNodes((prev) => {
       const newNodes = new Map(prev.nodes);
       const newChildrenMap = new Map(prev.childrenMap);
@@ -57,218 +94,111 @@ export const useDataStructure = () => {
     });
   }, []);
 
-  const getChildren = useCallback(
-    async (nodeType: TreeNodeType, nodeId: string): Promise<TreeNode[]> => {
-      const node = nodes.nodes.get(nodeId);
-      if (!node) return [];
+  const handleFetchStructure: HandleFetchStructure = useCallback(
+    async (serverId: number, databaseName: string) => {
+      const structure = await fetchStructure(serverId, databaseName);
 
-      const serverId = node.metadata?.serverId;
+      const formattedNodes = convertDatabaseStructureToNodes(
+        serverId,
+        databaseName,
+        structure
+      );
 
-      if (nodeType === "server") {
+      handleSetNodes(formattedNodes);
+    },
+    [fetchStructure]
+  );
+
+  const handleLoadDatabaseStructure = useCallback(
+    async (node: TreeNode) => {
+      const serverId = node.metadata.serverId;
+
+      if (node.type === TreeNodeType.Server) {
         const databases = await getDatabases(serverId);
 
-        databases.forEach((db) => {
-          getPostgreStructure(serverId, db.name).catch((error) => {
-            console.error(
-              `Failed to prefetch structure for database ${db.name}:`,
-              error
-            );
-          });
-        });
-
-        return databases.map((db) =>
+        const databasesNodes = databases.map((db) =>
           formatTreeNode(
             `database-${db.name}-${serverId}`,
-            "database",
+            TreeNodeType.Database,
             serverId,
             db.name,
-            nodeId,
+            node.id,
             {
-              type: "database",
+              type: TreeNodeType.Database,
               serverId,
               databaseName: db.name,
             }
           )
         );
+
+        return databasesNodes;
       }
 
-      if (nodeType === "database") {
+      if (node.type === TreeNodeType.Database) {
         const databaseName = node.name;
-        const schemas = await getSchemas(serverId, databaseName);
 
-        return schemas.map((schema) =>
-          formatTreeNode(
-            `schema-${schema.name}-${databaseName}-${serverId}`,
-            "schema",
-            serverId,
-            schema.name,
-            nodeId,
-            {
-              type: "schema",
-              serverId,
-              databaseName,
-            }
-          )
-        );
-      }
+        const structureNodes = await fetchStructure(serverId, databaseName);
 
-      if (nodeType === "schema") {
-        const databaseName = nodes.nodes.get(node.parentId!)?.name!;
-        const schemaName = node.name;
-        const tables = await getTables(serverId, databaseName, schemaName);
-
-        return tables.map((table) =>
-          formatTreeNode(
-            `table-${table.name}-${schemaName}-${databaseName}-${serverId}`,
-            "table",
-            serverId,
-            table.name,
-            nodeId,
-            {
-              type: "table",
-              serverId,
-              databaseName,
-            }
-          )
-        );
-      }
-
-      if (nodeType === "table") {
-        const databaseName = nodes.nodes.get(
-          nodes.nodes.get(node.parentId!)?.parentId!
-        )?.name!;
-        const schemaName = nodes.nodes.get(node.parentId!)?.name!;
-        const tableName = node.name;
-        const columns = await getColumns(
+        return convertDatabaseStructureToNodes(
           serverId,
           databaseName,
-          schemaName,
-          tableName
-        );
-
-        return columns.map((column) =>
-          formatTreeNode(
-            `column-${column.name}-${tableName}-${schemaName}-${databaseName}-${serverId}`,
-            "column",
-            serverId,
-            column.name,
-            nodeId,
-            {
-              type: "column",
-              serverId,
-              databaseName,
-              dataType: column.data_type,
-              isNullable: column.is_nullable,
-              columnDefault: column.column_default,
-            }
-          )
+          structureNodes
         );
       }
 
       return [];
     },
-    [nodes.nodes]
+    [fetchStructure]
   );
-  // Lazy load children when node expands
-  const loadChildren = useCallback(
+
+  const onClickNode = useCallback(
     async (nodeId: string) => {
       const node = nodes.nodes.get(nodeId);
 
-      if (!node || !node.hasChildren) return;
-
-      setNodes((prev) => {
-        const newNodes = new Map(prev.nodes);
-        newNodes.set(nodeId, { ...node, isLoading: true });
-        return { ...prev, nodes: newNodes };
-      });
-
-      try {
-        const childrens = await getChildren(node.type, nodeId);
-
-        if (childrens.length === 0) return;
-
-        setNodes((prev) => {
-          const newNodes = new Map(prev.nodes);
-          const newChildrenMap = new Map(prev.childrenMap);
-
-          childrens.forEach((child) => newNodes.set(child.id, child));
-          newChildrenMap.set(
-            nodeId,
-            childrens.map((c) => c.id)
-          );
-
-          newNodes.set(nodeId, {
-            ...node,
-            isLoading: false,
-          });
-
-          return { nodes: newNodes, childrenMap: newChildrenMap };
-        });
-      } catch (error) {
-        toast.error("Failed to load children.");
-      } finally {
-        setNodes((prev) => {
-          const newNodes = new Map(prev.nodes);
-          newNodes.set(nodeId, { ...node, isLoading: false });
-          return { ...prev, nodes: newNodes };
-        });
-      }
-    },
-    [nodes.nodes, getChildren]
-  );
-
-  const toggleNode = useCallback(
-    async (nodeId: string) => {
-      const node = nodes.nodes.get(nodeId);
       if (!node) return;
 
-      const shouldExpand = !node.isExpanded;
+      if (
+        node.type === TreeNodeType.Database ||
+        node.type === TreeNodeType.Server
+      ) {
+        try {
+          if (node.hasLoadedChildren) {
+            handleSetNode(nodeId, { isExpanded: !node.isExpanded });
+            return;
+          }
 
-      if (!shouldExpand) {
-        setNodes((prev) => {
-          const newNodes = new Map(prev.nodes);
-          newNodes.set(nodeId, {
-            ...node,
-            isExpanded: false,
+          handleSetNode(nodeId, { isLoading: true });
+
+          const childrenNodes = await handleLoadDatabaseStructure(node);
+
+          handleSetNodes(childrenNodes);
+
+          handleSetNode(nodeId, {
+            isLoading: false,
+            isExpanded: !node.isExpanded,
+            hasLoadedChildren: true,
+            isConnected: true,
           });
-          return { ...prev, nodes: newNodes };
-        });
-        return;
+
+          return;
+        } catch (error) {
+          toast.error("Failed to load data structure.");
+          handleSetNode(nodeId, { isLoading: false });
+          return;
+        }
       }
 
-      if (!nodes.childrenMap.has(nodeId)) {
-        // Carrega filhos
-        await loadChildren(nodeId);
-
-        // Expande após carregar
-        setNodes((prev) => {
-          const newNodes = new Map(prev.nodes);
-          newNodes.set(nodeId, {
-            ...node,
-            isExpanded: true,
-            isConnected:
-              node.type === "server" && !!prev.childrenMap.get(nodeId)?.length
-                ? true
-                : undefined,
-          });
-          return { ...prev, nodes: newNodes };
-        });
-      } else {
-        setNodes((prev) => {
-          const newNodes = new Map(prev.nodes);
-          newNodes.set(nodeId, { ...node, isExpanded: true });
-          return { ...prev, nodes: newNodes };
-        });
-      }
+      handleSetNode(nodeId, { isExpanded: !node.isExpanded });
     },
-    [nodes, loadChildren]
+    [nodes.nodes]
   );
 
   return {
     nodes,
-    toggleNode,
-    loadChildren,
-    addChildrenToState,
+    onClickNode,
+    addNodes,
     removeNode,
+    handleFetchStructure,
+    getStructure,
   };
 };

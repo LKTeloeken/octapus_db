@@ -1,9 +1,10 @@
 import { useMemo, useCallback, type FC } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { sql } from "@codemirror/lang-sql";
-import { oneDark } from "@codemirror/theme-one-dark";
+import { PostgreSQL, sql } from "@codemirror/lang-sql";
 import { EditorView, keymap, type ViewUpdate } from "@codemirror/view";
+import { oneDark } from "@codemirror/theme-one-dark";
 import { format as formatSQL } from "sql-formatter";
+import { convertToCodeMirrorSchema } from "@/shared/utils/codeMirrorAutocompleteSchema";
 
 import type { SQLEditorProps } from "./sql-editor.types";
 
@@ -13,7 +14,15 @@ export const SQLEditor: FC<SQLEditorProps> = ({
   onChangeSelection,
   onRunQuery,
   className = "",
+  databaseStructure,
 }) => {
+  const schemaSpec = useMemo(() => {
+    if (databaseStructure) {
+      return convertToCodeMirrorSchema(databaseStructure);
+    }
+    return undefined; // Use undefined instead of {} when no schema
+  }, [databaseStructure]);
+
   // Theme for transparent background and monospace fonts
   const transparentDarkTheme = useMemo(
     () =>
@@ -40,7 +49,6 @@ export const SQLEditor: FC<SQLEditorProps> = ({
     []
   );
 
-  // SQL formatting function
   const formatAndApply = useCallback(
     (src: string) => {
       try {
@@ -57,7 +65,6 @@ export const SQLEditor: FC<SQLEditorProps> = ({
     [onChange]
   );
 
-  // Keybinding for formatting with Cmd/Ctrl+Shift+F
   const formatKeymap = useMemo(
     () =>
       keymap.of([
@@ -81,7 +88,7 @@ export const SQLEditor: FC<SQLEditorProps> = ({
           mac: "Mod-Shift-Enter",
           linux: "Ctrl-Enter",
           win: "Ctrl-Enter",
-          run: (view) => {
+          run: () => {
             onRunQuery?.();
             return true;
           },
@@ -92,14 +99,17 @@ export const SQLEditor: FC<SQLEditorProps> = ({
 
   const extensions = useMemo(
     () => [
-      sql(),
-      oneDark,
+      sql({
+        dialect: PostgreSQL,
+        schema: schemaSpec,
+        upperCaseKeywords: true,
+      }),
       transparentDarkTheme,
       EditorView.lineWrapping,
       formatKeymap,
       runQueryKeymap,
     ],
-    [transparentDarkTheme, formatKeymap, runQueryKeymap]
+    [transparentDarkTheme, formatKeymap, runQueryKeymap, schemaSpec]
   );
 
   const handleChange = useCallback(
@@ -132,6 +142,7 @@ export const SQLEditor: FC<SQLEditorProps> = ({
         highlightActiveLine: true,
         highlightActiveLineGutter: true,
         foldGutter: true,
+        autocompletion: true,
       }}
       height="100%"
       className={`bg-transparent border-none text-white h-full ${className}`}

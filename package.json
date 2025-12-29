@@ -46,7 +46,8 @@
     "react-simple-code-editor": "^0.14.1",
     "sql-formatter": "^15.6.9",
     "tailwind-merge": "^3.3.1",
-    "tailwindcss": "^4.1.4"
+    "tailwindcss": "^4.1.4",
+    "zustand": "^5.0.9"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

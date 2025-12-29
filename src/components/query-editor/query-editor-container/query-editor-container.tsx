@@ -11,6 +11,7 @@ export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
   onChange,
   onChangeSelection,
   onExecute,
+  databaseStructure,
   isLoading = false,
 }) => {
   const handleFormat = useCallback(() => {
@@ -51,6 +52,7 @@ export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
       <div className="flex-1 rounded-xl overflow-hidden">
         <SQLEditor
           value={value}
+          databaseStructure={databaseStructure}
           onChange={onChange}
           onChangeSelection={handleSelectionChange}
           onRunQuery={handleRun}

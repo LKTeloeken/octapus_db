@@ -1,4 +1,4 @@
-import { useEffect, type FC } from "react";
+import { useEffect, useMemo, type FC } from "react";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -14,11 +14,17 @@ import { useDataStructure } from "@/shared/hooks/use-data-structure/use-data-str
 import { useQueryTabs } from "./shared/hooks/use-query-tabs/use-query-tabs";
 
 const App: FC = () => {
-  const { nodes, toggleNode, addChildrenToState, removeNode } =
-    useDataStructure();
+  const {
+    nodes,
+    onClickNode,
+    addNodes,
+    removeNode,
+    handleFetchStructure,
+    getStructure,
+  } = useDataStructure();
   const { addServer, removeServer, editServer, fetchServers, isLoading } =
     useServers({
-      addChildren: addChildrenToState,
+      addChildren: addNodes,
       removeNode,
     });
   const {
@@ -30,7 +36,15 @@ const App: FC = () => {
     setTabContent,
     setTabQuery,
     executeQuery,
-  } = useQueryTabs();
+  } = useQueryTabs(handleFetchStructure);
+
+  const currentStructure = useMemo(() => {
+    if (activeTab) {
+      return getStructure(activeTab.serverId, activeTab.databaseName);
+    }
+
+    return null;
+  }, [tabs, getStructure]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -53,7 +67,7 @@ const App: FC = () => {
             nodes={nodes.nodes}
             childrenMap={nodes.childrenMap}
             isLoading={isLoading}
-            toggleNode={toggleNode}
+            toggleNode={onClickNode}
             onCreateServer={addServer}
             onEditServer={editServer}
             onDeleteServer={removeServer}
@@ -87,6 +101,7 @@ const App: FC = () => {
                         )
                       }
                       isLoading={activeTab.loading}
+                      databaseStructure={currentStructure}
                     />
                   </ResizablePanel>
                   <ResizableHandle className="bg-transparent my-1" />

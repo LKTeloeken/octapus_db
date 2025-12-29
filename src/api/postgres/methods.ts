@@ -1,6 +1,6 @@
 import { invoke } from "../utils/invokeHandler";
 import { RustMethods } from "../rust-functions";
-import type * as Database from "@/shared/models/database.types";
+import * as Database from "@/shared/models/database.types";
 import type {
   ConnectToServerResponse,
   ExecutePostgreQueryResponse,
@@ -111,11 +111,14 @@ export async function getColumns(
 export async function getPostgreStructure(
   serverId: number,
   databaseName: string
-) {
-  const structure = await invoke<any>(RustMethods.GET_POSTGRE_STRUCTURE, {
-    serverId,
-    databaseName,
-  });
+): Promise<Database.DatabaseStructure> {
+  const structure = await invoke<Database.DatabaseStructure>(
+    RustMethods.GET_POSTGRE_STRUCTURE,
+    {
+      serverId,
+      databaseName,
+    }
+  );
 
-  console.log("structure", structure);
+  return structure;
 }

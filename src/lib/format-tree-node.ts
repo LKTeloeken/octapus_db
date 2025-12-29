@@ -1,7 +1,7 @@
-import type {
-  TreeNode,
+import {
   TreeNodeType,
-  TreeNodeMetadata,
+  type TreeNode,
+  type TreeNodeMetadata,
 } from "@/shared/models/database.types";
 
 export function formatTreeNode(
@@ -12,7 +12,7 @@ export function formatTreeNode(
   parentId: string | null,
   metaData: Partial<TreeNodeMetadata> = {}
 ): TreeNode {
-  const hasChildren = type !== "column";
+  const hasChildren = type !== TreeNodeType.Column;
 
   const metadata = {
     type,

@@ -1,5 +1,28 @@
 import type { Server } from "./servers.types";
 
+// All Database Structures
+export interface ColumnStructure {
+  name: string;
+  data_type: string;
+  is_nullable: boolean;
+}
+
+export interface TableStructure {
+  name: string;
+  table_type: string;
+  columns: ColumnStructure[];
+}
+
+export interface SchemaStructure {
+  name: string;
+  tables: TableStructure[];
+}
+
+export interface DatabaseStructure {
+  schemas: SchemaStructure[];
+}
+
+// Individual Database Entities
 export interface Database {
   name: string;
   serverId: number;
@@ -30,14 +53,16 @@ export interface TreeNode {
   isLoading: boolean;
   metadata: TreeNodeMetadata;
   isConnected?: boolean;
+  hasLoadedChildren?: boolean;
 }
 
-export type TreeNodeType =
-  | "server"
-  | "database"
-  | "schema"
-  | "table"
-  | "column";
+export enum TreeNodeType {
+  Server = "server",
+  Database = "database",
+  Schema = "schema",
+  Table = "table",
+  Column = "column",
+}
 
 export type TreeNodeMetadata =
   | {

@@ -10,8 +10,9 @@ import type {
 } from "@/shared/hooks/use-query-tabs/use-query-tabs.types";
 import type { QueryTab } from "@/shared/models/query-tabs.types";
 import toast from "react-hot-toast";
+import type { HandleFetchStructure } from "../use-data-structure/use-data-structure.types";
 
-export function useQueryTabs() {
+export function useQueryTabs(loadDatabaseStructure: HandleFetchStructure) {
   const { runQuery, loading: loadingQuery } = useRunQuery();
   const [tabs, setTabs] = useState<QueryTab[]>([]);
 
@@ -32,6 +33,14 @@ export function useQueryTabs() {
           active: true,
         },
       ]);
+
+      loadDatabaseStructure(serverId, databaseName).catch((error) => {
+        toast.error(
+          `Failed to load database structure for ${databaseName}: ${String(
+            error
+          )}`
+        );
+      });
     },
     []
   );

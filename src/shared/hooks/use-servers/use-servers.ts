@@ -14,6 +14,7 @@ import type {
   EditServer,
   DeleteServer,
 } from "./user-servers.types";
+import { TreeNodeType } from "@/shared/models/database.types";
 
 export const useServers = ({ addChildren, removeNode }: UserServersProps) => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -25,7 +26,7 @@ export const useServers = ({ addChildren, removeNode }: UserServersProps) => {
       const formattedServers = data.map((server) =>
         formatTreeNode(
           `server-${server.id}`,
-          "server",
+          TreeNodeType.Server,
           server.id,
           server.name,
           null,
@@ -48,7 +49,7 @@ export const useServers = ({ addChildren, removeNode }: UserServersProps) => {
 
       const formattedServer = formatTreeNode(
         `server-${newServer.id}`,
-        "server",
+        TreeNodeType.Server,
         newServer.id,
         newServer.name,
         null,
@@ -72,7 +73,7 @@ export const useServers = ({ addChildren, removeNode }: UserServersProps) => {
 
       const formattedServer = formatTreeNode(
         `server-${updatedServer.id}`,
-        "server",
+        TreeNodeType.Server,
         updatedServer.id,
         updatedServer.name,
         null,
