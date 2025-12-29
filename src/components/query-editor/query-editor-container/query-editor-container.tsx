@@ -3,8 +3,10 @@ import { format as formatSQL } from "sql-formatter";
 import { SQLEditor } from "@/components/query-editor/sql-editor/sql-editor";
 import { QueryEditorToolbar } from "@/components/query-editor/query-editor-toolbar/query-editor-toolbar";
 
-import type { QueryEditorContainerProps } from "./query-editor-container.types";
-import type { OnSelectionChange } from "@/components/layout/query-editor/query-editor.types";
+import type {
+  QueryEditorContainerProps,
+  OnSelectionChange,
+} from "./query-editor-container.types";
 
 export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
   value,

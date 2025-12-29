@@ -8,3 +8,8 @@ export interface QueryEditorContainerProps {
   databaseStructure: DatabaseStructure | null;
   isLoading?: boolean;
 }
+
+export type OnSelectionChange = (selection: {
+  start: number;
+  end: number;
+}) => void;
