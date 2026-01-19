@@ -7,7 +7,7 @@ export enum RustMethods {
   DELETE_SERVER = "delete_server",
 
   // PostgreSQL methods
-  CONNECT_TO_SERVER = "connect_to_server",
+  CONNECT_TO_SERVER = "connect",
   RUN_POSTGRE_QUERY = "run_postgre_query",
   GET_POSTGRE_SCHEMAS = "get_postgre_schemas",
   GET_POSTGRE_DATABASES = "get_postgre_databases",

@@ -120,5 +120,7 @@ export async function getPostgreStructure(
     }
   );
 
+  console.log("structure", structure);
+
   return structure;
 }

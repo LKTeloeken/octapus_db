@@ -1,58 +1,55 @@
-mod db;
-mod app_state;
+mod adapters;
 mod commands;
+mod error;
 mod models;
-mod db_connection_manager;
+mod services;
+mod state;
+mod storage;
 
-use std::sync::Mutex;
-
+use state::AppState;
+use storage::init_storage;
 use tauri::{Builder, Manager};
-use db::init_database;
-use app_state::AppState;
-use commands::servers_commands::{create_server, get_all_servers, get_server_by_id, update_server, delete_server};
-use commands::postgre_commands::{run_postgre_query, connect_to_server, get_postgre_databases, get_postgre_schemas, get_postgre_tables, get_postgre_columns, get_postgre_triggers, get_postgre_indexes, get_database_structure};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     Builder::default()
         .setup(|app| {
-            // Get the app data directory (safe location on macOS)
-            let app_data_dir = app.path()
+            let app_data_dir = app
+                .path()
                 .app_data_dir()
                 .expect("Failed to get app data directory");
-            
-            // Ensure the directory exists
+
             std::fs::create_dir_all(&app_data_dir)
                 .expect("Failed to create app data directory");
-            
-            let db_path = app_data_dir.join("app.db");
-            let conn = init_database(&db_path)
-                .expect("Failed to initialize database");
 
-            // Create app state
-            let app_state = AppState {
-                conn: Mutex::new(conn),
-            };
-            
-            app.manage(app_state);
+            let storage_conn =
+                init_storage(&app_data_dir.join("app.db")).expect("Failed to initialize storage");
+
+            app.manage(AppState::new(storage_conn));
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            create_server,
-            get_all_servers,
-            get_server_by_id,
-            update_server,
-            delete_server,
-
-            connect_to_server,
-            run_postgre_query,
-            get_postgre_databases,
-            get_postgre_schemas,
-            get_postgre_tables,
-            get_postgre_columns,
-            get_postgre_triggers,
-            get_postgre_indexes,
-            get_database_structure
+            // Servers
+            commands::create_server,
+            commands::get_all_servers,
+            commands::get_server,
+            commands::update_server,
+            commands::delete_server,
+            // Connections
+            commands::connect,
+            commands::disconnect,
+            commands::test_connection,
+            commands::get_pool_stats,
+            // Queries
+            commands::execute_query,
+            commands::execute_statement,
+            // Structure (lazy loading)
+            commands::list_databases,
+            commands::list_schemas,
+            commands::list_tables,
+            commands::list_columns,
+            commands::list_indexes,
         ])
         .plugin(tauri_plugin_opener::init())
         .run(tauri::generate_context!())
