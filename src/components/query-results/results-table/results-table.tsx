@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useLayoutEffect, useRef, useState, memo } from "react";
-import useVirtualization from "@/shared/hooks/use-virtualization";
+import useVirtualization from "@/shared/hooks/use-virtualization/use-virtualization";
 import { cn } from "@/lib/utils";
 
 import {
