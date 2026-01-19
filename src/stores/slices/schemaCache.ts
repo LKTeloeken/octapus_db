@@ -26,7 +26,7 @@ export interface SchemaCacheState {
   clearAll: () => void;
 }
 
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CACHE_TTL_MS = 0; // 24 hours
 
 const getCacheKey = (serverId: number, databaseName: string) =>
   `${serverId}:${databaseName}`;

@@ -1,0 +1,66 @@
+use async_trait::async_trait;
+
+use crate::error::Result;
+use crate::models::{
+    ColumnInfo, DatabaseInfo, IndexInfo, QueryOptions, QueryResult,
+    SchemaInfo, StatementResult, TableInfo,
+};
+
+/// Core trait that all database adapters must implement
+#[async_trait]
+pub trait DatabaseAdapter: Send + Sync {
+    // ─────────────────────────────────────────────────────────────────────
+    // Query Execution
+    // ─────────────────────────────────────────────────────────────────────
+
+    async fn execute_query(
+        &self,
+        query: &str,
+        options: QueryOptions,
+    ) -> Result<QueryResult>;
+
+    async fn execute_statement(&self, statement: &str) -> Result<StatementResult>;
+
+    async fn execute_transaction(
+        &self,
+        statements: Vec<String>,
+    ) -> Result<Vec<StatementResult>>;
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Metadata - Lazy Loading
+    // ─────────────────────────────────────────────────────────────────────
+
+    async fn list_databases(&self) -> Result<Vec<DatabaseInfo>>;
+
+    async fn list_schemas(&self) -> Result<Vec<SchemaInfo>>;
+
+    async fn list_tables(&self, schema: &str) -> Result<Vec<TableInfo>>;
+
+    async fn list_columns(&self, schema: &str, table: &str) -> Result<Vec<ColumnInfo>>;
+
+    async fn list_indexes(&self, schema: &str, table: &str) -> Result<Vec<IndexInfo>>;
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Connection
+    // ─────────────────────────────────────────────────────────────────────
+
+    async fn test_connection(&self) -> Result<()>;
+
+    async fn cancel_query(&self, query_id: &str) -> Result<()>;
+}
+
+/// Pool statistics for monitoring
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolStats {
+    pub size: usize,
+    pub available: usize,
+    pub in_use: usize,
+    pub waiting: usize,
+}
+
+/// Trait for adapters that use connection pooling
+#[async_trait]
+pub trait PooledAdapter: DatabaseAdapter {
+    fn pool_stats(&self) -> PoolStats;
+}

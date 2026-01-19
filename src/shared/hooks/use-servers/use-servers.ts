@@ -36,6 +36,8 @@ export const useServers = ({ addChildren, removeNode }: UserServersProps) => {
 
       addChildren(formattedServers);
     } catch (error) {
+      console.log("error", error);
+
       toast.error("Failed to fetch servers.");
     } finally {
       setIsLoading(false);
