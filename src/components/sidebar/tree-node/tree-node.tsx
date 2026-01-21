@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useTreeNode } from "./use-tree-node";
 import type { TreeNodeProps } from "./tree-node.types";
+import { useStyles } from "./tree-node.styles";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -45,48 +46,45 @@ export const TreeNode = memo(
       handleOpenNewTab,
     } = useTreeNode(node, nodeId, childrenMap, openServerModal, openNewTab);
 
+    const styles = useStyles();
+
     return (
-      <div className="relative">
+      <div className={styles.root}>
         <div
-          className={cn(
-            "flex items-center gap-2 py-1 px-2 cursor-pointer hover:bg-accent/50 rounded-md transition-colors",
-            "group relative pr-8"
-          )}
+          className={styles.container}
           style={{ paddingLeft: `${level * 1.25 + 0.5}rem` }}
           onClick={() => hasChildren && onToggle(nodeId)}
           onContextMenu={handleContextMenu}
         >
-          <div className="flex items-center justify-center w-4 h-4 shrink-0">
+          <div className={styles.iconWrapper}>
             {hasChildren && (
               <>
                 {node.isLoading ? (
-                  <Spinner className="w-3 h-3" />
+                  <Spinner className={styles.spinner} />
                 ) : isExpanded ? (
-                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                  <ChevronDown className={styles.chevronIcon} />
                 ) : (
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  <ChevronRight className={styles.chevronIcon} />
                 )}
               </>
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className={styles.contentWrapper}>
             {getNodeIcon(node.type, !!node.isConnected)}
 
-            <div className="flex flex-col gap-1 ">
-              <div className="text-sm truncate">{node.name}</div>
+            <div className={styles.textWrap}>
+              <div className={styles.nameText}>{node.name}</div>
               {metadata && metadata.type === "column" && (
-                <div className="text-xs text-muted-foreground truncate">
-                  {metadata.dataType}
-                </div>
+                <div className={styles.dataTypeText}>{metadata.dataType}</div>
               )}
             </div>
           </div>
 
           <div
             className={cn(
-              "absolute right-2 transition-opacity",
-              isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+              styles.menuButtonWrapper,
+              isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100",
             )}
           >
             <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
@@ -94,24 +92,24 @@ export const TreeNode = memo(
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-6 w-6"
+                  className={styles.menuButton}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-32 p-1" align="end">
+              <PopoverContent className={styles.popoverContent} align="end">
                 {node.type === "server" && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="w-full justify-start gap-2"
+                    className={styles.menuItemButton}
                     onClick={(e) => {
                       handleServerEdit(e);
                       setIsMenuOpen(false);
                     }}
                   >
-                    <Edit className="h-3 w-3" />
+                    <Edit className={styles.menuIcon} />
                     Editar
                   </Button>
                 )}
@@ -119,13 +117,13 @@ export const TreeNode = memo(
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="w-full justify-start gap-2"
+                  className={styles.menuItemButton}
                   onClick={(e) => {
                     handleOpenNewTab(e);
                     setIsMenuOpen(false);
                   }}
                 >
-                  <Plus className="h-3 w-3" />
+                  <Plus className={styles.menuIcon} />
                   Nova aba
                 </Button>
               </PopoverContent>
@@ -156,8 +154,8 @@ export const TreeNode = memo(
         {level > 0 && (
           <div
             className={cn(
-              "absolute top-0 w-0.5 bg-secondary",
-              isLastChild ? "h-[1.125rem]" : "h-full"
+              styles.verticalLine,
+              isLastChild ? "h-[1.125rem]" : "h-full",
             )}
             style={{ left: `${(level - 1) * 1.25 + 0.95}rem` }}
           />
@@ -166,7 +164,7 @@ export const TreeNode = memo(
         {/* Linha horizontal */}
         {level > 0 && (
           <div
-            className="absolute top-[1.125rem] h-0.5 bg-secondary"
+            className={styles.horizontalLine}
             style={{
               left: `${(level - 1) * 1.25 + 0.95}rem`,
               width: "0.5rem",
@@ -175,7 +173,7 @@ export const TreeNode = memo(
         )}
       </div>
     );
-  }
+  },
 );
 
 TreeNode.displayName = "TreeNode";

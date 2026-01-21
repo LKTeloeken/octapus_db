@@ -13,6 +13,7 @@ import { ServerTree } from "../server-tree/server-tree";
 import { ConfigServerModal } from "@/components/server/config-server-modal/config-server-modal";
 import { useSidebarBody } from "./use-sidebar-body";
 import { Plus } from "lucide-react";
+import { useStyles } from "./sidebar-body.styles";
 import type { SidebarBodyProps } from "./sidebar-body.types";
 
 export const SidebarBody = memo(
@@ -26,6 +27,7 @@ export const SidebarBody = memo(
     onDeleteServer,
     openTab,
   }: SidebarBodyProps) => {
+    const styles = useStyles();
     const {
       isConfigServerModalOpen,
       editingServer,
@@ -34,10 +36,10 @@ export const SidebarBody = memo(
     } = useSidebarBody();
 
     return (
-      <div className="h-full flex flex-col">
-        <div className="flex items-center justify-between px-4 py-2">
-          <div className="flex items-center gap-2">
-            <Typography variant="p" className="font-semibold">
+      <div className={styles.root}>
+        <div className={styles.header}>
+          <div className={styles.headerContent}>
+            <Typography variant="p" className={styles.titleText}>
               Servidores
             </Typography>
 
@@ -85,12 +87,12 @@ export const SidebarBody = memo(
 
         <Separator />
 
-        <div className="p-2 flex flex-col gap-2 overflow-y-auto flex-1">
+        <div className={styles.content}>
           <div
-            className="w-full p-1 flex items-center justify-center gap-2 text-xs font-bold text-muted-foreground cursor-pointer hover:bg-accent hover:text-accent-foreground rounded-sm"
+            className={styles.addButton}
             onClick={() => openConfigServerModal()}
           >
-            <Plus className="size-4" />
+            <Plus className={styles.addIcon} />
             Adicionar
           </div>
           <ServerTree
@@ -103,5 +105,5 @@ export const SidebarBody = memo(
         </div>
       </div>
     );
-  }
+  },
 );
