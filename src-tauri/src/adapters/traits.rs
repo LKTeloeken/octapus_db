@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use crate::error::Result;
 use crate::models::{
     ColumnInfo, DatabaseInfo, IndexInfo, QueryOptions, QueryResult,
-    SchemaInfo, StatementResult, TableInfo,
+    SchemaInfo, StatementResult, TableInfo, DatabaseStructure
 };
 
 /// Core trait that all database adapters must implement
@@ -39,6 +39,8 @@ pub trait DatabaseAdapter: Send + Sync {
     async fn list_columns(&self, schema: &str, table: &str) -> Result<Vec<ColumnInfo>>;
 
     async fn list_indexes(&self, schema: &str, table: &str) -> Result<Vec<IndexInfo>>;
+
+    async fn list_schemas_with_tables(&self) -> Result<DatabaseStructure>; 
 
     // ─────────────────────────────────────────────────────────────────────
     // Connection

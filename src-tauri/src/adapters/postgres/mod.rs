@@ -71,6 +71,10 @@ impl DatabaseAdapter for PostgresAdapter {
         metadata::list_indexes(&self.pool, schema, table).await
     }
 
+    async fn list_schemas_with_tables(&self) -> Result<DatabaseStructure> {
+        metadata::list_schemas_with_tables(&self.pool).await
+    }
+
     async fn test_connection(&self) -> Result<()> {
         let client = self.pool.get().await?;
         client.query_one("SELECT 1", &[]).await?;
@@ -81,6 +85,8 @@ impl DatabaseAdapter for PostgresAdapter {
         // Implementation: parse query_id as PID, call pg_cancel_backend
         todo!("Implement query cancellation")
     }
+
+
 }
 
 impl PooledAdapter for PostgresAdapter {

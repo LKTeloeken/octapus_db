@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::models::{ColumnInfo, DatabaseInfo, IndexInfo, SchemaInfo, TableInfo};
+use crate::models::{ColumnInfo, DatabaseInfo, IndexInfo, SchemaInfo, TableInfo, DatabaseStructure};
 use crate::state::AppState;
 
 use super::get_server;
@@ -92,6 +92,25 @@ pub async fn list_indexes(
 
     adapter
         .list_indexes(&schema, &table)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_schemas_with_tables(
+    state: State<'_, AppState>,
+    server_id: i64,
+    database: String,
+) -> Result<DatabaseStructure, String> {
+    let server = get_server(state.clone(), server_id)?;
+
+    let adapter = state
+        .connections
+        .get_or_connect(&server, &database)
+        .map_err(|e| e.to_string())?;
+
+    adapter
+        .list_schemas_with_tables()
         .await
         .map_err(|e| e.to_string())
 }

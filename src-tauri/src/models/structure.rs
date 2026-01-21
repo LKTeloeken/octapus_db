@@ -74,5 +74,4 @@ pub struct SchemaStructure {
 pub struct TableStructure {
     pub name: String,
     pub table_type: TableType,
-    pub columns: Vec<ColumnInfo>,
 }

@@ -1,8 +1,12 @@
+use std::collections::BTreeMap;
+use chrono::Utc;
+
 use deadpool_postgres::Pool;
 
 use crate::error::Result;
 use crate::models::{
-    ColumnInfo, DatabaseInfo, IndexInfo, SchemaInfo, TableInfo, TableType,
+    ColumnInfo, DatabaseInfo, IndexInfo, SchemaInfo, TableInfo, TableType, DatabaseStructure, SchemaStructure,
+    TableStructure,
 };
 
 pub async fn list_databases(pool: &Pool) -> Result<Vec<DatabaseInfo>> {
@@ -189,4 +193,60 @@ pub async fn list_indexes(pool: &Pool, schema: &str, table: &str) -> Result<Vec<
             index_type: r.get(4),
         })
         .collect())
+}
+
+pub async fn list_schemas_with_tables(pool: &Pool) -> Result<DatabaseStructure> {
+    let client = pool.get().await?;
+
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                n.nspname AS schema_name,
+                c.relname AS table_name,
+                c.relkind AS table_kind
+            FROM pg_namespace n
+            LEFT JOIN pg_class c 
+                ON c.relnamespace = n.oid 
+                AND c.relkind IN ('r', 'v', 'm', 'f')
+            WHERE n.nspname NOT IN ('pg_toast', 'pg_catalog', 'information_schema')
+            ORDER BY n.nspname, c.relname
+            "#,
+            &[],
+        )
+        .await?;
+
+    // Group by schema using BTreeMap for consistent ordering
+    let mut schemas_map: BTreeMap<String, Vec<TableStructure>> = BTreeMap::new();
+
+    for row in &rows {
+        let schema_name: String = row.get(0);
+        let table_name: Option<String> = row.get(1);
+        let table_kind: Option<i8> = row.get(2);
+
+        let tables = schemas_map.entry(schema_name).or_default();
+
+        // Only add if table exists (LEFT JOIN may produce nulls for empty schemas)
+        if let (Some(name), Some(kind)) = (table_name, table_kind) {
+            let table_type = match kind as u8 as char {
+                'r' => TableType::Table,
+                'v' => TableType::View,
+                'm' => TableType::MaterializedView,
+                'f' => TableType::Foreign,
+                _ => TableType::Table,
+            };
+
+            tables.push(TableStructure { name, table_type });
+        }
+    }
+
+    let schemas = schemas_map
+        .into_iter()
+        .map(|(name, tables)| SchemaStructure { name, tables })
+        .collect();
+
+    Ok(DatabaseStructure {
+        schemas,
+        fetched_at: Utc::now().timestamp_millis(),
+    })
 }

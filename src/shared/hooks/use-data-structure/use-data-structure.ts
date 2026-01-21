@@ -1,5 +1,9 @@
 import { useCallback, useState } from "react";
-import { getDatabases } from "@/api/postgres/methods";
+// import { getDatabases } from "@/api/postgres/methods";
+import {
+  getDatabases,
+  getSchemasWithTables,
+} from "@/api/database/database-methods";
 import { formatTreeNode } from "@/lib/format-tree-node";
 import { convertDatabaseStructureToNodes } from "./utils";
 import toast from "react-hot-toast";
@@ -32,7 +36,7 @@ export const useDataStructure = () => {
         return { ...prev, nodes: newNodes };
       });
     },
-    []
+    [],
   );
 
   const handleSetNodes = useCallback((nodesToUpdate: TreeNode[]) => {
@@ -71,7 +75,7 @@ export const useDataStructure = () => {
 
   const addNodes: AddNodes = useCallback(
     (nodesToAdd: TreeNode[]) => handleSetNodes(nodesToAdd),
-    [handleSetNodes]
+    [handleSetNodes],
   );
 
   const removeNode: RemoveNode = useCallback((nodeId: string) => {
@@ -101,12 +105,12 @@ export const useDataStructure = () => {
       const formattedNodes = convertDatabaseStructureToNodes(
         serverId,
         databaseName,
-        structure
+        structure,
       );
 
       handleSetNodes(formattedNodes);
     },
-    [fetchStructure]
+    [fetchStructure],
   );
 
   const handleLoadDatabaseStructure = useCallback(
@@ -127,8 +131,8 @@ export const useDataStructure = () => {
               type: TreeNodeType.Database,
               serverId,
               databaseName: db.name,
-            }
-          )
+            },
+          ),
         );
 
         return databasesNodes;
@@ -137,18 +141,21 @@ export const useDataStructure = () => {
       if (node.type === TreeNodeType.Database) {
         const databaseName = node.name;
 
-        const structureNodes = await fetchStructure(serverId, databaseName);
-
-        return convertDatabaseStructureToNodes(
+        const structureNodes = await getSchemasWithTables(
           serverId,
           databaseName,
-          structureNodes
         );
+
+        // return convertDatabaseStructureToNodes(
+        //   serverId,
+        //   databaseName,
+        //   structureNodes,
+        // );
       }
 
       return [];
     },
-    [fetchStructure]
+    [fetchStructure],
   );
 
   const onClickNode = useCallback(
@@ -171,6 +178,8 @@ export const useDataStructure = () => {
 
           const childrenNodes = await handleLoadDatabaseStructure(node);
 
+          console.log("childrenNodes", childrenNodes);
+
           handleSetNodes(childrenNodes);
 
           handleSetNode(nodeId, {
@@ -182,6 +191,8 @@ export const useDataStructure = () => {
 
           return;
         } catch (error) {
+          console.log("error", error);
+
           toast.error("Failed to load data structure.");
           handleSetNode(nodeId, { isLoading: false });
           return;
@@ -190,7 +201,7 @@ export const useDataStructure = () => {
 
       handleSetNode(nodeId, { isExpanded: !node.isExpanded });
     },
-    [nodes.nodes]
+    [nodes.nodes],
   );
 
   return {

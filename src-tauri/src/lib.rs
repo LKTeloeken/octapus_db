@@ -50,6 +50,7 @@ pub fn run() {
             commands::list_tables,
             commands::list_columns,
             commands::list_indexes,
+            commands::list_schemas_with_tables,
         ])
         .plugin(tauri_plugin_opener::init())
         .run(tauri::generate_context!())
