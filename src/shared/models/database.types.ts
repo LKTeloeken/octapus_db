@@ -1,4 +1,5 @@
 import type { Server } from "./servers.types";
+import { TableTypes } from "@/api/database/database-responses.types";
 
 // All Database Structures
 export interface ColumnStructure {
@@ -9,8 +10,8 @@ export interface ColumnStructure {
 
 export interface TableStructure {
   name: string;
-  table_type: string;
-  columns: ColumnStructure[];
+  tableType: TableTypes;
+  columns?: ColumnStructure[];
 }
 
 export interface SchemaStructure {
@@ -40,7 +41,7 @@ export interface Column {
   name: string;
   data_type: string;
   is_nullable: boolean;
-  column_default: string | null;
+  default_value: string | null;
 }
 
 export interface TreeNode {

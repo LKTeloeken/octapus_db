@@ -8,7 +8,7 @@ export interface SQLSchemaSpec {
 
 export function convertToCodeMirrorSchema(
   structure: DatabaseStructure,
-  defaultSchema = "public"
+  defaultSchema = "public",
 ): SQLSchemaSpec {
   const schema: SQLSchemaSpec = {};
 
@@ -16,7 +16,7 @@ export function convertToCodeMirrorSchema(
     const tables: { [table: string]: readonly string[] } = {};
 
     for (const table of schemaInfo.tables) {
-      const columnNames = table.columns.map((col) => col.name);
+      const columnNames = table.columns?.map((col) => col.name) || [];
       tables[table.name] = columnNames;
 
       // Also add fully qualified name for non-default schemas
@@ -51,8 +51,10 @@ export function getFlatCompletions(structure: DatabaseStructure) {
       completions.push({
         label: table.name,
         type: "table",
-        detail: `${schema.name} - ${table.table_type}`,
+        detail: `${schema.name} - ${table.tableType}`,
       });
+
+      if (!table.columns) continue;
 
       for (const column of table.columns) {
         completions.push({

@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import {
   getDatabases,
   getSchemasWithTables,
+  getColumns,
 } from "@/api/database/database-methods";
 import { formatTreeNode } from "@/lib/format-tree-node";
 import { convertDatabaseStructureToNodes } from "./utils";
@@ -115,6 +116,8 @@ export const useDataStructure = () => {
 
   const handleLoadDatabaseStructure = useCallback(
     async (node: TreeNode) => {
+      console.log("node", node);
+
       const serverId = node.metadata.serverId;
 
       if (node.type === TreeNodeType.Server) {
@@ -146,11 +149,70 @@ export const useDataStructure = () => {
           databaseName,
         );
 
-        // return convertDatabaseStructureToNodes(
-        //   serverId,
-        //   databaseName,
-        //   structureNodes,
-        // );
+        const nodes = structureNodes.flatMap((schema) => {
+          const schemaNode = formatTreeNode(
+            `schema-${schema.name}-${databaseName}-${serverId}`,
+            TreeNodeType.Schema,
+            serverId,
+            schema.name,
+            `database-${databaseName}-${serverId}`,
+            {
+              type: TreeNodeType.Schema,
+              serverId,
+              databaseName,
+            },
+          );
+
+          const tableNodes = schema.tables.map((table) =>
+            formatTreeNode(
+              `table-${table.name}-${schema.name}-${databaseName}-${serverId}`,
+              TreeNodeType.Table,
+              serverId,
+              table.name,
+              schemaNode.id,
+              {
+                type: TreeNodeType.Table,
+                serverId,
+                databaseName,
+              },
+            ),
+          );
+
+          return [schemaNode, ...tableNodes];
+        });
+
+        return nodes;
+      }
+
+      if (node.type === TreeNodeType.Table) {
+        const [, tableName, schemaName, databaseName, serverId] =
+          node.id.split("-");
+
+        console.log("infos", tableName, schemaName, databaseName, serverId);
+
+        const columns = await getColumns(
+          Number(serverId),
+          databaseName,
+          schemaName,
+          tableName,
+        );
+
+        const columnNodes = columns.map((column) =>
+          formatTreeNode(
+            `column-${column.name}-${tableName}-${schemaName}-${databaseName}-${serverId}`,
+            TreeNodeType.Column,
+            Number(serverId),
+            column.name,
+            node.id,
+            {
+              type: TreeNodeType.Column,
+              serverId: Number(serverId),
+              databaseName,
+            },
+          ),
+        );
+
+        return columnNodes;
       }
 
       return [];
@@ -166,7 +228,8 @@ export const useDataStructure = () => {
 
       if (
         node.type === TreeNodeType.Database ||
-        node.type === TreeNodeType.Server
+        node.type === TreeNodeType.Server ||
+        node.type === TreeNodeType.Table
       ) {
         try {
           if (node.hasLoadedChildren) {

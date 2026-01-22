@@ -9,6 +9,7 @@ export enum RustMethods {
   // Database methods
   GET_DATABASES = "list_databases",
   GET_SCHEMAS_WITH_TABLES = "list_schemas_with_tables",
+  GET_COLUMNS = "list_columns",
 
   // PostgreSQL methods
   CONNECT_TO_SERVER = "connect",
