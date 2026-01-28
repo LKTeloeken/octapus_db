@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -26,6 +28,7 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-purple-glow: var(--purple-glow);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -40,6 +43,8 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-success: var(--success);
+  --color-surface: var(--surface);
+  --color-surface-light: var(--surface-light);
 }
 
 :root {
@@ -84,43 +89,63 @@
 }
 
 .dark {
-  --background: oklch(0.141 0.005 285.823);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
-  --popover-foreground: oklch(0.985 0 0);
+  --background: oklch(0.2043 0.0393 267.72);
+  --foreground: oklch(0.965 0.012 240);
+
+  --card: oklch(0.245 0.035 255);
+  --card-foreground: oklch(0.965 0.012 240);
+
+  --popover: oklch(0.245 0.035 255);
+  --popover-foreground: oklch(0.965 0.012 240);
+
   --success: oklch(0.538 0.211 142.369);
-  --primary: oklch(0.541 0.281 293.009);
-  --primary-foreground: oklch(0.969 0.016 293.756);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.541 0.281 293.009);
+
+  --primary: oklch(0.633 0.1776 298.77);
+  --primary-foreground: oklch(0.985 0.008 240);
+
+  --secondary: oklch(0.245 0.035 255);
+  --secondary-foreground: oklch(0.965 0.012 240);
+
+  --muted: oklch(0.345 0.03 250);
+  --muted-foreground: oklch(0.705 0.025 250);
+
+  --accent: oklch(0.633 0.1776 298.77);
+  --accent-foreground: oklch(0.985 0.008 240);
+
+  --destructive: oklch(0.635 0.225 25);
+  --destructive-foreground: oklch(0.985 0.008 240);
+
+  --border: oklch(0.425 0.03 250);
+  --input: oklch(0.425 0.03 250);
+  --ring: oklch(0.633 0.1776 298.77);
+
+  --purple-glow: oklch(0.645 0.185 295 / 0.2);
+
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.21 0.006 285.885);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.541 0.281 293.009);
-  --sidebar-primary-foreground: oklch(0.969 0.016 293.756);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.541 0.281 293.009);
+
+  /* Sidebar colors */
+  --sidebar: oklch(0.2043 0.0393 267.72);
+  --sidebar-foreground: oklch(0.705 0.025 250);
+  --sidebar-primary: oklch(0.633 0.1776 298.77);
+  --sidebar-primary-foreground: oklch(0.985 0.008 240);
+  --sidebar-accent: oklch(0.245 0.035 255);
+  --sidebar-accent-foreground: oklch(0.965 0.012 240);
+  --sidebar-border: oklch(0.425 0.03 250);
+  --sidebar-ring: oklch(0.633 0.1776 298.77);
+
   /* Scrollbar (dark) */
   --scrollbar-track: oklch(0.21 0.006 285.885);
   --scrollbar-thumb: oklch(0.32 0.01 285.9);
   --scrollbar-thumb-hover: oklch(0.38 0.015 285.9);
   --scrollbar-corner: oklch(0.21 0.006 285.885);
+
+  /* Custom tokens */
+  --surface: oklch(0.245 0.035 255);
+  --surface-light: oklch(0.345 0.03 250);
 }
 
 @layer base {
@@ -129,6 +154,34 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: "Inter", sans-serif;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: "JetBrains Mono", monospace;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted));
+    border-radius: 3px;
   }
 }
 
@@ -161,9 +214,4 @@
 
 *::-webkit-scrollbar-corner {
   background: var(--scrollbar-corner);
-}
-
-/* Utilitário opcional para forçar um container com scrollbar fino custom */
-.thin-scrollbar {
-  scrollbar-width: thin;
 }

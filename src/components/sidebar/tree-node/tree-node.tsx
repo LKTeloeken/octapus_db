@@ -133,7 +133,7 @@ export const TreeNode = memo(
 
         {/* Renderiza filhos apenas se expandido */}
         {isExpanded && childrenIds.length > 0 && (
-          <div>
+          <div className="animate-in fade-in">
             {childrenIds.map((childId, index) => (
               <TreeNode
                 key={childId}
