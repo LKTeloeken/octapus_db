@@ -10,9 +10,7 @@ export const convertDatabaseStructureToNodes = (
   databaseName: string,
   structure: DatabaseStructure,
 ) => {
-  const nodes: TreeNode[] = [];
-
-  structure.schemas.forEach((schema) => {
+  const nodes: TreeNode[] = structure.schemas.flatMap((schema) => {
     const schemaNode: TreeNode = formatTreeNode(
       `schema-${schema.name}-${databaseName}-${serverId}`,
       TreeNodeType.Schema,
@@ -25,9 +23,8 @@ export const convertDatabaseStructureToNodes = (
         databaseName,
       },
     );
-    nodes.push(schemaNode);
 
-    schema.tables.forEach((table) => {
+    const tablesNodes: TreeNode[] = schema.tables.flatMap((table) => {
       const tableNode: TreeNode = formatTreeNode(
         `table-${table.name}-${schema.name}-${databaseName}-${serverId}`,
         TreeNodeType.Table,
@@ -40,12 +37,11 @@ export const convertDatabaseStructureToNodes = (
           databaseName,
         },
       );
-      nodes.push(tableNode);
 
-      if (!table.columns) return;
+      if (!table.columns) return [tableNode];
 
-      table.columns.forEach((column) => {
-        const columnNode: TreeNode = formatTreeNode(
+      const columnNodes: TreeNode[] = table.columns.map((column) =>
+        formatTreeNode(
           `column-${column.name}-${table.name}-${schema.name}-${databaseName}-${serverId}`,
           TreeNodeType.Column,
           serverId,
@@ -58,10 +54,13 @@ export const convertDatabaseStructureToNodes = (
             dataType: column.data_type,
             isNullable: column.is_nullable,
           },
-        );
-        nodes.push(columnNode);
-      });
+        ),
+      );
+
+      return [tableNode, ...columnNodes];
     });
+
+    return [schemaNode, ...tablesNodes];
   });
 
   return nodes;

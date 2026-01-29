@@ -131,18 +131,8 @@ export const TreeNode = memo(
           </div>
         </div>
 
-        <div
-          className={cn(
-            "grid transition-[grid-template-rows] duration-150 ease-in-out",
-            isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-          )}
-        >
-          <div
-            className={cn(
-              "overflow-hidden transition-opacity duration-150 ease-in-out",
-              isExpanded ? "opacity-100" : "opacity-0",
-            )}
-          >
+        {isExpanded && (
+          <div className={"overflow-hidden animate-in fade-in duration-700"}>
             {childrenIds.map((childId, index) => (
               <TreeNode
                 key={childId}
@@ -157,7 +147,7 @@ export const TreeNode = memo(
               />
             ))}
           </div>
-        </div>
+        )}
 
         {/* Linha vertical conectando ao pai */}
         {level > 0 && (

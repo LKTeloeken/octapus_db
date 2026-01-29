@@ -1,5 +1,4 @@
 import { useCallback, useState } from "react";
-// import { getDatabases } from "@/api/postgres/methods";
 import {
   getDatabases,
   getSchemasWithTables,
@@ -101,12 +100,14 @@ export const useDataStructure = () => {
 
   const handleFetchStructure: HandleFetchStructure = useCallback(
     async (serverId: number, databaseName: string) => {
-      const structure = await fetchStructure(serverId, databaseName);
+      const structureNodes = await getSchemasWithTables(serverId, databaseName);
 
       const formattedNodes = convertDatabaseStructureToNodes(
         serverId,
         databaseName,
-        structure,
+        {
+          schemas: structureNodes,
+        },
       );
 
       handleSetNodes(formattedNodes);
@@ -149,36 +150,8 @@ export const useDataStructure = () => {
           databaseName,
         );
 
-        const nodes = structureNodes.flatMap((schema) => {
-          const schemaNode = formatTreeNode(
-            `schema-${schema.name}-${databaseName}-${serverId}`,
-            TreeNodeType.Schema,
-            serverId,
-            schema.name,
-            `database-${databaseName}-${serverId}`,
-            {
-              type: TreeNodeType.Schema,
-              serverId,
-              databaseName,
-            },
-          );
-
-          const tableNodes = schema.tables.map((table) =>
-            formatTreeNode(
-              `table-${table.name}-${schema.name}-${databaseName}-${serverId}`,
-              TreeNodeType.Table,
-              serverId,
-              table.name,
-              schemaNode.id,
-              {
-                type: TreeNodeType.Table,
-                serverId,
-                databaseName,
-              },
-            ),
-          );
-
-          return [schemaNode, ...tableNodes];
+        const nodes = convertDatabaseStructureToNodes(serverId, databaseName, {
+          schemas: structureNodes,
         });
 
         return nodes;
@@ -240,8 +213,6 @@ export const useDataStructure = () => {
           handleSetNode(nodeId, { isLoading: true });
 
           const childrenNodes = await handleLoadDatabaseStructure(node);
-
-          console.log("childrenNodes", childrenNodes);
 
           handleSetNodes(childrenNodes);
 

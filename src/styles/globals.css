@@ -89,30 +89,19 @@
 }
 
 .dark {
-  /* 
-     HIERARCHY (Lighter Version):
-     1. Sidebar: 0.13 (Darkest)
-     2. Background: 0.17 (Base)
-     3. Card/Surface: 0.21 (Elevated)
-  */
-
-  /* SIDEBAR - Darkest Element */
   --sidebar: oklch(0.13 0.008 298);
   --sidebar-foreground: oklch(0.75 0.02 298);
   --sidebar-primary: oklch(0.633 0.1776 298.77);
   --sidebar-primary-foreground: oklch(0.985 0.008 240);
 
-  /* Sidebar hover/accent */
   --sidebar-accent: oklch(0.18 0.012 298);
   --sidebar-accent-foreground: oklch(0.985 0.002 298);
   --sidebar-border: oklch(0.22 0.015 298);
   --sidebar-ring: oklch(0.633 0.1776 298.77);
 
-  /* MAIN BACKGROUND - Clearly separated from sidebar */
   --background: oklch(0.17 0.01 298);
   --foreground: oklch(0.985 0.002 298);
 
-  /* CARDS - Elevated surfaces */
   --card: oklch(0.21 0.014 298);
   --card-foreground: oklch(0.985 0.002 298);
 
@@ -121,11 +110,9 @@
 
   --success: oklch(0.538 0.211 142.369);
 
-  /* PRIMARY - UNCHANGED */
   --primary: oklch(0.633 0.1776 298.77);
   --primary-foreground: oklch(0.985 0.008 240);
 
-  /* Secondary surfaces */
   --secondary: oklch(0.24 0.018 298);
   --secondary-foreground: oklch(0.985 0.002 298);
 
@@ -138,7 +125,6 @@
   --destructive: oklch(0.635 0.225 25);
   --destructive-foreground: oklch(0.985 0.008 240);
 
-  /* Borders need to be lighter than the card surface to be visible */
   --border: oklch(0.28 0.02 298);
   --input: oklch(0.28 0.02 298);
   --ring: oklch(0.633 0.1776 298.77);
@@ -151,11 +137,9 @@
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
 
-  /* Custom tokens */
   --surface: oklch(0.21 0.014 298);
   --surface-light: oklch(0.26 0.018 298);
 
-  /* Scrollbar - Blends with background */
   --scrollbar-track: oklch(0.17 0.01 298);
   --scrollbar-thumb: oklch(0.3 0.02 298);
   --scrollbar-thumb-hover: oklch(0.4 0.02 298);
