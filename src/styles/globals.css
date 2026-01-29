@@ -89,25 +89,48 @@
 }
 
 .dark {
-  --background: oklch(0.2043 0.0393 267.72);
-  --foreground: oklch(0.965 0.012 240);
+  /* 
+     HIERARCHY (Lighter Version):
+     1. Sidebar: 0.13 (Darkest)
+     2. Background: 0.17 (Base)
+     3. Card/Surface: 0.21 (Elevated)
+  */
 
-  --card: oklch(0.245 0.035 255);
-  --card-foreground: oklch(0.965 0.012 240);
+  /* SIDEBAR - Darkest Element */
+  --sidebar: oklch(0.13 0.008 298);
+  --sidebar-foreground: oklch(0.75 0.02 298);
+  --sidebar-primary: oklch(0.633 0.1776 298.77);
+  --sidebar-primary-foreground: oklch(0.985 0.008 240);
 
-  --popover: oklch(0.245 0.035 255);
-  --popover-foreground: oklch(0.965 0.012 240);
+  /* Sidebar hover/accent */
+  --sidebar-accent: oklch(0.18 0.012 298);
+  --sidebar-accent-foreground: oklch(0.985 0.002 298);
+  --sidebar-border: oklch(0.22 0.015 298);
+  --sidebar-ring: oklch(0.633 0.1776 298.77);
+
+  /* MAIN BACKGROUND - Clearly separated from sidebar */
+  --background: oklch(0.17 0.01 298);
+  --foreground: oklch(0.985 0.002 298);
+
+  /* CARDS - Elevated surfaces */
+  --card: oklch(0.21 0.014 298);
+  --card-foreground: oklch(0.985 0.002 298);
+
+  --popover: oklch(0.21 0.014 298);
+  --popover-foreground: oklch(0.985 0.002 298);
 
   --success: oklch(0.538 0.211 142.369);
 
+  /* PRIMARY - UNCHANGED */
   --primary: oklch(0.633 0.1776 298.77);
   --primary-foreground: oklch(0.985 0.008 240);
 
-  --secondary: oklch(0.245 0.035 255);
-  --secondary-foreground: oklch(0.965 0.012 240);
+  /* Secondary surfaces */
+  --secondary: oklch(0.24 0.018 298);
+  --secondary-foreground: oklch(0.985 0.002 298);
 
-  --muted: oklch(0.345 0.03 250);
-  --muted-foreground: oklch(0.705 0.025 250);
+  --muted: oklch(0.24 0.018 298);
+  --muted-foreground: oklch(0.7 0.02 298);
 
   --accent: oklch(0.633 0.1776 298.77);
   --accent-foreground: oklch(0.985 0.008 240);
@@ -115,8 +138,9 @@
   --destructive: oklch(0.635 0.225 25);
   --destructive-foreground: oklch(0.985 0.008 240);
 
-  --border: oklch(0.425 0.03 250);
-  --input: oklch(0.425 0.03 250);
+  /* Borders need to be lighter than the card surface to be visible */
+  --border: oklch(0.28 0.02 298);
+  --input: oklch(0.28 0.02 298);
   --ring: oklch(0.633 0.1776 298.77);
 
   --purple-glow: oklch(0.645 0.185 295 / 0.2);
@@ -127,26 +151,85 @@
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
 
-  /* Sidebar colors */
-  --sidebar: oklch(0.2043 0.0393 267.72);
-  --sidebar-foreground: oklch(0.705 0.025 250);
+  /* Custom tokens */
+  --surface: oklch(0.21 0.014 298);
+  --surface-light: oklch(0.26 0.018 298);
+
+  /* Scrollbar - Blends with background */
+  --scrollbar-track: oklch(0.17 0.01 298);
+  --scrollbar-thumb: oklch(0.3 0.02 298);
+  --scrollbar-thumb-hover: oklch(0.4 0.02 298);
+  --scrollbar-corner: oklch(0.17 0.01 298);
+}
+
+/* Purple theme */
+/* .dark {
+  --sidebar: oklch(0.15 0.06 298); 
+  --sidebar-foreground: oklch(0.85 0.03 298);
+  
   --sidebar-primary: oklch(0.633 0.1776 298.77);
   --sidebar-primary-foreground: oklch(0.985 0.008 240);
-  --sidebar-accent: oklch(0.245 0.035 255);
-  --sidebar-accent-foreground: oklch(0.965 0.012 240);
-  --sidebar-border: oklch(0.425 0.03 250);
+  
+  
+  --sidebar-accent: oklch(0.22 0.05 298);
+  --sidebar-accent-foreground: oklch(0.985 0.002 298);
+  
+  --sidebar-border: oklch(0.25 0.05 298);
   --sidebar-ring: oklch(0.633 0.1776 298.77);
 
-  /* Scrollbar (dark) */
-  --scrollbar-track: oklch(0.21 0.006 285.885);
-  --scrollbar-thumb: oklch(0.32 0.01 285.9);
-  --scrollbar-thumb-hover: oklch(0.38 0.015 285.9);
-  --scrollbar-corner: oklch(0.21 0.006 285.885);
+  
+  --background: oklch(0.20 0.04 298);
+  --foreground: oklch(0.98 0.01 298);
 
-  /* Custom tokens */
-  --surface: oklch(0.245 0.035 255);
-  --surface-light: oklch(0.345 0.03 250);
-}
+  
+  --card: oklch(0.26 0.035 298);
+  --card-foreground: oklch(0.985 0.002 298);
+
+  --popover: oklch(0.26 0.035 298);
+  --popover-foreground: oklch(0.985 0.002 298);
+
+  --success: oklch(0.538 0.211 142.369);
+
+  
+  --primary: oklch(0.633 0.1776 298.77);
+  --primary-foreground: oklch(0.985 0.008 240);
+
+  
+  --secondary: oklch(0.30 0.04 298);
+  --secondary-foreground: oklch(0.985 0.002 298);
+
+  --muted: oklch(0.30 0.04 298);
+  --muted-foreground: oklch(0.80 0.02 298);
+
+  --accent: oklch(0.30 0.04 298); 
+  --accent-foreground: oklch(0.985 0.002 298);
+
+  --destructive: oklch(0.635 0.225 25);
+  --destructive-foreground: oklch(0.985 0.008 240);
+
+  
+  --border: oklch(0.32 0.04 298);
+  --input: oklch(0.32 0.04 298);
+  --ring: oklch(0.633 0.1776 298.77);
+
+  --purple-glow: oklch(0.645 0.185 295 / 0.3); 
+
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+
+  
+  --surface: oklch(0.26 0.035 298);
+  --surface-light: oklch(0.32 0.04 298);
+
+  
+  --scrollbar-track: oklch(0.20 0.04 298);
+  --scrollbar-thumb: oklch(0.35 0.05 298);
+  --scrollbar-thumb-hover: oklch(0.45 0.06 298);
+  --scrollbar-corner: oklch(0.20 0.04 298);
+} */
 
 @layer base {
   * {
@@ -187,13 +270,13 @@
 
 /* ===== Scrollbar Global Styles ===== */
 /* Firefox */
-:root {
+/* :root {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-}
+} */
 
 /* WebKit (Chromium, Safari, Edge) */
-*::-webkit-scrollbar {
+/* *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
@@ -214,4 +297,4 @@
 
 *::-webkit-scrollbar-corner {
   background: var(--scrollbar-corner);
-}
+} */

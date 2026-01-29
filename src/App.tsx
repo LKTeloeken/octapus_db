@@ -59,7 +59,7 @@ const App: FC = () => {
       <ResizablePanelGroup direction="horizontal" className="h-screen w-full">
         <ResizablePanel
           defaultSize={20}
-          minSize={15}
+          minSize={20}
           maxSize={50}
           className="border-r border-border bg-sidebar text-sidebar-foreground"
         >
@@ -74,7 +74,7 @@ const App: FC = () => {
             openTab={openTab}
           />
         </ResizablePanel>
-        <ResizableHandle />
+        <ResizableHandle className="cursor-col-resize!" />
         <ResizablePanel className="bg-main text-main-foreground p-2">
           {tabs.length > 0 && (
             <QueryTabs
@@ -97,14 +97,14 @@ const App: FC = () => {
                       onExecute={() =>
                         executeQuery(
                           activeTab.id,
-                          activeTab.query || activeTab.content
+                          activeTab.query || activeTab.content,
                         )
                       }
                       isLoading={activeTab.loading}
                       databaseStructure={currentStructure}
                     />
                   </ResizablePanel>
-                  <ResizableHandle className="bg-transparent my-1" />
+                  <ResizableHandle className="bg-transparent my-1 cursor-col-resize!" />
                   <ResizablePanel defaultSize={60} minSize={20}>
                     <ResultsContainer
                       columns={activeTab.result?.fields || []}
