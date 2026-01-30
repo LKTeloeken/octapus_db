@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type FC } from "react";
+import { useEffect, useMemo } from "react";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -13,7 +13,7 @@ import { useServers } from "@/shared/hooks/use-servers/use-servers";
 import { useDataStructure } from "@/shared/hooks/use-data-structure/use-data-structure";
 import { useQueryTabs } from "./shared/hooks/use-query-tabs/use-query-tabs";
 
-const App: FC = () => {
+const App = () => {
   const {
     nodes,
     onClickNode,
@@ -22,11 +22,13 @@ const App: FC = () => {
     handleFetchStructure,
     getStructure,
   } = useDataStructure();
+
   const { addServer, removeServer, editServer, fetchServers, isLoading } =
     useServers({
       addChildren: addNodes,
       removeNode,
     });
+
   const {
     tabs,
     activeTab,

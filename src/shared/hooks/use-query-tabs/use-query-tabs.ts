@@ -37,12 +37,12 @@ export function useQueryTabs(loadDatabaseStructure: HandleFetchStructure) {
       loadDatabaseStructure(serverId, databaseName).catch((error) => {
         toast.error(
           `Failed to load database structure for ${databaseName}: ${String(
-            error
-          )}`
+            error,
+          )}`,
         );
       });
     },
-    []
+    [],
   );
 
   const closeTab: CloseTab = useCallback((id: string) => {
@@ -54,26 +54,26 @@ export function useQueryTabs(loadDatabaseStructure: HandleFetchStructure) {
       prevTabs.map((tab) => ({
         ...tab,
         active: tab.id === id,
-      }))
+      })),
     );
   }, []);
 
   const setTabContent: SetTabContent = useCallback(
     (id: string, content: string) => {
       setTabs((prevTabs) =>
-        prevTabs.map((tab) => (tab.id === id ? { ...tab, content } : tab))
+        prevTabs.map((tab) => (tab.id === id ? { ...tab, content } : tab)),
       );
     },
-    []
+    [],
   );
 
   const setTabQuery: SetTabContent = useCallback(
     (id: string, query: string) => {
       setTabs((prevTabs) =>
-        prevTabs.map((tab) => (tab.id === id ? { ...tab, query } : tab))
+        prevTabs.map((tab) => (tab.id === id ? { ...tab, query } : tab)),
       );
     },
-    []
+    [],
   );
 
   const executeQuery: ExecuteQuery = useCallback(
@@ -82,20 +82,29 @@ export function useQueryTabs(loadDatabaseStructure: HandleFetchStructure) {
       if (!tab) return;
 
       setTabs((prevTabs) =>
-        prevTabs.map((t) => (t.id === id ? { ...t, loading: true } : t))
+        prevTabs.map((t) => (t.id === id ? { ...t, loading: true } : t)),
       );
 
       try {
-        const { rows, fields } = await runQuery(
+        const result = await runQuery(
           tab.serverId,
           tab.databaseName,
-          query
+          query,
+        );
+
+        // Extract column names from QueryColumnInfo objects
+        const fields = result.columns.map((col) => col.name);
+        // Convert null values to empty strings for display
+        const rows = result.rows.map((row) =>
+          row.map((cell) => cell ?? ""),
         );
 
         setTabs((prevTabs) =>
           prevTabs.map((t) =>
-            t.id === id ? { ...t, result: { rows, fields }, loading: false } : t
-          )
+            t.id === id
+              ? { ...t, result: { rows, fields }, loading: false }
+              : t,
+          ),
         );
       } catch (error) {
         toast.error("Failed to execute query: " + String(error));
@@ -109,12 +118,12 @@ export function useQueryTabs(loadDatabaseStructure: HandleFetchStructure) {
                   loading: false,
                   result: { rows: [] },
                 }
-              : t
-          )
+              : t,
+          ),
         );
       }
     },
-    [tabs, runQuery]
+    [tabs, runQuery],
   );
 
   return {

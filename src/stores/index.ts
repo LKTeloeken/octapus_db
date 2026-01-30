@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { createSchemaCacheSlice } from "./slices/schemaCache";
 import {
-  createSchemaCacheSlice,
-  type SchemaCacheState,
-} from "./slices/schemaCache";
+  indexedDBStorage,
+  INDEXED_DB_STORAGE_KEY,
+} from "./storage/indexed-db-storage";
+import type { SchemaCacheState } from "./slices/schemaCache.types";
 
 export const useStore = create<SchemaCacheState>()(
   persist(
@@ -11,9 +13,10 @@ export const useStore = create<SchemaCacheState>()(
       ...createSchemaCacheSlice(...a),
     }),
     {
-      name: "octapus-db-store",
+      name: INDEXED_DB_STORAGE_KEY,
+      version: 1,
       partialize: (state) => ({ cache: state.cache }),
-      storage: createJSONStorage(() => localStorage),
-    }
-  )
+      storage: createJSONStorage(() => indexedDBStorage),
+    },
+  ),
 );

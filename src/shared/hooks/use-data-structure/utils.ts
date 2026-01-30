@@ -9,59 +9,57 @@ export const convertDatabaseStructureToNodes = (
   serverId: number,
   databaseName: string,
   structure: DatabaseStructure,
-) => {
-  const nodes: TreeNode[] = structure.schemas.flatMap((schema) => {
-    const schemaNode: TreeNode = formatTreeNode(
-      `schema-${schema.name}-${databaseName}-${serverId}`,
-      TreeNodeType.Schema,
-      serverId,
-      schema.name,
-      `database-${databaseName}-${serverId}`,
-      {
+): TreeNode[] => {
+  const dbSuffix = `${databaseName}-${serverId}`;
+  const parentId = `database-${dbSuffix}`;
+  const nodes: TreeNode[] = [];
+
+  for (const schema of structure.schemas) {
+    const schemaSuffix = `${schema.name}-${dbSuffix}`;
+    const schemaId = `schema-${schemaSuffix}`;
+
+    nodes.push(
+      formatTreeNode(schemaId, TreeNodeType.Schema, serverId, schema.name, parentId, {
         type: TreeNodeType.Schema,
         serverId,
         databaseName,
-      },
+      }),
     );
 
-    const tablesNodes: TreeNode[] = schema.tables.flatMap((table) => {
-      const tableNode: TreeNode = formatTreeNode(
-        `table-${table.name}-${schema.name}-${databaseName}-${serverId}`,
-        TreeNodeType.Table,
-        serverId,
-        table.name,
-        schemaNode.id,
-        {
+    for (const table of schema.tables) {
+      const tableSuffix = `${table.name}-${schemaSuffix}`;
+      const tableId = `table-${tableSuffix}`;
+
+      nodes.push(
+        formatTreeNode(tableId, TreeNodeType.Table, serverId, table.name, schemaId, {
           type: TreeNodeType.Table,
           serverId,
           databaseName,
-        },
+        }),
       );
 
-      if (!table.columns) return [tableNode];
-
-      const columnNodes: TreeNode[] = table.columns.map((column) =>
-        formatTreeNode(
-          `column-${column.name}-${table.name}-${schema.name}-${databaseName}-${serverId}`,
-          TreeNodeType.Column,
-          serverId,
-          column.name,
-          tableNode.id,
-          {
-            type: TreeNodeType.Column,
-            serverId,
-            databaseName,
-            dataType: column.data_type,
-            isNullable: column.is_nullable,
-          },
-        ),
-      );
-
-      return [tableNode, ...columnNodes];
-    });
-
-    return [schemaNode, ...tablesNodes];
-  });
+      if (table.columns) {
+        for (const column of table.columns) {
+          nodes.push(
+            formatTreeNode(
+              `column-${column.name}-${tableSuffix}`,
+              TreeNodeType.Column,
+              serverId,
+              column.name,
+              tableId,
+              {
+                type: TreeNodeType.Column,
+                serverId,
+                databaseName,
+                dataType: column.data_type,
+                isNullable: column.is_nullable,
+              },
+            ),
+          );
+        }
+      }
+    }
+  }
 
   return nodes;
 };

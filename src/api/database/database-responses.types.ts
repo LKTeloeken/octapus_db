@@ -10,6 +10,21 @@ export interface GetSchemasWithTablesResponse {
 
 export type GetColumnsResponse = Column[];
 
+export interface QueryColumnInfo {
+  name: string;
+  typeName: string;
+  typeOid: number | null;
+}
+
+export interface ExecuteQueryResponse {
+  columns: QueryColumnInfo[];
+  rows: (string | null)[][];
+  hasMore: boolean;
+  rowCount: number;
+  totalCount: number | null;
+  executionTimeMs: number;
+}
+
 export enum TableTypes {
   Table = "table",
   View = "view",

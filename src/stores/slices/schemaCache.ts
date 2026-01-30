@@ -1,39 +1,15 @@
-import { getPostgreStructure } from "@/api/postgres/methods";
+import {
+  getSchemasWithTables,
+  getColumns,
+} from "@/api/database/database-methods";
+import { getCacheKey, pendingRequests, CACHE_TTL_MS } from "./utils";
 import type { DatabaseStructure } from "@/shared/models/database.types";
 import type { StateCreator } from "zustand";
-
-interface CacheEntry {
-  structure: DatabaseStructure;
-  fetchedAt: number;
-}
-
-export interface SchemaCacheState {
-  // Key format: "serverId:databaseName"
-  cache: Record<string, CacheEntry>;
-  loading: Record<string, boolean>;
-
-  // Actions
-  fetchStructure: (
-    serverId: number,
-    databaseName: string,
-    forceRefresh?: boolean
-  ) => Promise<DatabaseStructure>;
-  getStructure: (
-    serverId: number,
-    databaseName: string
-  ) => DatabaseStructure | null;
-  invalidate: (serverId: number, databaseName?: string) => void;
-  clearAll: () => void;
-}
-
-const CACHE_TTL_MS = 0; // 24 hours
-
-const getCacheKey = (serverId: number, databaseName: string) =>
-  `${serverId}:${databaseName}`;
+import type { SchemaCacheState } from "./schemaCache.types";
 
 export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
   set,
-  get
+  get,
 ) => ({
   cache: {},
   loading: {},
@@ -42,7 +18,7 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
     const key = getCacheKey(serverId, databaseName);
     const existing = get().cache[key];
 
-    // Return cached if valid and not forcing refresh
+    // Return cache if valid and not forcing refresh
     if (
       !forceRefresh &&
       existing &&
@@ -51,38 +27,100 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
       return existing.structure;
     }
 
-    // Avoid duplicate fetches
-    if (get().loading[key]) {
-      // Wait for existing fetch
-      return new Promise((resolve) => {
-        const interval = setInterval(() => {
-          const cached = get().cache[key];
-          if (cached && !get().loading[key]) {
-            clearInterval(interval);
-            resolve(cached.structure);
-          }
-        }, 100);
-      });
+    // If there's already a pending request, wait for it
+    const pendingRequest = pendingRequests.get(key);
+    if (pendingRequest) {
+      return pendingRequest;
     }
 
-    set((state) => ({ loading: { ...state.loading, [key]: true } }));
+    // Create new Promise for the request
+    const request = (async () => {
+      set((state) => ({ loading: { ...state.loading, [key]: true } }));
 
-    try {
-      const structure = await getPostgreStructure(serverId, databaseName);
+      try {
+        const structure = await getSchemasWithTables(serverId, databaseName);
+        const formattedStructure: DatabaseStructure = { schemas: structure };
 
-      set((state) => ({
+        set((state) => ({
+          cache: {
+            ...state.cache,
+            [key]: { structure: formattedStructure, fetchedAt: Date.now() },
+          },
+          loading: { ...state.loading, [key]: false },
+        }));
+
+        return formattedStructure;
+      } catch (error) {
+        set((state) => ({ loading: { ...state.loading, [key]: false } }));
+        throw error;
+      } finally {
+        // Remove pending Promise after completion
+        pendingRequests.delete(key);
+      }
+    })();
+
+    // Store the Promise to avoid duplicate requests
+    pendingRequests.set(key, request);
+
+    return request;
+  },
+
+  fetchColumns: async (serverId, databaseName, schemaName, tableName) => {
+    const key = getCacheKey(serverId, databaseName);
+
+    // Fetch columns from the API
+    const columns = await getColumns(
+      serverId,
+      databaseName,
+      schemaName,
+      tableName,
+    );
+
+    // Update the cache with the new columns
+    set((state) => {
+      const cacheEntry = state.cache[key];
+      if (!cacheEntry) {
+        // No cache entry exists, return without updating
+        return state;
+      }
+
+      // Create a new structure with updated columns
+      const updatedSchemas = cacheEntry.structure.schemas.map((schema) => {
+        if (schema.name !== schemaName) {
+          return schema;
+        }
+
+        return {
+          ...schema,
+          tables: schema.tables.map((table) => {
+            if (table.name !== tableName) {
+              return table;
+            }
+
+            return {
+              ...table,
+              columns: columns.map((col) => ({
+                name: col.name,
+                data_type: col.data_type,
+                is_nullable: col.is_nullable,
+              })),
+            };
+          }),
+        };
+      });
+
+      return {
         cache: {
           ...state.cache,
-          [key]: { structure, fetchedAt: Date.now() },
+          [key]: {
+            ...cacheEntry,
+            structure: { schemas: updatedSchemas },
+          },
         },
-        loading: { ...state.loading, [key]: false },
-      }));
+      };
+    });
 
-      return structure;
-    } catch (error) {
-      set((state) => ({ loading: { ...state.loading, [key]: false } }));
-      throw error;
-    }
+    return columns;
   },
 
   getStructure: (serverId, databaseName) => {
@@ -93,18 +131,29 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
   invalidate: (serverId, databaseName) => {
     set((state) => {
       const newCache = { ...state.cache };
-      Object.keys(newCache).forEach((key) => {
-        if (
-          databaseName
-            ? key === getCacheKey(serverId, databaseName)
-            : key.startsWith(`${serverId}:`)
-        ) {
-          delete newCache[key];
-        }
-      });
+
+      if (databaseName) {
+        // Remove only the specific entry
+        const key = getCacheKey(serverId, databaseName);
+        delete newCache[key];
+        pendingRequests.delete(key);
+      } else {
+        // Remove all entries for the server
+        const prefix = `${serverId}:`;
+        Object.keys(newCache).forEach((key) => {
+          if (key.startsWith(prefix)) {
+            delete newCache[key];
+            pendingRequests.delete(key);
+          }
+        });
+      }
+
       return { cache: newCache };
     });
   },
 
-  clearAll: () => set({ cache: {}, loading: {} }),
+  clearAll: () => {
+    pendingRequests.clear();
+    set({ cache: {}, loading: {} });
+  },
 });

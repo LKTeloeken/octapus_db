@@ -1,0 +1,91 @@
+---
+description: Padrões para comunicação Frontend-Backend via Tauri
+globs: src/api/**/*.ts
+alwaysApply: false
+---
+
+# API Tauri (Frontend)
+
+## Estrutura
+
+```
+src/api/
+  rust-functions.ts     # Enum com todos os métodos Rust
+  utils/
+    invokeHandler.ts    # Wrapper do invoke Tauri
+    logic.ts            # Utilitários (conversão camelCase)
+  server/
+    methods.ts          # Funções para servers
+  database/
+    database-methods.ts
+    database-responses.types.ts
+  postgres/
+    methods.ts
+    response.types.ts
+```
+
+## RustMethods Enum
+
+Centralizar todos os métodos Rust em `rust-functions.ts`:
+
+```typescript
+export enum RustMethods {
+  // Server methods
+  GET_ALL_SERVERS = "get_all_servers",
+  CREATE_SERVER = "create_server",
+  
+  // Database methods  
+  GET_DATABASES = "list_databases",
+  
+  // Query methods
+  RUN_QUERY = "run_query",
+}
+```
+
+## Funções de API
+
+```typescript
+// ❌ BAD - invoke direto, sem tipos
+const data = await invoke("get_servers", {});
+
+// ✅ GOOD - usar wrapper tipado
+import { invoke } from "@/api/utils/invokeHandler";
+import { RustMethods } from "@/api/rust-functions";
+import type { Server } from "@/shared/models/servers.types";
+
+export async function getAllServers(): Promise<Server[]> {
+  return invoke<Server[]>(RustMethods.GET_ALL_SERVERS, {});
+}
+
+export async function createServer(input: ServerInput): Promise<Server> {
+  return invoke<Server>(RustMethods.CREATE_SERVER, { input });
+}
+```
+
+## Tipos de Resposta
+
+Criar tipos em arquivos `.types.ts` correspondentes:
+
+```typescript
+// database-responses.types.ts
+export interface DatabaseInfo {
+  name: string;
+  owner: string;
+  encoding: string;
+}
+
+export interface SchemaInfo {
+  name: string;
+  tables: TableInfo[];
+}
+```
+
+## Convenção de Payload
+
+O `invokeHandler` converte automaticamente para camelCase. Envie objetos com as chaves correspondentes aos parâmetros Rust:
+
+```typescript
+// Rust: pub fn update_server(id: i64, input: ServerInput)
+// TypeScript:
+await invoke(RustMethods.UPDATE_SERVER, { id: serverId, input: serverData });
+```

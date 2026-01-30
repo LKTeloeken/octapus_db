@@ -1,0 +1,79 @@
+---
+description: Padrões para o backend Rust do Octapus DB
+globs: src-tauri/**/*.rs
+alwaysApply: false
+---
+
+# Backend Rust (Tauri)
+
+## Estrutura de Módulos
+
+```
+src-tauri/src/
+  commands/     # Commands Tauri expostos ao frontend
+  services/     # Lógica de negócio
+  models/       # Structs e tipos
+  adapters/     # Adaptadores para diferentes bancos (PostgreSQL, etc)
+  storage/      # SQLite local para persistência
+  error.rs      # Tipos de erro centralizados
+  state.rs      # Estado da aplicação
+```
+
+## Tauri Commands
+
+```rust
+// ❌ BAD - erro genérico, sem state
+#[tauri::command]
+pub fn get_data() -> Result<Data, String> {
+    // ...
+}
+
+// ✅ GOOD - usa AppState, erro tipado
+use tauri::State;
+use crate::state::AppState;
+
+#[tauri::command]
+pub fn get_data(state: State<'_, AppState>) -> Result<Data, String> {
+    service::get_data(&state.storage).map_err(|e| e.to_string())
+}
+```
+
+## Tratamento de Erros
+
+Use o enum `Error` centralizado em `error.rs`:
+
+```rust
+use crate::error::{Error, Result};
+
+pub fn my_function() -> Result<Data> {
+    // Usar ? para propagar erros
+    let data = repository::get_data()?;
+    Ok(data)
+}
+```
+
+## Adapters (Trait Pattern)
+
+Novos bancos de dados devem implementar o trait `DatabaseAdapter`:
+
+```rust
+#[async_trait]
+pub trait DatabaseAdapter: Send + Sync {
+    async fn execute_query(&self, query: &str, options: QueryOptions) -> Result<QueryResult>;
+    async fn list_databases(&self) -> Result<Vec<DatabaseInfo>>;
+    // ...
+}
+```
+
+## Serialização
+
+Use `serde` com `rename_all = "camelCase"` para compatibilidade com o frontend:
+
+```rust
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MyStruct {
+    pub server_id: i64,      // -> serverId no JSON
+    pub database_name: String, // -> databaseName no JSON
+}
+```

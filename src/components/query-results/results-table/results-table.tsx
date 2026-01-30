@@ -25,7 +25,7 @@ export const ResultsTable = memo(function ResultsTable({
   const { parentRef, rowVirtualizer } = useVirtualization(
     rows.length,
     rowHeight,
-    overscan
+    overscan,
   );
 
   const virtualItems = rowVirtualizer.getVirtualItems();
@@ -38,7 +38,7 @@ export const ResultsTable = memo(function ResultsTable({
   useLayoutEffect(() => {
     if (!columns.length) return;
     const widths = headerRefs.current.map(
-      (el) => el?.getBoundingClientRect().width || 0
+      (el) => el?.getBoundingClientRect().width || 0,
     );
     // Avoid unnecessary re-render if nothing changed
     if (widths.length && widths.some((w, i) => w !== colWidths[i])) {
@@ -50,7 +50,7 @@ export const ResultsTable = memo(function ResultsTable({
   useLayoutEffect(() => {
     const handle = () => {
       const widths = headerRefs.current.map(
-        (el) => el?.getBoundingClientRect().width || 0
+        (el) => el?.getBoundingClientRect().width || 0,
       );
       setColWidths(widths);
     };
@@ -63,7 +63,7 @@ export const ResultsTable = memo(function ResultsTable({
       <div
         className={cn(
           "flex h-48 items-center justify-center rounded-md border",
-          className
+          className,
         )}
       >
         <p className="text-muted-foreground">{emptyMessage}</p>
@@ -75,8 +75,8 @@ export const ResultsTable = memo(function ResultsTable({
     <Table
       ref={parentRef as React.RefObject<HTMLDivElement>}
       containerClassName={cn(
-        "relative h-full w-full overflow-auto rounded-md border",
-        className
+        "relative h-full w-full overflow-auto rounded-md border scrollbar-thin",
+        className,
       )}
     >
       {/* Sticky header */}
@@ -114,7 +114,7 @@ export const ResultsTable = memo(function ResultsTable({
               data-index={virtualItem.index}
               className={cn(
                 isEven ? "bg-muted/30" : "bg-transparent",
-                "hover:bg-muted/50"
+                "hover:bg-muted/50",
               )}
               style={{
                 position: "absolute",

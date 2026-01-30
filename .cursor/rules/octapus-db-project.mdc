@@ -1,0 +1,41 @@
+---
+description: Regras gerais do projeto Octapus DB - Database Manager com Tauri
+alwaysApply: true
+---
+
+# Octapus DB - Database Manager
+
+## Visão Geral
+
+Este é um gerenciador de banco de dados construído com **Tauri** (Rust + React).
+
+**Objetivos do projeto:**
+- Simples e rápido
+- Interface intuitiva para gerenciar conexões e executar queries
+
+## Arquitetura
+
+### Frontend (React + Tailwind)
+- `src/app.tsx` - Componente principal que gerencia estados e passa props
+- `src/components/` - Componentes React organizados em pastas
+- `src/shared/` - Hooks globais, models e utilitários
+- `src/api/` - Comunicação com o backend Rust via Tauri
+
+### Backend (Rust)
+- `src-tauri/src/commands/` - Commands Tauri expostos ao frontend
+- `src-tauri/src/services/` - Lógica de negócio
+- `src-tauri/src/models/` - Structs e tipos
+- `src-tauri/src/adapters/` - Adaptadores para diferentes bancos de dados
+- `src-tauri/src/storage/` - SQLite local para persistir configurações
+
+## Convenções de Nomenclatura
+
+- Arquivos: `kebab-case` (ex: `sidebar-body.tsx`)
+- Componentes: `PascalCase` (ex: `SidebarBody`)
+- Hooks: `useCamelCase` (ex: `useSidebarBody`)
+- Types: `PascalCase` com sufixo `Props`, `Types`, etc.
+
+## Idioma
+
+- Código e variáveis em **inglês**
+- UI/textos podem estar em **português**

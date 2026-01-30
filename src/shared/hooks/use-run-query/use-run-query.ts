@@ -1,18 +1,19 @@
 import { useState } from "react";
-import { executeQuery } from "@/api/postgres/methods";
+// import { executeQuery } from "@/api/postgres/methods";
+import { executeQuery } from "@/api/database/database-methods";
 
 export function useRunQuery() {
   const [loading, setLoading] = useState<boolean>(false);
 
   const runQuery = async (
     serverId: number,
-    db: string | undefined,
-    query: string
+    database: string,
+    query: string,
   ) => {
     setLoading(true);
 
     try {
-      const result = await executeQuery(serverId, query, db);
+      const result = await executeQuery(serverId, database, query);
       setLoading(false);
 
       return result;

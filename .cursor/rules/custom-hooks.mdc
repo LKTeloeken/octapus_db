@@ -1,0 +1,94 @@
+---
+description: Padrões para hooks customizados no Octapus DB
+globs: "**/use-*.ts"
+alwaysApply: false
+---
+
+# Custom Hooks
+
+## Estrutura de Pastas
+
+Hooks complexos devem ter sua própria pasta em `src/shared/hooks/`:
+
+```
+use-hook-name/
+  use-hook-name.ts        # Hook principal
+  use-hook-name.types.ts  # Tipos e interfaces
+  utils.ts                # Funções auxiliares (opcional)
+```
+
+## Padrão de Hook
+
+```typescript
+// ❌ BAD - tipos inline, sem organização
+export const useMyHook = (options) => {
+  const [data, setData] = useState(null);
+  // lógica misturada...
+  return { data };
+};
+
+// ✅ GOOD - tipos importados, retorno tipado
+import { useState } from "react";
+import type { UseMyHookProps, UseMyHookReturn } from "./use-my-hook.types";
+
+export const useMyHook = ({ onSuccess, onError }: UseMyHookProps): UseMyHookReturn => {
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [data, setData] = useState<DataType | null>(null);
+
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      const result = await apiCall();
+      setData(result);
+      onSuccess?.(result);
+    } catch (error) {
+      onError?.(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return {
+    data,
+    isLoading,
+    fetchData,
+  };
+};
+```
+
+## Tipos
+
+```typescript
+// use-my-hook.types.ts
+export interface UseMyHookProps {
+  onSuccess?: (data: DataType) => void;
+  onError?: (error: Error) => void;
+}
+
+export interface UseMyHookReturn {
+  data: DataType | null;
+  isLoading: boolean;
+  fetchData: () => Promise<void>;
+}
+
+// Exportar tipos de funções para reutilização
+export type FetchDataFn = UseMyHookReturn["fetchData"];
+```
+
+## Comunicação com Tauri
+
+Use as funções da pasta `src/api/` para comunicar com o backend:
+
+```typescript
+import { getAllServers } from "@/api/server/methods";
+import toast from "react-hot-toast";
+
+const fetchServers = async () => {
+  try {
+    const data = await getAllServers();
+    // processar dados...
+  } catch (error) {
+    toast.error("Failed to fetch servers.");
+  }
+};
+```

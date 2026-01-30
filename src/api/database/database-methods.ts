@@ -5,6 +5,7 @@ import type {
   GetDatabasesResponse,
   GetSchemasWithTablesResponse,
   GetColumnsResponse,
+  ExecuteQueryResponse,
 } from "./database-responses.types";
 
 export async function getDatabases(
@@ -51,4 +52,20 @@ export async function getColumns(
   console.log("cols", columns);
 
   return columns;
+}
+
+export async function executeQuery(
+  serverId: number,
+  database: string,
+  query: string,
+): Promise<ExecuteQueryResponse> {
+  const result = await invoke<ExecuteQueryResponse>(RustMethods.EXECUTE_QUERY, {
+    serverId,
+    database,
+    query,
+  });
+
+  console.log("result", result);
+
+  return result;
 }

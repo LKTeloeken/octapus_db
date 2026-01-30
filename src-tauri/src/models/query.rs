@@ -19,7 +19,7 @@ pub struct QueryColumnInfo {
     pub type_oid: Option<u32>, // Postgres-specific, useful for editing
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryOptions {
     #[serde(default = "default_limit")]
@@ -34,6 +34,17 @@ pub struct QueryOptions {
 
 fn default_limit() -> i64 {
     500
+}
+
+impl Default for QueryOptions {
+    fn default() -> Self {
+        Self {
+            limit: default_limit(),
+            offset: 0,
+            count_total: false,
+            unlimited: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
