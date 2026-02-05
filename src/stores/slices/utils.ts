@@ -1,4 +1,4 @@
-import type { DatabaseStructure } from "@/shared/models/database.types";
+import type { DatabaseStructure } from '@/shared/models/database.types';
 
 // 24 hours TTL for structure cache
 export const CACHE_TTL_MS = 24 * 60 * 60 * 1000;

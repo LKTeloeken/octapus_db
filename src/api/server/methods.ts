@@ -1,6 +1,6 @@
-import { invoke } from "../utils/invokeHandler";
-import { RustMethods } from "../rust-functions";
-import type { Server, ServerPrimitive } from "@/shared/models/servers.types";
+import { invoke } from '../utils/invokeHandler';
+import { RustMethods } from '../rust-functions';
+import type { Server, ServerPrimitive } from '@/shared/models/servers.types';
 
 export async function createServer(server: ServerPrimitive): Promise<Server> {
   return await invoke<Server>(RustMethods.CREATE_SERVER, { ...server });

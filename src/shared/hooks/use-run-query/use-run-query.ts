@@ -1,6 +1,5 @@
-import { useState } from "react";
-// import { executeQuery } from "@/api/postgres/methods";
-import { executeQuery } from "@/api/database/database-methods";
+import { useState } from 'react';
+import { executeQuery } from '@/api/database/database-methods';
 
 export function useRunQuery() {
   const [loading, setLoading] = useState<boolean>(false);

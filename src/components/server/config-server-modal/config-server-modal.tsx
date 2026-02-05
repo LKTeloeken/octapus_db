@@ -1,10 +1,10 @@
-import { SimpleAlertDialog } from "@/components/ui/simple-alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { SimpleDialog } from "@/components/ui/simple-dialog";
-import { useConfigServer } from "./use-config-server";
-import { configs } from "./server-configs";
-import type { ConfigServerModalProps } from "./config-server-modal.types";
+import { SimpleAlertDialog } from '@/components/ui/simple-alert-dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { SimpleDialog } from '@/components/ui/simple-dialog';
+import { useConfigServer } from './use-config-server';
+import { configs } from './server-configs';
+import type { ConfigServerModalProps } from './config-server-modal.types';
 
 export function ConfigServerModal(props: ConfigServerModalProps) {
   const { isOpen, isEditMode, onClose } = props;
@@ -23,7 +23,7 @@ export function ConfigServerModal(props: ConfigServerModalProps) {
       <SimpleDialog
         open={isOpen}
         onOpenChange={onClose}
-        title={isEditMode ? "Editar Servidor" : "Adicionar Servidor"}
+        title={isEditMode ? 'Editar Servidor' : 'Adicionar Servidor'}
         footer={
           <>
             {isEditMode && (
@@ -58,7 +58,7 @@ export function ConfigServerModal(props: ConfigServerModalProps) {
               type={config.type}
               placeholder={config.placeholder}
               value={localServerData[config.value] as string}
-              onChange={(e) => handleChangeInput(config.value)(e.target.value)}
+              onChange={e => handleChangeInput(config.value)(e.target.value)}
             />
           ))}
         </div>

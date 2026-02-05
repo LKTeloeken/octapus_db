@@ -1,9 +1,8 @@
-import type { TreeNode } from "@/shared/models/database.types";
-import type { Server, ServerPrimitive } from "@/shared/models/servers.types";
+import type { Server, ServerPrimitive } from '@/shared/models/servers.types';
 import type {
   AddNodes,
   RemoveNode,
-} from "../use-data-structure/use-data-structure.types";
+} from '../use-data-structure/use-data-structure.types';
 
 export interface UserServersProps {
   addChildren: AddNodes;

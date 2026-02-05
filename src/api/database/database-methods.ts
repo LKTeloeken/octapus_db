@@ -1,12 +1,12 @@
-import { RustMethods } from "../rust-functions";
-import { invoke } from "../utils/invokeHandler";
-import type * as Database from "@/shared/models/database.types";
+import { RustMethods } from '../rust-functions';
+import { invoke } from '../utils/invokeHandler';
+import type * as Database from '@/shared/models/database.types';
 import type {
   GetDatabasesResponse,
   GetSchemasWithTablesResponse,
   GetColumnsResponse,
   ExecuteQueryResponse,
-} from "./database-responses.types";
+} from './database-responses.types';
 
 export async function getDatabases(
   serverId: number,
@@ -18,7 +18,7 @@ export async function getDatabases(
     },
   );
 
-  return databases.map((db) => ({ name: db.name, serverId }));
+  return databases.map(db => ({ name: db.name, serverId }));
 }
 
 export async function getSchemasWithTables(
@@ -49,8 +49,6 @@ export async function getColumns(
     table,
   });
 
-  console.log("cols", columns);
-
   return columns;
 }
 
@@ -64,8 +62,6 @@ export async function executeQuery(
     database,
     query,
   });
-
-  console.log("result", result);
 
   return result;
 }

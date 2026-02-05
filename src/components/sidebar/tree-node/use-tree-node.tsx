@@ -1,22 +1,22 @@
-import { useState } from "react";
+import { useState } from 'react';
 import {
   Server as ServerIcon,
   Database,
   Folder,
   Table,
   Hash,
-} from "lucide-react";
-import type { TreeNode, TreeNodeType } from "@/shared/models/database.types";
-import type { Server } from "@/shared/models/servers.types";
-import type { OpenTab } from "@/shared/hooks/use-query-tabs/use-query-tabs.types";
-import { cn } from "@/lib/utils";
+} from 'lucide-react';
+import type { TreeNode, TreeNodeType } from '@/shared/models/database.types';
+import type { Server } from '@/shared/models/servers.types';
+import type { OpenTab } from '@/shared/hooks/use-query-tabs/use-query-tabs.types';
+import { cn } from '@/lib/utils';
 
 export const useTreeNode = (
   node: TreeNode,
   nodeId: string,
   childrenMap: Map<string, string[]>,
   openServerModal: (server: Server) => void,
-  openNewTab: OpenTab
+  openNewTab: OpenTab,
 ) => {
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const childrenIds = childrenMap.get(nodeId) || [];
@@ -35,7 +35,7 @@ export const useTreeNode = (
     if (
       openServerModal &&
       metadata &&
-      metadata.type === "server" &&
+      metadata.type === 'server' &&
       metadata.serverData
     ) {
       openServerModal(metadata.serverData);
@@ -47,11 +47,11 @@ export const useTreeNode = (
 
     const { type, serverId } = metadata;
 
-    if (type === "server" && serverId) {
-      openNewTab(serverId, metadata.serverData?.default_database || "");
+    if (type === 'server' && serverId) {
+      openNewTab(serverId, metadata.serverData?.default_database || '');
     }
 
-    if (type !== "server" && serverId) {
+    if (type !== 'server' && serverId) {
       openNewTab(serverId, metadata.databaseName);
     }
 
@@ -60,17 +60,17 @@ export const useTreeNode = (
 
   const getNodeIcon = (type: TreeNodeType, isConnected: boolean) => {
     switch (type) {
-      case "server":
+      case 'server':
         return (
-          <ServerIcon className={cn("size-4", isConnected && "text-primary")} />
+          <ServerIcon className={cn('size-4', isConnected && 'text-primary')} />
         );
-      case "database":
+      case 'database':
         return <Database className="size-4" />;
-      case "schema":
+      case 'schema':
         return <Folder className="size-4" />;
-      case "table":
+      case 'table':
         return <Table className="size-4" />;
-      case "column":
+      case 'column':
         return <Hash className="size-4" />;
       default:
         return null;

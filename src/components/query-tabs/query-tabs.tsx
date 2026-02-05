@@ -1,9 +1,9 @@
-import { memo } from "react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Database, X } from "lucide-react";
+import { memo } from 'react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Database, X } from 'lucide-react';
 
-import type { QueryTabsProps } from "./query-tabs.types";
-import { cn } from "@/lib/utils";
+import type { QueryTabsProps } from './query-tabs.types';
+import { cn } from '@/lib/utils';
 
 export const QueryTabs = memo(
   ({
@@ -21,17 +21,17 @@ export const QueryTabs = memo(
         className="h-full w-full flex flex-col"
       >
         <TabsList className="p-1 shrink-0">
-          {tabs.map((tab) => (
+          {tabs.map(tab => (
             <TabsTrigger key={tab.id} value={tab.id} className="px-2.5 sm:px-3">
               <code className="flex items-center gap-1 text-[13px] [&>svg]:h-4 [&>svg]:w-4">
                 <Database
-                  className={cn(tab.id === activeTabId && "text-primary")}
-                />{" "}
+                  className={cn(tab.id === activeTabId && 'text-primary')}
+                />{' '}
                 {tab.title}
               </code>
               <span
                 className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-sm hover:bg-accent hover:text-accent-foreground cursor-pointer"
-                onClick={(e) => {
+                onClick={e => {
                   e.stopPropagation();
                   onTabClose(tab.id);
                 }}
@@ -52,5 +52,5 @@ export const QueryTabs = memo(
         )}
       </Tabs>
     );
-  }
+  },
 );

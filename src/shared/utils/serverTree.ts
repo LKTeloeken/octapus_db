@@ -1,6 +1,6 @@
-import { Dispatch, SetStateAction } from "react";
-import { toast } from "react-hot-toast";
-import { ITreeNode } from "@/shared/models/tree";
+import { Dispatch, SetStateAction } from 'react';
+import { toast } from 'react-hot-toast';
+import { ITreeNode } from '@/shared/models/tree';
 
 export type NodeKey =
   | `server::${number}`
@@ -16,13 +16,13 @@ export type NodeKey =
   | `trigger::${number}::${string}::${string}::${string}::${string}`;
 
 export const key = (...parts: (string | number)[]) =>
-  parts.join("::") as NodeKey;
+  parts.join('::') as NodeKey;
 
 type TreeSetter = Dispatch<SetStateAction<Record<string, ITreeNode>>>;
 
 export function createTreeActions(setServers: TreeSetter) {
   function upsertNode(k: NodeKey, name: string, data: any = {}) {
-    setServers((prev) => {
+    setServers(prev => {
       const next = { ...prev } as Record<string, ITreeNode>;
       const existing = next[k];
       next[k] = {
@@ -35,7 +35,7 @@ export function createTreeActions(setServers: TreeSetter) {
   }
 
   function setChildren(parent: NodeKey, children: NodeKey[]) {
-    setServers((prev) => {
+    setServers(prev => {
       const next = { ...prev } as Record<string, ITreeNode>;
       if (next[parent]) next[parent] = { ...next[parent], children };
       return next;
@@ -43,7 +43,7 @@ export function createTreeActions(setServers: TreeSetter) {
   }
 
   function removeSubtree(root: NodeKey) {
-    setServers((prev) => {
+    setServers(prev => {
       const next = { ...prev } as Record<string, ITreeNode>;
       const stack: string[] = [root];
       while (stack.length) {
@@ -61,7 +61,7 @@ export function createTreeActions(setServers: TreeSetter) {
 
 // `run` vem do asyncRunner. Criamos um loader genérico que usa as actions de árvore.
 type RunFn = <T>(opts: {
-  kind?: "load" | "connect";
+  kind?: 'load' | 'connect';
   task: () => Promise<T>;
   onSuccess?: (r: T) => void;
   onError?: (e: unknown) => void;
@@ -69,7 +69,7 @@ type RunFn = <T>(opts: {
 
 export function createLoadChildren(
   run: RunFn,
-  { upsertNode, setChildren }: ReturnType<typeof createTreeActions>
+  { upsertNode, setChildren }: ReturnType<typeof createTreeActions>,
 ) {
   return async function loadChildren<T>({
     parentKey,
@@ -93,7 +93,7 @@ export function createLoadChildren(
           return [] as T[];
         }
         const childKeys: NodeKey[] = [];
-        items.forEach((it) => {
+        items.forEach(it => {
           const { key: k, name, data } = mapItem(it);
           childKeys.push(k);
           upsertNode(k, name, data);

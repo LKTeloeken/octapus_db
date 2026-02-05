@@ -1,5 +1,5 @@
-import type { Server } from "./servers.types";
-import { TableTypes } from "@/api/database/database-responses.types";
+import type { Server } from './servers.types';
+import { TableTypes } from '@/api/database/database-responses.types';
 
 // All Database Structures
 export interface ColumnStructure {
@@ -58,21 +58,21 @@ export interface TreeNode {
 }
 
 export enum TreeNodeType {
-  Server = "server",
-  Database = "database",
-  Schema = "schema",
-  Table = "table",
-  Column = "column",
+  Server = 'server',
+  Database = 'database',
+  Schema = 'schema',
+  Table = 'table',
+  Column = 'column',
 }
 
 export type TreeNodeMetadata =
   | {
-      type: "server";
+      type: 'server';
       serverId: number;
       serverData?: Server;
     }
   | {
-      type: "column";
+      type: 'column';
       serverId: number;
       databaseName: string;
       dataType: string;
@@ -80,7 +80,7 @@ export type TreeNodeMetadata =
       columnDefault: string | null;
     }
   | {
-      type: Exclude<TreeNodeType, "column" | "server">;
+      type: Exclude<TreeNodeType, 'column' | 'server'>;
       serverId: number;
       databaseName: string;
     };

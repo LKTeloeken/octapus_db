@@ -1,15 +1,15 @@
-import { memo, type FC } from "react";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import { memo, type FC } from 'react';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { Play, AlignLeft } from "lucide-react";
+} from '@/components/ui/tooltip';
+import { Play, AlignLeft } from 'lucide-react';
 
-import type { QueryEditorToolbarProps } from "./query-editor-toolbar.types";
+import type { QueryEditorToolbarProps } from './query-editor-toolbar.types';
 
 export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
   ({ onRun, onFormat, isLoading = false, disabled = false }) => {
@@ -56,7 +56,7 @@ export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
         </TooltipProvider>
       </div>
     );
-  }
+  },
 );
 
-QueryEditorToolbar.displayName = "QueryEditorToolbar";
+QueryEditorToolbar.displayName = 'QueryEditorToolbar';

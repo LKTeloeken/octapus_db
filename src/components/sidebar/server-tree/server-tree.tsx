@@ -1,7 +1,7 @@
-import { memo } from "react";
-import { TreeNode } from "../tree-node/tree-node";
-import { useServerTree } from "./use-server-tree";
-import type { ServerTreeProps } from "./server-tree.types";
+import { memo } from 'react';
+import { TreeNode } from '../tree-node/tree-node';
+import { useServerTree } from './use-server-tree';
+import type { ServerTreeProps } from './server-tree.types';
 
 export const ServerTree = memo(
   ({
@@ -36,5 +36,5 @@ export const ServerTree = memo(
         )}
       </div>
     );
-  }
+  },
 );

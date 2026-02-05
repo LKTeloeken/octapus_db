@@ -1,22 +1,22 @@
-import { memo } from "react";
-import { Spinner } from "@/components/ui/spinner";
+import { memo } from 'react';
+import { Spinner } from '@/components/ui/spinner';
 import {
   ChevronDown,
   ChevronRight,
   MoreHorizontal,
   Edit,
   Plus,
-} from "lucide-react";
-import { useTreeNode } from "./use-tree-node";
-import type { TreeNodeProps } from "./tree-node.types";
-import { useStyles } from "./tree-node.styles";
-import { cn } from "@/lib/utils";
+} from 'lucide-react';
+import { useTreeNode } from './use-tree-node';
+import type { TreeNodeProps } from './tree-node.types';
+import { useStyles } from './tree-node.styles';
+import { cn } from '@/lib/utils';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
+} from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
 
 export const TreeNode = memo(
   ({
@@ -75,7 +75,7 @@ export const TreeNode = memo(
 
             <div className={styles.textWrap}>
               <div className={styles.nameText}>{node.name}</div>
-              {metadata && metadata.type === "column" && (
+              {metadata && metadata.type === 'column' && (
                 <div className={styles.dataTypeText}>{metadata.dataType}</div>
               )}
             </div>
@@ -84,7 +84,7 @@ export const TreeNode = memo(
           <div
             className={cn(
               styles.menuButtonWrapper,
-              isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+              isMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
             )}
           >
             <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
@@ -93,18 +93,18 @@ export const TreeNode = memo(
                   variant="ghost"
                   size="icon"
                   className={styles.menuButton}
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={e => e.stopPropagation()}
                 >
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className={styles.popoverContent} align="end">
-                {node.type === "server" && (
+                {node.type === 'server' && (
                   <Button
                     variant="ghost"
                     size="sm"
                     className={styles.menuItemButton}
-                    onClick={(e) => {
+                    onClick={e => {
                       handleServerEdit(e);
                       setIsMenuOpen(false);
                     }}
@@ -118,7 +118,7 @@ export const TreeNode = memo(
                   variant="ghost"
                   size="sm"
                   className={styles.menuItemButton}
-                  onClick={(e) => {
+                  onClick={e => {
                     handleOpenNewTab(e);
                     setIsMenuOpen(false);
                   }}
@@ -132,7 +132,7 @@ export const TreeNode = memo(
         </div>
 
         {isExpanded && (
-          <div className={"overflow-hidden animate-in fade-in duration-700"}>
+          <div className={'overflow-hidden animate-in fade-in duration-700'}>
             {childrenIds.map((childId, index) => (
               <TreeNode
                 key={childId}
@@ -154,7 +154,7 @@ export const TreeNode = memo(
           <div
             className={cn(
               styles.verticalLine,
-              isLastChild ? "h-[1.125rem]" : "h-full",
+              isLastChild ? 'h-[1.125rem]' : 'h-full',
             )}
             style={{ left: `${(level - 1) * 1.25 + 0.95}rem` }}
           />
@@ -166,7 +166,7 @@ export const TreeNode = memo(
             className={styles.horizontalLine}
             style={{
               left: `${(level - 1) * 1.25 + 0.95}rem`,
-              width: "0.5rem",
+              width: '0.5rem',
             }}
           />
         )}
@@ -175,4 +175,4 @@ export const TreeNode = memo(
   },
 );
 
-TreeNode.displayName = "TreeNode";
+TreeNode.displayName = 'TreeNode';

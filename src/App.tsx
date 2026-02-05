@@ -1,17 +1,17 @@
-import { useEffect, useMemo } from "react";
+import { QueryEditorContainer } from '@/components/query-editor/query-editor-container/query-editor-container';
+import { ResultsContainer } from '@/components/query-results/results-container/results-container';
 import {
-  ResizablePanelGroup,
-  ResizablePanel,
   ResizableHandle,
-} from "@/components/ui/resizable";
-import { CustomToaster } from "./components/Toaster";
-import { SidebarBody } from "./components/sidebar/sidebar-body/sidebar-body";
-import { QueryTabs } from "./components/query-tabs/query-tabs";
-import { QueryEditorContainer } from "@/components/query-editor/query-editor-container/query-editor-container";
-import { ResultsContainer } from "@/components/query-results/results-container/results-container";
-import { useServers } from "@/shared/hooks/use-servers/use-servers";
-import { useDataStructure } from "@/shared/hooks/use-data-structure/use-data-structure";
-import { useQueryTabs } from "./shared/hooks/use-query-tabs/use-query-tabs";
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/components/ui/resizable';
+import { useDataStructure } from '@/shared/hooks/use-data-structure/use-data-structure';
+import { useServers } from '@/shared/hooks/use-servers/use-servers';
+import { useEffect, useMemo } from 'react';
+import { CustomToaster } from './components/Toaster';
+import { QueryTabs } from './components/query-tabs/query-tabs';
+import { SidebarBody } from './components/sidebar/sidebar-body/sidebar-body';
+import { useQueryTabs } from './shared/hooks/use-query-tabs/use-query-tabs';
 
 const App = () => {
   const {
@@ -50,8 +50,8 @@ const App = () => {
 
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.remove("light", "dark");
-    root.classList.add("dark");
+    root.classList.remove('light', 'dark');
+    root.classList.add('dark');
 
     fetchServers();
   }, []);
@@ -90,10 +90,8 @@ const App = () => {
                   <ResizablePanel defaultSize={40} minSize={20}>
                     <QueryEditorContainer
                       value={activeTab.content}
-                      onChange={(content) =>
-                        setTabContent(activeTab.id, content)
-                      }
-                      onChangeSelection={(selection) =>
+                      onChange={content => setTabContent(activeTab.id, content)}
+                      onChangeSelection={selection =>
                         setTabQuery(activeTab.id, selection)
                       }
                       onExecute={() =>

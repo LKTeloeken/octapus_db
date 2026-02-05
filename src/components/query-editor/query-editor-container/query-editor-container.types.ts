@@ -1,4 +1,4 @@
-import type { DatabaseStructure } from "@/shared/models/database.types";
+import type { DatabaseStructure } from '@/shared/models/database.types';
 
 export interface QueryEditorContainerProps {
   value: string;

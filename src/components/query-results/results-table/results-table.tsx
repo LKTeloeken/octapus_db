@@ -1,7 +1,7 @@
-import * as React from "react";
-import { useLayoutEffect, useRef, useState, memo } from "react";
-import useVirtualization from "@/shared/hooks/use-virtualization/use-virtualization";
-import { cn } from "@/lib/utils";
+import * as React from 'react';
+import { useLayoutEffect, useRef, useState, memo } from 'react';
+import useVirtualization from '@/shared/hooks/use-virtualization/use-virtualization';
+import { cn } from '@/lib/utils';
 
 import {
   Table,
@@ -10,9 +10,9 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from '@/components/ui/table';
 
-import type { ResultsTableProps } from "./results-table.types";
+import type { ResultsTableProps } from './results-table.types';
 
 export const ResultsTable = memo(function ResultsTable({
   columns,
@@ -20,7 +20,7 @@ export const ResultsTable = memo(function ResultsTable({
   rowHeight = 36,
   overscan = 8,
   className,
-  emptyMessage = "No results found.",
+  emptyMessage = 'No results found.',
 }: ResultsTableProps) {
   const { parentRef, rowVirtualizer } = useVirtualization(
     rows.length,
@@ -38,7 +38,7 @@ export const ResultsTable = memo(function ResultsTable({
   useLayoutEffect(() => {
     if (!columns.length) return;
     const widths = headerRefs.current.map(
-      (el) => el?.getBoundingClientRect().width || 0,
+      el => el?.getBoundingClientRect().width || 0,
     );
     // Avoid unnecessary re-render if nothing changed
     if (widths.length && widths.some((w, i) => w !== colWidths[i])) {
@@ -50,19 +50,19 @@ export const ResultsTable = memo(function ResultsTable({
   useLayoutEffect(() => {
     const handle = () => {
       const widths = headerRefs.current.map(
-        (el) => el?.getBoundingClientRect().width || 0,
+        el => el?.getBoundingClientRect().width || 0,
       );
       setColWidths(widths);
     };
-    window.addEventListener("resize", handle);
-    return () => window.removeEventListener("resize", handle);
+    window.addEventListener('resize', handle);
+    return () => window.removeEventListener('resize', handle);
   }, []);
 
   if (rows.length === 0) {
     return (
       <div
         className={cn(
-          "flex h-48 items-center justify-center rounded-md border",
+          'flex h-48 items-center justify-center rounded-md border',
           className,
         )}
       >
@@ -75,7 +75,7 @@ export const ResultsTable = memo(function ResultsTable({
     <Table
       ref={parentRef as React.RefObject<HTMLDivElement>}
       containerClassName={cn(
-        "relative h-full w-full overflow-auto rounded-md border scrollbar-thin",
+        'relative h-full w-full overflow-auto rounded-md border scrollbar-thin',
         className,
       )}
     >
@@ -85,7 +85,7 @@ export const ResultsTable = memo(function ResultsTable({
           {columns.map((col, idx) => (
             <TableHead
               key={col}
-              ref={(el) => {
+              ref={el => {
                 headerRefs.current[idx] = el;
               }}
               style={colWidths[idx] ? { width: colWidths[idx] } : undefined}
@@ -99,10 +99,10 @@ export const ResultsTable = memo(function ResultsTable({
       <TableBody
         style={{
           height: `${rowVirtualizer.getTotalSize()}px`,
-          position: "relative",
+          position: 'relative',
         }}
       >
-        {virtualItems.map((virtualItem) => {
+        {virtualItems.map(virtualItem => {
           const row = rows[virtualItem.index];
           if (!row) return null;
 
@@ -113,14 +113,14 @@ export const ResultsTable = memo(function ResultsTable({
               key={virtualItem.key}
               data-index={virtualItem.index}
               className={cn(
-                isEven ? "bg-muted/30" : "bg-transparent",
-                "hover:bg-muted/50",
+                isEven ? 'bg-muted/30' : 'bg-transparent',
+                'hover:bg-muted/50',
               )}
               style={{
-                position: "absolute",
+                position: 'absolute',
                 top: 0,
                 left: 0,
-                width: "100%",
+                width: '100%',
                 height: `${rowHeight}px`,
                 transform: `translateY(${virtualItem.start}px)`,
               }}
@@ -137,7 +137,7 @@ export const ResultsTable = memo(function ResultsTable({
                     }
                   >
                     <span className="font-mono text-xs truncate inline-block w-full">
-                      {String(row[cIdx] ?? "")}
+                      {String(row[cIdx] ?? '')}
                     </span>
                   </TableCell>
                 );

@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import * as React from "react";
-import { cn } from "@/lib/utils";
+import * as React from 'react';
+import { cn } from '@/lib/utils';
 
 interface CircularProgressProps extends React.HTMLAttributes<HTMLDivElement> {
   /** Progress value between 0 and 100 */
@@ -29,7 +29,7 @@ const CircularProgress = React.forwardRef<
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={value ?? undefined}
-      className={cn("inline-block", className)}
+      className={cn('inline-block', className)}
       style={{ width: size, height: size }}
       {...props}
     >
@@ -62,7 +62,7 @@ const CircularProgress = React.forwardRef<
             style={{
               strokeDasharray: circumference,
               strokeDashoffset: offset,
-              transition: "stroke-dashoffset 0.35s",
+              transition: 'stroke-dashoffset 0.35s',
             }}
           />
         </svg>
@@ -99,6 +99,6 @@ const CircularProgress = React.forwardRef<
     </div>
   );
 });
-CircularProgress.displayName = "CircularProgress";
+CircularProgress.displayName = 'CircularProgress';
 
 export { CircularProgress };

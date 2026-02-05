@@ -1,20 +1,20 @@
-import { memo } from "react";
-import { Typography } from "@/components/ui/typography";
-import { Spinner } from "@/components/ui/spinner";
-import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button";
+import { memo } from 'react';
+import { Typography } from '@/components/ui/typography';
+import { Spinner } from '@/components/ui/spinner';
+import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { ServerTree } from "../server-tree/server-tree";
-import { ConfigServerModal } from "@/components/server/config-server-modal/config-server-modal";
-import { useSidebarBody } from "./use-sidebar-body";
-import { Plus } from "lucide-react";
-import { useStyles } from "./sidebar-body.styles";
-import type { SidebarBodyProps } from "./sidebar-body.types";
+} from '@/components/ui/tooltip';
+import { ServerTree } from '../server-tree/server-tree';
+import { ConfigServerModal } from '@/components/server/config-server-modal/config-server-modal';
+import { useSidebarBody } from './use-sidebar-body';
+import { Plus } from 'lucide-react';
+import { useStyles } from './sidebar-body.styles';
+import type { SidebarBodyProps } from './sidebar-body.types';
 
 export const SidebarBody = memo(
   ({

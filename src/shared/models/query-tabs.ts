@@ -1,4 +1,4 @@
-import { IServer } from "./server";
+import { IServer } from './server';
 
 export interface userQueryTabsProps {
   servers: IServer[];

@@ -1,5 +1,5 @@
-import type { DatabaseStructure } from "@/shared/models/database.types";
-import type { RefObject } from "react";
+import type { DatabaseStructure } from '@/shared/models/database.types';
+import type { RefObject } from 'react';
 
 export interface SQLEditorProps {
   value: string;

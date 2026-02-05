@@ -1,4 +1,4 @@
-import type { DatabaseStructure, Column } from "@/shared/models/database.types";
+import type { DatabaseStructure, Column } from '@/shared/models/database.types';
 
 export interface SchemaCacheState {
   // Key format: "serverId:databaseName"

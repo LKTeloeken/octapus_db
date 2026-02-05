@@ -26,10 +26,10 @@ export interface ExecuteQueryResponse {
 }
 
 export enum TableTypes {
-  Table = "table",
-  View = "view",
-  MaterializedView = "materializedView",
-  Foreign = "foreign",
+  Table = 'table',
+  View = 'view',
+  MaterializedView = 'materializedView',
+  Foreign = 'foreign',
 }
 
 interface SchemaWithTable {

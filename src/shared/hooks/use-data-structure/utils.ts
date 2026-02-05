@@ -1,9 +1,9 @@
-import { formatTreeNode } from "@/lib/format-tree-node";
+import { formatTreeNode } from '@/lib/format-tree-node';
 import type {
   DatabaseStructure,
   TreeNode,
-} from "@/shared/models/database.types";
-import { TreeNodeType } from "@/shared/models/database.types";
+} from '@/shared/models/database.types';
+import { TreeNodeType } from '@/shared/models/database.types';
 
 export const convertDatabaseStructureToNodes = (
   serverId: number,
@@ -19,11 +19,18 @@ export const convertDatabaseStructureToNodes = (
     const schemaId = `schema-${schemaSuffix}`;
 
     nodes.push(
-      formatTreeNode(schemaId, TreeNodeType.Schema, serverId, schema.name, parentId, {
-        type: TreeNodeType.Schema,
+      formatTreeNode(
+        schemaId,
+        TreeNodeType.Schema,
         serverId,
-        databaseName,
-      }),
+        schema.name,
+        parentId,
+        {
+          type: TreeNodeType.Schema,
+          serverId,
+          databaseName,
+        },
+      ),
     );
 
     for (const table of schema.tables) {
@@ -31,11 +38,18 @@ export const convertDatabaseStructureToNodes = (
       const tableId = `table-${tableSuffix}`;
 
       nodes.push(
-        formatTreeNode(tableId, TreeNodeType.Table, serverId, table.name, schemaId, {
-          type: TreeNodeType.Table,
+        formatTreeNode(
+          tableId,
+          TreeNodeType.Table,
           serverId,
-          databaseName,
-        }),
+          table.name,
+          schemaId,
+          {
+            type: TreeNodeType.Table,
+            serverId,
+            databaseName,
+          },
+        ),
       );
 
       if (table.columns) {

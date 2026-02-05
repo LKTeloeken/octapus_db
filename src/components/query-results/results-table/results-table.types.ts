@@ -1,4 +1,4 @@
-import type { QueryResultsRow } from "@/shared/models/database.types";
+import type { QueryResultsRow } from '@/shared/models/database.types';
 
 export interface ResultsTableProps {
   columns: Array<string>;

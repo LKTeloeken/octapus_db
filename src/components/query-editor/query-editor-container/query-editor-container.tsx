@@ -1,12 +1,12 @@
-import { useCallback, type FC } from "react";
-import { format as formatSQL } from "sql-formatter";
-import { SQLEditor } from "@/components/query-editor/sql-editor/sql-editor";
-import { QueryEditorToolbar } from "@/components/query-editor/query-editor-toolbar/query-editor-toolbar";
+import { useCallback, type FC } from 'react';
+import { format as formatSQL } from 'sql-formatter';
+import { SQLEditor } from '@/components/query-editor/sql-editor/sql-editor';
+import { QueryEditorToolbar } from '@/components/query-editor/query-editor-toolbar/query-editor-toolbar';
 
 import type {
   QueryEditorContainerProps,
   OnSelectionChange,
-} from "./query-editor-container.types";
+} from './query-editor-container.types';
 
 export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
   value,
@@ -18,10 +18,10 @@ export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
 }) => {
   const handleFormat = useCallback(() => {
     try {
-      const formatted = formatSQL(value ?? "", {
-        language: "sql",
-        keywordCase: "upper",
-        indentStyle: "standard",
+      const formatted = formatSQL(value ?? '', {
+        language: 'sql',
+        keywordCase: 'upper',
+        indentStyle: 'standard',
       });
       if (formatted !== value) onChange(formatted);
     } catch {
@@ -30,13 +30,13 @@ export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
   }, [value, onChange]);
 
   const handleSelectionChange: OnSelectionChange = useCallback(
-    (selection) => {
+    selection => {
       if (onChangeSelection) {
         const query = value.slice(selection.start, selection.end);
         onChangeSelection(query);
       }
     },
-    [onChangeSelection, value]
+    [onChangeSelection, value],
   );
 
   const handleRun = useCallback(() => {

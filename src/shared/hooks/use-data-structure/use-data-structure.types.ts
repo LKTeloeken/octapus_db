@@ -1,4 +1,4 @@
-import type { TreeNode } from "@/shared/models/database.types";
+import type { TreeNode } from '@/shared/models/database.types';
 
 export interface TreeState {
   nodes: Map<string, TreeNode>;
@@ -9,5 +9,5 @@ export type AddNodes = (childrens: TreeNode[]) => void;
 export type RemoveNode = (nodeId: string) => void;
 export type HandleFetchStructure = (
   serverId: number,
-  databaseName: string
+  databaseName: string,
 ) => Promise<void>;

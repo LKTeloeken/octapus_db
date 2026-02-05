@@ -1,4 +1,4 @@
-import type { Server, ServerPrimitive } from "@/shared/models/servers.types";
+import type { Server, ServerPrimitive } from '@/shared/models/servers.types';
 
 export type ConfigServerModalProps =
   | {

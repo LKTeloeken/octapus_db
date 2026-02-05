@@ -1,16 +1,16 @@
-import { useCallback, useRef, useState, useEffect } from "react";
-import { getDatabases } from "@/api/database/database-methods";
-import { formatTreeNode } from "@/lib/format-tree-node";
-import { convertDatabaseStructureToNodes } from "./utils";
-import toast from "react-hot-toast";
+import { useCallback, useRef, useState, useEffect } from 'react';
+import { getDatabases } from '@/api/database/database-methods';
+import { formatTreeNode } from '@/lib/format-tree-node';
+import { convertDatabaseStructureToNodes } from './utils';
+import toast from 'react-hot-toast';
 import type {
   RemoveNode,
   TreeState,
   AddNodes,
   HandleFetchStructure,
-} from "./use-data-structure.types";
-import { useStore } from "@/stores";
-import { type TreeNode, TreeNodeType } from "@/shared/models/database.types";
+} from './use-data-structure.types';
+import { useStore } from '@/stores';
+import { type TreeNode, TreeNodeType } from '@/shared/models/database.types';
 
 export const useDataStructure = () => {
   const { getStructure, fetchStructure, fetchColumns } = useStore();
@@ -27,7 +27,7 @@ export const useDataStructure = () => {
 
   const handleSetNode = useCallback(
     (nodeId: string, nodeData: Partial<TreeNode>) => {
-      setNodes((prev) => {
+      setNodes(prev => {
         const existingNode = prev.nodes.get(nodeId);
         if (!existingNode) return prev;
 
@@ -43,7 +43,7 @@ export const useDataStructure = () => {
   const handleSetNodes = useCallback((nodesToUpdate: TreeNode[]) => {
     if (nodesToUpdate.length === 0) return;
 
-    setNodes((prev) => {
+    setNodes(prev => {
       const newNodes = new Map(prev.nodes);
       const newChildrenMap = new Map(prev.childrenMap);
       const childrenToUpdateMap = new Map<string, string[]>();
@@ -80,7 +80,7 @@ export const useDataStructure = () => {
   );
 
   const removeNode: RemoveNode = useCallback((nodeId: string) => {
-    setNodes((prev) => {
+    setNodes(prev => {
       const newNodes = new Map(prev.nodes);
       const newChildrenMap = new Map(prev.childrenMap);
 
@@ -122,7 +122,7 @@ export const useDataStructure = () => {
         case TreeNodeType.Server: {
           const databases = await getDatabases(serverId);
 
-          return databases.map((db) =>
+          return databases.map(db =>
             formatTreeNode(
               `database-${db.name}-${serverId}`,
               TreeNodeType.Database,
@@ -149,7 +149,7 @@ export const useDataStructure = () => {
         }
 
         case TreeNodeType.Table: {
-          const [, tableName, schemaName, databaseName] = node.id.split("-");
+          const [, tableName, schemaName, databaseName] = node.id.split('-');
 
           const columns = await fetchColumns(
             serverId,
@@ -158,7 +158,7 @@ export const useDataStructure = () => {
             tableName,
           );
 
-          return columns.map((column) =>
+          return columns.map(column =>
             formatTreeNode(
               `column-${column.name}-${tableName}-${schemaName}-${databaseName}-${serverId}`,
               TreeNodeType.Column,
@@ -218,7 +218,7 @@ export const useDataStructure = () => {
           isConnected: true,
         });
       } catch (error) {
-        toast.error("Failed to load data structure.");
+        toast.error('Failed to load data structure.');
         handleSetNode(nodeId, { isLoading: false });
       }
     },

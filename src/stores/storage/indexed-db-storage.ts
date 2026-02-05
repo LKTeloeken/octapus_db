@@ -1,7 +1,7 @@
-import { get, set, del } from "idb-keyval";
-import type { StateStorage } from "zustand/middleware";
+import { get, set, del } from 'idb-keyval';
+import type { StateStorage } from 'zustand/middleware';
 
-export const INDEXED_DB_STORAGE_KEY = "octapus-db-store";
+export const INDEXED_DB_STORAGE_KEY = 'octapus-db-store';
 
 /**
  * Adapter to persist Zustand state in IndexedDB using idb-keyval.

@@ -10,4 +10,4 @@ export interface Server {
   default_database?: string;
 }
 
-export type ServerPrimitive = Omit<Server, "id" | "created_at">;
+export type ServerPrimitive = Omit<Server, 'id' | 'created_at'>;

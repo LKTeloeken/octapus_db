@@ -1,11 +1,11 @@
 import {
   getSchemasWithTables,
   getColumns,
-} from "@/api/database/database-methods";
-import { getCacheKey, pendingRequests, CACHE_TTL_MS } from "./utils";
-import type { DatabaseStructure } from "@/shared/models/database.types";
-import type { StateCreator } from "zustand";
-import type { SchemaCacheState } from "./schemaCache.types";
+} from '@/api/database/database-methods';
+import { getCacheKey, pendingRequests, CACHE_TTL_MS } from './utils';
+import type { DatabaseStructure } from '@/shared/models/database.types';
+import type { StateCreator } from 'zustand';
+import type { SchemaCacheState } from './schemaCache.types';
 
 export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
   set,
@@ -35,13 +35,13 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
 
     // Create new Promise for the request
     const request = (async () => {
-      set((state) => ({ loading: { ...state.loading, [key]: true } }));
+      set(state => ({ loading: { ...state.loading, [key]: true } }));
 
       try {
         const structure = await getSchemasWithTables(serverId, databaseName);
         const formattedStructure: DatabaseStructure = { schemas: structure };
 
-        set((state) => ({
+        set(state => ({
           cache: {
             ...state.cache,
             [key]: { structure: formattedStructure, fetchedAt: Date.now() },
@@ -51,7 +51,7 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
 
         return formattedStructure;
       } catch (error) {
-        set((state) => ({ loading: { ...state.loading, [key]: false } }));
+        set(state => ({ loading: { ...state.loading, [key]: false } }));
         throw error;
       } finally {
         // Remove pending Promise after completion
@@ -77,7 +77,7 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
     );
 
     // Update the cache with the new columns
-    set((state) => {
+    set(state => {
       const cacheEntry = state.cache[key];
       if (!cacheEntry) {
         // No cache entry exists, return without updating
@@ -85,21 +85,21 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
       }
 
       // Create a new structure with updated columns
-      const updatedSchemas = cacheEntry.structure.schemas.map((schema) => {
+      const updatedSchemas = cacheEntry.structure.schemas.map(schema => {
         if (schema.name !== schemaName) {
           return schema;
         }
 
         return {
           ...schema,
-          tables: schema.tables.map((table) => {
+          tables: schema.tables.map(table => {
             if (table.name !== tableName) {
               return table;
             }
 
             return {
               ...table,
-              columns: columns.map((col) => ({
+              columns: columns.map(col => ({
                 name: col.name,
                 data_type: col.data_type,
                 is_nullable: col.is_nullable,
@@ -129,7 +129,7 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
   },
 
   invalidate: (serverId, databaseName) => {
-    set((state) => {
+    set(state => {
       const newCache = { ...state.cache };
 
       if (databaseName) {
@@ -140,7 +140,7 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
       } else {
         // Remove all entries for the server
         const prefix = `${serverId}:`;
-        Object.keys(newCache).forEach((key) => {
+        Object.keys(newCache).forEach(key => {
           if (key.startsWith(prefix)) {
             delete newCache[key];
             pendingRequests.delete(key);

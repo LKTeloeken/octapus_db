@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { Server } from "@/shared/models/servers.types";
+import { useState } from 'react';
+import type { Server } from '@/shared/models/servers.types';
 
 export const useSidebarBody = () => {
   const [isConfigServerModalOpen, setIsConfigServerModalOpen] =

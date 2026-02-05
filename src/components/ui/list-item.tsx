@@ -1,5 +1,5 @@
-import React, { ReactNode, HTMLAttributes, ButtonHTMLAttributes } from "react";
-import { cn } from "@/lib/utils";
+import React, { ReactNode, HTMLAttributes, ButtonHTMLAttributes } from 'react';
+import { cn } from '@/lib/utils';
 
 // ListItem: basic container with optional padding and secondary action
 export interface ListItemProps extends HTMLAttributes<HTMLLIElement> {
@@ -10,14 +10,14 @@ export interface ListItemProps extends HTMLAttributes<HTMLLIElement> {
 export const ListItem = React.forwardRef<HTMLLIElement, ListItemProps>(
   (
     { disablePadding = false, secondaryAction, className, children, ...props },
-    ref
+    ref,
   ) => (
     <li
       ref={ref}
       className={cn(
-        "relative flex items-center w-full",
-        !disablePadding && "px-4 py-2",
-        className
+        'relative flex items-center w-full',
+        !disablePadding && 'px-4 py-2',
+        className,
       )}
       {...props}
     >
@@ -29,13 +29,12 @@ export const ListItem = React.forwardRef<HTMLLIElement, ListItemProps>(
         </div>
       )}
     </li>
-  )
+  ),
 );
-ListItem.displayName = "ListItem";
+ListItem.displayName = 'ListItem';
 
 // ListItemButton: interactive element with selected state
-export interface ListItemButtonProps
-  extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ListItemButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   selected?: boolean;
   disabled?: boolean;
   children: ReactNode;
@@ -53,27 +52,27 @@ export const ListItemButton = React.forwardRef<
       onClick,
       ...props
     },
-    ref
+    ref,
   ) => (
     <button
       ref={ref}
       disabled={disabled}
       className={cn(
-        "flex items-center w-full text-left space-x-4 px-4 py-2 rounded-md transition-colors",
-        disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
+        'flex items-center w-full text-left space-x-4 px-4 py-2 rounded-md transition-colors',
+        disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
         !disabled && selected
-          ? "bg-gray-100 dark:bg-gray-800"
-          : !disabled && "hover:bg-gray-100 dark:hover:bg-gray-800",
-        className
+          ? 'bg-gray-100 dark:bg-gray-800'
+          : !disabled && 'hover:bg-gray-100 dark:hover:bg-gray-800',
+        className,
       )}
       onClick={disabled ? undefined : onClick}
       {...props}
     >
       {children}
     </button>
-  )
+  ),
 );
-ListItemButton.displayName = "ListItemButton";
+ListItemButton.displayName = 'ListItemButton';
 
 // ListItemIcon: icon wrapper
 export interface ListItemIconProps extends HTMLAttributes<HTMLSpanElement> {
@@ -86,15 +85,15 @@ export const ListItemIcon = React.forwardRef<
   <span
     ref={ref}
     className={cn(
-      "flex-shrink-0 w-6 h-6 text-gray-500 dark:text-gray-400",
-      className
+      'flex-shrink-0 w-6 h-6 text-gray-500 dark:text-gray-400',
+      className,
     )}
     {...props}
   >
     {children}
   </span>
 ));
-ListItemIcon.displayName = "ListItemIcon";
+ListItemIcon.displayName = 'ListItemIcon';
 
 // ListItemAvatar: avatar wrapper
 export interface ListItemAvatarProps extends HTMLAttributes<HTMLDivElement> {
@@ -104,12 +103,12 @@ export interface ListItemAvatarProps extends HTMLAttributes<HTMLDivElement> {
 export const ListItemAvatar = React.forwardRef<
   HTMLDivElement,
   ListItemAvatarProps
->(({ className, src, alt = "avatar", ...props }, ref) => (
-  <div ref={ref} className={cn("flex-shrink-0", className)} {...props}>
+>(({ className, src, alt = 'avatar', ...props }, ref) => (
+  <div ref={ref} className={cn('flex-shrink-0', className)} {...props}>
     <img src={src} alt={alt} className="w-8 h-8 rounded-full object-cover" />
   </div>
 ));
-ListItemAvatar.displayName = "ListItemAvatar";
+ListItemAvatar.displayName = 'ListItemAvatar';
 
 // ListItemText: primary and optional secondary text
 export interface ListItemTextProps {
@@ -122,7 +121,7 @@ export const ListItemText: React.FC<ListItemTextProps> = ({
   secondary,
   className,
 }) => (
-  <div className={cn("flex flex-col", className)}>
+  <div className={cn('flex flex-col', className)}>
     <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
       {primary}
     </span>

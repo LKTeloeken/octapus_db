@@ -1,19 +1,19 @@
-import { useMemo, useCallback, type FC } from "react";
-import CodeMirror from "@uiw/react-codemirror";
-import { PostgreSQL, sql } from "@codemirror/lang-sql";
-import { EditorView, keymap, type ViewUpdate } from "@codemirror/view";
-import { oneDark } from "@codemirror/theme-one-dark";
-import { format as formatSQL } from "sql-formatter";
-import { convertToCodeMirrorSchema } from "@/shared/utils/codeMirrorAutocompleteSchema";
+import { useMemo, useCallback, type FC } from 'react';
+import CodeMirror from '@uiw/react-codemirror';
+import { PostgreSQL, sql } from '@codemirror/lang-sql';
+import { EditorView, keymap, type ViewUpdate } from '@codemirror/view';
+import { oneDark } from '@codemirror/theme-one-dark';
+import { format as formatSQL } from 'sql-formatter';
+import { convertToCodeMirrorSchema } from '@/shared/utils/codeMirrorAutocompleteSchema';
 
-import type { SQLEditorProps } from "./sql-editor.types";
+import type { SQLEditorProps } from './sql-editor.types';
 
 export const SQLEditor: FC<SQLEditorProps> = ({
   value,
   onChange,
   onChangeSelection,
   onRunQuery,
-  className = "",
+  className = '',
   databaseStructure,
 }) => {
   const schemaSpec = useMemo(() => {
@@ -28,73 +28,73 @@ export const SQLEditor: FC<SQLEditorProps> = ({
     () =>
       EditorView.theme(
         {
-          "&": {
-            backgroundColor: "transparent",
-            color: "white",
+          '&': {
+            backgroundColor: 'transparent',
+            color: 'white',
             fontFamily:
-              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace",
-            fontSize: "14px",
-            borderRadius: "8px !important",
+              'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+            fontSize: '14px',
+            borderRadius: '8px !important',
           },
-          ".cm-scroller": { overflow: "auto" },
-          ".cm-content": { caretColor: "#ffffff" },
-          "&.cm-editor.cm-focused": { outline: "none", border: "none" },
-          ".cm-gutters": {
-            backgroundColor: "transparent",
-            border: "none !important",
+          '.cm-scroller': { overflow: 'auto' },
+          '.cm-content': { caretColor: '#ffffff' },
+          '&.cm-editor.cm-focused': { outline: 'none', border: 'none' },
+          '.cm-gutters': {
+            backgroundColor: 'transparent',
+            border: 'none !important',
           },
         },
-        { dark: true }
+        { dark: true },
       ),
-    []
+    [],
   );
 
   const formatAndApply = useCallback(
     (src: string) => {
       try {
-        const formatted = formatSQL(src ?? "", {
-          language: "sql",
-          keywordCase: "upper",
-          indentStyle: "standard",
+        const formatted = formatSQL(src ?? '', {
+          language: 'sql',
+          keywordCase: 'upper',
+          indentStyle: 'standard',
         });
         if (formatted !== src) onChange(formatted);
       } catch {
         // Silently ignore formatting errors
       }
     },
-    [onChange]
+    [onChange],
   );
 
   const formatKeymap = useMemo(
     () =>
       keymap.of([
         {
-          mac: "Mod-Shift-f",
-          linux: "Ctrl-Shift-f",
-          win: "Ctrl-Shift-f",
-          run: (view) => {
+          mac: 'Mod-Shift-f',
+          linux: 'Ctrl-Shift-f',
+          win: 'Ctrl-Shift-f',
+          run: view => {
             formatAndApply(view.state.doc.toString());
             return true;
           },
         },
       ]),
-    [formatAndApply]
+    [formatAndApply],
   );
 
   const runQueryKeymap = useMemo(
     () =>
       keymap.of([
         {
-          mac: "Mod-Shift-Enter",
-          linux: "Ctrl-Enter",
-          win: "Ctrl-Enter",
+          mac: 'Mod-Shift-Enter',
+          linux: 'Ctrl-Enter',
+          win: 'Ctrl-Enter',
           run: () => {
             onRunQuery?.();
             return true;
           },
         },
       ]),
-    [onRunQuery]
+    [onRunQuery],
   );
 
   const extensions = useMemo(
@@ -109,14 +109,14 @@ export const SQLEditor: FC<SQLEditorProps> = ({
       formatKeymap,
       runQueryKeymap,
     ],
-    [transparentDarkTheme, formatKeymap, runQueryKeymap, schemaSpec]
+    [transparentDarkTheme, formatKeymap, runQueryKeymap, schemaSpec],
   );
 
   const handleChange = useCallback(
     (next: string) => {
       onChange(next);
     },
-    [onChange]
+    [onChange],
   );
 
   const handleUpdate = useCallback(
@@ -127,7 +127,7 @@ export const SQLEditor: FC<SQLEditorProps> = ({
         onChangeSelection({ start: sel.from, end: sel.to });
       }
     },
-    [onChangeSelection]
+    [onChangeSelection],
   );
 
   return (
