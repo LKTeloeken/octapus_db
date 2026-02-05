@@ -1,12 +1,12 @@
-import { useCallback, useMemo, useState } from 'react';
 import { useRunQuery } from '@/shared/hooks/use-run-query/use-run-query';
+import { useCallback, useMemo, useState } from 'react';
 
 import type {
-  OpenTab,
   CloseTab,
+  ExecuteQuery,
+  OpenTab,
   SetActiveTabId,
   SetTabContent,
-  ExecuteQuery,
 } from '@/shared/hooks/use-query-tabs/use-query-tabs.types';
 import type { QueryTab } from '@/shared/models/query-tabs.types';
 import toast from 'react-hot-toast';

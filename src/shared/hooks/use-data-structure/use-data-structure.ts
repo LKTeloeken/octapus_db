@@ -1,16 +1,16 @@
-import { useCallback, useRef, useState, useEffect } from 'react';
 import { getDatabases } from '@/api/database/database-methods';
 import { formatTreeNode } from '@/lib/format-tree-node';
-import { convertDatabaseStructureToNodes } from './utils';
+import { type TreeNode, TreeNodeType } from '@/shared/models/database.types';
+import { useStore } from '@/stores';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import type {
-  RemoveNode,
-  TreeState,
   AddNodes,
   HandleFetchStructure,
+  RemoveNode,
+  TreeState,
 } from './use-data-structure.types';
-import { useStore } from '@/stores';
-import { type TreeNode, TreeNodeType } from '@/shared/models/database.types';
+import { convertDatabaseStructureToNodes } from './utils';
 
 export const useDataStructure = () => {
   const { getStructure, fetchStructure, fetchColumns } = useStore();
@@ -101,15 +101,23 @@ export const useDataStructure = () => {
 
   const handleFetchStructure: HandleFetchStructure = useCallback(
     async (serverId: number, databaseName: string) => {
-      const structure = await fetchStructure(serverId, databaseName);
+      try {
+        const structure = await fetchStructure(serverId, databaseName);
 
-      const formattedStructure = convertDatabaseStructureToNodes(
-        serverId,
-        databaseName,
-        structure,
-      );
+        const formattedStructure = convertDatabaseStructureToNodes(
+          serverId,
+          databaseName,
+          structure,
+        );
 
-      handleSetNodes(formattedStructure);
+        handleSetNodes(formattedStructure);
+      } catch (error) {
+        toast.error(
+          `Failed to load database structure for ${databaseName}: ${String(
+            error,
+          )}`,
+        );
+      }
     },
     [handleSetNodes, fetchStructure],
   );

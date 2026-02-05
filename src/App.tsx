@@ -12,6 +12,7 @@ import { CustomToaster } from './components/Toaster';
 import { QueryTabs } from './components/query-tabs/query-tabs';
 import { SidebarBody } from './components/sidebar/sidebar-body/sidebar-body';
 import { useQueryTabs } from './shared/hooks/use-query-tabs/use-query-tabs';
+import useTabs from './shared/hooks/use-tabs/use-tabs';
 
 const App = () => {
   const {
@@ -29,16 +30,10 @@ const App = () => {
       removeNode,
     });
 
-  const {
-    tabs,
-    activeTab,
-    openTab,
-    closeTab,
-    setActiveTabId,
-    setTabContent,
-    setTabQuery,
-    executeQuery,
-  } = useQueryTabs(handleFetchStructure);
+  const { tabs, activeTab, openTab, closeTab, setActiveTabId, setTabContent } =
+    useTabs(handleFetchStructure);
+
+  const { setTabQuery, executeQuery } = useQueryTabs(handleFetchStructure);
 
   const currentStructure = useMemo(() => {
     if (activeTab) {
