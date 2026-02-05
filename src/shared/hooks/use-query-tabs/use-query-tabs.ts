@@ -18,6 +18,12 @@ export function useQueryTabs(loadDatabaseStructure: HandleFetchStructure) {
 
   const activeTab = useMemo(() => tabs.find(t => t.active), [tabs]);
 
+  const handleSetTab = (id: string, content: Partial<QueryTab>) => {
+    setTabs(prevTabs =>
+      prevTabs.map(tab => (tab.id === id ? { ...tab, ...content } : tab)),
+    );
+  };
+
   const openTab: OpenTab = useCallback(
     (serverId: number, databaseName: string) => {
       const newTabId = `${serverId}-${databaseName}-${Date.now()}`;
@@ -50,28 +56,19 @@ export function useQueryTabs(loadDatabaseStructure: HandleFetchStructure) {
   }, []);
 
   const setActiveTabId: SetActiveTabId = useCallback((id: string) => {
-    setTabs(prevTabs =>
-      prevTabs.map(tab => ({
-        ...tab,
-        active: tab.id === id,
-      })),
-    );
+    handleSetTab(id, { active: true });
   }, []);
 
   const setTabContent: SetTabContent = useCallback(
     (id: string, content: string) => {
-      setTabs(prevTabs =>
-        prevTabs.map(tab => (tab.id === id ? { ...tab, content } : tab)),
-      );
+      handleSetTab(id, { content });
     },
     [],
   );
 
   const setTabQuery: SetTabContent = useCallback(
     (id: string, query: string) => {
-      setTabs(prevTabs =>
-        prevTabs.map(tab => (tab.id === id ? { ...tab, query } : tab)),
-      );
+      handleSetTab(id, { query });
     },
     [],
   );
@@ -81,9 +78,7 @@ export function useQueryTabs(loadDatabaseStructure: HandleFetchStructure) {
       const tab = tabs.find(t => t.id === id);
       if (!tab) return;
 
-      setTabs(prevTabs =>
-        prevTabs.map(t => (t.id === id ? { ...t, loading: true } : t)),
-      );
+      handleSetTab(id, { loading: true });
 
       try {
         const result = await runQuery(tab.serverId, tab.databaseName, query);
@@ -93,28 +88,11 @@ export function useQueryTabs(loadDatabaseStructure: HandleFetchStructure) {
         // Convert null values to empty strings for display
         const rows = result.rows.map(row => row.map(cell => cell ?? ''));
 
-        setTabs(prevTabs =>
-          prevTabs.map(t =>
-            t.id === id
-              ? { ...t, result: { rows, fields }, loading: false }
-              : t,
-          ),
-        );
+        handleSetTab(id, { result: { rows, fields }, loading: false });
       } catch (error) {
         toast.error('Failed to execute query: ' + String(error));
 
-        setTabs(prevTabs =>
-          prevTabs.map(t =>
-            t.id === id
-              ? {
-                  ...t,
-                  error: String(error),
-                  loading: false,
-                  result: { rows: [] },
-                }
-              : t,
-          ),
-        );
+        handleSetTab(id, { loading: false, result: { rows: [] } });
       }
     },
     [tabs, runQuery],
