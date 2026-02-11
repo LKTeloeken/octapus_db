@@ -5,6 +5,7 @@ export interface QueryTab {
   serverId: number;
   databaseName: string;
   loading: boolean;
+  loadingMore: boolean;
   queryOptions: ExecuteQueryOptions;
   lastExecutedQuery?: string;
   result?: ExecuteQueryResponse;

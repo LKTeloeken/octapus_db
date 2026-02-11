@@ -1,7 +1,15 @@
 import * as React from 'react';
-import { useLayoutEffect, useRef, useState, memo } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  memo,
+} from 'react';
 import useVirtualization from '@/shared/hooks/use-virtualization/use-virtualization';
 import { cn } from '@/lib/utils';
+import { Spinner } from '@/components/ui/spinner';
 
 import {
   Table,
@@ -13,6 +21,7 @@ import {
 } from '@/components/ui/table';
 
 import type { ResultsTableProps } from './results-table.types';
+import { useStyles } from './results-table.styles';
 
 export const ResultsTable = memo(function ResultsTable({
   columns,
@@ -21,7 +30,12 @@ export const ResultsTable = memo(function ResultsTable({
   overscan = 8,
   className,
   emptyMessage = 'No results found.',
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: ResultsTableProps) {
+  const styles = useStyles();
+
   const { parentRef, rowVirtualizer } = useVirtualization(
     rows.length,
     rowHeight,
@@ -58,15 +72,29 @@ export const ResultsTable = memo(function ResultsTable({
     return () => window.removeEventListener('resize', handle);
   }, []);
 
+  // Infinite scroll detection
+  const handleScroll = useCallback(() => {
+    const el = parentRef.current;
+    if (!el || !hasMore || isLoadingMore) return;
+
+    const threshold = 200;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - threshold) {
+      onLoadMore?.();
+    }
+  }, [hasMore, isLoadingMore, onLoadMore]);
+
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!el) return;
+
+    el.addEventListener('scroll', handleScroll);
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
+
   if (rows.length === 0) {
     return (
-      <div
-        className={cn(
-          'flex h-48 items-center justify-center rounded-md border',
-          className,
-        )}
-      >
-        <p className="text-muted-foreground">{emptyMessage}</p>
+      <div className={cn(styles.emptyContainer, className)}>
+        <p className={styles.emptyText}>{emptyMessage}</p>
       </div>
     );
   }
@@ -74,13 +102,10 @@ export const ResultsTable = memo(function ResultsTable({
   return (
     <Table
       ref={parentRef as React.RefObject<HTMLDivElement>}
-      containerClassName={cn(
-        'relative h-full w-full overflow-auto rounded-md border scrollbar-thin',
-        className,
-      )}
+      containerClassName={cn(styles.tableContainer, className)}
     >
       {/* Sticky header */}
-      <TableHeader className="sticky top-0 z-20 bg-background shadow-sm">
+      <TableHeader className={styles.header}>
         <TableRow>
           {columns.map((col, idx) => (
             <TableHead
@@ -88,6 +113,7 @@ export const ResultsTable = memo(function ResultsTable({
               ref={el => {
                 headerRefs.current[idx] = el;
               }}
+              className={styles.headerCell}
               style={colWidths[idx] ? { width: colWidths[idx] } : undefined}
             >
               {col.name}
@@ -112,10 +138,7 @@ export const ResultsTable = memo(function ResultsTable({
             <TableRow
               key={virtualItem.key}
               data-index={virtualItem.index}
-              className={cn(
-                isEven ? 'bg-muted/30' : 'bg-transparent',
-                'hover:bg-muted/50',
-              )}
+              className={isEven ? styles.rowEven : styles.rowOdd}
               style={{
                 position: 'absolute',
                 top: 0,
@@ -136,7 +159,7 @@ export const ResultsTable = memo(function ResultsTable({
                         : undefined
                     }
                   >
-                    <span className="font-mono text-xs truncate inline-block w-full">
+                    <span className={styles.cellText}>
                       {String(row[cIdx] || '')}
                     </span>
                   </TableCell>
@@ -146,6 +169,21 @@ export const ResultsTable = memo(function ResultsTable({
           );
         })}
       </TableBody>
+
+      {isLoadingMore && (
+        <tfoot>
+          <tr>
+            <td colSpan={columns.length}>
+              <div className={styles.loadingMoreContainer}>
+                <Spinner className={styles.loadingMoreSpinner} />
+                <span className={styles.loadingMoreText}>
+                  Carregando mais resultados...
+                </span>
+              </div>
+            </td>
+          </tr>
+        </tfoot>
+      )}
     </Table>
   );
 });

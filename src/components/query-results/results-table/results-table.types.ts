@@ -8,4 +8,7 @@ export interface ResultsTableProps {
   overscan?: number;
   className?: string;
   emptyMessage?: string;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
 }

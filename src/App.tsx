@@ -108,6 +108,14 @@ const App = () => {
                       columns={activeQueryTab?.result?.columns || []}
                       rows={activeQueryTab?.result?.rows || []}
                       isLoading={activeQueryTab?.loading || false}
+                      isLoadingMore={activeQueryTab?.loadingMore || false}
+                      hasMore={activeQueryTab?.result?.hasMore || false}
+                      executionTimeMs={activeQueryTab?.result?.executionTimeMs}
+                      totalCount={activeQueryTab?.result?.totalCount}
+                      rowCount={activeQueryTab?.result?.rowCount}
+                      onLoadMore={() =>
+                        activeTab && handleNextPage(activeTab.id)
+                      }
                       className="h-full"
                     />
                   </ResizablePanel>

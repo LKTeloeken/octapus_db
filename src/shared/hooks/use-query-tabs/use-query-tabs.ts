@@ -31,6 +31,7 @@ export function useQueryTabs() {
             serverId: content.serverId,
             databaseName: content.databaseName,
             loading: false,
+            loadingMore: false,
             queryOptions: defaultQueryOptions,
           };
 
@@ -67,17 +68,21 @@ export function useQueryTabs() {
     const tab = queryTabs.get(id);
     if (!tab) return;
 
-    handleSetTabQuery(id, { loading: true });
+    const resetOptions: ExecuteQueryOptions = {
+      ...(options || tab.queryOptions),
+      offset: 0,
+      countTotal: true,
+    };
+
+    handleSetTabQuery(id, { loading: true, queryOptions: resetOptions });
 
     try {
       const result = await runQuery(
         tab.serverId,
         tab.databaseName,
         query,
-        options || tab.queryOptions,
+        resetOptions,
       );
-
-      console.log('result', result);
 
       handleSetTabQuery(id, {
         loading: false,
@@ -93,18 +98,41 @@ export function useQueryTabs() {
     }
   };
 
-  const handleNextPage = (id: string) => {
+  const handleNextPage = async (id: string) => {
     const tab = queryTabs.get(id);
-    if (!tab) return;
+    if (!tab || !tab.result?.hasMore || tab.loadingMore) return;
 
     const newOptions: ExecuteQueryOptions = {
       ...tab.queryOptions,
       offset: tab.queryOptions.offset + tab.queryOptions.limit,
+      countTotal: false,
     };
 
-    handleSetTabQuery(id, { queryOptions: newOptions });
+    handleSetTabQuery(id, { loadingMore: true, queryOptions: newOptions });
 
-    runQueryTab(id, tab.lastExecutedQuery || '', newOptions);
+    try {
+      const result = await runQuery(
+        tab.serverId,
+        tab.databaseName,
+        tab.lastExecutedQuery || '',
+        newOptions,
+      );
+
+      handleSetTabQuery(id, {
+        loadingMore: false,
+        result: {
+          ...tab.result,
+          rows: [...tab.result.rows, ...result.rows],
+          hasMore: result.hasMore,
+          rowCount: tab.result.rowCount + result.rowCount,
+        },
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'An unknown error occurred',
+      );
+      handleSetTabQuery(id, { loadingMore: false });
+    }
   };
 
   return {
