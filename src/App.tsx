@@ -30,10 +30,21 @@ const App = () => {
       removeNode,
     });
 
-  const { tabs, activeTab, openTab, closeTab, setActiveTabId, setTabContent } =
-    useTabs(handleFetchStructure);
+  const {
+    queryTabs,
+    addQueryTab,
+    closeQueryTab,
+    setQueryTabOptions,
+    runQueryTab,
+    handleNextPage,
+  } = useQueryTabs();
 
-  const { setTabQuery, executeQuery } = useQueryTabs(handleFetchStructure);
+  const { tabs, activeTab, openTab, closeTab, setActiveTabId, setTabContent } =
+    useTabs(handleFetchStructure, addQueryTab, closeQueryTab);
+
+  const activeQueryTab = useMemo(() => {
+    return queryTabs.get(activeTab?.id || '');
+  }, [queryTabs, activeTab?.id]);
 
   const currentStructure = useMemo(() => {
     if (activeTab) {
@@ -86,25 +97,17 @@ const App = () => {
                     <QueryEditorContainer
                       value={activeTab.content}
                       onChange={content => setTabContent(activeTab.id, content)}
-                      onChangeSelection={selection =>
-                        setTabQuery(activeTab.id, selection)
-                      }
-                      onExecute={() =>
-                        executeQuery(
-                          activeTab.id,
-                          activeTab.query || activeTab.content,
-                        )
-                      }
-                      isLoading={activeTab.loading}
+                      onExecute={query => runQueryTab(activeTab.id, query)}
+                      isLoading={activeQueryTab?.loading || false}
                       databaseStructure={currentStructure}
                     />
                   </ResizablePanel>
                   <ResizableHandle className="bg-transparent my-1 cursor-col-resize!" />
                   <ResizablePanel defaultSize={60} minSize={20}>
                     <ResultsContainer
-                      columns={activeTab.result?.fields || []}
-                      rows={activeTab.result?.rows || []}
-                      isLoading={activeTab.loading}
+                      columns={activeQueryTab?.result?.columns || []}
+                      rows={activeQueryTab?.result?.rows || []}
+                      isLoading={activeQueryTab?.loading || false}
                       className="h-full"
                     />
                   </ResizablePanel>

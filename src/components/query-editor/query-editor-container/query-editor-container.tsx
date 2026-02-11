@@ -7,6 +7,7 @@ import type {
   QueryEditorContainerProps,
   OnSelectionChange,
 } from './query-editor-container.types';
+import { useQueryEditor } from './use-query-editor';
 
 export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
   value,
@@ -16,6 +17,8 @@ export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
   databaseStructure,
   isLoading = false,
 }) => {
+  const { selectedQuery, setSelectedQuery } = useQueryEditor();
+
   const handleFormat = useCallback(() => {
     try {
       const formatted = formatSQL(value ?? '', {
@@ -31,17 +34,15 @@ export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
 
   const handleSelectionChange: OnSelectionChange = useCallback(
     selection => {
-      if (onChangeSelection) {
-        const query = value.slice(selection.start, selection.end);
-        onChangeSelection(query);
-      }
+      const query = value.slice(selection.start, selection.end);
+      setSelectedQuery(query);
     },
-    [onChangeSelection, value],
+    [value, setSelectedQuery],
   );
 
   const handleRun = useCallback(() => {
-    onExecute();
-  }, [onExecute]);
+    onExecute(selectedQuery || value);
+  }, [onExecute, selectedQuery, value]);
 
   return (
     <div className="flex flex-col h-full">

@@ -4,7 +4,7 @@ export interface QueryEditorContainerProps {
   value: string;
   onChange: (value: string) => void;
   onChangeSelection?: (selection: string) => void;
-  onExecute: () => void;
+  onExecute: (query: string) => void;
   databaseStructure: DatabaseStructure | null;
   isLoading?: boolean;
 }

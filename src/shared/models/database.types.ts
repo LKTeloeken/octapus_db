@@ -85,4 +85,4 @@ export type TreeNodeMetadata =
       databaseName: string;
     };
 
-export type QueryResultsRow = string[][];
+export type QueryResultsRow = (string | null)[][];

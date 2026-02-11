@@ -8,7 +8,11 @@ import type {
   SetTabContent,
 } from './use-tabs.types';
 
-const useTabs = (loadDatabaseStructure: HandleFetchStructure) => {
+const useTabs = (
+  loadDatabaseStructure: HandleFetchStructure,
+  onAddTab: (tabId: string, serverId: number, databaseName: string) => void,
+  onCloseTab: (tabId: string) => void,
+) => {
   const [tabs, setTabs] = useState<Tab[]>([]);
 
   const activeTab = useMemo(() => tabs.find(t => t.active), [tabs]);
@@ -35,10 +39,12 @@ const useTabs = (loadDatabaseStructure: HandleFetchStructure) => {
     ]);
 
     loadDatabaseStructure(serverId, databaseName);
+    onAddTab(newTabId, serverId, databaseName);
   };
 
   const closeTab: CloseTab = id => {
     handleSetTab(id, { active: false });
+    onCloseTab(id);
   };
 
   const setActiveTabId: SetActiveTabId = id => {

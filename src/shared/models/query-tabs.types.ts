@@ -1,11 +1,11 @@
+import type { ExecuteQueryOptions } from '@/api/database/database-methods.types';
+import type { ExecuteQueryResponse } from '@/api/database/database-responses.types';
+
 export interface QueryTab {
-  id: string;
   serverId: number;
   databaseName: string;
-  title: string;
-  content: string;
-  query?: string;
-  active: boolean;
-  loading?: boolean;
-  result?: { rows: any[]; fields?: string[] };
+  loading: boolean;
+  queryOptions: ExecuteQueryOptions;
+  lastExecutedQuery?: string;
+  result?: ExecuteQueryResponse;
 }

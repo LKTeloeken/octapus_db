@@ -84,13 +84,13 @@ export const ResultsTable = memo(function ResultsTable({
         <TableRow>
           {columns.map((col, idx) => (
             <TableHead
-              key={col}
+              key={col.name}
               ref={el => {
                 headerRefs.current[idx] = el;
               }}
               style={colWidths[idx] ? { width: colWidths[idx] } : undefined}
             >
-              {col}
+              {col.name}
             </TableHead>
           ))}
         </TableRow>
@@ -129,7 +129,7 @@ export const ResultsTable = memo(function ResultsTable({
                 const width = colWidths[cIdx];
                 return (
                   <TableCell
-                    key={`${col}-${virtualItem.index}`}
+                    key={`${col.name}-${virtualItem.index}`}
                     style={
                       width
                         ? { width, minWidth: width, maxWidth: width }
@@ -137,7 +137,7 @@ export const ResultsTable = memo(function ResultsTable({
                     }
                   >
                     <span className="font-mono text-xs truncate inline-block w-full">
-                      {String(row[cIdx] ?? '')}
+                      {String(row[cIdx] || '')}
                     </span>
                   </TableCell>
                 );
