@@ -16,6 +16,13 @@ export interface QueryColumnInfo {
   typeOid: number | null;
 }
 
+export interface EditableInfo {
+  schema: string;
+  table: string;
+  primaryKeyColumns: string[];
+  primaryKeyColumnIndices: number[];
+}
+
 export interface ExecuteQueryResponse {
   columns: QueryColumnInfo[];
   rows: (string | null)[][];
@@ -23,6 +30,7 @@ export interface ExecuteQueryResponse {
   rowCount: number;
   totalCount: number | null;
   executionTimeMs: number;
+  editableInfo: EditableInfo | null;
 }
 
 export enum TableTypes {

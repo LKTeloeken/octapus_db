@@ -9,6 +9,16 @@ pub struct QueryResult {
     pub total_count: Option<i64>,
     pub has_more: bool,
     pub execution_time_ms: u64,
+    pub editable_info: Option<EditableInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditableInfo {
+    pub schema: String,
+    pub table: String,
+    pub primary_key_columns: Vec<String>,
+    pub primary_key_column_indices: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]

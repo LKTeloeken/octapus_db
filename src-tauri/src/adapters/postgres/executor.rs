@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::Instant;
 
 use deadpool_postgres::Pool;
@@ -5,7 +6,7 @@ use tokio_postgres::Row;
 
 use crate::error::{Error, Result};
 use crate::models::{
-    QueryColumnInfo, QueryOptions, QueryResult, StatementResult,
+    EditableInfo, QueryColumnInfo, QueryOptions, QueryResult, StatementResult,
 };
 
 use super::types::extract_value;
@@ -62,6 +63,13 @@ pub async fn execute_query(
 
     let (columns, result_rows) = process_rows(rows_to_process);
 
+    // Detect if the result is editable (single source table with a primary key)
+    let editable_info = if is_select && !columns.is_empty() {
+        detect_editable_info(&client, trimmed, &columns).await
+    } else {
+        None
+    };
+
     Ok(QueryResult {
         columns,
         rows: result_rows,
@@ -69,6 +77,7 @@ pub async fn execute_query(
         total_count,
         has_more,
         execution_time_ms,
+        editable_info,
     })
 }
 
@@ -145,4 +154,89 @@ fn process_rows(rows: &[Row]) -> (Vec<QueryColumnInfo>, Vec<Vec<Option<String>>>
         .collect();
 
     (columns, result_rows)
+}
+
+/// Detects if the query result is editable by checking:
+/// 1. All columns come from the same source table (via table_oid)
+/// 2. The source table has a primary key
+/// 3. All PK columns are present in the result
+///
+/// Uses `prepare()` on the original (unwrapped) query to get accurate
+/// table_oid metadata, since the pagination wrapper loses this info.
+async fn detect_editable_info(
+    client: &deadpool_postgres::Object,
+    original_query: &str,
+    result_columns: &[QueryColumnInfo],
+) -> Option<EditableInfo> {
+    let stmt = client.prepare(original_query).await.ok()?;
+    let stmt_columns = stmt.columns();
+
+    // Collect unique non-zero table OIDs from the columns
+    let table_oids: HashSet<u32> = stmt_columns
+        .iter()
+        .filter_map(|c| c.table_oid())
+        .filter(|&oid| oid != 0)
+        .collect();
+
+    // All real columns must come from exactly one table
+    if table_oids.len() != 1 {
+        return None;
+    }
+
+    let table_oid = *table_oids.iter().next()?;
+
+    // Resolve table OID to schema + table name
+    let table_row = client
+        .query_one(
+            "SELECT n.nspname, c.relname \
+             FROM pg_class c \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE c.oid = $1",
+            &[&table_oid],
+        )
+        .await
+        .ok()?;
+
+    let schema: String = table_row.get(0);
+    let table: String = table_row.get(1);
+
+    // Get primary key column names for this table
+    let pk_rows = client
+        .query(
+            "SELECT a.attname \
+             FROM pg_constraint con \
+             JOIN pg_attribute a \
+               ON a.attrelid = con.conrelid AND a.attnum = ANY(con.conkey) \
+             WHERE con.conrelid = $1 AND con.contype = 'p' \
+             ORDER BY array_position(con.conkey, a.attnum)",
+            &[&table_oid],
+        )
+        .await
+        .ok()?;
+
+    if pk_rows.is_empty() {
+        return None;
+    }
+
+    let pk_column_names: Vec<String> = pk_rows.iter().map(|r| r.get(0)).collect();
+
+    // Find PK column indices in the result set
+    let pk_indices: Vec<usize> = pk_column_names
+        .iter()
+        .filter_map(|pk_name| {
+            result_columns.iter().position(|c| c.name == *pk_name)
+        })
+        .collect();
+
+    // All PK columns must be present in the result
+    if pk_indices.len() != pk_column_names.len() {
+        return None;
+    }
+
+    Some(EditableInfo {
+        schema,
+        table,
+        primary_key_columns: pk_column_names,
+        primary_key_column_indices: pk_indices,
+    })
 }
