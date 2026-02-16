@@ -26,29 +26,36 @@ const useTabs = (
   const openTab: OpenTab = (serverId, databaseName) => {
     const newTabId = `${serverId}-${databaseName}-${Date.now()}`;
 
-    setTabs(prevTabs => [
-      ...prevTabs,
-      {
-        id: newTabId,
-        serverId,
-        databaseName,
-        title: databaseName,
-        content: '',
-        active: true,
-      },
-    ]);
+    setTabs(prevTabs =>
+      [
+        ...prevTabs,
+        {
+          id: newTabId,
+          serverId,
+          databaseName,
+          title: databaseName,
+          content: '',
+          active: true,
+        },
+      ].map(tab => ({
+        ...tab,
+        active: tab.id === newTabId ? true : false,
+      })),
+    );
 
     loadDatabaseStructure(serverId, databaseName);
     onAddTab(newTabId, serverId, databaseName);
   };
 
   const closeTab: CloseTab = id => {
-    handleSetTab(id, { active: false });
+    setTabs(prevTabs => prevTabs.filter(tab => tab.id !== id));
     onCloseTab(id);
   };
 
   const setActiveTabId: SetActiveTabId = id => {
-    handleSetTab(id, { active: true });
+    setTabs(prevTabs =>
+      prevTabs.map(tab => ({ ...tab, active: tab.id === id ? true : false })),
+    );
   };
 
   const setTabContent: SetTabContent = (id, content) => {

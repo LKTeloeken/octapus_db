@@ -22,23 +22,22 @@ export const QueryTabs = memo(
       >
         <TabsList className="p-1 shrink-0">
           {tabs.map(tab => (
-            <TabsTrigger key={tab.id} value={tab.id} className="px-2.5 sm:px-3">
-              <code className="flex items-center gap-1 text-[13px] [&>svg]:h-4 [&>svg]:w-4">
-                <Database
-                  className={cn(tab.id === activeTabId && 'text-primary')}
-                />{' '}
-                {tab.title}
-              </code>
+            <div key={tab.id} className="relative">
+              <TabsTrigger value={tab.id} className="px-2.5 pr-7 sm:px-3 sm:pr-7">
+                <code className="flex items-center gap-1 text-[13px] [&>svg]:h-4 [&>svg]:w-4">
+                  <Database
+                    className={cn(tab.id === activeTabId && 'text-primary')}
+                  />{' '}
+                  {tab.title}
+                </code>
+              </TabsTrigger>
               <span
-                className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-sm hover:bg-accent hover:text-accent-foreground cursor-pointer"
-                onClick={e => {
-                  e.stopPropagation();
-                  onTabClose(tab.id);
-                }}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 z-10 inline-flex h-4 w-4 items-center justify-center rounded-sm hover:bg-accent hover:text-accent-foreground cursor-pointer"
+                onClick={() => onTabClose(tab.id)}
               >
                 <X className="h-3 w-3" />
               </span>
-            </TabsTrigger>
+            </div>
           ))}
         </TabsList>
 
