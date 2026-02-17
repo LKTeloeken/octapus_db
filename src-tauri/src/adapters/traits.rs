@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::error::Result;
 use crate::models::{
-    ColumnInfo, DatabaseInfo, IndexInfo, QueryOptions, QueryResult,
+    ColumnInfo, DatabaseInfo, EditableInfo, IndexInfo, QueryOptions, QueryResult, RowEdit,
     SchemaInfo, StatementResult, TableInfo, DatabaseStructure
 };
 
@@ -18,6 +18,12 @@ pub trait DatabaseAdapter: Send + Sync {
         query: &str,
         options: QueryOptions,
     ) -> Result<QueryResult>;
+
+    async fn apply_row_edits(
+        &self,
+        editable: &EditableInfo,
+        edits: Vec<RowEdit>,
+    ) -> Result<Vec<StatementResult>>;
 
     async fn execute_statement(&self, statement: &str) -> Result<StatementResult>;
 

@@ -24,6 +24,8 @@ export const useTreeNode = (
   const isExpanded = node.isExpanded;
   const metadata = node.metadata;
 
+  if (node.type === 'column') console.log('node', node);
+
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();

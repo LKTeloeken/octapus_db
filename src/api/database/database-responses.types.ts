@@ -52,10 +52,10 @@ interface Table {
 
 interface Column {
   name: string;
-  data_type: string;
-  is_nullable: boolean;
+  dataType: string;
+  isNullable: boolean;
   ordinal: number;
-  default_value: string | null;
-  is_primary_key: boolean;
-  is_foreign_key: boolean;
+  defaultValue: string | null;
+  isPrimaryKey: boolean;
+  isForeignKey: boolean;
 }

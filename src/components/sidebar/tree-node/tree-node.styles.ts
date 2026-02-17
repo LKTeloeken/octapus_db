@@ -9,7 +9,7 @@ export const useStyles = () => ({
   contentWrapper: tw`flex items-center gap-2`,
   textWrap: tw`flex flex-col gap-1`,
   nameText: tw`text-sm truncate`,
-  dataTypeText: tw`text-xs text-foreground truncate`,
+  dataTypeText: tw`text-xs truncate`,
   menuButtonWrapper: tw`absolute right-2 transition-opacity`,
   menuButton: tw`h-6 w-6`,
   popoverContent: tw`w-32 p-1`,

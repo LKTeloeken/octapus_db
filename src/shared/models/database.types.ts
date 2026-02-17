@@ -4,8 +4,9 @@ import { TableTypes } from '@/api/database/database-responses.types';
 // All Database Structures
 export interface ColumnStructure {
   name: string;
-  data_type: string;
-  is_nullable: boolean;
+  dataType: string;
+  isNullable: boolean;
+  defaultValue: string | null;
 }
 
 export interface TableStructure {
@@ -39,9 +40,9 @@ export interface Table {
 
 export interface Column {
   name: string;
-  data_type: string;
-  is_nullable: boolean;
-  default_value: string | null;
+  dataType: string;
+  isNullable: boolean;
+  defaultValue: string | null;
 }
 
 export interface TreeNode {

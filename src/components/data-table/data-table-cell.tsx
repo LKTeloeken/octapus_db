@@ -1,3 +1,4 @@
+// data-table-cell.tsx
 import { memo, useEffect, useState } from 'react';
 
 import {
@@ -5,54 +6,136 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 
 import type { DataTableCellProps } from './data-table-cell.types';
+import { resolveCellEditor } from './use-resolve-cell-editor';
+import { TextEditor } from './editors/text-editor';
+import { NumberEditor } from './editors/number-editor';
+import { JsonEditor } from './editors/json-editor';
+import { DateEditor } from './editors/date-editor';
+import { UuidEditor } from './editors/uuid-editor';
 
 export const DataTableCell = memo(function DataTableCell({
   value,
   displayValue,
   isEditable,
   isModified,
+  columnType,
   onSave,
 }: DataTableCellProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [editValue, setEditValue] = useState(displayValue ?? '');
+  const editorType = resolveCellEditor(columnType);
+
+  console.log('editorType', editorType);
 
   const isNull = value === null && displayValue === null;
   const text = displayValue ?? 'NULL';
-
-  // Sync local edit state when display value changes externally
-  useEffect(() => {
-    setEditValue(displayValue ?? '');
-  }, [displayValue]);
+  const editText = displayValue ?? '';
 
   const handleOpenChange = (open: boolean) => {
-    if (!open) {
-      // Reset edit value on close without saving
-      setEditValue(displayValue ?? '');
-    }
     setIsOpen(open);
   };
 
-  const handleSave = () => {
-    onSave(editValue);
+  const handleSave = (newValue: string) => {
+    onSave(newValue);
     setIsOpen(false);
   };
 
   const handleCancel = () => {
-    setEditValue(displayValue ?? '');
     setIsOpen(false);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Escape') {
-      handleCancel();
+  // Boolean gets inline rendering — no popover
+  if (editorType === 'boolean' && isEditable && !isNull) {
+    const isTrue = text === 'true' || text === 't' || text === '1';
+
+    return (
+      <div
+        className={cn(
+          'flex items-center gap-2 w-full px-2 py-1.5',
+          isModified && 'bg-yellow-900/30',
+        )}
+      >
+        <Checkbox
+          checked={isTrue}
+          onCheckedChange={checked => {
+            onSave(checked ? 'true' : 'false');
+          }}
+          className="h-3.5 w-3.5"
+        />
+        <span
+          className={cn('text-xs font-mono', isModified && 'text-yellow-200')}
+        >
+          {isTrue ? 'true' : 'false'}
+        </span>
+      </div>
+    );
+  }
+
+  const renderEditor = () => {
+    if (!isEditable || isNull) {
+      return (
+        <div className="text-xs font-mono whitespace-pre-wrap break-all max-h-[240px] overflow-auto">
+          {isNull ? (
+            <span className="text-muted-foreground italic">NULL</span>
+          ) : (
+            text
+          )}
+        </div>
+      );
     }
-    // Ctrl/Cmd + Enter to save
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      handleSave();
+
+    switch (editorType) {
+      case 'number':
+        return (
+          <NumberEditor
+            value={editText}
+            onSave={handleSave}
+            onCancel={handleCancel}
+          />
+        );
+
+      case 'json':
+        return (
+          <JsonEditor
+            value={editText}
+            onSave={handleSave}
+            onCancel={handleCancel}
+          />
+        );
+
+      case 'date':
+      case 'datetime':
+      case 'time':
+        return (
+          <DateEditor
+            value={editText}
+            type={editorType}
+            onSave={handleSave}
+            onCancel={handleCancel}
+          />
+        );
+
+      case 'uuid':
+        return (
+          <UuidEditor
+            value={editText}
+            onSave={handleSave}
+            onCancel={handleCancel}
+          />
+        );
+
+      case 'text':
+      default:
+        return (
+          <TextEditor
+            value={editText}
+            onSave={handleSave}
+            onCancel={handleCancel}
+          />
+        );
     }
   };
 
@@ -74,57 +157,17 @@ export const DataTableCell = memo(function DataTableCell({
       </PopoverTrigger>
 
       <PopoverContent
-        className="w-80 max-h-80 overflow-auto p-3"
+        className={cn(
+          'max-h-80 overflow-auto p-3',
+          editorType === 'json' ? 'w-96' : 'w-80',
+        )}
         align="start"
         side="bottom"
         onOpenAutoFocus={e => {
-          // Prevent auto-focus stealing when not editable
           if (!isEditable || isNull) e.preventDefault();
         }}
       >
-        {isEditable && !isNull ? (
-          <div className="flex flex-col gap-2">
-            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-              Editar valor
-            </label>
-            <textarea
-              className="w-full min-h-[80px] max-h-[200px] p-2 text-xs font-mono bg-background border border-border rounded-md resize-y focus:outline-none focus:ring-1 focus:ring-ring"
-              value={editValue}
-              onChange={e => setEditValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              autoFocus
-            />
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-muted-foreground">
-                Ctrl+Enter para salvar
-              </span>
-              <div className="flex gap-1.5">
-                <button
-                  type="button"
-                  className="px-2.5 py-1 text-xs rounded-md border border-border bg-muted hover:bg-muted/80 transition-colors"
-                  onClick={handleCancel}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  className="px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                  onClick={handleSave}
-                >
-                  Salvar
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="text-xs font-mono whitespace-pre-wrap break-all max-h-[240px] overflow-auto">
-            {isNull ? (
-              <span className="text-muted-foreground italic">NULL</span>
-            ) : (
-              text
-            )}
-          </div>
-        )}
+        {renderEditor()}
       </PopoverContent>
     </Popover>
   );

@@ -60,7 +60,7 @@ export function getFlatCompletions(structure: DatabaseStructure) {
         completions.push({
           label: column.name,
           type: 'column',
-          detail: `${table.name}.${column.name} (${column.data_type})`,
+          detail: `${table.name}.${column.name} (${column.dataType})`,
         });
       }
     }

@@ -65,8 +65,8 @@ export const convertDatabaseStructureToNodes = (
                 type: TreeNodeType.Column,
                 serverId,
                 databaseName,
-                dataType: column.data_type,
-                isNullable: column.is_nullable,
+                dataType: column.dataType,
+                isNullable: column.isNullable,
               },
             ),
           );

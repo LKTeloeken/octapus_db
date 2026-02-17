@@ -240,6 +240,9 @@ export const DataTable = memo(function DataTable({
                         columnId,
                       );
 
+                      const colTypeName =
+                        queryColumns[colIdx]?.typeName ?? 'text';
+
                       return (
                         <td
                           key={cell.id}
@@ -255,6 +258,7 @@ export const DataTable = memo(function DataTable({
                             displayValue={displayValue}
                             isEditable={editable}
                             isModified={cellModified}
+                            columnType={colTypeName}
                             onSave={newValue =>
                               updateCell(
                                 virtualRow.index,

@@ -6,7 +6,7 @@ use tokio_postgres::Row;
 
 use crate::error::{Error, Result};
 use crate::models::{
-    EditableInfo, QueryColumnInfo, QueryOptions, QueryResult, StatementResult,
+    EditableInfo, QueryColumnInfo, QueryOptions, QueryResult, RowEdit, StatementResult,
 };
 
 use super::types::extract_value;
@@ -79,6 +79,158 @@ pub async fn execute_query(
         execution_time_ms,
         editable_info,
     })
+}
+
+use std::collections::HashMap;
+
+pub async fn apply_row_edits(
+    pool: &Pool,
+    editable: &EditableInfo,
+    edits: Vec<RowEdit>,
+) -> Result<Vec<StatementResult>> {
+    if edits.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut client = pool.get().await?;
+
+    // Resolve column types so we can cast text params properly
+    let type_map =
+        get_column_types(&client, &editable.schema, &editable.table).await?;
+
+    let tx = client.transaction().await?;
+    let mut results = Vec::with_capacity(edits.len());
+
+    for edit in &edits {
+        if edit.changes.is_empty() {
+            continue;
+        }
+
+        if edit.pk_values.len() != editable.primary_key_columns.len() {
+            return Err(Error::InvalidQuery(
+                "Primary key value count does not match primary key columns"
+                    .into(),
+            ));
+        }
+
+        let start = Instant::now();
+        let mut param_idx: usize = 1;
+        let mut set_clauses: Vec<String> = Vec::new();
+        let mut where_clauses: Vec<String> = Vec::new();
+        let mut param_values: Vec<Option<&str>> = Vec::new();
+
+        // ── SET clause ───────────────────────────────────────────────
+        for (col_name, value) in &edit.changes {
+            let col_type = type_map.get(col_name.as_str()).ok_or_else(|| {
+                Error::InvalidQuery(format!("Unknown column: {col_name}"))
+            })?;
+
+            set_clauses.push(format!(
+                "{} = ${}::{}",
+                quote_ident(col_name),
+                param_idx,
+                col_type
+            ));
+            param_values.push(value.as_deref());
+            param_idx += 1;
+        }
+
+        // ── WHERE clause (identify row by PK) ───────────────────────
+        for (pk_col, pk_val) in
+            editable.primary_key_columns.iter().zip(&edit.pk_values)
+        {
+            let col_type = type_map.get(pk_col.as_str()).ok_or_else(|| {
+                Error::InvalidQuery(format!(
+                    "Unknown primary key column: {pk_col}"
+                ))
+            })?;
+
+            where_clauses.push(format!(
+                "{} = ${}::{}",
+                quote_ident(pk_col),
+                param_idx,
+                col_type
+            ));
+            param_values.push(pk_val.as_deref());
+            param_idx += 1;
+        }
+
+        let query = format!(
+            "UPDATE {}.{} SET {} WHERE {}",
+            quote_ident(&editable.schema),
+            quote_ident(&editable.table),
+            set_clauses.join(", "),
+            where_clauses.join(" AND "),
+        );
+
+        let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+            param_values
+                .iter()
+                .map(|v| v as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+
+        let affected = tx.execute(&query, &params).await.map_err(|e| {
+            Error::Query(format!("Failed to update row: {e}"))
+        })?;
+
+        results.push(StatementResult {
+            affected_rows: affected,
+            execution_time_ms: start.elapsed().as_millis() as u64,
+        });
+    }
+
+    tx.commit().await?;
+    Ok(results)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Fetches a mapping of `column_name -> pg_type_name` for a given table.
+async fn get_column_types(
+    client: &deadpool_postgres::Object,
+    schema: &str,
+    table: &str,
+) -> Result<HashMap<String, String>> {
+    let rows = client
+        .query(
+            "SELECT a.attname::text, format_type(a.atttypid, a.atttypmod) \
+             FROM pg_attribute a \
+             JOIN pg_class c ON c.oid = a.attrelid \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = $1 \
+               AND c.relname = $2 \
+               AND a.attnum > 0 \
+               AND NOT a.attisdropped",
+            &[&schema, &table],
+        )
+        .await
+        .map_err(|e| {
+            Error::Query(format!("Failed to fetch column types: {e}"))
+        })?;
+
+    let map: HashMap<String, String> = rows
+        .iter()
+        .map(|r| {
+            let name: String = r.get(0);
+            let typ: String = r.get(1);
+            (name, typ)
+        })
+        .collect();
+
+    if map.is_empty() {
+        return Err(Error::InvalidQuery(format!(
+            "Table {schema}.{table} not found or has no columns"
+        )));
+    }
+
+    Ok(map)
+}
+
+/// Safely quotes a PostgreSQL identifier (prevents SQL injection on names).
+fn quote_ident(ident: &str) -> String {
+    format!("\"{}\"", ident.replace('"', "\"\""))
 }
 
 pub async fn execute_statement(pool: &Pool, statement: &str) -> Result<StatementResult> {

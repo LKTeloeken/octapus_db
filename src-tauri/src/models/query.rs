@@ -21,6 +21,15 @@ pub struct EditableInfo {
     pub primary_key_column_indices: Vec<usize>,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RowEdit {
+    /// Primary key values in the same order as `EditableInfo::primary_key_columns`
+    pub pk_values: Vec<Option<String>>,
+    /// (column_name, new_value) pairs for each changed cell
+    pub changes: Vec<(String, Option<String>)>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryColumnInfo {

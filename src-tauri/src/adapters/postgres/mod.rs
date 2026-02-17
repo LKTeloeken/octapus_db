@@ -40,6 +40,14 @@ impl DatabaseAdapter for PostgresAdapter {
         executor::execute_query(&self.pool, query, options).await
     }
 
+    async fn apply_row_edits(
+        &self,
+        editable: &EditableInfo,
+        edits: Vec<RowEdit>,
+    ) -> Result<Vec<StatementResult>> {
+        executor::apply_row_edits(&self.pool, editable, edits).await
+    }
+
     async fn execute_statement(&self, statement: &str) -> Result<StatementResult> {
         executor::execute_statement(&self.pool, statement).await
     }

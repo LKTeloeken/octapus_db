@@ -177,9 +177,9 @@ export const useDataStructure = () => {
                 type: TreeNodeType.Column,
                 serverId,
                 databaseName,
-                dataType: column.data_type,
-                isNullable: column.is_nullable,
-                columnDefault: column.default_value ?? null,
+                dataType: column.dataType,
+                isNullable: column.isNullable,
+                columnDefault: column.defaultValue ?? null,
               },
             ),
           );
