@@ -1,4 +1,3 @@
-// editors/text-editor.tsx
 import { memo, useEffect, useState } from 'react';
 import { EditorFooter } from './editor-footer';
 

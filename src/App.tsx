@@ -1,4 +1,4 @@
-import { DataTable } from '@/components/data-table/data-table';
+import { ResultsTable } from '@/components/results-table/results-table';
 import { QueryEditorContainer } from '@/components/query-editor/query-editor-container/query-editor-container';
 import {
   ResizableHandle,
@@ -104,7 +104,7 @@ const App = () => {
                   </ResizablePanel>
                   <ResizableHandle className="bg-transparent my-1 cursor-col-resize!" />
                   <ResizablePanel defaultSize={60} minSize={20}>
-                    <DataTable
+                    <ResultsTable
                       columns={activeQueryTab?.result?.columns || []}
                       rows={activeQueryTab?.result?.rows || []}
                       editableInfo={activeQueryTab?.result?.editableInfo}

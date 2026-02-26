@@ -60,7 +60,6 @@ export const JsonEditor = memo(function JsonEditor({
       e.preventDefault();
       handleSave();
     }
-    // Tab inserts 2 spaces
     if (e.key === 'Tab') {
       e.preventDefault();
       const target = e.currentTarget;

@@ -1,4 +1,4 @@
-import type { CellEditorType } from './data-table-cell.types';
+import type { CellEditorType } from './results-table-cell.types';
 
 const TYPE_MAP: Record<string, CellEditorType> = {
   // Booleans
@@ -59,11 +59,9 @@ export function resolveCellEditor(typeName: string): CellEditorType {
 
   if (TYPE_MAP[normalized]) return TYPE_MAP[normalized];
 
-  // Handle array types (e.g. "_int4", "int4[]")
   if (normalized.startsWith('_') || normalized.endsWith('[]')) {
     return 'json';
   }
 
-  // Handle enum or unknown types as text
   return 'text';
 }

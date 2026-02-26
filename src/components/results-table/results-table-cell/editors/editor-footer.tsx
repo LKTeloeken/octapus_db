@@ -1,4 +1,3 @@
-// editors/editor-footer.tsx
 import { memo } from 'react';
 
 interface EditorFooterProps {

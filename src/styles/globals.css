@@ -234,7 +234,7 @@
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted)) transparent;
+    scrollbar-color: hsl(var(--destructive)) transparent;
   }
 
   .scrollbar-thin::-webkit-scrollbar {
@@ -243,11 +243,11 @@
   }
 
   .scrollbar-thin::-webkit-scrollbar-track {
-    background: transparent;
+    background: white;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--muted));
+    background-color: hsl(var(--destructive));
     border-radius: 3px;
   }
 }
