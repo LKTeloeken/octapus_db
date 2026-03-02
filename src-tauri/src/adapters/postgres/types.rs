@@ -1,6 +1,6 @@
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use tokio_postgres::types::Type;
 use tokio_postgres::Row;
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 
 /// Extract a PostgreSQL value as a String for JSON transport
 pub fn extract_value(row: &Row, idx: usize, pg_type: &Type) -> Option<String> {
@@ -43,21 +43,5 @@ pub fn extract_value(row: &Row, idx: usize, pg_type: &Type) -> Option<String> {
 
         // Text types (most common - try this for unknown types too)
         _ => row.try_get::<_, Option<String>>(idx).ok().flatten(),
-    }
-}
-
-/// Get type info for column metadata
-pub fn type_category(pg_type: &Type) -> &'static str {
-    match *pg_type {
-        Type::INT2 | Type::INT4 | Type::INT8 | Type::OID => "integer",
-        Type::FLOAT4 | Type::FLOAT8 | Type::NUMERIC => "number",
-        Type::BOOL => "boolean",
-        Type::TIMESTAMP | Type::TIMESTAMPTZ => "timestamp",
-        Type::DATE => "date",
-        Type::TIME | Type::TIMETZ => "time",
-        Type::BYTEA => "binary",
-        Type::JSON | Type::JSONB => "json",
-        Type::UUID => "uuid",
-        _ => "text",
     }
 }

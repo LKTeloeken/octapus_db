@@ -8,7 +8,6 @@ use crate::models::Server;
 
 const POOL_MAX_SIZE: usize = 16;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub fn create_pool(server: &Server, database: &str) -> Result<Pool> {
     let mut cfg = Config::new();

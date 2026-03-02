@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::models::{ColumnInfo, DatabaseInfo, IndexInfo, SchemaInfo, TableInfo, DatabaseStructure};
+use crate::models::{ColumnInfo, DatabaseInfo, DatabaseStructure, IndexInfo, SchemaInfo, TableInfo};
 use crate::state::AppState;
 
 use super::get_server;
@@ -18,7 +18,11 @@ pub async fn list_databases(
         .get_or_connect(&server, db)
         .map_err(|e| e.to_string())?;
 
-    adapter.list_databases().await.map_err(|e| e.to_string())
+    state
+        .structure
+        .list_databases(adapter)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -34,7 +38,11 @@ pub async fn list_schemas(
         .get_or_connect(&server, &database)
         .map_err(|e| e.to_string())?;
 
-    adapter.list_schemas().await.map_err(|e| e.to_string())
+    state
+        .structure
+        .list_schemas(adapter)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -51,7 +59,11 @@ pub async fn list_tables(
         .get_or_connect(&server, &database)
         .map_err(|e| e.to_string())?;
 
-    adapter.list_tables(&schema).await.map_err(|e| e.to_string())
+    state
+        .structure
+        .list_tables(adapter, &schema)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -69,8 +81,9 @@ pub async fn list_columns(
         .get_or_connect(&server, &database)
         .map_err(|e| e.to_string())?;
 
-    adapter
-        .list_columns(&schema, &table)
+    state
+        .structure
+        .list_columns(adapter, &schema, &table)
         .await
         .map_err(|e| e.to_string())
 }
@@ -90,8 +103,9 @@ pub async fn list_indexes(
         .get_or_connect(&server, &database)
         .map_err(|e| e.to_string())?;
 
-    adapter
-        .list_indexes(&schema, &table)
+    state
+        .structure
+        .list_indexes(adapter, &schema, &table)
         .await
         .map_err(|e| e.to_string())
 }

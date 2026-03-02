@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use crate::adapters::{create_adapter, DatabaseAdapter, PoolStats, PooledAdapter};
+use crate::adapters::{create_adapter, DatabaseAdapter, PoolStats};
 use crate::error::{Error, Result};
 use crate::models::{ConnectionId, Server};
 
@@ -61,11 +61,6 @@ impl ConnectionService {
     pub fn pool_stats(&self, server_id: i64, database: &str) -> Option<PoolStats> {
         let conn_id = ConnectionId::new(server_id, database);
         let adapters = self.adapters.read();
-
-        adapters.get(&conn_id).and_then(|adapter| {
-            // Try to downcast to PooledAdapter
-            // This is a bit awkward; in real code you might use a different approach
-            None // TODO: implement proper downcasting
-        })
+        adapters.get(&conn_id).and_then(|adapter| adapter.pool_stats())
     }
 }

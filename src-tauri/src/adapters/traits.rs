@@ -55,6 +55,10 @@ pub trait DatabaseAdapter: Send + Sync {
     async fn test_connection(&self) -> Result<()>;
 
     async fn cancel_query(&self, query_id: &str) -> Result<()>;
+
+    fn pool_stats(&self) -> Option<PoolStats> {
+        None
+    }
 }
 
 /// Pool statistics for monitoring
@@ -65,10 +69,4 @@ pub struct PoolStats {
     pub available: usize,
     pub in_use: usize,
     pub waiting: usize,
-}
-
-/// Trait for adapters that use connection pooling
-#[async_trait]
-pub trait PooledAdapter: DatabaseAdapter {
-    fn pool_stats(&self) -> PoolStats;
 }

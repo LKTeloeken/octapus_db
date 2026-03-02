@@ -12,7 +12,7 @@ pub struct QueryResult {
     pub editable_info: Option<EditableInfo>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditableInfo {
     pub schema: String,

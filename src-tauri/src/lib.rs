@@ -44,6 +44,9 @@ pub fn run() {
             // Queries
             commands::execute_query,
             commands::execute_statement,
+            commands::apply_row_edits,
+            commands::execute_transaction,
+            commands::cancel_query,
             // Structure (lazy loading)
             commands::list_databases,
             commands::list_schemas,

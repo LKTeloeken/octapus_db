@@ -3,21 +3,16 @@ mod executor;
 mod metadata;
 mod types;
 
-use std::sync::Arc;
-use std::time::Duration;
-
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
 
 use crate::error::Result;
 use crate::models::*;
-use crate::adapters::{DatabaseAdapter, PoolStats, PooledAdapter};
-
-pub use pool::create_pool;
+use crate::adapters::{DatabaseAdapter, PoolStats};
 
 pub struct PostgresAdapter {
     pool: Pool,
-    database: String,
+    _database: String,
 }
 
 impl PostgresAdapter {
@@ -25,7 +20,7 @@ impl PostgresAdapter {
         let pool = pool::create_pool(server, database)?;
         Ok(Self {
             pool,
-            database: database.to_string(),
+            _database: database.to_string(),
         })
     }
 }
@@ -89,22 +84,18 @@ impl DatabaseAdapter for PostgresAdapter {
         Ok(())
     }
 
-    async fn cancel_query(&self, query_id: &str) -> Result<()> {
-        // Implementation: parse query_id as PID, call pg_cancel_backend
+    async fn cancel_query(&self, _query_id: &str) -> Result<()> {
+        // TODO: parse query_id as PID, call pg_cancel_backend
         todo!("Implement query cancellation")
     }
 
-
-}
-
-impl PooledAdapter for PostgresAdapter {
-    fn pool_stats(&self) -> PoolStats {
+    fn pool_stats(&self) -> Option<PoolStats> {
         let status = self.pool.status();
-        PoolStats {
+        Some(PoolStats {
             size: status.size,
             available: status.available as usize,
             in_use: status.size - status.available as usize,
             waiting: status.waiting,
-        }
+        })
     }
 }
