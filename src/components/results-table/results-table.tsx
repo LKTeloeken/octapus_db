@@ -17,6 +17,7 @@ export const ResultsTable = memo(
     columns,
     rows,
     onLoadMore,
+    onApplyChanges,
     editableInfo,
     isLoading,
     isLoadingMore,
@@ -36,10 +37,10 @@ export const ResultsTable = memo(
       isRowModified,
       isCellModified,
       getCellDisplayValue,
-      getModifiedRows,
       discardChanges,
+      applyChanges,
       changesCount,
-    } = useResultsTable(rows, columns, editableInfo);
+    } = useResultsTable(rows, columns, editableInfo, onApplyChanges);
 
     const rowVirtualizer = useVirtualizer({
       count: rows.length,
@@ -91,7 +92,7 @@ export const ResultsTable = memo(
             <div className="bg-background flex items-center border-b border-border sticky top-0 z-20">
               {columns.map(column => (
                 <ColumnCell
-                  key={column.name}
+                  key={`column-${column.name}`}
                   column={column}
                   isPrimaryKeyColumn={isPrimaryKeyColumn(column.name)}
                   className="w-48 min-w-48 max-w-48"
@@ -109,7 +110,7 @@ export const ResultsTable = memo(
 
                 return (
                   <ResultsTableRowCell
-                    key={virtualRow.index}
+                    key={`row-${virtualRow.index}`}
                     row={row}
                     rowIndex={virtualRow.index}
                     isModified={modified}
@@ -139,6 +140,7 @@ export const ResultsTable = memo(
           isLoadingMore={isLoadingMore ?? false}
           hasMore={hasMore ?? false}
           onDiscardChanges={discardChanges}
+          onApplyChanges={applyChanges}
         />
       </div>
     );

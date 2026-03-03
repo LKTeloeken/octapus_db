@@ -87,19 +87,22 @@ pub async fn apply_row_edits(
     pool: &Pool,
     editable: &EditableInfo,
     edits: Vec<RowEdit>,
-) -> Result<Vec<StatementResult>> {
+) -> Result<StatementResult> {
     if edits.is_empty() {
-        return Ok(vec![]);
+        return Ok(StatementResult {
+            affected_rows: 0,
+            execution_time_ms: 0,
+        });
     }
 
     let mut client = pool.get().await?;
 
-    // Resolve column types so we can cast text params properly
     let type_map =
         get_column_types(&client, &editable.schema, &editable.table).await?;
 
+    let start = Instant::now();
     let tx = client.transaction().await?;
-    let mut results = Vec::with_capacity(edits.len());
+    let mut total_affected: u64 = 0;
 
     for edit in &edits {
         if edit.changes.is_empty() {
@@ -113,7 +116,6 @@ pub async fn apply_row_edits(
             ));
         }
 
-        let start = Instant::now();
         let mut param_idx: usize = 1;
         let mut set_clauses: Vec<String> = Vec::new();
         let mut where_clauses: Vec<String> = Vec::new();
@@ -126,7 +128,7 @@ pub async fn apply_row_edits(
             })?;
 
             set_clauses.push(format!(
-                "{} = ${}::{}",
+                "{} = ${}::text::{}",
                 quote_ident(col_name),
                 param_idx,
                 col_type
@@ -146,7 +148,7 @@ pub async fn apply_row_edits(
             })?;
 
             where_clauses.push(format!(
-                "{} = ${}::{}",
+                "{} = ${}::text::{}",
                 quote_ident(pk_col),
                 param_idx,
                 col_type
@@ -173,14 +175,15 @@ pub async fn apply_row_edits(
             Error::Query(format!("Failed to update row: {e}"))
         })?;
 
-        results.push(StatementResult {
-            affected_rows: affected,
-            execution_time_ms: start.elapsed().as_millis() as u64,
-        });
+        total_affected += affected;
     }
 
     tx.commit().await?;
-    Ok(results)
+
+    Ok(StatementResult {
+        affected_rows: total_affected,
+        execution_time_ms: start.elapsed().as_millis() as u64,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

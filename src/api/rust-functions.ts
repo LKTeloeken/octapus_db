@@ -11,6 +11,7 @@ export enum RustMethods {
   GET_SCHEMAS_WITH_TABLES = 'list_schemas_with_tables',
   GET_COLUMNS = 'list_columns',
   EXECUTE_QUERY = 'execute_query',
+  APPLY_ROW_EDITS = 'apply_row_edits',
 
   // PostgreSQL methods
   CONNECT_TO_SERVER = 'connect',

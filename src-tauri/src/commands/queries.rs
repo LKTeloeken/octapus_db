@@ -55,7 +55,7 @@ pub async fn apply_row_edits(
     database: String,
     editable: EditableInfo,
     edits: Vec<RowEdit>,
-) -> Result<Vec<StatementResult>, String> {
+) -> Result<StatementResult, String> {
     let server = get_server(state.clone(), server_id)?;
 
     let adapter = state

@@ -34,7 +34,7 @@ const App = () => {
     queryTabs,
     addQueryTab,
     closeQueryTab,
-    setQueryTabOptions,
+    applyQueryTabChanges,
     runQueryTab,
     handleNextPage,
   } = useQueryTabs();
@@ -116,6 +116,9 @@ const App = () => {
                       rowCount={activeQueryTab?.result?.rowCount}
                       onLoadMore={() =>
                         activeTab && handleNextPage(activeTab.id)
+                      }
+                      onApplyChanges={edits =>
+                        applyQueryTabChanges(activeTab.id, edits)
                       }
                       className="h-full"
                     />

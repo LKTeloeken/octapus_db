@@ -23,7 +23,7 @@ pub trait DatabaseAdapter: Send + Sync {
         &self,
         editable: &EditableInfo,
         edits: Vec<RowEdit>,
-    ) -> Result<Vec<StatementResult>>;
+    ) -> Result<StatementResult>;
 
     async fn execute_statement(&self, statement: &str) -> Result<StatementResult>;
 

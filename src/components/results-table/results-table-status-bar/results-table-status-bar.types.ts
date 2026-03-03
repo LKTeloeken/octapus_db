@@ -1,4 +1,5 @@
 import type { EditableInfo } from '@/api/database/database-responses.types';
+import type { ApplyChangesFn } from '../results-table.types';
 
 export interface DataTableStatusBarProps {
   executionTimeMs?: number;
@@ -11,4 +12,5 @@ export interface DataTableStatusBarProps {
   isLoadingMore: boolean;
   hasMore: boolean;
   onDiscardChanges: () => void;
+  onApplyChanges: ApplyChangesFn;
 }

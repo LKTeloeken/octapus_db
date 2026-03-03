@@ -4,6 +4,9 @@ import toast from 'react-hot-toast';
 
 import type { QueryTab } from '@/shared/models/query-tabs.types';
 import type { ExecuteQueryOptions } from '@/api/database/database-methods.types';
+import type { RowEdit } from '@/api/database/database-responses.types';
+import { applyRowEdits } from '@/api/database/database-methods';
+import type { ApplyQueryTabChanges } from './use-query-tabs.types';
 
 export function useQueryTabs() {
   const { runQuery, loading: loadingQuery } = useRunQuery();
@@ -32,6 +35,7 @@ export function useQueryTabs() {
             databaseName: content.databaseName,
             loading: false,
             loadingMore: false,
+            loadingChanges: false,
             queryOptions: defaultQueryOptions,
           };
 
@@ -135,6 +139,41 @@ export function useQueryTabs() {
     }
   };
 
+  const applyQueryTabChanges: ApplyQueryTabChanges = async (
+    id: string,
+    edits: RowEdit[],
+  ) => {
+    const tab = queryTabs.get(id);
+    if (!tab || !tab.result?.editableInfo) return;
+
+    handleSetTabQuery(id, { loadingChanges: true });
+
+    try {
+      const result = await applyRowEdits(
+        tab.serverId,
+        tab.databaseName,
+        tab.result?.editableInfo,
+        edits,
+      );
+
+      toast.success(`${result.affectedRows} rows updated`);
+
+      await runQueryTab(id, tab.lastExecutedQuery || '', {
+        offset: 0,
+        countTotal: true,
+        limit: 500,
+        unlimited: false,
+      });
+    } catch (error) {
+      console.log('error', error);
+      toast.error(
+        error instanceof Error ? error.message : 'An unknown error occurred',
+      );
+    } finally {
+      handleSetTabQuery(id, { loadingChanges: false });
+    }
+  };
+
   return {
     queryTabs,
     addQueryTab,
@@ -142,5 +181,6 @@ export function useQueryTabs() {
     setQueryTabOptions,
     runQueryTab,
     handleNextPage,
+    applyQueryTabChanges,
   };
 }

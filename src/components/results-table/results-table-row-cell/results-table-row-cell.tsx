@@ -51,7 +51,7 @@ export const ResultsTableRowCell = memo(
           return (
             <div className="w-48 min-w-48 max-w-48 border-r border-border">
               <DataTableCell
-                key={`${rowIndex}-${cellIndex}`}
+                key={`cell-${rowIndex}-${cellIndex}`}
                 value={cell}
                 columnType={columnType}
                 displayValue={displayValue}

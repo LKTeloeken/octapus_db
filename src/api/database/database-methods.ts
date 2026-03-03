@@ -6,6 +6,9 @@ import type {
   GetSchemasWithTablesResponse,
   GetColumnsResponse,
   ExecuteQueryResponse,
+  EditableInfo,
+  RowEdit,
+  ApplyRowEditsResponse,
 } from './database-responses.types';
 import type { ExecuteQueryOptions } from './database-methods.types';
 
@@ -65,6 +68,34 @@ export async function executeQuery(
     query,
     options,
   });
+
+  return result;
+}
+
+export async function applyRowEdits(
+  serverId: number,
+  database: string,
+  editable: EditableInfo,
+  edits: RowEdit[],
+): Promise<ApplyRowEditsResponse> {
+  console.log('params', {
+    serverId,
+    database,
+    editable,
+    edits,
+  });
+
+  const result = await invoke<ApplyRowEditsResponse>(
+    RustMethods.APPLY_ROW_EDITS,
+    {
+      serverId,
+      database,
+      editable,
+      edits,
+    },
+  );
+
+  console.log('result', result);
 
   return result;
 }

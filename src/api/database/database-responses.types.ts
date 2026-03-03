@@ -23,6 +23,13 @@ export interface EditableInfo {
   primaryKeyColumnIndices: number[];
 }
 
+export interface RowEdit {
+  /** Primary key values in the same order as EditableInfo.primaryKeyColumns */
+  pkValues: (string | null)[];
+  /** (columnName, newValue) pairs for each changed cell */
+  changes: [string, string | null][];
+}
+
 export interface ExecuteQueryResponse {
   columns: QueryColumnInfo[];
   rows: (string | null)[][];
@@ -31,6 +38,11 @@ export interface ExecuteQueryResponse {
   totalCount: number | null;
   executionTimeMs: number;
   editableInfo: EditableInfo | null;
+}
+
+export interface ApplyRowEditsResponse {
+  affectedRows: number;
+  executionTimeMs: number;
 }
 
 export enum TableTypes {

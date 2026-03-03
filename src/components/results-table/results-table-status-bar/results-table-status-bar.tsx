@@ -15,6 +15,7 @@ export const DataTableStatusBar = memo(
     isLoadingMore,
     hasMore,
     onDiscardChanges,
+    onApplyChanges,
   }: DataTableStatusBarProps) => {
     return (
       <div className="flex items-center justify-between px-3 py-1.5 border-t border-border bg-purple-glow text-xs text-foreground shrink-0">
@@ -48,6 +49,13 @@ export const DataTableStatusBar = memo(
                 onClick={onDiscardChanges}
               >
                 Descartar
+              </button>
+              <button
+                type="button"
+                className="px-2 py-0.5 text-xs rounded border border-accent/25 hover:bg-muted/60 transition-colors"
+                onClick={onApplyChanges}
+              >
+                Aplicar
               </button>
             </>
           )}

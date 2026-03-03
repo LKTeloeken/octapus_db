@@ -1,6 +1,7 @@
 import type {
   EditableInfo,
   QueryColumnInfo,
+  RowEdit,
 } from '@/api/database/database-responses.types';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
@@ -20,6 +21,7 @@ const useResultsTable = (
   rows: DataTableRow[],
   columns: QueryColumnInfo[],
   editableInfo: EditableInfo | null | undefined,
+  onApplyChanges: (edits: RowEdit[]) => void,
 ): UseResultsTableReturn => {
   const [changes, setChanges] = useState<ChangesMap>(new Map());
 
@@ -128,11 +130,27 @@ const useResultsTable = (
   );
 
   const getModifiedRows = useCallback<GetModifiedRowsFn>(() => {
-    return Array.from(changes.entries()).map(([pkKey, cellChanges]) => ({
-      pkKey,
-      changes: cellChanges,
-    }));
+    const result: RowEdit[] = [];
+
+    changes.forEach((rowChanges, pkKey) => {
+      const pkValues = pkKey.split('|').map(v => (v === 'NULL' ? null : v));
+      const changesArray: [string, string | null][] = [];
+
+      rowChanges.forEach(cellChange => {
+        changesArray.push([cellChange.columnId, cellChange.newValue]);
+      });
+
+      result.push({ pkValues, changes: changesArray });
+    });
+
+    return result;
   }, [changes]);
+
+  const applyChanges = useCallback(() => {
+    const edits = getModifiedRows();
+
+    onApplyChanges(edits);
+  }, [getModifiedRows, onApplyChanges]);
 
   const discardChanges = useCallback(() => {
     setChanges(new Map());
@@ -156,6 +174,7 @@ const useResultsTable = (
     getCellDisplayValue,
     getModifiedRows,
     discardChanges,
+    applyChanges,
     changesCount,
   };
 };

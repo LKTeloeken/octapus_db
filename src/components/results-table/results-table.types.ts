@@ -1,7 +1,9 @@
 import type {
   EditableInfo,
   QueryColumnInfo,
+  RowEdit,
 } from '@/api/database/database-responses.types';
+import type { ApplyQueryTabChanges } from '@/shared/hooks/use-query-tabs/use-query-tabs.types';
 
 export type DataTableRow = (string | null)[];
 
@@ -9,6 +11,7 @@ export interface ResultsTableProps {
   columns: QueryColumnInfo[];
   rows: DataTableRow[];
   onLoadMore: () => void;
+  onApplyChanges: (edits: RowEdit[]) => void;
   editableInfo?: EditableInfo | null;
   isLoading?: boolean;
   isLoadingMore?: boolean;
@@ -43,9 +46,9 @@ export type GetCellDisplayValueFn = (
   columnId: string,
   originalValue: string | null,
 ) => string | null;
-export type ModifiedRow = { pkKey: string; changes: Map<string, CellChange> };
-export type GetModifiedRowsFn = () => ModifiedRow[];
+export type GetModifiedRowsFn = () => RowEdit[];
 export type DiscardChangesFn = () => void;
+export type ApplyChangesFn = () => void;
 
 export interface UseResultsTableParams {
   rows: DataTableRow[];
@@ -63,5 +66,6 @@ export interface UseResultsTableReturn {
   getCellDisplayValue: GetCellDisplayValueFn;
   getModifiedRows: GetModifiedRowsFn;
   discardChanges: DiscardChangesFn;
+  applyChanges: ApplyChangesFn;
   changesCount: number;
 }
