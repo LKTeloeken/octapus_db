@@ -3,7 +3,9 @@ import { RustMethods } from '../rust-functions';
 import type { Server, ServerPrimitive } from '@/shared/models/servers.types';
 
 export async function createServer(server: ServerPrimitive): Promise<Server> {
-  return await invoke<Server>(RustMethods.CREATE_SERVER, { ...server });
+  return await invoke<Server>(RustMethods.CREATE_SERVER, {
+    input: { ...server, dbType: 'postgres' },
+  });
 }
 
 export async function getAllServers(): Promise<Server[]> {
