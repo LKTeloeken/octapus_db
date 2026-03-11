@@ -5,4 +5,10 @@ export interface Tab {
   title: string;
   content: string;
   active: boolean;
+  type: TabType;
+}
+
+export enum TabType {
+  View = 'view',
+  Query = 'query',
 }

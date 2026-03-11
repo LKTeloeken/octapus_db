@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useRunQuery } from '@/shared/hooks/use-run-query/use-run-query';
+import { applyRowEdits } from '@/api/database/database-methods';
 import toast from 'react-hot-toast';
 
+import type { ApplyQueryTabChanges } from './use-query-tabs.types';
 import type { QueryTab } from '@/shared/models/query-tabs.types';
 import type { ExecuteQueryOptions } from '@/api/database/database-methods.types';
 import type { RowEdit } from '@/api/database/database-responses.types';
-import { applyRowEdits } from '@/api/database/database-methods';
-import type { ApplyQueryTabChanges } from './use-query-tabs.types';
 
 export function useQueryTabs() {
   const { runQuery, loading: loadingQuery } = useRunQuery();
@@ -68,22 +68,30 @@ export function useQueryTabs() {
     id: string,
     query: string,
     options?: ExecuteQueryOptions,
+    fallback?: { serverId: number; databaseName: string },
   ) => {
     const tab = queryTabs.get(id);
-    if (!tab) return;
+    const serverId = tab?.serverId ?? fallback?.serverId;
+    const databaseName = tab?.databaseName ?? fallback?.databaseName;
+    if (!serverId || !databaseName) return;
 
     const resetOptions: ExecuteQueryOptions = {
-      ...(options || tab.queryOptions),
+      ...(options || tab?.queryOptions || defaultQueryOptions),
       offset: 0,
       countTotal: true,
     };
 
-    handleSetTabQuery(id, { loading: true, queryOptions: resetOptions });
+    handleSetTabQuery(id, {
+      loading: true,
+      queryOptions: resetOptions,
+      serverId,
+      databaseName,
+    });
 
     try {
       const result = await runQuery(
-        tab.serverId,
-        tab.databaseName,
+        serverId,
+        databaseName,
         query,
         resetOptions,
       );

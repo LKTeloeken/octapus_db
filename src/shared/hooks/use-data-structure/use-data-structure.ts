@@ -193,8 +193,10 @@ export const useDataStructure = () => {
   );
 
   const onClickNode = useCallback(
-    async (nodeId: string) => {
+    async (nodeId: string, onClickNodeAction?: (node: TreeNode) => void) => {
       const node = nodesRef.current.nodes.get(nodeId);
+
+      console.log('node', node);
       if (!node) return;
 
       const isExpandableType =
@@ -228,6 +230,8 @@ export const useDataStructure = () => {
       } catch (error) {
         toast.error('Failed to load data structure.');
         handleSetNode(nodeId, { isLoading: false });
+      } finally {
+        onClickNodeAction?.(node);
       }
     },
     [handleSetNode, handleSetNodes, handleLoadDatabaseStructure],
