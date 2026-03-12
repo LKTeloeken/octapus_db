@@ -1,12 +1,7 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon, ArrowDown01Icon, ArrowRight01Icon, Edit01Icon, MoreHorizontalIcon } from "@hugeicons/core-free-icons";
 import { memo } from 'react';
 import { Spinner } from '@/components/ui/spinner';
-import {
-  ChevronDown,
-  ChevronRight,
-  MoreHorizontal,
-  Edit,
-  Plus,
-} from 'lucide-react';
 import { useTreeNode } from './use-tree-node';
 import type { TreeNodeProps } from './tree-node.types';
 import { useStyles } from './tree-node.styles';
@@ -59,9 +54,9 @@ export const TreeNode = memo(
               {node.isLoading ? (
                 <Spinner className={styles.spinner} />
               ) : isExpanded ? (
-                <ChevronDown className={styles.chevronIcon} />
+                <HugeiconsIcon icon={ArrowDown01Icon} className={styles.chevronIcon} />
               ) : (
-                <ChevronRight className={styles.chevronIcon} />
+                <HugeiconsIcon icon={ArrowRight01Icon} className={styles.chevronIcon} />
               )}
             </>
           )}
@@ -92,7 +87,7 @@ export const TreeNode = memo(
                 className={styles.menuButton}
                 onClick={e => e.stopPropagation()}
               >
-                <MoreHorizontal className="h-4 w-4" />
+                <HugeiconsIcon icon={MoreHorizontalIcon} className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
             <PopoverContent className={styles.popoverContent} align="end">
@@ -106,7 +101,7 @@ export const TreeNode = memo(
                     setIsMenuOpen(false);
                   }}
                 >
-                  <Edit className={styles.menuIcon} />
+                  <HugeiconsIcon icon={Edit01Icon} className={styles.menuIcon} />
                   Editar
                 </Button>
               )}
@@ -120,7 +115,7 @@ export const TreeNode = memo(
                   setIsMenuOpen(false);
                 }}
               >
-                <Plus className={styles.menuIcon} />
+                <HugeiconsIcon icon={Add01Icon} className={styles.menuIcon} />
                 Nova aba
               </Button>
             </PopoverContent>

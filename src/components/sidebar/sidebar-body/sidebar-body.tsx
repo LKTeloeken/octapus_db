@@ -1,3 +1,5 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon } from "@hugeicons/core-free-icons";
 import { memo } from 'react';
 import { Typography } from '@/components/ui/typography';
 import { Spinner } from '@/components/ui/spinner';
@@ -12,7 +14,6 @@ import {
 import { ServerTree } from '../server-tree/server-tree';
 import { ConfigServerModal } from '@/components/server/config-server-modal/config-server-modal';
 import { useSidebarBody } from './use-sidebar-body';
-import { Plus } from 'lucide-react';
 import { useStyles } from './sidebar-body.styles';
 import type { SidebarBodyProps } from './sidebar-body.types';
 
@@ -54,7 +55,7 @@ export const SidebarBody = memo(
                   size="sm"
                   onClick={() => openConfigServerModal()}
                 >
-                  <Plus />
+                  <HugeiconsIcon icon={Add01Icon} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="left">Adicionar servidor</TooltipContent>

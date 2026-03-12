@@ -1,10 +1,8 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { DatabaseIcon, Folder01Icon, HashtagIcon, TableIcon } from "@hugeicons/core-free-icons";
 import { useState } from 'react';
 import {
-  Server as ServerIcon,
-  Database,
-  Folder,
-  Table,
-  Hash,
+  Server as ServerIcon
 } from 'lucide-react';
 import type { TreeNode, TreeNodeType } from '@/shared/models/database.types';
 import type { Server } from '@/shared/models/servers.types';
@@ -65,13 +63,13 @@ export const useTreeNode = (
           <ServerIcon className={cn('size-4', isConnected && 'text-primary')} />
         );
       case 'database':
-        return <Database className="size-4" />;
+        return <HugeiconsIcon icon={DatabaseIcon} className="size-4" />;
       case 'schema':
-        return <Folder className="size-4" />;
+        return <HugeiconsIcon icon={Folder01Icon} className="size-4" />;
       case 'table':
-        return <Table className="size-4" />;
+        return <HugeiconsIcon icon={TableIcon} className="size-4" />;
       case 'column':
-        return <Hash className="size-4" />;
+        return <HugeiconsIcon icon={HashtagIcon} className="size-4" />;
       default:
         return null;
     }

@@ -1,3 +1,5 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { PlayIcon, TextAlignLeftIcon } from "@hugeicons/core-free-icons";
 import { memo, type FC } from 'react';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -7,8 +9,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Play, AlignLeft } from 'lucide-react';
-
 import type { QueryEditorToolbarProps } from './query-editor-toolbar.types';
 
 export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
@@ -28,7 +28,7 @@ export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
                 {isLoading ? (
                   <Spinner className="h-4 w-4" />
                 ) : (
-                  <Play className="h-4 w-4" />
+                  <HugeiconsIcon icon={PlayIcon} className="h-4 w-4" />
                 )}
                 Run
               </Button>
@@ -47,7 +47,7 @@ export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
                 disabled={disabled || isLoading}
                 className="gap-1.5"
               >
-                <AlignLeft className="h-4 w-4" />
+                <HugeiconsIcon icon={TextAlignLeftIcon} className="h-4 w-4" />
                 Format
               </Button>
             </TooltipTrigger>
