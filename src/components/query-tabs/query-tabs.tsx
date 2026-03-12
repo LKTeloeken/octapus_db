@@ -1,5 +1,5 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon, DatabaseIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from '@hugeicons/react';
+import { Cancel01Icon, DatabaseIcon } from '@hugeicons/core-free-icons';
 import { memo } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { QueryTabsProps } from './query-tabs.types';
@@ -20,12 +20,18 @@ export const QueryTabs = memo(
         onValueChange={onTabChange}
         className="h-full w-full flex flex-col"
       >
-        <TabsList className="p-1 shrink-0">
+        <TabsList className="p-1 w-full overflow-hidden">
           {tabs.map(tab => (
             <div key={tab.id} className="relative">
-              <TabsTrigger value={tab.id} className="px-2.5 pr-7 sm:px-3 sm:pr-7">
+              <TabsTrigger
+                value={tab.id}
+                className="px-2.5 pr-7 sm:px-3 sm:pr-7"
+              >
                 <code className="flex items-center gap-1 text-[13px] [&>svg]:h-4 [&>svg]:w-4">
-                  <HugeiconsIcon icon={DatabaseIcon} className={cn(tab.id === activeTabId && 'text-primary')} />{' '}
+                  <HugeiconsIcon
+                    icon={DatabaseIcon}
+                    className={cn(tab.id === activeTabId && 'text-primary')}
+                  />{' '}
                   {tab.title}
                 </code>
               </TabsTrigger>
