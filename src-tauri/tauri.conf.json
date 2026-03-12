@@ -10,14 +10,11 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "withGlobalTauri": true,
     "windows": [
       {
         "title": "octapus-db",
         "width": 800,
-        "height": 600,
-        "decorations": false,
-        "transparent": true
+        "height": 600
       }
     ],
     "security": {
