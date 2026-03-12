@@ -196,7 +196,6 @@ export const useDataStructure = () => {
     async (nodeId: string, onClickNodeAction?: (node: TreeNode) => void) => {
       const node = nodesRef.current.nodes.get(nodeId);
 
-      console.log('node', node);
       if (!node) return;
 
       const isExpandableType =
@@ -212,6 +211,7 @@ export const useDataStructure = () => {
       // If children are already loaded, just toggle expand
       if (node.hasLoadedChildren) {
         handleSetNode(nodeId, { isExpanded: !node.isExpanded });
+        onClickNodeAction?.(node);
         return;
       }
 

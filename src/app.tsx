@@ -11,9 +11,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { CustomToaster } from './components/Toaster';
 import { QueryTabs } from './components/query-tabs/query-tabs';
 import { SidebarBody } from './components/sidebar/sidebar-body/sidebar-body';
-import { useQueryTabs } from './shared/hooks/use-query-tabs/use-query-tabs';
 import useTabs from './shared/hooks/use-tabs/use-tabs';
-import type { TreeNode } from './shared/models/database.types';
 import { TabType } from './shared/models/tabs.types';
 
 const App = () => {
@@ -34,7 +32,6 @@ const App = () => {
 
   const {
     tabs,
-    queryTabs,
     activeTab,
     openTab,
     openTableTab,
@@ -53,10 +50,6 @@ const App = () => {
     [onClickNode, openTableTab],
   );
 
-  const activeQueryTab = useMemo(() => {
-    return queryTabs.get(activeTab?.id || '');
-  }, [queryTabs, activeTab?.id]);
-
   const currentStructure = useMemo(() => {
     if (activeTab) {
       return getStructure(activeTab.serverId, activeTab.databaseName);
@@ -64,6 +57,13 @@ const App = () => {
 
     return null;
   }, [tabs, getStructure]);
+
+  // Run the query for the view tab when it is active
+  useEffect(() => {
+    if (activeTab && activeTab?.type === TabType.View) {
+      runQueryTab(activeTab.id, activeTab.content);
+    }
+  }, [activeTab?.id]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -98,7 +98,7 @@ const App = () => {
           {tabs.length > 0 && (
             <QueryTabs
               tabs={tabs}
-              activeTabId={activeTab?.id}
+              activeTabId={activeTab?.id || ''}
               onTabChange={setActiveTabId}
               onTabClose={closeTab}
             >
@@ -112,24 +112,22 @@ const App = () => {
                           setTabContent(activeTab.id, content)
                         }
                         onExecute={query => runQueryTab(activeTab.id, query)}
-                        isLoading={activeQueryTab?.loading || false}
+                        isLoading={activeTab?.loading || false}
                         databaseStructure={currentStructure}
                       />
                     </ResizablePanel>
                     <ResizableHandle className="bg-transparent my-1 cursor-col-resize!" />
                     <ResizablePanel defaultSize={60} minSize={20}>
                       <ResultsTable
-                        columns={activeQueryTab?.result?.columns || []}
-                        rows={activeQueryTab?.result?.rows || []}
-                        editableInfo={activeQueryTab?.result?.editableInfo}
-                        isLoading={activeQueryTab?.loading || false}
-                        isLoadingMore={activeQueryTab?.loadingMore || false}
-                        hasMore={activeQueryTab?.result?.hasMore || false}
-                        executionTimeMs={
-                          activeQueryTab?.result?.executionTimeMs
-                        }
-                        totalCount={activeQueryTab?.result?.totalCount}
-                        rowCount={activeQueryTab?.result?.rowCount}
+                        columns={activeTab?.result?.columns || []}
+                        rows={activeTab?.result?.rows || []}
+                        editableInfo={activeTab?.result?.editableInfo}
+                        isLoading={activeTab?.loading || false}
+                        isLoadingMore={activeTab?.loadingMore || false}
+                        hasMore={activeTab?.result?.hasMore || false}
+                        executionTimeMs={activeTab?.result?.executionTimeMs}
+                        totalCount={activeTab?.result?.totalCount}
+                        rowCount={activeTab?.result?.rowCount}
                         onLoadMore={() =>
                           activeTab && handleNextPage(activeTab.id)
                         }
@@ -142,18 +140,16 @@ const App = () => {
                   </ResizablePanelGroup>
                 ) : (
                   <ResultsTable
-                    columns={activeQueryTab?.result?.columns || []}
-                    rows={activeQueryTab?.result?.rows || []}
-                    editableInfo={activeQueryTab?.result?.editableInfo}
-                    isLoading={activeQueryTab?.loading || false}
-                    isLoadingMore={activeQueryTab?.loadingMore || false}
-                    hasMore={activeQueryTab?.result?.hasMore || false}
-                    executionTimeMs={activeQueryTab?.result?.executionTimeMs}
-                    totalCount={activeQueryTab?.result?.totalCount}
-                    rowCount={activeQueryTab?.result?.rowCount}
-                    onLoadMore={() =>
-                      activeTab && handleNextPage(activeTab.id)
-                    }
+                    columns={activeTab?.result?.columns || []}
+                    rows={activeTab?.result?.rows || []}
+                    editableInfo={activeTab?.result?.editableInfo}
+                    isLoading={activeTab?.loading || false}
+                    isLoadingMore={activeTab?.loadingMore || false}
+                    hasMore={activeTab?.result?.hasMore || false}
+                    executionTimeMs={activeTab?.result?.executionTimeMs}
+                    totalCount={activeTab?.result?.totalCount}
+                    rowCount={activeTab?.result?.rowCount}
+                    onLoadMore={() => activeTab && handleNextPage(activeTab.id)}
                     onApplyChanges={edits =>
                       applyQueryTabChanges(activeTab.id, edits)
                     }
