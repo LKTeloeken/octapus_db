@@ -25,7 +25,6 @@ export const TreeNode = memo(
     childrenMap,
     onToggle,
     level = 0,
-    isLastChild = false,
     openServerModal,
     openNewTab,
   }: TreeNodeProps) => {
@@ -35,7 +34,6 @@ export const TreeNode = memo(
 
     const {
       isMenuOpen,
-      childrenIds,
       hasChildren,
       isExpanded,
       metadata,
@@ -49,127 +47,85 @@ export const TreeNode = memo(
     const styles = useStyles();
 
     return (
-      <div className={styles.root}>
-        <div
-          className={styles.container}
-          style={{ paddingLeft: `${level * 1.25 + 0.5}rem` }}
-          onClick={() => hasChildren && onToggle(nodeId)}
-          onContextMenu={handleContextMenu}
-        >
-          <div className={styles.iconWrapper}>
-            {hasChildren && (
-              <>
-                {node.isLoading ? (
-                  <Spinner className={styles.spinner} />
-                ) : isExpanded ? (
-                  <ChevronDown className={styles.chevronIcon} />
-                ) : (
-                  <ChevronRight className={styles.chevronIcon} />
-                )}
-              </>
-            )}
-          </div>
-
-          <div className={styles.contentWrapper}>
-            {getNodeIcon(node.type, !!node.isConnected)}
-
-            <div className={styles.textWrap}>
-              <div className={styles.nameText}>{node.name}</div>
-              {metadata && metadata.type === 'column' && (
-                <div className={styles.dataTypeText}>{metadata.dataType}</div>
+      <div
+        className={styles.container}
+        style={{ paddingLeft: `${level * 1.25 + 0.5}rem` }}
+        onClick={() => hasChildren && onToggle(nodeId)}
+        onContextMenu={handleContextMenu}
+      >
+        <div className={styles.iconWrapper}>
+          {hasChildren && (
+            <>
+              {node.isLoading ? (
+                <Spinner className={styles.spinner} />
+              ) : isExpanded ? (
+                <ChevronDown className={styles.chevronIcon} />
+              ) : (
+                <ChevronRight className={styles.chevronIcon} />
               )}
-            </div>
-          </div>
+            </>
+          )}
+        </div>
 
-          <div
-            className={cn(
-              styles.menuButtonWrapper,
-              isMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+        <div className={styles.contentWrapper}>
+          {getNodeIcon(node.type, !!node.isConnected)}
+
+          <div className={styles.textWrap}>
+            <div className={styles.nameText}>{node.name}</div>
+            {metadata && metadata.type === 'column' && (
+              <div className={styles.dataTypeText}>{metadata.dataType}</div>
             )}
-          >
-            <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={styles.menuButton}
-                  onClick={e => e.stopPropagation()}
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className={styles.popoverContent} align="end">
-                {node.type === 'server' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={styles.menuItemButton}
-                    onClick={e => {
-                      handleServerEdit(e);
-                      setIsMenuOpen(false);
-                    }}
-                  >
-                    <Edit className={styles.menuIcon} />
-                    Editar
-                  </Button>
-                )}
+          </div>
+        </div>
 
+        <div
+          className={cn(
+            styles.menuButtonWrapper,
+            isMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          )}
+        >
+          <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={styles.menuButton}
+                onClick={e => e.stopPropagation()}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className={styles.popoverContent} align="end">
+              {node.type === 'server' && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className={styles.menuItemButton}
                   onClick={e => {
-                    handleOpenNewTab(e);
+                    handleServerEdit(e);
                     setIsMenuOpen(false);
                   }}
                 >
-                  <Plus className={styles.menuIcon} />
-                  Nova aba
+                  <Edit className={styles.menuIcon} />
+                  Editar
                 </Button>
-              </PopoverContent>
-            </Popover>
-          </div>
+              )}
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className={styles.menuItemButton}
+                onClick={e => {
+                  handleOpenNewTab(e);
+                  setIsMenuOpen(false);
+                }}
+              >
+                <Plus className={styles.menuIcon} />
+                Nova aba
+              </Button>
+            </PopoverContent>
+          </Popover>
         </div>
-
-        {isExpanded && (
-          <div className={'overflow-hidden animate-in fade-in duration-700'}>
-            {childrenIds.map((childId, index) => (
-              <TreeNode
-                key={childId}
-                nodeId={childId}
-                nodes={nodes}
-                childrenMap={childrenMap}
-                onToggle={onToggle}
-                level={level + 1}
-                isLastChild={index === childrenIds.length - 1}
-                openServerModal={openServerModal}
-                openNewTab={openNewTab}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Linha vertical conectando ao pai */}
-        {level > 0 && (
-          <div
-            className={cn(
-              styles.verticalLine,
-              isLastChild ? 'h-[1.125rem]' : 'h-full',
-            )}
-            style={{ left: `${(level - 1) * 1.25 + 0.95}rem` }}
-          />
-        )}
-
-        {/* Linha horizontal */}
-        {level > 0 && (
-          <div
-            className={styles.horizontalLine}
-            style={{
-              left: `${(level - 1) * 1.25 + 0.95}rem`,
-              width: '0.5rem',
-            }}
-          />
-        )}
       </div>
     );
   },
