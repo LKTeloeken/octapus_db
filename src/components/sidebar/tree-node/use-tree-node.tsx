@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 export const useTreeNode = (
   node: TreeNode,
   nodeId: string,
+  nodes: Map<string, TreeNode>,
   childrenMap: Map<string, string[]>,
   openServerModal: (server: Server) => void,
   openNewTab: OpenTab,
@@ -35,7 +36,14 @@ export const useTreeNode = (
     const { type, serverId } = metadata;
 
     if (type === 'server' && serverId) {
-      openNewTab(serverId, metadata.serverData?.default_database || 'postgres');
+      const loadedDatabaseName = childrenIds
+        .map(childId => nodes.get(childId))
+        .find(child => child?.type === 'database')?.name;
+
+      openNewTab(
+        serverId,
+        metadata.serverData?.default_database || loadedDatabaseName || 'postgres',
+      );
     }
 
     if (type !== 'server' && serverId) {

@@ -6,6 +6,8 @@ import type { SearchTarget } from './global-search-dialog.types';
 import toast from 'react-hot-toast';
 import { getDatabases } from '@/api/database/database-methods';
 
+const MAX_SEARCH_RESULTS = 300;
+
 const parseCacheKey = (key: string) => {
   const [serverId, ...databaseParts] = key.split(':');
   return {
@@ -115,7 +117,7 @@ export const useGlobalSearchDialog = (
 
   const results = useMemo(() => {
     const normalized = search.trim().toLowerCase();
-    if (!normalized) return searchTargets.slice(0, 300);
+    if (!normalized) return searchTargets.slice(0, MAX_SEARCH_RESULTS);
 
     return searchTargets
       .filter(item => {
@@ -123,7 +125,7 @@ export const useGlobalSearchDialog = (
           `${item.serverName} ${item.databaseName} ${item.schemaName} ${item.tableName} ${item.schemaName}/${item.tableName}`.toLowerCase();
         return value.includes(normalized);
       })
-      .slice(0, 300);
+      .slice(0, MAX_SEARCH_RESULTS);
   }, [search, searchTargets]);
 
   const groupedResults = useMemo(() => {

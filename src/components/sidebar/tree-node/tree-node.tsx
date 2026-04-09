@@ -29,7 +29,14 @@ export const TreeNode = memo(
       getNodeIcon,
       handleServerEdit,
       handleOpenNewTab,
-    } = useTreeNode(node, nodeId, childrenMap, openServerModal, openNewTab);
+    } = useTreeNode(
+      node,
+      nodeId,
+      nodes,
+      childrenMap,
+      openServerModal,
+      openNewTab,
+    );
 
     const styles = useStyles();
 

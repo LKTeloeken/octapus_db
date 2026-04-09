@@ -14,6 +14,22 @@ use crate::models::{
 
 use super::types::extract_value;
 
+struct ActiveQueryGuard<'a> {
+    active_query_pid: &'a Arc<Mutex<Option<i32>>>,
+}
+
+impl<'a> ActiveQueryGuard<'a> {
+    fn new(active_query_pid: &'a Arc<Mutex<Option<i32>>>) -> Self {
+        Self { active_query_pid }
+    }
+}
+
+impl Drop for ActiveQueryGuard<'_> {
+    fn drop(&mut self) {
+        *self.active_query_pid.lock() = None;
+    }
+}
+
 pub async fn execute_query(
     pool: &Pool,
     query: &str,
@@ -33,6 +49,7 @@ pub async fn execute_query(
         .await?
         .get(0);
     *active_query_pid.lock() = Some(query_pid);
+    let _query_guard = ActiveQueryGuard::new(&active_query_pid);
 
     let start = Instant::now();
 
@@ -49,9 +66,7 @@ pub async fn execute_query(
         (trimmed.to_string(), None)
     };
 
-    let rows = client.query(&exec_query, &[]).await;
-    *active_query_pid.lock() = None;
-    let rows = rows?;
+    let rows = client.query(&exec_query, &[]).await?;
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
     // Determine if more rows exist
@@ -307,7 +322,7 @@ pub async fn cancel_query(
     active_query_pid: Arc<Mutex<Option<i32>>>,
 ) -> Result<()> {
     let fallback_pid = query_id.parse::<i32>().ok();
-    let pid = active_query_pid.lock().to_owned().or(fallback_pid).ok_or_else(|| {
+    let pid = (*active_query_pid.lock()).or(fallback_pid).ok_or_else(|| {
         Error::InvalidState("No active query to cancel".into())
     })?;
 
