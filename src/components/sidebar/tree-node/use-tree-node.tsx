@@ -35,7 +35,7 @@ export const useTreeNode = (
     const { type, serverId } = metadata;
 
     if (type === 'server' && serverId) {
-      openNewTab(serverId, metadata.serverData?.default_database || '');
+      openNewTab(serverId, metadata.serverData?.default_database || 'postgres');
     }
 
     if (type !== 'server' && serverId) {

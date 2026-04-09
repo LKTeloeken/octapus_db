@@ -2,11 +2,10 @@ import type { TreeNode } from '@/shared/models/database.types';
 
 export interface SearchTarget {
   serverId: number;
+  serverName: string;
   databaseName: string;
   schemaName: string;
   tableName: string;
-  columnName?: string;
-  type: 'table' | 'column';
 }
 
 export interface GlobalSearchDialogProps {

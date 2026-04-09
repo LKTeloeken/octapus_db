@@ -77,6 +77,20 @@ const App = () => {
     fetchServers();
   }, []);
 
+  useEffect(() => {
+    const handleCloseTabShortcut = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.key.toLowerCase() !== 'w') return;
+      if (!activeTab || activeTab.type !== TabType.View) return;
+
+      event.preventDefault();
+      closeTab(activeTab.id);
+    };
+
+    window.addEventListener('keydown', handleCloseTabShortcut);
+    return () => window.removeEventListener('keydown', handleCloseTabShortcut);
+  }, [activeTab, closeTab]);
+
   return (
     <>
       <ResizablePanelGroup direction="horizontal" className="h-screen w-full">

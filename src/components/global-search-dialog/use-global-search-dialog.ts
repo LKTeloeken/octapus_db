@@ -4,6 +4,7 @@ import { TreeNodeType } from '@/shared/models/database.types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SearchTarget } from './global-search-dialog.types';
 import toast from 'react-hot-toast';
+import { getDatabases } from '@/api/database/database-methods';
 
 const parseCacheKey = (key: string) => {
   const [serverId, ...databaseParts] = key.split(':');
@@ -22,52 +23,31 @@ export const useGlobalSearchDialog = (
     tableName: string,
   ) => Promise<void>,
 ) => {
-  const { cache, fetchColumns, fetchStructure } = useStore();
+  const { cache, fetchStructure } = useStore();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [hydratingColumns, setHydratingColumns] = useState(false);
-  const hydratedColumnTables = useRef<Set<string>>(new Set());
+  const [isLoadingStructures, setIsLoadingStructures] = useState(false);
+  const hydratedDatabases = useRef<Set<string>>(new Set());
 
-  const databaseTargets = useMemo(() => {
-    const fromCache = Object.keys(cache).map(parseCacheKey);
-    const fromTree = Array.from(nodes.values()).flatMap(node => {
-      if (
-        node.type !== TreeNodeType.Database ||
-        node.metadata.type !== TreeNodeType.Database
-      ) {
-        return [];
-      }
+  const serverTargets = useMemo(
+    () =>
+      Array.from(nodes.values()).flatMap(node => {
+        if (
+          node.type !== TreeNodeType.Server ||
+          node.metadata.type !== TreeNodeType.Server
+        ) {
+          return [];
+        }
 
-      return [
-        {
-          serverId: node.metadata.serverId,
-          databaseName: node.metadata.databaseName,
-        },
-      ];
-    });
-    const fromServers = Array.from(nodes.values()).flatMap(node => {
-      if (
-        node.type !== TreeNodeType.Server ||
-        node.metadata.type !== TreeNodeType.Server
-      ) {
-        return [];
-      }
-
-      return [
-        {
-          serverId: node.metadata.serverId,
-          databaseName: node.metadata.serverData?.default_database ?? 'postgres',
-        },
-      ];
-    });
-
-    const map = new Map<string, { serverId: number; databaseName: string }>();
-    [...fromCache, ...fromTree, ...fromServers].forEach(item => {
-      map.set(`${item.serverId}:${item.databaseName}`, item);
-    });
-
-    return Array.from(map.values());
-  }, [cache, nodes]);
+        return [
+          {
+            serverId: node.metadata.serverId,
+            serverName: node.name,
+          },
+        ];
+      }),
+    [nodes],
+  );
 
   const searchTargets = useMemo(() => {
     const targets: SearchTarget[] = [];
@@ -78,29 +58,24 @@ export const useGlobalSearchDialog = (
       cacheEntry.structure.schemas.forEach(schema => {
         schema.tables.forEach(table => {
           targets.push({
-            type: 'table',
             serverId,
+            serverName:
+              Array.from(nodes.values()).find(
+                node =>
+                  node.type === TreeNodeType.Server &&
+                  node.metadata.type === TreeNodeType.Server &&
+                  node.metadata.serverId === serverId,
+              )?.name ?? `Server ${serverId}`,
             databaseName,
             schemaName: schema.name,
             tableName: table.name,
-          });
-
-          table.columns?.forEach(column => {
-            targets.push({
-              type: 'column',
-              serverId,
-              databaseName,
-              schemaName: schema.name,
-              tableName: table.name,
-              columnName: column.name,
-            });
           });
         });
       });
     });
 
     return targets;
-  }, [cache]);
+  }, [cache, nodes]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -117,73 +92,55 @@ export const useGlobalSearchDialog = (
   useEffect(() => {
     if (!open) return;
 
+    setIsLoadingStructures(true);
     Promise.all(
-      databaseTargets.map(target =>
-        fetchStructure(target.serverId, target.databaseName).catch(() => null),
-      ),
-    ).catch(() => null);
-  }, [databaseTargets, fetchStructure, open]);
+      serverTargets.map(async server => {
+        const databases = await getDatabases(server.serverId);
 
-  useEffect(() => {
-    if (!open) return;
-
-    const pending: Array<{
-      serverId: number;
-      databaseName: string;
-      schemaName: string;
-      tableName: string;
-      key: string;
-    }> = [];
-
-    Object.entries(cache).forEach(([key, cacheEntry]) => {
-      const { serverId, databaseName } = parseCacheKey(key);
-      cacheEntry.structure.schemas.forEach(schema => {
-        schema.tables.forEach(table => {
-          if (table.columns?.length) return;
-          const tableKey = `${serverId}:${databaseName}:${schema.name}:${table.name}`;
-          if (hydratedColumnTables.current.has(tableKey)) return;
-          pending.push({
-            serverId,
-            databaseName,
-            schemaName: schema.name,
-            tableName: table.name,
-            key: tableKey,
-          });
-        });
-      });
-    });
-
-    if (pending.length === 0) return;
-
-    setHydratingColumns(true);
-    Promise.all(
-      pending.map(async item => {
-        hydratedColumnTables.current.add(item.key);
-        await fetchColumns(
-          item.serverId,
-          item.databaseName,
-          item.schemaName,
-          item.tableName,
+        await Promise.all(
+          databases.map(async database => {
+            const key = `${server.serverId}:${database.name}`;
+            if (hydratedDatabases.current.has(key)) return;
+            hydratedDatabases.current.add(key);
+            await fetchStructure(server.serverId, database.name).catch(() => null);
+          }),
         );
       }),
     )
       .catch(() => {
-        toast.error('Failed to hydrate columns for global search');
+        toast.error('Failed to load server tables for command search');
       })
-      .finally(() => setHydratingColumns(false));
-  }, [cache, fetchColumns, open]);
+      .finally(() => setIsLoadingStructures(false));
+  }, [fetchStructure, open, serverTargets]);
 
   const results = useMemo(() => {
     const normalized = search.trim().toLowerCase();
-    if (!normalized) return searchTargets.slice(0, 100);
+    if (!normalized) return searchTargets.slice(0, 300);
 
     return searchTargets
       .filter(item => {
-        const value = `${item.type} ${item.schemaName}.${item.tableName} ${item.columnName ?? ''}`.toLowerCase();
+        const value =
+          `${item.serverName} ${item.databaseName} ${item.schemaName} ${item.tableName} ${item.schemaName}/${item.tableName}`.toLowerCase();
         return value.includes(normalized);
       })
-      .slice(0, 100);
+      .slice(0, 300);
   }, [search, searchTargets]);
+
+  const groupedResults = useMemo(() => {
+    const groups = new Map<string, SearchTarget[]>();
+
+    results.forEach(item => {
+      const groupKey = `${item.serverName} / ${item.databaseName} / ${item.schemaName}`;
+      const current = groups.get(groupKey) ?? [];
+      current.push(item);
+      groups.set(groupKey, current);
+    });
+
+    return Array.from(groups.entries()).map(([group, items]) => ({
+      group,
+      items,
+    }));
+  }, [results]);
 
   const handleSelect = useCallback(
     async (item: SearchTarget) => {
@@ -204,7 +161,8 @@ export const useGlobalSearchDialog = (
     search,
     setSearch,
     results,
-    hydratingColumns,
+    groupedResults,
+    isLoadingStructures,
     handleSelect,
   };
 };
