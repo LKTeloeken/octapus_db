@@ -14,6 +14,7 @@ export interface QueryColumnInfo {
   name: string;
   typeName: string;
   typeOid: number | null;
+  foreignKeyTarget?: ForeignKeyTarget | null;
 }
 
 export interface EditableInfo {
@@ -38,6 +39,7 @@ export interface ExecuteQueryResponse {
   totalCount: number | null;
   executionTimeMs: number;
   editableInfo: EditableInfo | null;
+  queryId: string | null;
 }
 
 export interface ApplyRowEditsResponse {
@@ -70,4 +72,11 @@ interface Column {
   defaultValue: string | null;
   isPrimaryKey: boolean;
   isForeignKey: boolean;
+  foreignKeyTarget?: ForeignKeyTarget | null;
+}
+
+export interface ForeignKeyTarget {
+  schema: string;
+  table: string;
+  column: string;
 }

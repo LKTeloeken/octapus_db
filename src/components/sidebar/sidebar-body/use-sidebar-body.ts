@@ -5,6 +5,7 @@ export const useSidebarBody = () => {
   const [isConfigServerModalOpen, setIsConfigServerModalOpen] =
     useState<boolean>(false);
   const [editingServer, setEditingServer] = useState<Server | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const openConfigServerModal = (server?: Server) => {
     if (server) {
@@ -23,6 +24,8 @@ export const useSidebarBody = () => {
   return {
     isConfigServerModalOpen,
     editingServer,
+    searchTerm,
+    setSearchTerm,
     openConfigServerModal,
     closeConfigServerModal,
   };

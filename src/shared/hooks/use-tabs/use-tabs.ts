@@ -1,14 +1,16 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useRunQuery } from '@/shared/hooks/use-run-query/use-run-query';
-import { applyRowEdits } from '@/api/database/database-methods';
+import { applyRowEdits, cancelQuery } from '@/api/database/database-methods';
 import { useBuildQueries } from '../use-build-queries/use-build-queries';
 import toast from 'react-hot-toast';
 
-import { type Tab, TabType } from '@/shared/models/tabs.types';
+import { type Tab, type TabSort, TabType } from '@/shared/models/tabs.types';
 import { TreeNodeType, type TreeNode } from '@/shared/models/database.types';
 import type { HandleFetchStructure } from '../use-data-structure/use-data-structure.types';
 import type { ExecuteQueryOptions } from '@/api/database/database-methods.types';
 import type { RowEdit } from '@/api/database/database-responses.types';
+import { useStore } from '@/stores';
+import { ensureServerConnection } from '@/api/server/methods';
 
 const DEFAULT_QUERY_OPTIONS: ExecuteQueryOptions = {
   unlimited: false,
@@ -30,6 +32,7 @@ function createTab(
     title: databaseName,
     content: '',
     type: TabType.View,
+    sort: null,
     loading: false,
     loadingMore: false,
     loadingChanges: false,
@@ -41,6 +44,7 @@ function createTab(
 export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
   const { runQuery } = useRunQuery();
   const { selectQuery } = useBuildQueries();
+  const { fetchColumns, getStructure } = useStore();
 
   const [tabs, setTabs] = useState<Map<string, Tab>>(new Map());
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -62,50 +66,105 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
   const openTab = useCallback(
     (serverId: number, databaseName: string, initialData?: Partial<Tab>) => {
       const newTabId = `${serverId}-${databaseName}-${Date.now()}`;
+      const targetTabId = initialData?.id ?? newTabId;
       const newTab = createTab(newTabId, serverId, databaseName, initialData);
 
-      setTabs(prev => new Map(prev).set(initialData?.id ?? newTabId, newTab));
-      setActiveTabId(newTabId);
+      setTabs(prev => new Map(prev).set(targetTabId, newTab));
+      setActiveTabId(targetTabId);
       loadDatabaseStructure(serverId, databaseName);
+      return targetTabId;
     },
     [loadDatabaseStructure],
   );
 
-  const openTableTab = useCallback(
-    (node: TreeNode) => {
-      if (node.type !== TreeNodeType.Table) return;
+  const getDefaultSort = useCallback(
+    async (
+      serverId: number,
+      databaseName: string,
+      schemaName: string,
+      tableName: string,
+    ): Promise<TabSort | null> => {
+      const structure = getStructure(serverId, databaseName);
+      const currentTable = structure?.schemas
+        .find(schema => schema.name === schemaName)
+        ?.tables.find(table => table.name === tableName);
 
-      const [, tableName, schemaName, databaseName, serverId] =
-        node.id.split('-');
-      const tableTabId = `${serverId}-${databaseName}-${tableName}`;
+      const availableColumns =
+        currentTable?.columns ??
+        (await fetchColumns(serverId, databaseName, schemaName, tableName));
 
-      // If the tab already exists, set it as active and run the query to refresh the data
+      const firstPrimaryKey = availableColumns.find(column => column.isPrimaryKey);
+      return firstPrimaryKey
+        ? { column: firstPrimaryKey.name, direction: 'desc' }
+        : null;
+    },
+    [fetchColumns, getStructure],
+  );
+
+  const openTableByReference = useCallback(
+    async (
+      serverId: number,
+      databaseName: string,
+      schemaName: string,
+      tableName: string,
+    ) => {
+      await ensureServerConnection(serverId, databaseName);
+      const tableTabId = `${serverId}-${databaseName}-${schemaName}-${tableName}`;
+
       if (tabs.has(tableTabId)) {
-        const tab = tabs.get(tableTabId);
-        if (!tab) return;
-
         setActiveTabId(tableTabId);
-
-        runQueryTab(tableTabId, tab.content, undefined, {
-          serverId: Number(serverId),
-          databaseName,
-        });
         return;
       }
 
-      // If the tab does not exist, create it and run the query to fetch the data
-      const tableQuery = selectQuery(schemaName, tableName);
+      const defaultSort = await getDefaultSort(
+        serverId,
+        databaseName,
+        schemaName,
+        tableName,
+      );
+      const tableQuery = selectQuery(
+        schemaName,
+        tableName,
+        defaultSort ? [defaultSort.column] : [],
+        defaultSort?.direction ?? 'desc',
+      );
 
-      openTab(Number(serverId), databaseName, {
+      openTab(serverId, databaseName, {
         title: tableName,
         content: tableQuery,
         type: TabType.View,
+        viewSchema: schemaName,
+        viewTable: tableName,
+        sort: defaultSort,
         id: tableTabId,
       });
-
-      setActiveTabId(tableTabId);
     },
-    [openTab, selectQuery],
+    [getDefaultSort, openTab, selectQuery, tabs],
+  );
+
+  const openTableTab = useCallback(
+    (node: TreeNode) => {
+      if (
+        node.type !== TreeNodeType.Table ||
+        node.metadata.type !== TreeNodeType.Table ||
+        !node.metadata.schemaName ||
+        !node.metadata.tableName
+      ) {
+        return;
+      }
+
+      openTableByReference(
+        node.metadata.serverId,
+        node.metadata.databaseName,
+        node.metadata.schemaName,
+        node.metadata.tableName,
+      ).catch(error => {
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to open table tab',
+        );
+      });
+    },
+    [openTableByReference],
   );
 
   const closeTab = useCallback((id: string) => {
@@ -153,7 +212,11 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
         countTotal: true,
       };
 
-      updateTab(id, { loading: true, queryOptions: resetOptions });
+      updateTab(id, {
+        loading: true,
+        runningQueryId: tab?.runningQueryId ?? id,
+        queryOptions: resetOptions,
+      });
 
       try {
         const result = await runQuery(
@@ -165,18 +228,63 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
 
         updateTab(id, {
           loading: false,
+          runningQueryId: result.queryId,
           lastExecutedQuery: query,
           result,
         });
       } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : 'An unknown error occurred',
-        );
+        const message =
+          error instanceof Error ? error.message : 'An unknown error occurred';
+
+        if (message.toLowerCase().includes('canceling statement')) {
+          toast('Query canceled');
+        } else {
+          toast.error(message);
+        }
       } finally {
-        updateTab(id, { loading: false });
+        updateTab(id, { loading: false, runningQueryId: null });
       }
     },
     [tabs, runQuery, updateTab],
+  );
+
+  const sortTableTab = useCallback(
+    async (id: string, column: string) => {
+      const tab = tabs.get(id);
+      if (!tab || tab.type !== TabType.View || !tab.viewSchema || !tab.viewTable) {
+        return;
+      }
+
+      const currentDirection =
+        tab.sort?.column === column ? tab.sort.direction : null;
+      const nextDirection = currentDirection === 'desc' ? 'asc' : 'desc';
+      const nextSort: TabSort = { column, direction: nextDirection };
+      const nextQuery = selectQuery(
+        tab.viewSchema,
+        tab.viewTable,
+        [column],
+        nextDirection,
+      );
+
+      updateTab(id, {
+        sort: nextSort,
+        content: nextQuery,
+        queryOptions: { ...DEFAULT_QUERY_OPTIONS },
+      });
+
+      await runQueryTab(id, nextQuery, { ...DEFAULT_QUERY_OPTIONS });
+    },
+    [runQueryTab, selectQuery, tabs, updateTab],
+  );
+
+  const cancelQueryTab = useCallback(
+    async (id: string) => {
+      const tab = tabs.get(id);
+      if (!tab || !tab.loading) return;
+
+      await cancelQuery(tab.serverId, tab.databaseName, tab.runningQueryId ?? id);
+    },
+    [tabs],
   );
 
   const handleNextPage = useCallback(
@@ -257,11 +365,14 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
     activeTabId,
     openTab,
     openTableTab,
+    openTableByReference,
     closeTab,
     setActiveTabId,
     setTabContent,
     setQueryTabOptions,
     runQueryTab,
+    sortTableTab,
+    cancelQueryTab,
     handleNextPage,
     applyQueryTabChanges,
   };

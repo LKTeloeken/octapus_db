@@ -26,6 +26,10 @@ export const ResultsTable = memo(
     totalCount,
     rowCount,
     className,
+    tabType,
+    sort,
+    onSortColumn,
+    onOpenForeignTable,
   }: ResultsTableProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -74,7 +78,7 @@ export const ResultsTable = memo(
     }
 
     if (rows.length === 0) {
-      return <EmptyState className={className} />;
+      return <EmptyState className={className} tabType={tabType} />;
     }
 
     return (
@@ -95,6 +99,10 @@ export const ResultsTable = memo(
                   key={`column-${column.name}`}
                   column={column}
                   isPrimaryKeyColumn={isPrimaryKeyColumn(column.name)}
+                  sortable={tabType === 'view'}
+                  sort={sort}
+                  onSortColumn={onSortColumn}
+                  onOpenForeignTable={onOpenForeignTable}
                   className="w-48 min-w-48 max-w-48"
                 />
               ))}

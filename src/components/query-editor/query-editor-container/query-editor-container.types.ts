@@ -5,8 +5,10 @@ export interface QueryEditorContainerProps {
   onChange: (value: string) => void;
   onChangeSelection?: (selection: string) => void;
   onExecute: (query: string) => void;
+  onCancel?: () => void;
   databaseStructure: DatabaseStructure | null;
   isLoading?: boolean;
+  isQueryRunning?: boolean;
 }
 
 export type OnSelectionChange = (selection: {

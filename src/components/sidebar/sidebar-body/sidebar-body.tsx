@@ -11,6 +11,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { Input } from '@/components/ui/input';
 import { ServerTree } from '../server-tree/server-tree';
 import { ConfigServerModal } from '@/components/server/config-server-modal/config-server-modal';
 import { useSidebarBody } from './use-sidebar-body';
@@ -32,6 +33,8 @@ export const SidebarBody = memo(
     const {
       isConfigServerModalOpen,
       editingServer,
+      searchTerm,
+      setSearchTerm,
       openConfigServerModal,
       closeConfigServerModal,
     } = useSidebarBody();
@@ -89,12 +92,18 @@ export const SidebarBody = memo(
         <Separator />
 
         <div className={styles.content}>
+          <Input
+            value={searchTerm}
+            onChange={event => setSearchTerm(event.target.value)}
+            placeholder="Filtrar schemas, tabelas e colunas..."
+          />
           <ServerTree
             nodes={nodes}
             childrenMap={childrenMap}
             toggleNode={toggleNode}
             openServerModal={openConfigServerModal}
             openNewTab={openTab}
+            searchTerm={searchTerm}
           />
         </div>
       </div>

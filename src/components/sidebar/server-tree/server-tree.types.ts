@@ -8,4 +8,5 @@ export interface ServerTreeProps {
   toggleNode: (nodeId: string) => void;
   openServerModal: (server: Server) => void;
   openNewTab: OpenTab;
+  searchTerm?: string;
 }

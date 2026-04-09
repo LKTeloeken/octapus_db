@@ -72,6 +72,18 @@ export async function executeQuery(
   return result;
 }
 
+export async function cancelQuery(
+  serverId: number,
+  database: string,
+  queryId: string,
+): Promise<void> {
+  await invoke<void>(RustMethods.CANCEL_QUERY, {
+    serverId,
+    database,
+    queryId,
+  });
+}
+
 export async function applyRowEdits(
   serverId: number,
   database: string,

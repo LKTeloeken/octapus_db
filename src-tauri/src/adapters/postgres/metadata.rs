@@ -6,7 +6,7 @@ use deadpool_postgres::Pool;
 use crate::error::Result;
 use crate::models::{
     ColumnInfo, DatabaseInfo, IndexInfo, SchemaInfo, TableInfo, TableType, DatabaseStructure, SchemaStructure,
-    TableStructure,
+    TableStructure, ForeignKeyTarget,
 };
 
 pub async fn list_databases(pool: &Pool) -> Result<Vec<DatabaseInfo>> {
@@ -128,7 +128,40 @@ pub async fn list_columns(pool: &Pool, schema: &str, table: &str) -> Result<Vec<
                     WHERE c.conrelid = a.attrelid
                     AND a.attnum = ANY(c.conkey)
                     AND c.contype = 'f'
-                ) as is_fk
+                ) as is_fk,
+                (
+                    SELECT fn.nspname
+                    FROM pg_constraint c
+                    JOIN pg_class fc ON fc.oid = c.confrelid
+                    JOIN pg_namespace fn ON fn.oid = fc.relnamespace
+                    JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS src(attnum, ord) ON true
+                    WHERE c.conrelid = a.attrelid
+                      AND c.contype = 'f'
+                      AND src.attnum = a.attnum
+                    LIMIT 1
+                ) as fk_schema,
+                (
+                    SELECT fc.relname
+                    FROM pg_constraint c
+                    JOIN pg_class fc ON fc.oid = c.confrelid
+                    JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS src(attnum, ord) ON true
+                    WHERE c.conrelid = a.attrelid
+                      AND c.contype = 'f'
+                      AND src.attnum = a.attnum
+                    LIMIT 1
+                ) as fk_table,
+                (
+                    SELECT fa.attname
+                    FROM pg_constraint c
+                    JOIN pg_class fc ON fc.oid = c.confrelid
+                    JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS src(attnum, ord) ON true
+                    JOIN LATERAL unnest(c.confkey) WITH ORDINALITY AS ref(attnum, ord) ON ref.ord = src.ord
+                    JOIN pg_attribute fa ON fa.attrelid = fc.oid AND fa.attnum = ref.attnum
+                    WHERE c.conrelid = a.attrelid
+                      AND c.contype = 'f'
+                      AND src.attnum = a.attnum
+                    LIMIT 1
+                ) as fk_column
             FROM pg_attribute a
             JOIN pg_class c ON c.oid = a.attrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -153,6 +186,18 @@ pub async fn list_columns(pool: &Pool, schema: &str, table: &str) -> Result<Vec<
             default_value: r.get(4),
             is_primary_key: r.get(5),
             is_foreign_key: r.get(6),
+            foreign_key_target: match (
+                r.get::<_, Option<String>>(7),
+                r.get::<_, Option<String>>(8),
+                r.get::<_, Option<String>>(9),
+            ) {
+                (Some(schema), Some(table), Some(column)) => Some(ForeignKeyTarget {
+                    schema,
+                    table,
+                    column,
+                }),
+                _ => None,
+            },
         })
         .collect())
 }

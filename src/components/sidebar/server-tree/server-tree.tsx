@@ -14,8 +14,9 @@ export const ServerTree = memo(
     toggleNode,
     openServerModal,
     openNewTab,
+    searchTerm = '',
   }: ServerTreeProps) => {
-    const flatItems = useFlatTree(nodes, childrenMap);
+    const flatItems = useFlatTree(nodes, childrenMap, searchTerm);
 
     const { parentRef, rowVirtualizer } = useVirtualization(
       flatItems.length,

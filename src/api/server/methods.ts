@@ -23,3 +23,13 @@ export async function updateServer(newServer: Server): Promise<Server> {
 export async function deleteServer(id: number): Promise<void> {
   return await invoke<void>(RustMethods.DELETE_SERVER, { id });
 }
+
+export async function ensureServerConnection(
+  serverId: number,
+  database?: string,
+): Promise<boolean> {
+  return await invoke<boolean>(RustMethods.CONNECT_TO_SERVER, {
+    serverId,
+    database,
+  });
+}

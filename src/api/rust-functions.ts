@@ -12,6 +12,7 @@ export enum RustMethods {
   GET_COLUMNS = 'list_columns',
   EXECUTE_QUERY = 'execute_query',
   APPLY_ROW_EDITS = 'apply_row_edits',
+  CANCEL_QUERY = 'cancel_query',
 
   // PostgreSQL methods
   CONNECT_TO_SERVER = 'connect',

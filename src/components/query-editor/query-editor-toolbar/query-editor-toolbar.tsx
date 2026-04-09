@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { PlayIcon, TextAlignLeftIcon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, PlayIcon, TextAlignLeftIcon } from "@hugeicons/core-free-icons";
 import { memo, type FC } from 'react';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -12,7 +12,14 @@ import {
 import type { QueryEditorToolbarProps } from './query-editor-toolbar.types';
 
 export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
-  ({ onRun, onFormat, isLoading = false, disabled = false }) => {
+  ({
+    onRun,
+    onFormat,
+    onCancel,
+    isLoading = false,
+    isQueryRunning = false,
+    disabled = false,
+  }) => {
     return (
       <div className="flex items-center gap-2 px-3 py-2 bg-background/50">
         <TooltipProvider>
@@ -52,6 +59,24 @@ export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
               </Button>
             </TooltipTrigger>
             <TooltipContent>Format SQL (Ctrl+Shift+F)</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onCancel}
+                disabled={!isQueryRunning}
+                className="gap-1.5"
+              >
+                <HugeiconsIcon icon={Cancel01Icon} className="h-4 w-4" />
+                Cancel Query
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Cancel running query</TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </div>
