@@ -1,0 +1,65 @@
+---
+description: Padrões para componentes React no Octapus DB
+globs: src/components/**/*.tsx
+alwaysApply: false
+---
+
+# Estrutura de Componentes React
+
+## Organização de Pastas
+
+Cada componente (exceto shadcn/ui) deve ter sua própria pasta:
+
+```
+component-name/
+  component-name.tsx        # Componente principal
+  component-name.types.ts   # Interfaces e tipos
+  component-name.styles.ts  # Estilos (opcional, usar useStyles)
+  use-component-name.ts     # Hook de lógica (se necessário)
+```
+
+## Padrão de Componente
+
+```typescript
+// ❌ BAD - tipos inline, sem memo
+export const MyComponent = ({ data, onAction }) => {
+  return <div>{data}</div>;
+};
+
+// ✅ GOOD - tipos separados, memo para otimização
+import { memo } from "react";
+import type { MyComponentProps } from "./my-component.types";
+
+export const MyComponent = memo(({ data, onAction }: MyComponentProps) => {
+  return <div>{data}</div>;
+});
+```
+
+## Estilos com Tailwind
+
+Use o hook `useStyles` para organizar classes complexas:
+
+```typescript
+// component.styles.ts
+import { tw } from "@/lib/utils";
+
+export const useStyles = () => ({
+  root: tw`flex flex-col gap-2`,
+  header: tw`flex items-center justify-between`,
+  content: tw`p-4 bg-background`,
+});
+
+// component.tsx
+import { useStyles } from "./component.styles";
+
+export const Component = () => {
+  const styles = useStyles();
+  return <div className={styles.root}>...</div>;
+};
+```
+
+## Props e Estado
+
+- Estado global e funções ficam em `app.tsx` e são passados via props
+- Hooks locais (`use-component.ts`) para lógica específica do componente
+- Tipos sempre em arquivo separado `.types.ts`

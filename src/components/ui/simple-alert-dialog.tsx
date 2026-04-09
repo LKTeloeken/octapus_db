@@ -1,4 +1,4 @@
-import React from "react";
+import React from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -9,10 +9,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+} from '@/components/ui/alert-dialog';
 
 interface SimpleAlertDialogProps {
-  Trigger: React.ForwardRefExoticComponent<any> | React.ComponentType<any>;
+  Trigger?: React.ForwardRefExoticComponent<any> | React.ComponentType<any>;
   title: React.ReactNode;
   description?: React.ReactNode;
   children?: React.ReactNode;
@@ -28,15 +28,17 @@ export function SimpleAlertDialog({
   Trigger,
   title,
   description,
-  acceptLabel = "Sim",
-  cancelLabel = "Não",
+  acceptLabel = 'Sim',
+  cancelLabel = 'Não',
   onAccept,
   open,
   onOpenChange,
 }: SimpleAlertDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogTrigger asChild>{<Trigger />}</AlertDialogTrigger>
+      {Trigger && (
+        <AlertDialogTrigger asChild>{<Trigger />}</AlertDialogTrigger>
+      )}
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
@@ -52,4 +54,4 @@ export function SimpleAlertDialog({
     </AlertDialog>
   );
 }
-SimpleAlertDialog.displayName = "AlertDialogDemo";
+SimpleAlertDialog.displayName = 'AlertDialogDemo';

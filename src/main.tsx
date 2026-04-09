@@ -1,13 +1,13 @@
-import { createRoot } from "react-dom/client";
-import { StrictMode, createElement } from "react";
-import App from "@/App";
+import { createRoot } from 'react-dom/client';
+import { StrictMode, createElement } from 'react';
+import App from '@/app';
 
 // Get the root element
-const container = document.getElementById("root");
+const container = document.getElementById('root');
 
 // Ensure the container exists
 if (!container) {
-  throw new Error("Root element not found in the DOM");
+  throw new Error('Root element not found in the DOM');
 }
 
 // Create root using the new React 19 API

@@ -1,4 +1,4 @@
-import { IPostgreDatabase } from "./postgreDb";
+import { IPostgreDatabase } from './postgreDb';
 
 export interface IServer {
   id: number;
@@ -13,4 +13,4 @@ export interface IServer {
   databases?: IPostgreDatabase[];
 }
 
-export type IServerPrimitive = Omit<IServer, "id" | "created_at">;
+export type IServerPrimitive = Omit<IServer, 'id' | 'created_at'>;

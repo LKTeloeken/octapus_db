@@ -1,4 +1,4 @@
-import { toast } from "react-hot-toast";
+import { toast } from 'react-hot-toast';
 
 type RunnerDeps = {
   setIsLoading: (v: boolean) => void;
@@ -7,7 +7,7 @@ type RunnerDeps = {
 };
 
 type RunOpts<T> = {
-  kind?: "load" | "connect";
+  kind?: 'load' | 'connect';
   task: () => Promise<T>;
   onSuccess?: (r: T) => void;
   onError?: (e: unknown) => void;
@@ -19,12 +19,12 @@ export function createRunner({
   setError,
 }: RunnerDeps) {
   return async function run<T>({
-    kind = "load",
+    kind = 'load',
     task,
     onSuccess,
     onError,
   }: RunOpts<T>): Promise<T> {
-    if (kind === "connect") setIsConnecting(true);
+    if (kind === 'connect') setIsConnecting(true);
     else setIsLoading(true);
     setError(null);
 
@@ -39,7 +39,7 @@ export function createRunner({
       onError?.(e);
       throw e;
     } finally {
-      if (kind === "connect") setIsConnecting(false);
+      if (kind === 'connect') setIsConnecting(false);
       else setIsLoading(false);
     }
   };

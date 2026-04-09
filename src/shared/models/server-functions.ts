@@ -1,62 +1,62 @@
-import { IServer, IServerPrimitive } from "./server";
+import { IServer, IServerPrimitive } from './server';
 import {
   IPostgreSchema,
   IPostgreTable,
   IPostgreColumn,
   IPostgreIndex,
   IPostgreTrigger,
-} from "./postgreDb";
+} from './postgreDb';
 
 // Individual function types
 export type FetchServersFunction = () => Promise<void>;
 
 export type AddServerFunction = (
-  data: IServerPrimitive
+  data: IServerPrimitive,
 ) => Promise<IServer | undefined>;
 
 export type GetServerFunction = (id: number) => Promise<IServer | undefined>;
 
 export type EditServerFunction = (
   id: number,
-  data: IServerPrimitive
+  data: IServerPrimitive,
 ) => Promise<IServer | undefined>;
 
 export type RemoveServerFunction = (id: number) => Promise<void>;
 
 export type ConnectToServerFunction = (
-  server: IServer
+  server: IServer,
 ) => Promise<boolean | undefined>;
 
 export type GetDatabaseSchemasFunction = (
   serverId: number,
-  databaseName: string
+  databaseName: string,
 ) => Promise<IPostgreSchema[] | undefined>;
 
 export type GetSchemaTablesFunction = (
   serverId: number,
   schemaName: string,
-  databaseName: string
+  databaseName: string,
 ) => Promise<IPostgreTable[] | undefined>;
 
 export type GetTableColumnsFunction = (
   serverId: number,
   schemaName: string,
   tableName: string,
-  databaseName: string
+  databaseName: string,
 ) => Promise<IPostgreColumn[] | undefined>;
 
 export type GetTableIndexesFunction = (
   serverId: number,
   schemaName: string,
   tableName: string,
-  databaseName: string
+  databaseName: string,
 ) => Promise<IPostgreIndex[] | undefined>;
 
 export type GetTableTriggersFunction = (
   serverId: number,
   schemaName: string,
   tableName: string,
-  databaseName: string
+  databaseName: string,
 ) => Promise<IPostgreTrigger[] | undefined>;
 
 // Helper function types
@@ -65,7 +65,7 @@ export type BuildKeyFunction = (...parts: (string | number)[]) => string;
 export type UpdateServerInTreeFunction = (
   serverId: number,
   data: any,
-  remove?: boolean
+  remove?: boolean,
 ) => void;
 
 export type InitLoadingStateFunction = () => void;

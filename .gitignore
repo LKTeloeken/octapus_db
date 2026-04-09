@@ -28,3 +28,4 @@ tsconfig.tsbuildinfo
 *.njsproj
 *.sln
 *.sw?
+.direnv
