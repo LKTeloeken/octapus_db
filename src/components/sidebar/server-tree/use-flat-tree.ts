@@ -15,6 +15,7 @@ export const useFlatTree = (
   return useMemo(() => {
     const result: FlatTreeItem[] = [];
     const normalizedSearch = searchTerm.trim().toLowerCase();
+    const descendantMatchCache = new Map<string, boolean>();
 
     const rootNodeIds = Array.from(nodes.values())
       .filter(node => !node.parentId)
@@ -29,11 +30,16 @@ export const useFlatTree = (
     };
 
     const hasMatchingDescendant = (nodeId: string): boolean => {
+      const cached = descendantMatchCache.get(nodeId);
+      if (cached !== undefined) return cached;
+
       const children = childrenMap.get(nodeId) || [];
-      return children.some(childId => {
+      const hasMatch = children.some(childId => {
         if (nodeMatches(childId)) return true;
         return hasMatchingDescendant(childId);
       });
+      descendantMatchCache.set(nodeId, hasMatch);
+      return hasMatch;
     };
 
     const walk = (nodeId: string, level: number, isLastChild: boolean) => {

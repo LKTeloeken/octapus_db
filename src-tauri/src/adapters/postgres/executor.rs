@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -103,8 +103,6 @@ pub async fn execute_query(
         query_id: Some(query_pid.to_string()),
     })
 }
-
-use std::collections::HashMap;
 
 pub async fn apply_row_edits(
     pool: &Pool,
