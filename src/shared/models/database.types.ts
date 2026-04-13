@@ -7,6 +7,13 @@ export interface ColumnStructure {
   dataType: string;
   isNullable: boolean;
   defaultValue: string | null;
+  isPrimaryKey?: boolean;
+  isForeignKey?: boolean;
+  foreignKeyTarget?: {
+    schema: string;
+    table: string;
+    column: string;
+  } | null;
 }
 
 export interface TableStructure {
@@ -43,6 +50,13 @@ export interface Column {
   dataType: string;
   isNullable: boolean;
   defaultValue: string | null;
+  isPrimaryKey?: boolean;
+  isForeignKey?: boolean;
+  foreignKeyTarget?: {
+    schema: string;
+    table: string;
+    column: string;
+  } | null;
 }
 
 export interface TreeNode {
@@ -76,6 +90,8 @@ export type TreeNodeMetadata =
       type: 'column';
       serverId: number;
       databaseName: string;
+      schemaName?: string;
+      tableName?: string;
       dataType: string;
       isNullable: boolean;
       columnDefault: string | null;
@@ -84,6 +100,8 @@ export type TreeNodeMetadata =
       type: Exclude<TreeNodeType, 'column' | 'server'>;
       serverId: number;
       databaseName: string;
+      schemaName?: string;
+      tableName?: string;
     };
 
 export type QueryResultsRow = (string | null)[][];

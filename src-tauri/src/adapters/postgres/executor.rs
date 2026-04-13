@@ -1,20 +1,40 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Instant;
 
 use deadpool_postgres::Pool;
+use parking_lot::Mutex;
 use tokio_postgres::Row;
 
 use crate::error::{Error, Result};
 use crate::models::{
-    EditableInfo, QueryColumnInfo, QueryOptions, QueryResult, RowEdit, StatementResult,
+    EditableInfo, ForeignKeyTarget, QueryColumnInfo, QueryOptions, QueryResult, RowEdit,
+    StatementResult,
 };
 
 use super::types::extract_value;
+
+struct ActiveQueryGuard<'a> {
+    active_query_pid: &'a Arc<Mutex<Option<i32>>>,
+}
+
+impl<'a> ActiveQueryGuard<'a> {
+    fn new(active_query_pid: &'a Arc<Mutex<Option<i32>>>) -> Self {
+        Self { active_query_pid }
+    }
+}
+
+impl Drop for ActiveQueryGuard<'_> {
+    fn drop(&mut self) {
+        *self.active_query_pid.lock() = None;
+    }
+}
 
 pub async fn execute_query(
     pool: &Pool,
     query: &str,
     options: QueryOptions,
+    active_query_pid: Arc<Mutex<Option<i32>>>,
 ) -> Result<QueryResult> {
     let client = pool.get().await?;
     let trimmed = query.trim().trim_end_matches(';');
@@ -24,6 +44,12 @@ pub async fn execute_query(
     }
 
     let is_select = is_select_query(trimmed);
+    let query_pid: i32 = client
+        .query_one("SELECT pg_backend_pid()", &[])
+        .await?
+        .get(0);
+    *active_query_pid.lock() = Some(query_pid);
+    let _query_guard = ActiveQueryGuard::new(&active_query_pid);
 
     let start = Instant::now();
 
@@ -61,7 +87,7 @@ pub async fn execute_query(
         None
     };
 
-    let (columns, result_rows) = process_rows(rows_to_process);
+    let (mut columns, result_rows) = process_rows(rows_to_process);
 
     // Detect if the result is editable (single source table with a primary key)
     let editable_info = if is_select && !columns.is_empty() {
@@ -69,6 +95,17 @@ pub async fn execute_query(
     } else {
         None
     };
+
+    if let Some(editable) = &editable_info {
+        let foreign_key_columns =
+            get_foreign_key_targets(&client, &editable.schema, &editable.table).await?;
+
+        columns.iter_mut().for_each(|column| {
+            if let Some(target) = foreign_key_columns.get(&column.name) {
+                column.foreign_key_target = Some(target.clone());
+            }
+        });
+    }
 
     Ok(QueryResult {
         columns,
@@ -78,10 +115,9 @@ pub async fn execute_query(
         has_more,
         execution_time_ms,
         editable_info,
+        query_id: Some(query_pid.to_string()),
     })
 }
-
-use std::collections::HashMap;
 
 pub async fn apply_row_edits(
     pool: &Pool,
@@ -236,6 +272,73 @@ fn quote_ident(ident: &str) -> String {
     format!("\"{}\"", ident.replace('"', "\"\""))
 }
 
+async fn get_foreign_key_targets(
+    client: &deadpool_postgres::Object,
+    schema: &str,
+    table: &str,
+) -> Result<HashMap<String, ForeignKeyTarget>> {
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                src.attname as source_column,
+                target_ns.nspname as target_schema,
+                target_tbl.relname as target_table,
+                target_col.attname as target_column
+            FROM pg_constraint fk
+            JOIN pg_class source_tbl ON source_tbl.oid = fk.conrelid
+            JOIN pg_namespace source_ns ON source_ns.oid = source_tbl.relnamespace
+            JOIN pg_class target_tbl ON target_tbl.oid = fk.confrelid
+            JOIN pg_namespace target_ns ON target_ns.oid = target_tbl.relnamespace
+            JOIN LATERAL unnest(fk.conkey) WITH ORDINALITY AS src_key(attnum, ord) ON true
+            JOIN LATERAL unnest(fk.confkey) WITH ORDINALITY AS ref_key(attnum, ord) ON ref_key.ord = src_key.ord
+            JOIN pg_attribute src ON src.attrelid = source_tbl.oid AND src.attnum = src_key.attnum
+            JOIN pg_attribute target_col ON target_col.attrelid = target_tbl.oid AND target_col.attnum = ref_key.attnum
+            WHERE fk.contype = 'f'
+              AND source_ns.nspname = $1
+              AND source_tbl.relname = $2
+            "#,
+            &[&schema, &table],
+        )
+        .await?;
+
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let source_column: String = row.get(0);
+            let target = ForeignKeyTarget {
+                schema: row.get(1),
+                table: row.get(2),
+                column: row.get(3),
+            };
+            (source_column, target)
+        })
+        .collect())
+}
+
+pub async fn cancel_query(
+    pool: &Pool,
+    query_id: &str,
+    active_query_pid: Arc<Mutex<Option<i32>>>,
+) -> Result<()> {
+    let fallback_pid = query_id.parse::<i32>().ok();
+    let pid = (*active_query_pid.lock()).or(fallback_pid).ok_or_else(|| {
+        Error::InvalidState("No active query to cancel".into())
+    })?;
+
+    let client = pool.get().await?;
+    let canceled: bool = client
+        .query_one("SELECT pg_cancel_backend($1)", &[&pid])
+        .await?
+        .get(0);
+
+    if canceled {
+        Ok(())
+    } else {
+        Err(Error::InvalidState("Failed to cancel active query".into()))
+    }
+}
+
 pub async fn execute_statement(pool: &Pool, statement: &str) -> Result<StatementResult> {
     let client = pool.get().await?;
     let start = Instant::now();
@@ -292,6 +395,7 @@ fn process_rows(rows: &[Row]) -> (Vec<QueryColumnInfo>, Vec<Vec<Option<String>>>
             name: c.name().to_string(),
             type_name: c.type_().name().to_string(),
             type_oid: Some(c.type_().oid()),
+            foreign_key_target: None,
         })
         .collect();
 

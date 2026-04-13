@@ -14,8 +14,10 @@ export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
   onChange,
   onChangeSelection,
   onExecute,
+  onCancel,
   databaseStructure,
   isLoading = false,
+  isQueryRunning = false,
 }) => {
   const { selectedQuery, setSelectedQuery } = useQueryEditor();
 
@@ -49,7 +51,9 @@ export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
       <QueryEditorToolbar
         onRun={handleRun}
         onFormat={handleFormat}
+        onCancel={onCancel}
         isLoading={isLoading}
+        isQueryRunning={isQueryRunning}
         disabled={!value.trim()}
       />
       <div className="flex-1 rounded-xl overflow-hidden">

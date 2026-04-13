@@ -1,8 +1,10 @@
 import type {
   EditableInfo,
+  ForeignKeyTarget,
   QueryColumnInfo,
   RowEdit,
 } from '@/api/database/database-responses.types';
+import type { TabSort, TabType } from '@/shared/models/tabs.types';
 import type { ApplyQueryTabChanges } from '@/shared/hooks/use-query-tabs/use-query-tabs.types';
 
 export type DataTableRow = (string | null)[];
@@ -20,6 +22,10 @@ export interface ResultsTableProps {
   totalCount?: number | null;
   rowCount?: number;
   className?: string;
+  tabType?: TabType;
+  sort?: TabSort | null;
+  onSortColumn?: (column: string) => void;
+  onOpenForeignTable?: (target: ForeignKeyTarget) => void;
 }
 
 export interface CellChange {

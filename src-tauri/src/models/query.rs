@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use super::structure::ForeignKeyTarget;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -10,6 +11,7 @@ pub struct QueryResult {
     pub has_more: bool,
     pub execution_time_ms: u64,
     pub editable_info: Option<EditableInfo>,
+    pub query_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +38,7 @@ pub struct QueryColumnInfo {
     pub name: String,
     pub type_name: String,
     pub type_oid: Option<u32>, // Postgres-specific, useful for editing
+    pub foreign_key_target: Option<ForeignKeyTarget>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

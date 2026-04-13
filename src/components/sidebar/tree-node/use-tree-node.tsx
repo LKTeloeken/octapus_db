@@ -1,9 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { DatabaseIcon, Folder01Icon, HashtagIcon, TableIcon } from "@hugeicons/core-free-icons";
-import { useState } from 'react';
-import {
-  Server as ServerIcon
-} from 'lucide-react';
+import { ComputerIcon, DatabaseIcon, Folder01Icon, HashtagIcon, TableIcon } from "@hugeicons/core-free-icons";
 import type { TreeNode, TreeNodeType } from '@/shared/models/database.types';
 import type { Server } from '@/shared/models/servers.types';
 import type { OpenTab } from '@/shared/hooks/use-query-tabs/use-query-tabs.types';
@@ -12,21 +8,15 @@ import { cn } from '@/lib/utils';
 export const useTreeNode = (
   node: TreeNode,
   nodeId: string,
+  nodes: Map<string, TreeNode>,
   childrenMap: Map<string, string[]>,
   openServerModal: (server: Server) => void,
   openNewTab: OpenTab,
 ) => {
-  const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const childrenIds = childrenMap.get(nodeId) || [];
   const hasChildren = node.hasChildren;
   const isExpanded = node.isExpanded;
   const metadata = node.metadata;
-
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsMenuOpen(true);
-  };
 
   const handleServerEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -46,21 +36,29 @@ export const useTreeNode = (
     const { type, serverId } = metadata;
 
     if (type === 'server' && serverId) {
-      openNewTab(serverId, metadata.serverData?.default_database || '');
+      const loadedDatabaseName = childrenIds
+        .map(childId => nodes.get(childId))
+        .find(child => child?.type === 'database')?.name;
+
+      openNewTab(
+        serverId,
+        metadata.serverData?.default_database || loadedDatabaseName || 'postgres',
+      );
     }
 
     if (type !== 'server' && serverId) {
       openNewTab(serverId, metadata.databaseName);
     }
-
-    setIsMenuOpen(false);
   };
 
   const getNodeIcon = (type: TreeNodeType, isConnected: boolean) => {
     switch (type) {
       case 'server':
         return (
-          <ServerIcon className={cn('size-4', isConnected && 'text-primary')} />
+          <HugeiconsIcon
+            icon={ComputerIcon}
+            className={cn('size-4', isConnected && 'text-primary')}
+          />
         );
       case 'database':
         return <HugeiconsIcon icon={DatabaseIcon} className="size-4" />;
@@ -76,13 +74,10 @@ export const useTreeNode = (
   };
 
   return {
-    isMenuOpen,
     childrenIds,
     hasChildren,
     isExpanded,
     metadata,
-    setIsMenuOpen,
-    handleContextMenu,
     handleServerEdit,
     getNodeIcon,
     handleOpenNewTab,

@@ -1,16 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, ArrowDown01Icon, ArrowRight01Icon, Edit01Icon, MoreHorizontalIcon } from "@hugeicons/core-free-icons";
+import { Add01Icon, ArrowDown01Icon, ArrowRight01Icon, Edit01Icon } from "@hugeicons/core-free-icons";
 import { memo } from 'react';
 import { Spinner } from '@/components/ui/spinner';
 import { useTreeNode } from './use-tree-node';
 import type { TreeNodeProps } from './tree-node.types';
 import { useStyles } from './tree-node.styles';
 import { cn } from '@/lib/utils';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 
 export const TreeNode = memo(
@@ -28,16 +23,20 @@ export const TreeNode = memo(
     if (!node) return null;
 
     const {
-      isMenuOpen,
       hasChildren,
       isExpanded,
       metadata,
       getNodeIcon,
-      handleContextMenu,
       handleServerEdit,
-      setIsMenuOpen,
       handleOpenNewTab,
-    } = useTreeNode(node, nodeId, childrenMap, openServerModal, openNewTab);
+    } = useTreeNode(
+      node,
+      nodeId,
+      nodes,
+      childrenMap,
+      openServerModal,
+      openNewTab,
+    );
 
     const styles = useStyles();
 
@@ -46,7 +45,6 @@ export const TreeNode = memo(
         className={styles.container}
         style={{ paddingLeft: `${level * 1.25 + 0.5}rem` }}
         onClick={() => hasChildren && onToggle(nodeId)}
-        onContextMenu={handleContextMenu}
       >
         <div className={styles.iconWrapper}>
           {hasChildren && (
@@ -63,7 +61,9 @@ export const TreeNode = memo(
         </div>
 
         <div className={styles.contentWrapper}>
-          {getNodeIcon(node.type, !!node.isConnected)}
+          <div className={styles.nodeIconWrapper}>
+            {getNodeIcon(node.type, !!node.isConnected)}
+          </div>
 
           <div className={styles.textWrap}>
             <div className={styles.nameText}>{node.name}</div>
@@ -73,54 +73,30 @@ export const TreeNode = memo(
           </div>
         </div>
 
-        <div
-          className={cn(
-            styles.menuButtonWrapper,
-            isMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-          )}
-        >
-          <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={styles.menuButton}
-                onClick={e => e.stopPropagation()}
-              >
-                <HugeiconsIcon icon={MoreHorizontalIcon} className="h-4 w-4" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className={styles.popoverContent} align="end">
-              {node.type === 'server' && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={styles.menuItemButton}
-                  onClick={e => {
-                    handleServerEdit(e);
-                    setIsMenuOpen(false);
-                  }}
-                >
-                  <HugeiconsIcon icon={Edit01Icon} className={styles.menuIcon} />
-                  Editar
-                </Button>
-              )}
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className={styles.menuItemButton}
-                onClick={e => {
-                  handleOpenNewTab(e);
-                  setIsMenuOpen(false);
-                }}
-              >
-                <HugeiconsIcon icon={Add01Icon} className={styles.menuIcon} />
-                Nova aba
-              </Button>
-            </PopoverContent>
-          </Popover>
-        </div>
+        {node.type === 'server' ? (
+          <div className={cn(styles.menuButtonWrapper, 'opacity-0 group-hover:opacity-100')}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={styles.menuButton}
+              onClick={e => {
+                handleServerEdit(e);
+              }}
+            >
+              <HugeiconsIcon icon={Edit01Icon} className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={styles.menuButton}
+              onClick={e => {
+                handleOpenNewTab(e);
+              }}
+            >
+              <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : null}
       </div>
     );
   },

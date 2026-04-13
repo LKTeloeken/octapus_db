@@ -1,5 +1,6 @@
 import { ResultsTable } from '@/components/results-table/results-table';
 import { QueryEditorContainer } from '@/components/query-editor/query-editor-container/query-editor-container';
+import { GlobalSearchDialog } from '@/components/global-search-dialog/global-search-dialog';
 import {
   ResizableHandle,
   ResizablePanel,
@@ -40,6 +41,9 @@ const App = () => {
     setTabContent,
     applyQueryTabChanges,
     runQueryTab,
+    cancelQueryTab,
+    sortTableTab,
+    openTableByReference,
     handleNextPage,
   } = useTabs(handleFetchStructure);
 
@@ -72,6 +76,20 @@ const App = () => {
 
     fetchServers();
   }, []);
+
+  useEffect(() => {
+    const handleCloseTabShortcut = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.key.toLowerCase() !== 'w') return;
+      if (!activeTab || activeTab.type !== TabType.View) return;
+
+      event.preventDefault();
+      closeTab(activeTab.id);
+    };
+
+    window.addEventListener('keydown', handleCloseTabShortcut);
+    return () => window.removeEventListener('keydown', handleCloseTabShortcut);
+  }, [activeTab, closeTab]);
 
   return (
     <>
@@ -112,6 +130,8 @@ const App = () => {
                           setTabContent(activeTab.id, content)
                         }
                         onExecute={query => runQueryTab(activeTab.id, query)}
+                        onCancel={() => cancelQueryTab(activeTab.id)}
+                        isQueryRunning={activeTab?.loading || false}
                         isLoading={activeTab?.loading || false}
                         databaseStructure={currentStructure}
                       />
@@ -134,6 +154,19 @@ const App = () => {
                         onApplyChanges={edits =>
                           applyQueryTabChanges(activeTab.id, edits)
                         }
+                        tabType={activeTab.type}
+                        sort={activeTab.sort}
+                        onSortColumn={column =>
+                          sortTableTab(activeTab.id, column)
+                        }
+                        onOpenForeignTable={target =>
+                          openTableByReference(
+                            activeTab.serverId,
+                            activeTab.databaseName,
+                            target.schema,
+                            target.table,
+                          )
+                        }
                         className="h-full"
                       />
                     </ResizablePanel>
@@ -153,6 +186,17 @@ const App = () => {
                     onApplyChanges={edits =>
                       applyQueryTabChanges(activeTab.id, edits)
                     }
+                    tabType={activeTab.type}
+                    sort={activeTab.sort}
+                    onSortColumn={column => sortTableTab(activeTab.id, column)}
+                    onOpenForeignTable={target =>
+                      openTableByReference(
+                        activeTab.serverId,
+                        activeTab.databaseName,
+                        target.schema,
+                        target.table,
+                      )
+                    }
                     className="h-full"
                   />
                 ))}
@@ -160,6 +204,11 @@ const App = () => {
           )}
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      <GlobalSearchDialog
+        nodes={nodes.nodes}
+        onOpenTable={openTableByReference}
+      />
 
       <CustomToaster />
     </>

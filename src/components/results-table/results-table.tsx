@@ -8,6 +8,7 @@ import { DataTableStatusBar } from './results-table-status-bar/results-table-sta
 import { EmptyState } from './empty-state';
 import { LodingState } from './loding-state';
 import { ResultsTableRowCell } from './results-table-row-cell/results-table-row-cell';
+import { TabType } from '@/shared/models/tabs.types';
 
 const ROW_HEIGHT = 32;
 const OVERSCAN = 10;
@@ -26,6 +27,10 @@ export const ResultsTable = memo(
     totalCount,
     rowCount,
     className,
+    tabType,
+    sort,
+    onSortColumn,
+    onOpenForeignTable,
   }: ResultsTableProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -69,12 +74,38 @@ export const ResultsTable = memo(
       return () => el.removeEventListener('scroll', handleScroll);
     }, [handleScroll]);
 
+    useEffect(() => {
+      if (tabType !== TabType.View) return;
+
+      const handleTableShortcut = (event: KeyboardEvent) => {
+        if (!(event.metaKey || event.ctrlKey)) return;
+        const key = event.key.toLowerCase();
+
+        if (key === 's') {
+          event.preventDefault();
+          if (changesCount > 0) {
+            applyChanges();
+          }
+        }
+
+        if (key === 'z') {
+          event.preventDefault();
+          if (changesCount > 0) {
+            discardChanges();
+          }
+        }
+      };
+
+      window.addEventListener('keydown', handleTableShortcut);
+      return () => window.removeEventListener('keydown', handleTableShortcut);
+    }, [applyChanges, changesCount, discardChanges, tabType]);
+
     if (isLoading) {
       return <LodingState className={className} />;
     }
 
     if (rows.length === 0) {
-      return <EmptyState className={className} />;
+      return <EmptyState className={className} tabType={tabType} />;
     }
 
     return (
@@ -95,6 +126,10 @@ export const ResultsTable = memo(
                   key={`column-${column.name}`}
                   column={column}
                   isPrimaryKeyColumn={isPrimaryKeyColumn(column.name)}
+                  sortable={tabType === 'view'}
+                  sort={sort}
+                  onSortColumn={onSortColumn}
+                  onOpenForeignTable={onOpenForeignTable}
                   className="w-48 min-w-48 max-w-48"
                 />
               ))}

@@ -19,19 +19,20 @@ export const convertDatabaseStructureToNodes = (
     const schemaId = `schema-${schemaSuffix}`;
 
     nodes.push(
-      formatTreeNode(
-        schemaId,
-        TreeNodeType.Schema,
-        serverId,
-        schema.name,
-        parentId,
-        {
-          type: TreeNodeType.Schema,
+        formatTreeNode(
+          schemaId,
+          TreeNodeType.Schema,
           serverId,
-          databaseName,
-        },
-      ),
-    );
+          schema.name,
+          parentId,
+          {
+            type: TreeNodeType.Schema,
+            serverId,
+            databaseName,
+            schemaName: schema.name,
+          },
+        ),
+      );
 
     for (const table of schema.tables) {
       const tableSuffix = `${table.name}-${schemaSuffix}`;
@@ -48,6 +49,8 @@ export const convertDatabaseStructureToNodes = (
             type: TreeNodeType.Table,
             serverId,
             databaseName,
+            schemaName: schema.name,
+            tableName: table.name,
           },
         ),
       );
@@ -61,15 +64,18 @@ export const convertDatabaseStructureToNodes = (
               serverId,
               column.name,
               tableId,
-              {
-                type: TreeNodeType.Column,
-                serverId,
-                databaseName,
-                dataType: column.dataType,
-                isNullable: column.isNullable,
-              },
-            ),
-          );
+                {
+                  type: TreeNodeType.Column,
+                  serverId,
+                  databaseName,
+                  schemaName: schema.name,
+                  tableName: table.name,
+                  dataType: column.dataType,
+                  isNullable: column.isNullable,
+                  columnDefault: column.defaultValue ?? null,
+                },
+              ),
+            );
         }
       }
     }

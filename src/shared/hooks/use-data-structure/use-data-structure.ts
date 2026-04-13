@@ -37,7 +37,7 @@ export const useDataStructure = () => {
         return { ...prev, nodes: newNodes };
       });
     },
-    [],
+    [fetchColumns, fetchStructure],
   );
 
   const handleSetNodes = useCallback((nodesToUpdate: TreeNode[]) => {
@@ -157,7 +157,16 @@ export const useDataStructure = () => {
         }
 
         case TreeNodeType.Table: {
-          const [, tableName, schemaName, databaseName] = node.id.split('-');
+          if (
+            node.metadata.type !== TreeNodeType.Table ||
+            !node.metadata.tableName ||
+            !node.metadata.schemaName
+          ) {
+            return [];
+          }
+          const tableName = node.metadata.tableName;
+          const schemaName = node.metadata.schemaName;
+          const databaseName = node.metadata.databaseName;
 
           const columns = await fetchColumns(
             serverId,
@@ -177,6 +186,8 @@ export const useDataStructure = () => {
                 type: TreeNodeType.Column,
                 serverId,
                 databaseName,
+                schemaName,
+                tableName,
                 dataType: column.dataType,
                 isNullable: column.isNullable,
                 columnDefault: column.defaultValue ?? null,

@@ -5,6 +5,8 @@ mod types;
 
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 use crate::error::Result;
 use crate::models::*;
@@ -13,6 +15,7 @@ use crate::adapters::{DatabaseAdapter, PoolStats};
 pub struct PostgresAdapter {
     pool: Pool,
     _database: String,
+    active_query_pid: Arc<Mutex<Option<i32>>>,
 }
 
 impl PostgresAdapter {
@@ -21,6 +24,7 @@ impl PostgresAdapter {
         Ok(Self {
             pool,
             _database: database.to_string(),
+            active_query_pid: Arc::new(Mutex::new(None)),
         })
     }
 }
@@ -32,7 +36,13 @@ impl DatabaseAdapter for PostgresAdapter {
         query: &str,
         options: QueryOptions,
     ) -> Result<QueryResult> {
-        executor::execute_query(&self.pool, query, options).await
+        executor::execute_query(
+            &self.pool,
+            query,
+            options,
+            Arc::clone(&self.active_query_pid),
+        )
+        .await
     }
 
     async fn apply_row_edits(
@@ -84,9 +94,13 @@ impl DatabaseAdapter for PostgresAdapter {
         Ok(())
     }
 
-    async fn cancel_query(&self, _query_id: &str) -> Result<()> {
-        // TODO: parse query_id as PID, call pg_cancel_backend
-        todo!("Implement query cancellation")
+    async fn cancel_query(&self, query_id: &str) -> Result<()> {
+        executor::cancel_query(
+            &self.pool,
+            query_id,
+            Arc::clone(&self.active_query_pid),
+        )
+        .await
     }
 
     fn pool_stats(&self) -> Option<PoolStats> {

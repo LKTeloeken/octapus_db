@@ -42,6 +42,15 @@ pub struct ColumnInfo {
     pub default_value: Option<String>,
     pub is_primary_key: bool,
     pub is_foreign_key: bool,
+    pub foreign_key_target: Option<ForeignKeyTarget>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignKeyTarget {
+    pub schema: String,
+    pub table: String,
+    pub column: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
