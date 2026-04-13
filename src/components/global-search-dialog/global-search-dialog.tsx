@@ -11,7 +11,19 @@ import type { GlobalSearchDialogProps } from './global-search-dialog.types';
 import { useGlobalSearchDialog } from './use-global-search-dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
+
+const COMMAND_LIST_MAX_HEIGHT = 380;
+const GROUP_ROW_HEIGHT = 28;
+const ITEM_ROW_HEIGHT = 36;
 
 export const GlobalSearchDialog = ({
   nodes,
@@ -73,15 +85,19 @@ export const GlobalSearchDialog = ({
   const rowVirtualizer = useVirtualizer({
     count: flattenedRows.length,
     getScrollElement: () => listRef.current,
-    estimateSize: index => (flattenedRows[index]?.type === 'group' ? 28 : 36),
+    estimateSize: index => {
+      const row = flattenedRows[index];
+      if (!row) return ITEM_ROW_HEIGHT;
+      return row.type === 'group' ? GROUP_ROW_HEIGHT : ITEM_ROW_HEIGHT;
+    },
     overscan: 8,
   });
 
   useEffect(() => {
     if (!open) return;
     setActiveResultIndex(0);
-    rowVirtualizer.scrollToOffset(0);
-  }, [open, search, rowVirtualizer]);
+    listRef.current?.scrollTo({ top: 0 });
+  }, [open, search]);
 
   useEffect(() => {
     if (results.length === 0) {
@@ -125,6 +141,28 @@ export const GlobalSearchDialog = ({
     }
   };
 
+  const handleItemMouseMove = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      const itemIndex = Number(event.currentTarget.dataset.itemIndex);
+      if (Number.isNaN(itemIndex)) return;
+      setActiveResultIndex(itemIndex);
+    },
+    [],
+  );
+
+  const handleItemSelect = useCallback(
+    (value: string) => {
+      const itemIndex = Number(value);
+      if (Number.isNaN(itemIndex)) return;
+
+      const selected = results[itemIndex];
+      if (selected) {
+        void handleSelect(selected);
+      }
+    },
+    [handleSelect, results],
+  );
+
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
       <CommandInput
@@ -133,7 +171,11 @@ export const GlobalSearchDialog = ({
         onKeyDown={handleInputKeyDown}
         placeholder='Search tables (supports "schema/table")'
       />
-      <CommandList className="h-[380px] p-0" ref={listRef}>
+      <CommandList
+        className="p-0"
+        ref={listRef}
+        style={{ maxHeight: COMMAND_LIST_MAX_HEIGHT, height: 'min(50vh, 380px)' }}
+      >
         <CommandEmpty>No table found.</CommandEmpty>
         {results.length > 0 ? (
           <div
@@ -167,10 +209,11 @@ export const GlobalSearchDialog = ({
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
                   <CommandItem
-                    value={`${item.serverName} ${item.databaseName} ${item.schemaName} ${item.tableName} ${item.schemaName}.${item.tableName} ${item.schemaName}/${item.tableName}`}
+                    data-item-index={row.itemIndex}
+                    value={String(row.itemIndex)}
                     className={selected ? 'bg-accent text-accent-foreground' : ''}
-                    onMouseMove={() => setActiveResultIndex(row.itemIndex)}
-                    onSelect={() => handleSelect(item)}
+                    onMouseMove={handleItemMouseMove}
+                    onSelect={handleItemSelect}
                   >
                     <HugeiconsIcon icon={TableIcon} className="size-4" />
                     <span>{`${item.schemaName}.${item.tableName}`}</span>

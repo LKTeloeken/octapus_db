@@ -73,9 +73,9 @@ export const useGlobalSearchDialog = (
         serverInfo.serverNameById.get(serverId) ?? `Server ${serverId}`;
 
       cacheEntry.structure.schemas.forEach(schema => {
-        if (!schema.name) return;
+        if (!schema.name?.trim()) return;
         schema.tables.forEach(table => {
-          if (!table.name) return;
+          if (!table.name?.trim()) return;
           targets.push({
             serverId,
             serverName,
