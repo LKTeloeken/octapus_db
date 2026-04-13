@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SearchTarget } from './global-search-dialog.types';
 import toast from 'react-hot-toast';
 import { getDatabases } from '@/api/database/database-methods';
+import { ensureServerConnection } from '@/api/server/methods';
 
 const MAX_SEARCH_RESULTS = 300;
 
@@ -29,45 +30,55 @@ export const useGlobalSearchDialog = (
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [isLoadingStructures, setIsLoadingStructures] = useState(false);
+  const [isOpeningTable, setIsOpeningTable] = useState(false);
   const hydratedDatabases = useRef<Set<string>>(new Set());
 
-  const serverTargets = useMemo(
-    () =>
-      Array.from(nodes.values()).flatMap(node => {
-        if (
-          node.type !== TreeNodeType.Server ||
-          node.metadata.type !== TreeNodeType.Server
-        ) {
-          return [];
-        }
+  const serverInfo = useMemo(() => {
+    const connectedServerTargets: Array<{ serverId: number; serverName: string }> =
+      [];
+    const connectedServerIds = new Set<number>();
+    const serverNameById = new Map<number, string>();
 
-        return [
-          {
-            serverId: node.metadata.serverId,
-            serverName: node.name,
-          },
-        ];
-      }),
-    [nodes],
-  );
+    Array.from(nodes.values()).forEach(node => {
+      if (
+        node.type !== TreeNodeType.Server ||
+        node.metadata.type !== TreeNodeType.Server
+      ) {
+        return;
+      }
+
+      serverNameById.set(node.metadata.serverId, node.name);
+      if (node.isConnected) {
+        connectedServerIds.add(node.metadata.serverId);
+        connectedServerTargets.push({
+          serverId: node.metadata.serverId,
+          serverName: node.name,
+        });
+      }
+    });
+
+    return {
+      connectedServerTargets,
+      connectedServerIds,
+      serverNameById,
+    };
+  }, [nodes]);
 
   const searchTargets = useMemo(() => {
     const targets: SearchTarget[] = [];
 
     Object.entries(cache).forEach(([key, cacheEntry]) => {
       const { serverId, databaseName } = parseCacheKey(key);
+      const serverName =
+        serverInfo.serverNameById.get(serverId) ?? `Server ${serverId}`;
 
       cacheEntry.structure.schemas.forEach(schema => {
+        if (!schema.name) return;
         schema.tables.forEach(table => {
+          if (!table.name) return;
           targets.push({
             serverId,
-            serverName:
-              Array.from(nodes.values()).find(
-                node =>
-                  node.type === TreeNodeType.Server &&
-                  node.metadata.type === TreeNodeType.Server &&
-                  node.metadata.serverId === serverId,
-              )?.name ?? `Server ${serverId}`,
+            serverName,
             databaseName,
             schemaName: schema.name,
             tableName: table.name,
@@ -77,7 +88,18 @@ export const useGlobalSearchDialog = (
     });
 
     return targets;
-  }, [cache, nodes]);
+  }, [cache, serverInfo.serverNameById]);
+
+  const searchTargetsByDatabase = useMemo(() => {
+    const map = new Map<string, SearchTarget[]>();
+    searchTargets.forEach(target => {
+      const key = `${target.serverId}:${target.databaseName}`;
+      const current = map.get(key) ?? [];
+      current.push(target);
+      map.set(key, current);
+    });
+    return map;
+  }, [searchTargets]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -92,11 +114,11 @@ export const useGlobalSearchDialog = (
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || serverInfo.connectedServerTargets.length === 0) return;
 
     setIsLoadingStructures(true);
     Promise.all(
-      serverTargets.map(async server => {
+      serverInfo.connectedServerTargets.map(async server => {
         const databases = await getDatabases(server.serverId);
 
         await Promise.all(
@@ -110,10 +132,10 @@ export const useGlobalSearchDialog = (
       }),
     )
       .catch(() => {
-        toast.error('Failed to load server tables for command search');
+        toast.error('Failed to load connected server tables for command search');
       })
       .finally(() => setIsLoadingStructures(false));
-  }, [fetchStructure, open, serverTargets]);
+  }, [fetchStructure, open, serverInfo.connectedServerTargets]);
 
   const results = useMemo(() => {
     const normalized = search.trim().toLowerCase();
@@ -121,8 +143,10 @@ export const useGlobalSearchDialog = (
 
     return searchTargets
       .filter(item => {
+        const tableRefWithDot = `${item.schemaName}.${item.tableName}`;
+        const tableRefWithSlash = `${item.schemaName}/${item.tableName}`;
         const value =
-          `${item.serverName} ${item.databaseName} ${item.schemaName} ${item.tableName} ${item.schemaName}/${item.tableName}`.toLowerCase();
+          `${item.serverName} ${item.databaseName} ${item.schemaName} ${item.tableName} ${tableRefWithDot} ${tableRefWithSlash}`.toLowerCase();
         return value.includes(normalized);
       })
       .slice(0, MAX_SEARCH_RESULTS);
@@ -146,15 +170,39 @@ export const useGlobalSearchDialog = (
 
   const handleSelect = useCallback(
     async (item: SearchTarget) => {
-      await onOpenTable(
-        item.serverId,
-        item.databaseName,
-        item.schemaName,
-        item.tableName,
-      );
-      setOpen(false);
+      setIsOpeningTable(true);
+      try {
+        if (!serverInfo.connectedServerIds.has(item.serverId)) {
+          await ensureServerConnection(item.serverId, item.databaseName);
+          await fetchStructure(item.serverId, item.databaseName);
+        } else {
+          const cacheKey = `${item.serverId}:${item.databaseName}`;
+          if (!searchTargetsByDatabase.has(cacheKey)) {
+            await fetchStructure(item.serverId, item.databaseName);
+          }
+        }
+
+        await onOpenTable(
+          item.serverId,
+          item.databaseName,
+          item.schemaName,
+          item.tableName,
+        );
+        setOpen(false);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to open selected table',
+        );
+      } finally {
+        setIsOpeningTable(false);
+      }
     },
-    [onOpenTable],
+    [
+      fetchStructure,
+      onOpenTable,
+      searchTargetsByDatabase,
+      serverInfo.connectedServerIds,
+    ],
   );
 
   return {
@@ -165,6 +213,7 @@ export const useGlobalSearchDialog = (
     results,
     groupedResults,
     isLoadingStructures,
+    isOpeningTable,
     handleSelect,
   };
 };
