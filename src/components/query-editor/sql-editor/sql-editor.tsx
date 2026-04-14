@@ -136,15 +136,15 @@ export const SQLEditor: FC<SQLEditorProps> = ({
         const cursor = vu.state.selection.main.head;
         const textBeforeCursor = vu.state.sliceDoc(0, cursor);
         const match =
-          /(?:(?:"?([A-Za-z0-9_]+)"?)\.)?(?:"?([A-Za-z0-9_]+)"?)\.\s*$/u.exec(
+          /(?:(?:"?([A-Za-z0-9_]+)"?)\.)?(?:"?([A-Za-z0-9_]+)"?)\.\s*$/.exec(
             textBeforeCursor,
           );
 
         if (match) {
           const rawSchema = match[1];
           const rawTable = match[2];
-          const tableName = rawTable?.replaceAll('"', '');
-          const schemaName = rawSchema?.replaceAll('"', '');
+          const tableName = rawTable?.replace(/"/g, '');
+          const schemaName = rawSchema?.replace(/"/g, '');
 
           if (tableName) {
             const matchingSchema =
