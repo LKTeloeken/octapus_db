@@ -1,4 +1,4 @@
-import { useMemo, useCallback, type FC } from 'react';
+import { useMemo, useCallback, useEffect, useRef, type FC } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { PostgreSQL, sql } from '@codemirror/lang-sql';
 import { EditorView, keymap, type ViewUpdate } from '@codemirror/view';
@@ -15,7 +15,18 @@ export const SQLEditor: FC<SQLEditorProps> = ({
   onRunQuery,
   className = '',
   databaseStructure,
+  onRequestTableColumns,
 }) => {
+  const fetchTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (fetchTimeoutRef.current) {
+        window.clearTimeout(fetchTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const schemaSpec = useMemo(() => {
     if (databaseStructure) {
       return convertToCodeMirrorSchema(databaseStructure);
@@ -121,13 +132,50 @@ export const SQLEditor: FC<SQLEditorProps> = ({
 
   const handleUpdate = useCallback(
     (vu: ViewUpdate) => {
+      if (onRequestTableColumns && databaseStructure && vu.docChanged) {
+        const cursor = vu.state.selection.main.head;
+        const textBeforeCursor = vu.state.sliceDoc(0, cursor);
+        const match =
+          /(?:(?:"?([A-Za-z0-9_]+)"?)\.)?(?:"?([A-Za-z0-9_]+)"?)\.\s*$/u.exec(
+            textBeforeCursor,
+          );
+
+        if (match) {
+          const rawSchema = match[1];
+          const rawTable = match[2];
+          const tableName = rawTable?.replaceAll('"', '');
+          const schemaName = rawSchema?.replaceAll('"', '');
+
+          if (tableName) {
+            const matchingSchema =
+              schemaName ??
+              databaseStructure.schemas.find(schema =>
+                schema.tables.some(table => table.name === tableName),
+              )?.name ??
+              'public';
+            const tableStructure = databaseStructure.schemas
+              .find(schema => schema.name === matchingSchema)
+              ?.tables.find(table => table.name === tableName);
+
+            if (!tableStructure?.columns?.length) {
+              if (fetchTimeoutRef.current) {
+                window.clearTimeout(fetchTimeoutRef.current);
+              }
+              fetchTimeoutRef.current = window.setTimeout(() => {
+                void onRequestTableColumns(matchingSchema, tableName);
+              }, 250);
+            }
+          }
+        }
+      }
+
       if (!onChangeSelection) return;
       if (vu.selectionSet || vu.focusChanged) {
         const sel = vu.state.selection.main;
         onChangeSelection({ start: sel.from, end: sel.to });
       }
     },
-    [onChangeSelection],
+    [databaseStructure, onChangeSelection, onRequestTableColumns],
   );
 
   return (

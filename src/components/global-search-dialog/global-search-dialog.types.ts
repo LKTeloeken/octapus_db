@@ -6,6 +6,7 @@ export interface SearchTarget {
   databaseName: string;
   schemaName: string;
   tableName: string;
+  searchTokens?: string[];
 }
 
 export interface GlobalSearchDialogProps {

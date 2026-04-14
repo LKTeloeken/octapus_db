@@ -39,6 +39,11 @@ export const TreeNode = memo(
     );
 
     const styles = useStyles();
+    const canOpenSqlTab =
+      node.type === 'server' ||
+      node.type === 'database' ||
+      node.type === 'schema' ||
+      node.type === 'table';
 
     return (
       <div
@@ -73,18 +78,20 @@ export const TreeNode = memo(
           </div>
         </div>
 
-        {node.type === 'server' ? (
+        {canOpenSqlTab ? (
           <div className={cn(styles.menuButtonWrapper, 'opacity-0 group-hover:opacity-100')}>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={styles.menuButton}
-              onClick={e => {
-                handleServerEdit(e);
-              }}
-            >
-              <HugeiconsIcon icon={Edit01Icon} className="h-4 w-4" />
-            </Button>
+            {node.type === 'server' ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className={styles.menuButton}
+                onClick={e => {
+                  handleServerEdit(e);
+                }}
+              >
+                <HugeiconsIcon icon={Edit01Icon} className="h-4 w-4" />
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               size="icon"

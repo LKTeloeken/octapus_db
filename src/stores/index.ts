@@ -15,7 +15,11 @@ export const useStore = create<SchemaCacheState>()(
     {
       name: INDEXED_DB_STORAGE_KEY,
       version: 1,
-      partialize: state => ({ cache: state.cache }),
+      partialize: state => ({
+        cache: state.cache,
+        recentOpenedTables: state.recentOpenedTables,
+        viewLayout: state.viewLayout,
+      }),
       storage: createJSONStorage(() => indexedDBStorage),
     },
   ),

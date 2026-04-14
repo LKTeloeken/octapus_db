@@ -44,7 +44,7 @@ function createTab(
 export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
   const { runQuery } = useRunQuery();
   const { selectQuery } = useBuildQueries();
-  const { fetchColumns, getStructure } = useStore();
+  const { fetchColumns, getStructure, recordRecentOpenedTable } = useStore();
 
   const [tabs, setTabs] = useState<Map<string, Tab>>(new Map());
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -67,7 +67,7 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
     (serverId: number, databaseName: string, initialData?: Partial<Tab>) => {
       const newTabId = `${serverId}-${databaseName}-${Date.now()}`;
       const targetTabId = initialData?.id ?? newTabId;
-      const newTab = createTab(newTabId, serverId, databaseName, initialData);
+      const newTab = createTab(targetTabId, serverId, databaseName, initialData);
 
       setTabs(prev => new Map(prev).set(targetTabId, newTab));
       setActiveTabId(targetTabId);
@@ -110,9 +110,18 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
     ) => {
       await ensureServerConnection(serverId, databaseName);
       const tableTabId = `${serverId}-${databaseName}-${schemaName}-${tableName}`;
+      const recentKey = `${serverId}:${databaseName}:${schemaName}:${tableName}`;
 
       if (tabs.has(tableTabId)) {
         setActiveTabId(tableTabId);
+        recordRecentOpenedTable({
+          key: recentKey,
+          serverId,
+          serverName: `Server ${serverId}`,
+          databaseName,
+          schemaName,
+          tableName,
+        });
         return;
       }
 
@@ -138,8 +147,28 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
         sort: defaultSort,
         id: tableTabId,
       });
+
+      recordRecentOpenedTable({
+        key: recentKey,
+        serverId,
+        serverName: `Server ${serverId}`,
+        databaseName,
+        schemaName,
+        tableName,
+      });
     },
-    [getDefaultSort, openTab, selectQuery, tabs],
+    [getDefaultSort, openTab, selectQuery, tabs, recordRecentOpenedTable],
+  );
+
+  const openQueryTab = useCallback(
+    (serverId: number, databaseName: string, title?: string, content = '') => {
+      openTab(serverId, databaseName, {
+        title: title ?? databaseName,
+        content,
+        type: TabType.Query,
+      });
+    },
+    [openTab],
   );
 
   const openTableTab = useCallback(
@@ -359,6 +388,24 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
     [tabs, runQueryTab, updateTab],
   );
 
+  const switchViewTabToQuery = useCallback(
+    (id: string) => {
+      const tab = tabs.get(id);
+      if (!tab || tab.type !== TabType.View) return;
+
+      const fallbackQuery =
+        tab.viewSchema && tab.viewTable
+          ? selectQuery(tab.viewSchema, tab.viewTable)
+          : tab.content;
+
+      updateTab(id, {
+        type: TabType.Query,
+        content: tab.content?.trim() ? tab.content : fallbackQuery,
+      });
+    },
+    [selectQuery, tabs, updateTab],
+  );
+
   return {
     tabs: tabsList,
     activeTab,
@@ -366,6 +413,8 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
     openTab,
     openTableTab,
     openTableByReference,
+    openQueryTab,
+    switchViewTabToQuery,
     closeTab,
     setActiveTabId,
     setTabContent,

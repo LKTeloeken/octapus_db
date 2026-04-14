@@ -15,16 +15,17 @@ export const useConfigServer = (props: ConfigServerModalProps) => {
     isConnected: false,
   });
   const disableSave = useMemo(() => {
+    const requiresPassword = !isEditMode && !localServerData.password;
     return (
       !localServerData.name ||
       !localServerData.host ||
       !localServerData.port ||
       !localServerData.default_database ||
       !localServerData.username ||
-      !localServerData.password ||
+      requiresPassword ||
       isLoading
     );
-  }, [localServerData]);
+  }, [isEditMode, isLoading, localServerData]);
 
   const handleChangeInput = useCallback(
     (key: string) => (value: string) => {
@@ -63,8 +64,13 @@ export const useConfigServer = (props: ConfigServerModalProps) => {
   };
 
   useEffect(() => {
-    if (isEditMode) setLocalServerData(serverData);
-  }, [serverData]);
+    if (isEditMode) {
+      setLocalServerData({
+        ...serverData,
+        password: '',
+      });
+    }
+  }, [isEditMode, serverData]);
 
   return {
     openRemoveDialog,

@@ -10,6 +10,7 @@ export interface SQLEditorProps {
   customRef?: RefObject<any>;
 
   databaseStructure: DatabaseStructure | null;
+  onRequestTableColumns?: (schemaName: string, tableName: string) => Promise<void>;
 }
 
 type OnSelectionChange = (selection: { start: number; end: number }) => void;

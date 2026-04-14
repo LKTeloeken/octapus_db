@@ -14,6 +14,7 @@ import { QueryTabs } from './components/query-tabs/query-tabs';
 import { SidebarBody } from './components/sidebar/sidebar-body/sidebar-body';
 import useTabs from './shared/hooks/use-tabs/use-tabs';
 import { TabType } from './shared/models/tabs.types';
+import { useStore } from './stores';
 
 const App = () => {
   const {
@@ -45,7 +46,9 @@ const App = () => {
     sortTableTab,
     openTableByReference,
     handleNextPage,
+    switchViewTabToQuery,
   } = useTabs(handleFetchStructure);
+  const { viewLayout, setViewLayout, fetchColumns } = useStore();
 
   const handleOpenTableTab = useCallback(
     (nodeId: string) => {
@@ -60,7 +63,20 @@ const App = () => {
     }
 
     return null;
-  }, [tabs, getStructure]);
+  }, [activeTab, getStructure]);
+
+  const handleRequestTableColumns = useCallback(
+    async (schemaName: string, tableName: string) => {
+      if (!activeTab) return;
+      await fetchColumns(
+        activeTab.serverId,
+        activeTab.databaseName,
+        schemaName,
+        tableName,
+      );
+    },
+    [activeTab, fetchColumns],
+  );
 
   // Run the query for the view tab when it is active
   useEffect(() => {
@@ -134,6 +150,7 @@ const App = () => {
                         isQueryRunning={activeTab?.loading || false}
                         isLoading={activeTab?.loading || false}
                         databaseStructure={currentStructure}
+                        onRequestTableColumns={handleRequestTableColumns}
                       />
                     </ResizablePanel>
                     <ResizableHandle className="bg-transparent my-1 cursor-col-resize!" />
@@ -167,6 +184,8 @@ const App = () => {
                             target.table,
                           )
                         }
+                        viewLayout={viewLayout}
+                        onViewLayoutChange={setViewLayout}
                         className="h-full"
                       />
                     </ResizablePanel>
@@ -197,6 +216,9 @@ const App = () => {
                         target.table,
                       )
                     }
+                    viewLayout={viewLayout}
+                    onViewLayoutChange={setViewLayout}
+                    onSwitchToSql={() => switchViewTabToQuery(activeTab.id)}
                     className="h-full"
                   />
                 ))}

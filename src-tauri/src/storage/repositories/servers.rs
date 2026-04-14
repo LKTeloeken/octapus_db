@@ -136,7 +136,8 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
         r#"
         UPDATE servers
         SET name = ?1, db_type = ?2, host = ?3, port = ?4, username = ?5,
-            password = ?6, default_database = ?7, ssl_enabled = ?8
+            password = CASE WHEN ?6 = '' THEN password ELSE ?6 END,
+            default_database = ?7, ssl_enabled = ?8
         WHERE id = ?9
         RETURNING id, name, db_type, host, port, username, password,
                   default_database, ssl_enabled, created_at
