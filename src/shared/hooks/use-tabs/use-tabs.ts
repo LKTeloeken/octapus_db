@@ -117,7 +117,6 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
         recordRecentOpenedTable({
           key: recentKey,
           serverId,
-          serverName: `Server ${serverId}`,
           databaseName,
           schemaName,
           tableName,
@@ -151,7 +150,6 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
       recordRecentOpenedTable({
         key: recentKey,
         serverId,
-        serverName: `Server ${serverId}`,
         databaseName,
         schemaName,
         tableName,

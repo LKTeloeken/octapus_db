@@ -8,6 +8,8 @@ import { convertToCodeMirrorSchema } from '@/shared/utils/codeMirrorAutocomplete
 
 import type { SQLEditorProps } from './sql-editor.types';
 
+const COLUMN_AUTOCOMPLETE_DEBOUNCE_MS = 250;
+
 export const SQLEditor: FC<SQLEditorProps> = ({
   value,
   onChange,
@@ -136,6 +138,7 @@ export const SQLEditor: FC<SQLEditorProps> = ({
         const cursor = vu.state.selection.main.head;
         const textBeforeCursor = vu.state.sliceDoc(0, cursor);
         const match =
+          // Match trailing `table.` or `schema.table.` (quoted identifiers allowed).
           /(?:(?:"?([A-Za-z0-9_]+)"?)\.)?(?:"?([A-Za-z0-9_]+)"?)\.\s*$/.exec(
             textBeforeCursor,
           );
@@ -163,7 +166,7 @@ export const SQLEditor: FC<SQLEditorProps> = ({
               }
               fetchTimeoutRef.current = window.setTimeout(() => {
                 void onRequestTableColumns(matchingSchema, tableName);
-              }, 250);
+              }, COLUMN_AUTOCOMPLETE_DEBOUNCE_MS);
             }
           }
         }

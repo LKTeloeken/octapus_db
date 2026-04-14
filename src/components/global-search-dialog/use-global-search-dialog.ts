@@ -73,7 +73,7 @@ export const useGlobalSearchDialog = (
             databaseName,
             schemaName: schema.name,
             tableName: table.name,
-            searchTokens: table.columns?.map(column => column.name) ?? [],
+            searchTokens: table.columns?.slice(0, 50).map(column => column.name) ?? [],
           });
         });
       });

@@ -160,7 +160,7 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
 
   clearAll: () => {
     pendingRequests.clear();
-    set({ cache: {}, loading: {}, recentOpenedTables: [] });
+    set({ cache: {}, loading: {}, recentOpenedTables: [], viewLayout: 'horizontal' });
   },
 
   recordRecentOpenedTable: item => {

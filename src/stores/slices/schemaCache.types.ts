@@ -44,7 +44,6 @@ export type ResultsViewLayout = 'horizontal' | 'vertical';
 export interface RecentOpenedTable {
   key: string;
   serverId: number;
-  serverName: string;
   databaseName: string;
   schemaName: string;
   tableName: string;

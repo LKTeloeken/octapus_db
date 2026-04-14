@@ -15,14 +15,14 @@ export const useConfigServer = (props: ConfigServerModalProps) => {
     isConnected: false,
   });
   const disableSave = useMemo(() => {
-    const requiresPassword = !isEditMode && !localServerData.password;
+    const isMissingRequiredPassword = !isEditMode && !localServerData.password;
     return (
       !localServerData.name ||
       !localServerData.host ||
       !localServerData.port ||
       !localServerData.default_database ||
       !localServerData.username ||
-      requiresPassword ||
+      isMissingRequiredPassword ||
       isLoading
     );
   }, [isEditMode, isLoading, localServerData]);

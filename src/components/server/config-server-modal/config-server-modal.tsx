@@ -89,7 +89,7 @@ export function ConfigServerModal(props: ConfigServerModalProps) {
                 </div>
                 {config.value === 'password' && isEditMode ? (
                   <p className="text-xs text-muted-foreground">
-                    Leave password empty to keep the existing value.
+                    Leave empty to keep the existing password.
                   </p>
                 ) : null}
               </div>

@@ -46,7 +46,7 @@ export const useTreeNode = (
         .map(childId => nodes.get(childId))
         .find(child => child?.type === 'database')?.name;
 
-      // Server node can be opened before databases are loaded; use a deterministic fallback order.
+      // Fallback order for server SQL tabs: metadata default DB > first loaded DB > postgres.
       openNewTab(
         serverId,
         metadata.serverData?.default_database || loadedDatabaseName || 'postgres',

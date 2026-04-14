@@ -187,7 +187,9 @@ export async function invokeMock<T>(
               ...server,
               ...payload,
               password:
-                payload.password === '' || payload.password == null
+                payload.password === '' ||
+                payload.password === null ||
+                payload.password === undefined
                   ? server.password
                   : payload.password,
             }
