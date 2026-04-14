@@ -25,9 +25,17 @@ export const SQLEditor: FC<SQLEditorProps> = ({
     return () => {
       if (fetchTimeoutRef.current) {
         window.clearTimeout(fetchTimeoutRef.current);
+        fetchTimeoutRef.current = null;
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (fetchTimeoutRef.current) {
+      window.clearTimeout(fetchTimeoutRef.current);
+      fetchTimeoutRef.current = null;
+    }
+  }, [databaseStructure, onRequestTableColumns]);
 
   const schemaSpec = useMemo(() => {
     if (databaseStructure) {
@@ -166,6 +174,7 @@ export const SQLEditor: FC<SQLEditorProps> = ({
               }
               fetchTimeoutRef.current = window.setTimeout(() => {
                 void onRequestTableColumns(matchingSchema, tableName);
+                fetchTimeoutRef.current = null;
               }, COLUMN_AUTOCOMPLETE_DEBOUNCE_MS);
             }
           }

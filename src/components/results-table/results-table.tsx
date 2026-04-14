@@ -13,6 +13,8 @@ import { DataTableCell } from './results-table-cell/results-table-cell';
 
 const ROW_HEIGHT = 32;
 const OVERSCAN = 10;
+const VERTICAL_BASE_ROW_HEIGHT = 44;
+const VERTICAL_HEADER_HEIGHT = 28;
 
 export const ResultsTable = memo(
   ({
@@ -54,7 +56,10 @@ export const ResultsTable = memo(
     const rowVirtualizer = useVirtualizer({
       count: rows.length,
       getScrollElement: () => containerRef.current,
-      estimateSize: () => ROW_HEIGHT,
+      estimateSize: () =>
+        viewLayout === 'vertical'
+          ? VERTICAL_HEADER_HEIGHT + columns.length * VERTICAL_BASE_ROW_HEIGHT
+          : ROW_HEIGHT,
       overscan: OVERSCAN,
     });
 
@@ -124,47 +129,60 @@ export const ResultsTable = memo(
         <div className="flex-1 min-h-0">
           <div ref={containerRef} className="relative h-full w-full overflow-auto scrollbar-thin">
             {isVerticalLayout ? (
-              <div className="p-2 space-y-2">
-                {rows.map((row, rowIndex) => (
-                  <div
-                    key={`vertical-row-${rowIndex}`}
-                    className={cn(
-                      'border rounded-md overflow-hidden',
-                      isRowModified(rowIndex) ? 'border-yellow-500/50' : 'border-border',
-                    )}
-                  >
-                    <div className="bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
-                      Row {rowIndex + 1}
-                    </div>
-                    <div>
-                      {columns.map((column, cellIndex) => {
-                        const cell = row[cellIndex];
-                        return (
-                          <div
-                            key={`vertical-cell-${rowIndex}-${column.name}`}
-                            className="grid grid-cols-[180px_1fr] border-t border-border"
-                          >
-                            <div className="px-2 py-1.5 text-xs bg-muted/20 border-r border-border truncate">
-                              {column.name}
+              <div
+                className="relative"
+                style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+              >
+                {virtualItems.map(virtualRow => {
+                  const rowIndex = virtualRow.index;
+                  const row = rows[rowIndex];
+                  if (!row) return null;
+
+                  return (
+                    <div
+                      key={`vertical-row-${rowIndex}`}
+                      className={cn(
+                        'border rounded-md overflow-hidden absolute left-2 right-2',
+                        isRowModified(rowIndex) ? 'border-yellow-500/50' : 'border-border',
+                      )}
+                      style={{
+                        transform: `translateY(${virtualRow.start}px)`,
+                        height: `${virtualRow.size}px`,
+                      }}
+                    >
+                      <div className="bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                        Row {rowIndex + 1}
+                      </div>
+                      <div>
+                        {columns.map((column, cellIndex) => {
+                          const cell = row[cellIndex];
+                          return (
+                            <div
+                              key={`vertical-cell-${rowIndex}-${column.name}`}
+                              className="grid grid-cols-[180px_1fr] border-t border-border"
+                            >
+                              <div className="px-2 py-1.5 text-xs bg-muted/20 border-r border-border truncate">
+                                {column.name}
+                              </div>
+                              <div className="min-w-0">
+                                <DataTableCell
+                                  value={cell}
+                                  columnType={column.typeName}
+                                  displayValue={getCellDisplayValue(rowIndex, column.name, cell)}
+                                  isModified={isCellModified(rowIndex, column.name)}
+                                  isEditable={isColumnEditable(column.name)}
+                                  onSave={newValue =>
+                                    updateCell(rowIndex, column.name, cell, newValue)
+                                  }
+                                />
+                              </div>
                             </div>
-                            <div className="min-w-0">
-                              <DataTableCell
-                                value={cell}
-                                columnType={column.typeName}
-                                displayValue={getCellDisplayValue(rowIndex, column.name, cell)}
-                                isModified={isCellModified(rowIndex, column.name)}
-                                isEditable={isColumnEditable(column.name)}
-                                onSave={newValue =>
-                                  updateCell(rowIndex, column.name, cell, newValue)
-                                }
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div>

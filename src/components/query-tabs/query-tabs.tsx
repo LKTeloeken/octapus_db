@@ -37,6 +37,7 @@ export const QueryTabs = memo(
               </TabsTrigger>
               <button
                 type="button"
+                aria-label={`Close tab ${tab.title}`}
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 z-10 inline-flex h-4 w-4 items-center justify-center rounded-sm hover:bg-accent hover:text-accent-foreground cursor-pointer"
                 onClick={event => {
                   event.stopPropagation();

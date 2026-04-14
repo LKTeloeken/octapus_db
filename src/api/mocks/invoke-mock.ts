@@ -1,13 +1,13 @@
 import { RustMethods } from '../rust-functions';
 import type { Server } from '@/shared/models/servers.types';
-import {
+import type {
   ExecuteQueryResponse,
   GetColumnsResponse,
   GetSchemasWithTablesResponse,
   GetDatabasesResponse,
   ApplyRowEditsResponse,
-  TableTypes,
 } from '../database/database-responses.types';
+import { TableTypes } from '../database/database-responses.types';
 
 let serverIdSeed = 2;
 
