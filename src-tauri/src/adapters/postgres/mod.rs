@@ -53,6 +53,23 @@ impl DatabaseAdapter for PostgresAdapter {
         executor::apply_row_edits(&self.pool, editable, edits).await
     }
 
+    async fn insert_table_rows(
+        &self,
+        editable: &EditableInfo,
+        column_names: Vec<String>,
+        rows: Vec<Vec<Option<String>>>,
+    ) -> Result<StatementResult> {
+        executor::insert_table_rows(&self.pool, editable, column_names, rows).await
+    }
+
+    async fn delete_table_rows(
+        &self,
+        editable: &EditableInfo,
+        pk_values_list: Vec<Vec<Option<String>>>,
+    ) -> Result<StatementResult> {
+        executor::delete_table_rows(&self.pool, editable, pk_values_list).await
+    }
+
     async fn execute_statement(&self, statement: &str) -> Result<StatementResult> {
         executor::execute_statement(&self.pool, statement).await
     }

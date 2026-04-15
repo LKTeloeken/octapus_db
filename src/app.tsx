@@ -191,8 +191,8 @@ const App = () => {
                         onLoadMore={() =>
                           activeTab && handleNextPage(activeTab.id)
                         }
-                        onApplyChanges={edits =>
-                          applyQueryTabChanges(activeTab.id, edits)
+                        onApplyChanges={changes =>
+                          applyQueryTabChanges(activeTab.id, changes)
                         }
                         tabType={activeTab.type}
                         sort={activeTab.sort}
@@ -225,8 +225,8 @@ const App = () => {
                     totalCount={activeTab?.result?.totalCount}
                     rowCount={activeTab?.result?.rowCount}
                     onLoadMore={() => activeTab && handleNextPage(activeTab.id)}
-                    onApplyChanges={edits =>
-                      applyQueryTabChanges(activeTab.id, edits)
+                    onApplyChanges={changes =>
+                      applyQueryTabChanges(activeTab.id, changes)
                     }
                     tabType={activeTab.type}
                     sort={activeTab.sort}

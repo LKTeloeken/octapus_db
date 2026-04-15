@@ -45,6 +45,8 @@ pub fn run() {
             commands::execute_query,
             commands::execute_statement,
             commands::apply_row_edits,
+            commands::insert_table_rows,
+            commands::delete_table_rows,
             commands::execute_transaction,
             commands::cancel_query,
             // Structure (lazy loading)

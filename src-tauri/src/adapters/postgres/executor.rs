@@ -222,6 +222,149 @@ pub async fn apply_row_edits(
     })
 }
 
+pub async fn insert_table_rows(
+    pool: &Pool,
+    editable: &EditableInfo,
+    column_names: Vec<String>,
+    rows: Vec<Vec<Option<String>>>,
+) -> Result<StatementResult> {
+    if rows.is_empty() {
+        return Ok(StatementResult {
+            affected_rows: 0,
+            execution_time_ms: 0,
+        });
+    }
+
+    if column_names.is_empty() {
+        return Err(Error::InvalidQuery("No columns provided for insert".into()));
+    }
+
+    let mut client = pool.get().await?;
+    let type_map = get_column_types(&client, &editable.schema, &editable.table).await?;
+    let start = Instant::now();
+    let tx = client.transaction().await?;
+    let mut total_affected: u64 = 0;
+
+    for row_values in rows {
+        if row_values.len() != column_names.len() {
+            return Err(Error::InvalidQuery(
+                "Inserted row value count does not match insert columns".into(),
+            ));
+        }
+
+        let mut value_clauses: Vec<String> = Vec::with_capacity(column_names.len());
+        let mut param_values: Vec<Option<String>> = Vec::with_capacity(column_names.len());
+
+        for (index, (column_name, value)) in
+            column_names.iter().zip(row_values.iter()).enumerate()
+        {
+            let col_type = type_map
+                .get(column_name.as_str())
+                .ok_or_else(|| Error::InvalidQuery(format!("Unknown column: {column_name}")))?;
+            value_clauses.push(format!("${}::text::{}", index + 1, col_type));
+            param_values.push(value.clone());
+        }
+
+        let insert_query = format!(
+            "INSERT INTO {}.{} ({}) VALUES ({})",
+            quote_ident(&editable.schema),
+            quote_ident(&editable.table),
+            column_names
+                .iter()
+                .map(|name| quote_ident(name))
+                .collect::<Vec<_>>()
+                .join(", "),
+            value_clauses.join(", "),
+        );
+
+        let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = param_values
+            .iter()
+            .map(|v| v as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
+        let affected = tx
+            .execute(&insert_query, &params)
+            .await
+            .map_err(|e| Error::Query(format!("Failed to insert row: {e}")))?;
+        total_affected += affected;
+    }
+
+    tx.commit().await?;
+
+    Ok(StatementResult {
+        affected_rows: total_affected,
+        execution_time_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+pub async fn delete_table_rows(
+    pool: &Pool,
+    editable: &EditableInfo,
+    pk_values_list: Vec<Vec<Option<String>>>,
+) -> Result<StatementResult> {
+    if pk_values_list.is_empty() {
+        return Ok(StatementResult {
+            affected_rows: 0,
+            execution_time_ms: 0,
+        });
+    }
+
+    let mut client = pool.get().await?;
+    let type_map = get_column_types(&client, &editable.schema, &editable.table).await?;
+    let start = Instant::now();
+    let tx = client.transaction().await?;
+    let mut total_affected: u64 = 0;
+
+    for pk_values in pk_values_list {
+        if pk_values.len() != editable.primary_key_columns.len() {
+            return Err(Error::InvalidQuery(
+                "Primary key value count does not match primary key columns".into(),
+            ));
+        }
+
+        let mut where_clauses: Vec<String> = Vec::with_capacity(pk_values.len());
+        let mut param_values: Vec<Option<String>> = Vec::with_capacity(pk_values.len());
+
+        for (index, (pk_col, pk_val)) in editable
+            .primary_key_columns
+            .iter()
+            .zip(pk_values.iter())
+            .enumerate()
+        {
+            let col_type = type_map
+                .get(pk_col.as_str())
+                .ok_or_else(|| Error::InvalidQuery(format!("Unknown primary key column: {pk_col}")))?;
+            where_clauses.push(format!("{} = ${}::text::{}", quote_ident(pk_col), index + 1, col_type));
+            param_values.push(pk_val.clone());
+        }
+
+        let delete_query = format!(
+            "DELETE FROM {}.{} WHERE {}",
+            quote_ident(&editable.schema),
+            quote_ident(&editable.table),
+            where_clauses.join(" AND "),
+        );
+
+        let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = param_values
+            .iter()
+            .map(|v| v as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
+        let affected = tx
+            .execute(&delete_query, &params)
+            .await
+            .map_err(|e| Error::Query(format!("Failed to delete row: {e}")))?;
+        total_affected += affected;
+    }
+
+    tx.commit().await?;
+
+    Ok(StatementResult {
+        affected_rows: total_affected,
+        execution_time_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────

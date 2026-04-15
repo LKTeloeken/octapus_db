@@ -25,6 +25,19 @@ pub trait DatabaseAdapter: Send + Sync {
         edits: Vec<RowEdit>,
     ) -> Result<StatementResult>;
 
+    async fn insert_table_rows(
+        &self,
+        editable: &EditableInfo,
+        column_names: Vec<String>,
+        rows: Vec<Vec<Option<String>>>,
+    ) -> Result<StatementResult>;
+
+    async fn delete_table_rows(
+        &self,
+        editable: &EditableInfo,
+        pk_values_list: Vec<Vec<Option<String>>>,
+    ) -> Result<StatementResult>;
+
     async fn execute_statement(&self, statement: &str) -> Result<StatementResult>;
 
     async fn execute_transaction(

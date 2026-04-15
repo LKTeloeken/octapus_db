@@ -1,12 +1,16 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useRunQuery } from '@/shared/hooks/use-run-query/use-run-query';
-import { applyRowEdits } from '@/api/database/database-methods';
+import {
+  applyRowEdits,
+  deleteTableRows,
+  insertTableRows,
+} from '@/api/database/database-methods';
 import toast from 'react-hot-toast';
 
 import type { ApplyQueryTabChanges } from './use-query-tabs.types';
 import type { QueryTab } from '@/shared/models/query-tabs.types';
 import type { ExecuteQueryOptions } from '@/api/database/database-methods.types';
-import type { RowEdit } from '@/api/database/database-responses.types';
+import type { QueryChangeSet } from '@/api/database/database-responses.types';
 
 export function useQueryTabs() {
   const { runQuery, loading: loadingQuery } = useRunQuery();
@@ -149,7 +153,7 @@ export function useQueryTabs() {
 
   const applyQueryTabChanges: ApplyQueryTabChanges = async (
     id: string,
-    edits: RowEdit[],
+    changes: QueryChangeSet,
   ) => {
     const tab = queryTabs.get(id);
     if (!tab || !tab.result?.editableInfo) return;
@@ -157,14 +161,42 @@ export function useQueryTabs() {
     handleSetTabQuery(id, { loadingChanges: true });
 
     try {
-      const result = await applyRowEdits(
-        tab.serverId,
-        tab.databaseName,
-        tab.result?.editableInfo,
-        edits,
-      );
+      const { edits, insertedRows, deletedRowsPkValues, insertColumnNames } =
+        changes;
+      let affectedRows = 0;
 
-      toast.success(`${result.affectedRows} rows updated`);
+      if (edits.length > 0) {
+        const updateResult = await applyRowEdits(
+          tab.serverId,
+          tab.databaseName,
+          tab.result?.editableInfo,
+          edits,
+        );
+        affectedRows += updateResult.affectedRows;
+      }
+
+      if (insertedRows.length > 0 && insertColumnNames.length > 0) {
+        const insertResult = await insertTableRows(
+          tab.serverId,
+          tab.databaseName,
+          tab.result?.editableInfo,
+          insertColumnNames,
+          insertedRows,
+        );
+        affectedRows += insertResult.affectedRows;
+      }
+
+      if (deletedRowsPkValues.length > 0) {
+        const deleteResult = await deleteTableRows(
+          tab.serverId,
+          tab.databaseName,
+          tab.result?.editableInfo,
+          deletedRowsPkValues,
+        );
+        affectedRows += deleteResult.affectedRows;
+      }
+
+      toast.success(`${affectedRows} rows affected`);
 
       await runQueryTab(id, tab.lastExecutedQuery || '', {
         offset: 0,

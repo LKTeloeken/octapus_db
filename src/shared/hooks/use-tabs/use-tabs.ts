@@ -1,6 +1,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useRunQuery } from '@/shared/hooks/use-run-query/use-run-query';
-import { applyRowEdits, cancelQuery } from '@/api/database/database-methods';
+import {
+  applyRowEdits,
+  cancelQuery,
+  deleteTableRows,
+  insertTableRows,
+} from '@/api/database/database-methods';
 import { useBuildQueries } from '../use-build-queries/use-build-queries';
 import toast from 'react-hot-toast';
 
@@ -8,7 +13,7 @@ import { type Tab, type TabSort, TabType } from '@/shared/models/tabs.types';
 import { TreeNodeType, type TreeNode } from '@/shared/models/database.types';
 import type { HandleFetchStructure } from '../use-data-structure/use-data-structure.types';
 import type { ExecuteQueryOptions } from '@/api/database/database-methods.types';
-import type { RowEdit } from '@/api/database/database-responses.types';
+import type { QueryChangeSet } from '@/api/database/database-responses.types';
 import { useStore } from '@/stores';
 import { ensureServerConnection } from '@/api/server/methods';
 
@@ -18,6 +23,9 @@ const DEFAULT_QUERY_OPTIONS: ExecuteQueryOptions = {
   limit: 500,
   offset: 0,
 };
+
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function createTab(
   id: string,
@@ -67,14 +75,50 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
     (serverId: number, databaseName: string, initialData?: Partial<Tab>) => {
       const newTabId = `${serverId}-${databaseName}-${Date.now()}`;
       const targetTabId = initialData?.id ?? newTabId;
-      const newTab = createTab(targetTabId, serverId, databaseName, initialData);
+
+      let normalizedInitialData = initialData;
+      if (initialData?.type === TabType.Query) {
+        const shouldGenerateSqlTitle =
+          !initialData.title || initialData.title === databaseName;
+
+        if (shouldGenerateSqlTitle) {
+          const sqlTitlePattern = new RegExp(
+            `^${escapeRegExp(databaseName)}\\s+sql\\s+(\\d+)$`,
+            'i',
+          );
+          const maxSqlIndex = Array.from(tabs.values())
+            .filter(
+              tab =>
+                tab.type === TabType.Query &&
+                tab.serverId === serverId &&
+                tab.databaseName === databaseName,
+            )
+            .reduce((max, tab) => {
+              const match = sqlTitlePattern.exec(tab.title);
+              const index = match ? Number(match[1]) : 0;
+              return Number.isFinite(index) ? Math.max(max, index) : max;
+            }, 0);
+
+          normalizedInitialData = {
+            ...initialData,
+            title: `${databaseName} sql ${maxSqlIndex + 1}`,
+          };
+        }
+      }
+
+      const newTab = createTab(
+        targetTabId,
+        serverId,
+        databaseName,
+        normalizedInitialData,
+      );
 
       setTabs(prev => new Map(prev).set(targetTabId, newTab));
       setActiveTabId(targetTabId);
       loadDatabaseStructure(serverId, databaseName);
       return targetTabId;
     },
-    [loadDatabaseStructure],
+    [loadDatabaseStructure, tabs],
   );
 
   const getDefaultSort = useCallback(
@@ -368,21 +412,49 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
   );
 
   const applyQueryTabChanges = useCallback(
-    async (id: string, edits: RowEdit[]) => {
+    async (id: string, changes: QueryChangeSet) => {
       const tab = tabs.get(id);
       if (!tab || !tab.result?.editableInfo) return;
 
       updateTab(id, { loadingChanges: true });
 
       try {
-        const result = await applyRowEdits(
-          tab.serverId,
-          tab.databaseName,
-          tab.result.editableInfo,
-          edits,
-        );
+        const { edits, insertedRows, deletedRowsPkValues, insertColumnNames } =
+          changes;
+        let affectedRows = 0;
 
-        toast.success(`${result.affectedRows} rows updated`);
+        if (edits.length > 0) {
+          const updateResult = await applyRowEdits(
+            tab.serverId,
+            tab.databaseName,
+            tab.result.editableInfo,
+            edits,
+          );
+          affectedRows += updateResult.affectedRows;
+        }
+
+        if (insertedRows.length > 0 && insertColumnNames.length > 0) {
+          const insertResult = await insertTableRows(
+            tab.serverId,
+            tab.databaseName,
+            tab.result.editableInfo,
+            insertColumnNames,
+            insertedRows,
+          );
+          affectedRows += insertResult.affectedRows;
+        }
+
+        if (deletedRowsPkValues.length > 0) {
+          const deleteResult = await deleteTableRows(
+            tab.serverId,
+            tab.databaseName,
+            tab.result.editableInfo,
+            deletedRowsPkValues,
+          );
+          affectedRows += deleteResult.affectedRows;
+        }
+
+        toast.success(`${affectedRows} rows affected`);
 
         await runQueryTab(id, tab.lastExecutedQuery ?? '', {
           ...DEFAULT_QUERY_OPTIONS,

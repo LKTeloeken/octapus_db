@@ -31,6 +31,13 @@ export interface RowEdit {
   changes: [string, string | null][];
 }
 
+export interface QueryChangeSet {
+  edits: RowEdit[];
+  insertedRows: (string | null)[][];
+  deletedRowsPkValues: (string | null)[][];
+  insertColumnNames: string[];
+}
+
 export interface ExecuteQueryResponse {
   columns: QueryColumnInfo[];
   rows: (string | null)[][];

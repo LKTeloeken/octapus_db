@@ -52,7 +52,6 @@ export const useTreeNode = (
         metadata.serverData?.default_database || loadedDatabaseName || 'postgres',
         {
           type: TabType.Query,
-          title: metadata.serverData?.default_database || loadedDatabaseName || 'postgres',
           content: '',
         },
       );
@@ -61,10 +60,6 @@ export const useTreeNode = (
     if (type !== 'server' && serverId) {
       openNewTab(serverId, metadata.databaseName, {
         type: TabType.Query,
-        title:
-          type === 'table' && metadata.tableName
-            ? metadata.tableName
-            : metadata.databaseName,
         content: resolveSeedQuery(),
       });
     }
