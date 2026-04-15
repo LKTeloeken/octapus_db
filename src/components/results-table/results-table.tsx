@@ -190,6 +190,7 @@ export const ResultsTable = memo(
                     <div
                       key={`vertical-row-${rowIndex}`}
                       ref={rowVirtualizer.measureElement}
+                      data-index={rowIndex}
                       className={cn(
                         'border rounded-md overflow-hidden absolute left-2 right-2',
                         isRowModified(rowIndex) ? 'border-yellow-500/50' : 'border-border',
