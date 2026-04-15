@@ -7,6 +7,7 @@ export interface QueryEditorContainerProps {
   onExecute: (query: string) => void;
   onCancel?: () => void;
   databaseStructure: DatabaseStructure | null;
+  onRequestTableColumns?: (schemaName: string, tableName: string) => Promise<void>;
   isLoading?: boolean;
   isQueryRunning?: boolean;
 }

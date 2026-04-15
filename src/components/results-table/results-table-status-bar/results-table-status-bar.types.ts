@@ -1,5 +1,7 @@
 import type { EditableInfo } from '@/api/database/database-responses.types';
 import type { ApplyChangesFn } from '../results-table.types';
+import type { ResultsViewLayout } from '@/stores/slices/schemaCache.types';
+import type { TabType } from '@/shared/models/tabs.types';
 
 export interface DataTableStatusBarProps {
   executionTimeMs?: number;
@@ -13,4 +15,8 @@ export interface DataTableStatusBarProps {
   hasMore: boolean;
   onDiscardChanges: () => void;
   onApplyChanges: ApplyChangesFn;
+  tabType?: TabType;
+  viewLayout: ResultsViewLayout;
+  onViewLayoutChange?: (layout: ResultsViewLayout) => void;
+  onSwitchToSql?: () => void;
 }

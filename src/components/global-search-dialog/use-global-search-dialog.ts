@@ -1,10 +1,9 @@
 import { useStore } from '@/stores';
 import type { TreeNode } from '@/shared/models/database.types';
 import { TreeNodeType } from '@/shared/models/database.types';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SearchTarget } from './global-search-dialog.types';
 import toast from 'react-hot-toast';
-import { getDatabases } from '@/api/database/database-methods';
 import { ensureServerConnection } from '@/api/server/methods';
 
 const MAX_SEARCH_RESULTS = 300;
@@ -26,16 +25,13 @@ export const useGlobalSearchDialog = (
     tableName: string,
   ) => Promise<void>,
 ) => {
-  const { cache, fetchStructure } = useStore();
+  const { cache, fetchStructure, recentOpenedTables } = useStore();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [isLoadingStructures, setIsLoadingStructures] = useState(false);
   const [isOpeningTable, setIsOpeningTable] = useState(false);
-  const hydratedDatabases = useRef<Set<string>>(new Set());
+  const [isLoadingStructures] = useState(false);
 
   const serverInfo = useMemo(() => {
-    const connectedServerTargets: Array<{ serverId: number; serverName: string }> =
-      [];
     const connectedServerIds = new Set<number>();
     const serverNameById = new Map<number, string>();
 
@@ -50,15 +46,10 @@ export const useGlobalSearchDialog = (
       serverNameById.set(node.metadata.serverId, node.name);
       if (node.isConnected) {
         connectedServerIds.add(node.metadata.serverId);
-        connectedServerTargets.push({
-          serverId: node.metadata.serverId,
-          serverName: node.name,
-        });
       }
     });
 
     return {
-      connectedServerTargets,
       connectedServerIds,
       serverNameById,
     };
@@ -82,6 +73,7 @@ export const useGlobalSearchDialog = (
             databaseName,
             schemaName: schema.name,
             tableName: table.name,
+            searchTokens: table.columns?.slice(0, 50).map(column => column.name) ?? [],
           });
         });
       });
@@ -113,31 +105,7 @@ export const useGlobalSearchDialog = (
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  useEffect(() => {
-    if (!open || serverInfo.connectedServerTargets.length === 0) return;
-
-    setIsLoadingStructures(true);
-    Promise.all(
-      serverInfo.connectedServerTargets.map(async server => {
-        const databases = await getDatabases(server.serverId);
-
-        await Promise.all(
-          databases.map(async database => {
-            const key = `${server.serverId}:${database.name}`;
-            if (hydratedDatabases.current.has(key)) return;
-            hydratedDatabases.current.add(key);
-            await fetchStructure(server.serverId, database.name).catch(() => null);
-          }),
-        );
-      }),
-    )
-      .catch(() => {
-        toast.error('Failed to load connected server tables for command search');
-      })
-      .finally(() => setIsLoadingStructures(false));
-  }, [fetchStructure, open, serverInfo.connectedServerTargets]);
-
-  const results = useMemo(() => {
+  const baseResults = useMemo(() => {
     const normalized = search.trim().toLowerCase();
     if (!normalized) return searchTargets.slice(0, MAX_SEARCH_RESULTS);
 
@@ -145,12 +113,39 @@ export const useGlobalSearchDialog = (
       .filter(item => {
         const tableRefWithDot = `${item.schemaName}.${item.tableName}`;
         const tableRefWithSlash = `${item.schemaName}/${item.tableName}`;
+        const columnTokens = (item.searchTokens ?? []).join(' ');
         const value =
-          `${item.serverName} ${item.databaseName} ${item.schemaName} ${item.tableName} ${tableRefWithDot} ${tableRefWithSlash}`.toLowerCase();
+          `${item.serverName} ${item.databaseName} ${item.schemaName} ${item.tableName} ${tableRefWithDot} ${tableRefWithSlash} ${columnTokens}`.toLowerCase();
         return value.includes(normalized);
       })
       .slice(0, MAX_SEARCH_RESULTS);
   }, [search, searchTargets]);
+
+  const results = useMemo(() => {
+    const recentKeyOrder = new Map(
+      recentOpenedTables.map((item, index) => [item.key, index]),
+    );
+    const recentKeys = new Set(recentKeyOrder.keys());
+    const prioritized = baseResults
+      .filter(item =>
+        recentKeys.has(
+          `${item.serverId}:${item.databaseName}:${item.schemaName}:${item.tableName}`,
+        ),
+      )
+      .sort((a, b) => {
+        const aKey = `${a.serverId}:${a.databaseName}:${a.schemaName}:${a.tableName}`;
+        const bKey = `${b.serverId}:${b.databaseName}:${b.schemaName}:${b.tableName}`;
+        return (recentKeyOrder.get(aKey) ?? 999) - (recentKeyOrder.get(bKey) ?? 999);
+      });
+    const remaining = baseResults.filter(
+      item =>
+        !recentKeys.has(
+          `${item.serverId}:${item.databaseName}:${item.schemaName}:${item.tableName}`,
+        ),
+    );
+
+    return [...prioritized, ...remaining].slice(0, MAX_SEARCH_RESULTS);
+  }, [baseResults, recentOpenedTables]);
 
   const groupedResults = useMemo(() => {
     const groups = new Map<string, SearchTarget[]>();

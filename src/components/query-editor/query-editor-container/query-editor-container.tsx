@@ -16,6 +16,7 @@ export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
   onExecute,
   onCancel,
   databaseStructure,
+  onRequestTableColumns,
   isLoading = false,
   isQueryRunning = false,
 }) => {
@@ -60,6 +61,7 @@ export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
         <SQLEditor
           value={value}
           databaseStructure={databaseStructure}
+          onRequestTableColumns={onRequestTableColumns}
           onChange={onChange}
           onChangeSelection={handleSelectionChange}
           onRunQuery={handleRun}

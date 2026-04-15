@@ -1,5 +1,7 @@
 import { memo } from 'react';
 import { Spinner } from '@/components/ui/spinner';
+import { Button } from '@/components/ui/button';
+import { TabType } from '@/shared/models/tabs.types';
 
 import type { DataTableStatusBarProps } from './results-table-status-bar.types';
 
@@ -16,6 +18,10 @@ export const DataTableStatusBar = memo(
     hasMore,
     onDiscardChanges,
     onApplyChanges,
+    tabType,
+    viewLayout,
+    onViewLayoutChange,
+    onSwitchToSql,
   }: DataTableStatusBarProps) => {
     return (
       <div className="flex items-center justify-between px-3 py-1.5 border-t border-border bg-purple-glow text-xs text-foreground shrink-0">
@@ -36,6 +42,37 @@ export const DataTableStatusBar = memo(
           )}
         </div>
         <div className="flex items-center gap-2">
+          {tabType === TabType.View ? (
+            <>
+              <Button
+                type="button"
+                variant={viewLayout === 'horizontal' ? 'default' : 'outline'}
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                onClick={() => onViewLayoutChange?.('horizontal')}
+              >
+                Horizontal
+              </Button>
+              <Button
+                type="button"
+                variant={viewLayout === 'vertical' ? 'default' : 'outline'}
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                onClick={() => onViewLayoutChange?.('vertical')}
+              >
+                Vertical
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                onClick={onSwitchToSql}
+              >
+                SQL
+              </Button>
+            </>
+          ) : null}
           {changesCount > 0 && (
             <>
               <span className="text-yellow-400">

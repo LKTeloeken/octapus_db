@@ -6,6 +6,7 @@ import type {
 } from '@/api/database/database-responses.types';
 import type { TabSort, TabType } from '@/shared/models/tabs.types';
 import type { ApplyQueryTabChanges } from '@/shared/hooks/use-query-tabs/use-query-tabs.types';
+import type { ResultsViewLayout } from '@/stores/slices/schemaCache.types';
 
 export type DataTableRow = (string | null)[];
 
@@ -23,9 +24,12 @@ export interface ResultsTableProps {
   rowCount?: number;
   className?: string;
   tabType?: TabType;
+  viewLayout?: ResultsViewLayout;
   sort?: TabSort | null;
   onSortColumn?: (column: string) => void;
   onOpenForeignTable?: (target: ForeignKeyTarget) => void;
+  onViewLayoutChange?: (layout: ResultsViewLayout) => void;
+  onSwitchToSql?: () => void;
 }
 
 export interface CellChange {

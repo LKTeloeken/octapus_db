@@ -3,6 +3,7 @@ import { ComputerIcon, DatabaseIcon, Folder01Icon, HashtagIcon, TableIcon } from
 import type { TreeNode, TreeNodeType } from '@/shared/models/database.types';
 import type { Server } from '@/shared/models/servers.types';
 import type { OpenTab } from '@/shared/hooks/use-query-tabs/use-query-tabs.types';
+import { TabType } from '@/shared/models/tabs.types';
 import { cn } from '@/lib/utils';
 
 export const useTreeNode = (
@@ -34,20 +35,38 @@ export const useTreeNode = (
     e.stopPropagation();
 
     const { type, serverId } = metadata;
+    const quoteIdentifier = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const resolveSeedQuery = () => {
+      if (type !== 'table' || !metadata.schemaName || !metadata.tableName) return '';
+      return `SELECT * FROM ${quoteIdentifier(metadata.schemaName)}.${quoteIdentifier(metadata.tableName)}`;
+    };
 
     if (type === 'server' && serverId) {
       const loadedDatabaseName = childrenIds
         .map(childId => nodes.get(childId))
         .find(child => child?.type === 'database')?.name;
 
+      // Fallback order for server SQL tabs: metadata default DB > first loaded DB > postgres.
       openNewTab(
         serverId,
         metadata.serverData?.default_database || loadedDatabaseName || 'postgres',
+        {
+          type: TabType.Query,
+          title: metadata.serverData?.default_database || loadedDatabaseName || 'postgres',
+          content: '',
+        },
       );
     }
 
     if (type !== 'server' && serverId) {
-      openNewTab(serverId, metadata.databaseName);
+      openNewTab(serverId, metadata.databaseName, {
+        type: TabType.Query,
+        title:
+          type === 'table' && metadata.tableName
+            ? metadata.tableName
+            : metadata.databaseName,
+        content: resolveSeedQuery(),
+      });
     }
   };
 

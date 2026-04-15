@@ -13,6 +13,8 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
 ) => ({
   cache: {},
   loading: {},
+  recentOpenedTables: [],
+  viewLayout: 'horizontal',
 
   fetchStructure: async (serverId, databaseName, forceRefresh = false) => {
     const key = getCacheKey(serverId, databaseName);
@@ -158,6 +160,23 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
 
   clearAll: () => {
     pendingRequests.clear();
-    set({ cache: {}, loading: {} });
+    set({ cache: {}, loading: {}, recentOpenedTables: [], viewLayout: 'horizontal' });
   },
+
+  recordRecentOpenedTable: item => {
+    set(state => {
+      const existing = state.recentOpenedTables.filter(
+        recent => recent.key !== item.key,
+      );
+
+      return {
+        recentOpenedTables: [
+          { ...item, openedAt: Date.now() },
+          ...existing,
+        ].slice(0, 10),
+      };
+    });
+  },
+
+  setViewLayout: layout => set({ viewLayout: layout }),
 });

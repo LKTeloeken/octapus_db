@@ -9,9 +9,12 @@ import { EmptyState } from './empty-state';
 import { LodingState } from './loding-state';
 import { ResultsTableRowCell } from './results-table-row-cell/results-table-row-cell';
 import { TabType } from '@/shared/models/tabs.types';
+import { DataTableCell } from './results-table-cell/results-table-cell';
 
 const ROW_HEIGHT = 32;
 const OVERSCAN = 10;
+const VERTICAL_BASE_ROW_HEIGHT = 44;
+const VERTICAL_HEADER_HEIGHT = 28;
 
 export const ResultsTable = memo(
   ({
@@ -28,9 +31,12 @@ export const ResultsTable = memo(
     rowCount,
     className,
     tabType,
+    viewLayout = 'horizontal',
     sort,
     onSortColumn,
     onOpenForeignTable,
+    onViewLayoutChange,
+    onSwitchToSql,
   }: ResultsTableProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -50,7 +56,10 @@ export const ResultsTable = memo(
     const rowVirtualizer = useVirtualizer({
       count: rows.length,
       getScrollElement: () => containerRef.current,
-      estimateSize: () => ROW_HEIGHT,
+      estimateSize: () =>
+        viewLayout === 'vertical'
+          ? VERTICAL_HEADER_HEIGHT + columns.length * VERTICAL_BASE_ROW_HEIGHT
+          : ROW_HEIGHT,
       overscan: OVERSCAN,
     });
 
@@ -108,6 +117,8 @@ export const ResultsTable = memo(
       return <EmptyState className={className} tabType={tabType} />;
     }
 
+    const isVerticalLayout = viewLayout === 'vertical';
+
     return (
       <div
         className={cn(
@@ -116,51 +127,108 @@ export const ResultsTable = memo(
         )}
       >
         <div className="flex-1 min-h-0">
-          <div
-            ref={containerRef}
-            className="relative h-full w-full overflow-auto scrollbar-thin"
-          >
-            <div className="bg-background flex items-center border-b border-border sticky top-0 z-20">
-              {columns.map(column => (
-                <ColumnCell
-                  key={`column-${column.name}`}
-                  column={column}
-                  isPrimaryKeyColumn={isPrimaryKeyColumn(column.name)}
-                  sortable={tabType === 'view'}
-                  sort={sort}
-                  onSortColumn={onSortColumn}
-                  onOpenForeignTable={onOpenForeignTable}
-                  className="w-48 min-w-48 max-w-48"
-                />
-              ))}
-            </div>
+          <div ref={containerRef} className="relative h-full w-full overflow-auto scrollbar-thin">
+            {isVerticalLayout ? (
+              <div
+                className="relative"
+                style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+              >
+                {virtualItems.map(virtualRow => {
+                  const rowIndex = virtualRow.index;
+                  const row = rows[rowIndex];
+                  if (!row) return null;
 
-            <div className="relative">
-              {virtualItems.map(virtualRow => {
-                const row = rows[virtualRow.index];
-                if (!row) return null;
+                  return (
+                    <div
+                      key={`vertical-row-${rowIndex}`}
+                      className={cn(
+                        'border rounded-md overflow-hidden absolute left-2 right-2',
+                        isRowModified(rowIndex) ? 'border-yellow-500/50' : 'border-border',
+                      )}
+                      style={{
+                        transform: `translateY(${virtualRow.start}px)`,
+                        height: `${virtualRow.size}px`,
+                      }}
+                    >
+                      <div className="bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                        Row {rowIndex + 1}
+                      </div>
+                      <div>
+                        {columns.map((column, cellIndex) => {
+                          const cell = row[cellIndex];
+                          return (
+                            <div
+                              key={`vertical-cell-${rowIndex}-${column.name}`}
+                              className="grid grid-cols-[180px_1fr] border-t border-border"
+                            >
+                              <div className="px-2 py-1.5 text-xs bg-muted/20 border-r border-border truncate">
+                                {column.name}
+                              </div>
+                              <div className="min-w-0">
+                                <DataTableCell
+                                  value={cell}
+                                  columnType={column.typeName}
+                                  displayValue={getCellDisplayValue(rowIndex, column.name, cell)}
+                                  isModified={isCellModified(rowIndex, column.name)}
+                                  isEditable={isColumnEditable(column.name)}
+                                  onSave={newValue =>
+                                    updateCell(rowIndex, column.name, cell, newValue)
+                                  }
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div>
+                <div className="bg-background flex items-center border-b border-border sticky top-0 z-20">
+                  {columns.map(column => (
+                    <ColumnCell
+                      key={`column-${column.name}`}
+                      column={column}
+                      isPrimaryKeyColumn={isPrimaryKeyColumn(column.name)}
+                      sortable={tabType === 'view'}
+                      sort={sort}
+                      onSortColumn={onSortColumn}
+                      onOpenForeignTable={onOpenForeignTable}
+                      className="w-48 min-w-48 max-w-48"
+                    />
+                  ))}
+                </div>
 
-                const modified = isRowModified(virtualRow.index);
-                const isEven = virtualRow.index % 2 === 0;
+                <div className="relative">
+                  {virtualItems.map(virtualRow => {
+                    const row = rows[virtualRow.index];
+                    if (!row) return null;
 
-                return (
-                  <ResultsTableRowCell
-                    key={`row-${virtualRow.index}`}
-                    row={row}
-                    rowIndex={virtualRow.index}
-                    isModified={modified}
-                    isEven={isEven}
-                    rowHeight={ROW_HEIGHT}
-                    rowStart={virtualRow.start}
-                    columns={columns}
-                    getCellDisplayValue={getCellDisplayValue}
-                    isCellModified={isCellModified}
-                    isColumnEditable={isColumnEditable}
-                    updateCell={updateCell}
-                  />
-                );
-              })}
-            </div>
+                    const modified = isRowModified(virtualRow.index);
+                    const isEven = virtualRow.index % 2 === 0;
+
+                    return (
+                      <ResultsTableRowCell
+                        key={`row-${virtualRow.index}`}
+                        row={row}
+                        rowIndex={virtualRow.index}
+                        isModified={modified}
+                        isEven={isEven}
+                        rowHeight={ROW_HEIGHT}
+                        rowStart={virtualRow.start}
+                        columns={columns}
+                        getCellDisplayValue={getCellDisplayValue}
+                        isCellModified={isCellModified}
+                        isColumnEditable={isColumnEditable}
+                        updateCell={updateCell}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -176,6 +244,10 @@ export const ResultsTable = memo(
           hasMore={hasMore ?? false}
           onDiscardChanges={discardChanges}
           onApplyChanges={applyChanges}
+          tabType={tabType}
+          viewLayout={viewLayout}
+          onViewLayoutChange={onViewLayoutChange}
+          onSwitchToSql={onSwitchToSql}
         />
       </div>
     );

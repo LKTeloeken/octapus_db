@@ -20,12 +20,12 @@ export const QueryTabs = memo(
         onValueChange={onTabChange}
         className="h-full w-full flex flex-col"
       >
-        <TabsList className="p-1 w-full overflow-hidden">
+        <TabsList className="p-1 w-full overflow-x-auto overflow-y-hidden justify-start flex-nowrap">
           {tabs.map(tab => (
-            <div key={tab.id} className="relative">
+            <div key={tab.id} className="relative shrink-0">
               <TabsTrigger
                 value={tab.id}
-                className="px-2.5 pr-7 sm:px-3 sm:pr-7"
+                className="px-2.5 pr-7 sm:px-3 sm:pr-7 min-w-36"
               >
                 <code className="flex items-center gap-1 text-[13px] [&>svg]:h-4 [&>svg]:w-4">
                   <HugeiconsIcon
@@ -35,12 +35,17 @@ export const QueryTabs = memo(
                   {tab.title}
                 </code>
               </TabsTrigger>
-              <span
+              <button
+                type="button"
+                aria-label={`Close tab ${tab.title}`}
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 z-10 inline-flex h-4 w-4 items-center justify-center rounded-sm hover:bg-accent hover:text-accent-foreground cursor-pointer"
-                onClick={() => onTabClose(tab.id)}
+                onClick={event => {
+                  event.stopPropagation();
+                  onTabClose(tab.id);
+                }}
               >
                 <HugeiconsIcon icon={Cancel01Icon} className="h-3 w-3" />
-              </span>
+              </button>
             </div>
           ))}
         </TabsList>
