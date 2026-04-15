@@ -32,6 +32,19 @@ pub struct RowEdit {
     pub changes: Vec<(String, Option<String>)>,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsertRowsInput {
+    pub column_names: Vec<String>,
+    pub rows: Vec<Vec<Option<String>>>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteRowsInput {
+    pub pk_values_list: Vec<Vec<Option<String>>>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryColumnInfo {

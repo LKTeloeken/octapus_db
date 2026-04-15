@@ -15,6 +15,18 @@ const ROW_HEIGHT = 32;
 const OVERSCAN = 10;
 const VERTICAL_BASE_ROW_HEIGHT = 44;
 const VERTICAL_HEADER_HEIGHT = 28;
+const INSERTED_ROW_PREFIX = 'inserted-';
+
+const isEditableElement = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  return (
+    tag === 'input' ||
+    tag === 'textarea' ||
+    target.isContentEditable ||
+    target.getAttribute('contenteditable') === 'true'
+  );
+};
 
 export const ResultsTable = memo(
   ({
@@ -40,6 +52,11 @@ export const ResultsTable = memo(
   }: ResultsTableProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+    const [insertedRows, setInsertedRows] = useState<(string | null)[][]>([]);
+    const [deletedRowsMap, setDeletedRowsMap] = useState<
+      Map<string, (string | null)[]>
+    >(new Map());
+    const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
 
     const {
       isEditable,
@@ -50,9 +67,9 @@ export const ResultsTable = memo(
       isCellModified,
       getCellDisplayValue,
       discardChanges,
-      applyChanges,
+      getModifiedRows,
       changesCount,
-    } = useResultsTable(rows, columns, editableInfo, onApplyChanges);
+    } = useResultsTable(rows, columns, editableInfo, () => {});
 
     const visibleColumns = useMemo(
       () =>
@@ -68,6 +85,26 @@ export const ResultsTable = memo(
     );
 
     const visibleColumnCount = visibleColumns.length;
+    const displayedRows = useMemo(
+      () => [...rows, ...insertedRows],
+      [rows, insertedRows],
+    );
+    const totalPendingChangesCount =
+      changesCount + insertedRows.length + deletedRowsMap.size;
+
+    const pkValuesToKey = useCallback((pkValues: (string | null)[]) => {
+      return pkValues.map(value => value ?? 'NULL').join('|');
+    }, []);
+
+    const getPkValuesFromRow = useCallback(
+      (row: (string | null)[]) => {
+        if (!editableInfo?.primaryKeyColumnIndices?.length) return null;
+        return editableInfo.primaryKeyColumnIndices.map(
+          keyIndex => row[keyIndex] ?? null,
+        );
+      },
+      [editableInfo],
+    );
 
     const toggleColumnVisibility = useCallback((columnName: string) => {
       setHiddenColumns(previous => {
@@ -96,8 +133,79 @@ export const ResultsTable = memo(
       });
     }, [columns]);
 
+    const addRow = useCallback(() => {
+      if (!isEditable || columns.length === 0) return;
+      setInsertedRows(previous => [...previous, columns.map(() => null)]);
+    }, [columns, isEditable]);
+
+    const toggleSelectedRowDeletion = useCallback(() => {
+      if (!selectedRowKey) return;
+
+      if (selectedRowKey.startsWith(INSERTED_ROW_PREFIX)) {
+        const insertedIndex = Number(
+          selectedRowKey.replace(INSERTED_ROW_PREFIX, ''),
+        );
+        if (!Number.isFinite(insertedIndex)) return;
+        setInsertedRows(previous =>
+          previous.filter((_, index) => index !== insertedIndex),
+        );
+        setSelectedRowKey(null);
+        return;
+      }
+
+      const rowIndex = Number(selectedRowKey);
+      if (!Number.isFinite(rowIndex) || rowIndex < 0 || rowIndex >= rows.length) {
+        return;
+      }
+
+      const row = rows[rowIndex];
+      if (!row) return;
+
+      const pkValues = getPkValuesFromRow(row);
+      if (!pkValues) return;
+      const rowKey = pkValuesToKey(pkValues);
+
+      setDeletedRowsMap(previous => {
+        const next = new Map(previous);
+        if (next.has(rowKey)) {
+          next.delete(rowKey);
+        } else {
+          next.set(rowKey, pkValues);
+        }
+        return next;
+      });
+    }, [getPkValuesFromRow, pkValuesToKey, rows, selectedRowKey]);
+
+    const handleDiscardAll = useCallback(() => {
+      discardChanges();
+      setInsertedRows([]);
+      setDeletedRowsMap(new Map());
+      setSelectedRowKey(null);
+    }, [discardChanges]);
+
+    const handleApplyAll = useCallback(() => {
+      const edits = getModifiedRows().filter(
+        edit => !deletedRowsMap.has(pkValuesToKey(edit.pkValues)),
+      );
+      onApplyChanges({
+        edits,
+        insertedRows,
+        deletedRowsPkValues: Array.from(deletedRowsMap.values()),
+        insertColumnNames: columns.map(column => column.name),
+      });
+      handleDiscardAll();
+    }, [
+      columns,
+      deletedRowsMap,
+      getModifiedRows,
+      handleDiscardAll,
+      insertedRows,
+      onApplyChanges,
+      pkValuesToKey,
+    ]);
+
     const rowVirtualizer = useVirtualizer({
-      count: rows.length,
+      count: displayedRows.length,
       getScrollElement: () => containerRef.current,
       estimateSize: () =>
         viewLayout === 'vertical'
@@ -135,33 +243,51 @@ export const ResultsTable = memo(
       if (tabType !== TabType.View) return;
 
       const handleTableShortcut = (event: KeyboardEvent) => {
-        if (!(event.metaKey || event.ctrlKey)) return;
+        if (!isEditable) return;
         const key = event.key.toLowerCase();
+
+        if (key === 'backspace' && !isEditableElement(event.target)) {
+          if (selectedRowKey) {
+            event.preventDefault();
+            toggleSelectedRowDeletion();
+          }
+          return;
+        }
+
+        if (!(event.metaKey || event.ctrlKey)) return;
 
         if (key === 's') {
           event.preventDefault();
-          if (changesCount > 0) {
-            applyChanges();
+          if (totalPendingChangesCount > 0) {
+            handleApplyAll();
           }
         }
 
         if (key === 'z') {
           event.preventDefault();
-          if (changesCount > 0) {
-            discardChanges();
+          if (totalPendingChangesCount > 0) {
+            handleDiscardAll();
           }
         }
       };
 
       window.addEventListener('keydown', handleTableShortcut);
       return () => window.removeEventListener('keydown', handleTableShortcut);
-    }, [applyChanges, changesCount, discardChanges, tabType]);
+    }, [
+      handleApplyAll,
+      handleDiscardAll,
+      isEditable,
+      selectedRowKey,
+      tabType,
+      toggleSelectedRowDeletion,
+      totalPendingChangesCount,
+    ]);
 
     if (isLoading) {
       return <LodingState className={className} />;
     }
 
-    if (rows.length === 0) {
+    if (displayedRows.length === 0) {
       return <EmptyState className={className} tabType={tabType} />;
     }
 
@@ -183,8 +309,17 @@ export const ResultsTable = memo(
               >
                 {virtualItems.map(virtualRow => {
                   const rowIndex = virtualRow.index;
-                  const row = rows[rowIndex];
+                  const row = displayedRows[rowIndex];
                   if (!row) return null;
+                  const isInsertedRow = rowIndex >= rows.length;
+                  const insertedIndex = rowIndex - rows.length;
+                  const selectedKey = isInsertedRow
+                    ? `${INSERTED_ROW_PREFIX}${insertedIndex}`
+                    : `${rowIndex}`;
+                  const pkValues = !isInsertedRow ? getPkValuesFromRow(row) : null;
+                  const rowPkKey = pkValues ? pkValuesToKey(pkValues) : null;
+                  const isDeleted = !!rowPkKey && deletedRowsMap.has(rowPkKey);
+                  const modified = isInsertedRow ? false : isRowModified(rowIndex);
 
                   return (
                     <div
@@ -192,13 +327,21 @@ export const ResultsTable = memo(
                       ref={rowVirtualizer.measureElement}
                       data-index={rowIndex}
                       className={cn(
-                        'border rounded-md overflow-hidden absolute left-2 right-2',
-                        isRowModified(rowIndex) ? 'border-yellow-500/50' : 'border-border',
+                        'border rounded-md overflow-hidden absolute left-2 right-2 transition-colors',
+                        isDeleted
+                          ? 'border-red-500/50 bg-red-900/20'
+                          : isInsertedRow
+                            ? 'border-emerald-500/40 bg-emerald-900/10'
+                            : modified
+                              ? 'border-yellow-500/50'
+                              : 'border-border',
+                        selectedRowKey === selectedKey && 'ring-1 ring-primary/60',
                       )}
                       style={{
                         transform: `translateY(${virtualRow.start}px)`,
                         height: `${virtualRow.size}px`,
                       }}
+                      onClick={() => setSelectedRowKey(selectedKey)}
                     >
                       <div className="bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
                         Row {rowIndex + 1}
@@ -218,11 +361,45 @@ export const ResultsTable = memo(
                                 <DataTableCell
                                   value={cell}
                                   columnType={column.typeName}
-                                  displayValue={getCellDisplayValue(rowIndex, column.name, cell)}
-                                  isModified={isCellModified(rowIndex, column.name)}
-                                  isEditable={isColumnEditable(column.name)}
+                                  displayValue={
+                                    isInsertedRow
+                                      ? cell
+                                      : getCellDisplayValue(
+                                          rowIndex,
+                                          column.name,
+                                          cell,
+                                        )
+                                  }
+                                  isModified={
+                                    isInsertedRow
+                                      ? false
+                                      : isCellModified(rowIndex, column.name)
+                                  }
+                                  isEditable={
+                                    isInsertedRow
+                                      ? true
+                                      : isColumnEditable(column.name)
+                                  }
                                   onSave={newValue =>
-                                    updateCell(rowIndex, column.name, cell, newValue)
+                                    isInsertedRow
+                                      ? setInsertedRows(previous =>
+                                          previous.map((insertedRow, idx) =>
+                                            idx === insertedIndex
+                                              ? insertedRow.map(
+                                                  (insertedCell, insertedCellIndex) =>
+                                                    insertedCellIndex === columnIndex
+                                                      ? newValue
+                                                      : insertedCell,
+                                                )
+                                              : insertedRow,
+                                          ),
+                                        )
+                                      : updateCell(
+                                          rowIndex,
+                                          column.name,
+                                          cell,
+                                          newValue,
+                                        )
                                   }
                                 />
                               </div>
@@ -253,10 +430,20 @@ export const ResultsTable = memo(
 
                 <div className="relative">
                   {virtualItems.map(virtualRow => {
-                    const row = rows[virtualRow.index];
+                    const row = displayedRows[virtualRow.index];
                     if (!row) return null;
+                    const isInsertedRow = virtualRow.index >= rows.length;
+                    const insertedIndex = virtualRow.index - rows.length;
+                    const selectedKey = isInsertedRow
+                      ? `${INSERTED_ROW_PREFIX}${insertedIndex}`
+                      : `${virtualRow.index}`;
+                    const pkValues = !isInsertedRow ? getPkValuesFromRow(row) : null;
+                    const rowPkKey = pkValues ? pkValuesToKey(pkValues) : null;
+                    const isDeleted = !!rowPkKey && deletedRowsMap.has(rowPkKey);
 
-                    const modified = isRowModified(virtualRow.index);
+                    const modified = isInsertedRow
+                      ? false
+                      : isRowModified(virtualRow.index);
                     const isEven = virtualRow.index % 2 === 0;
 
                     return (
@@ -266,13 +453,55 @@ export const ResultsTable = memo(
                         rowIndex={virtualRow.index}
                         isModified={modified}
                         isEven={isEven}
+                        isSelected={selectedRowKey === selectedKey}
+                        isDeleted={isDeleted}
+                        isInserted={isInsertedRow}
                         rowHeight={ROW_HEIGHT}
                         rowStart={virtualRow.start}
+                        onSelect={() => setSelectedRowKey(selectedKey)}
                         visibleColumns={visibleColumns}
-                        getCellDisplayValue={getCellDisplayValue}
-                        isCellModified={isCellModified}
-                        isColumnEditable={isColumnEditable}
-                        updateCell={updateCell}
+                        getCellDisplayValue={(rowIndex, columnId, originalValue) => {
+                          if (!isInsertedRow) {
+                            return getCellDisplayValue(rowIndex, columnId, originalValue);
+                          }
+                          const targetColumn = columns.findIndex(
+                            column => column.name === columnId,
+                          );
+                          if (targetColumn < 0) return originalValue;
+                          return (
+                            insertedRows[insertedIndex]?.[targetColumn] ?? originalValue
+                          );
+                        }}
+                        isCellModified={(rowIndex, columnId) => {
+                          if (isInsertedRow) return false;
+                          return isCellModified(rowIndex, columnId);
+                        }}
+                        isColumnEditable={columnName =>
+                          isInsertedRow ? true : isColumnEditable(columnName)
+                        }
+                        updateCell={(rowIndex, columnId, originalValue, newValue) => {
+                          if (!isInsertedRow) {
+                            updateCell(rowIndex, columnId, originalValue, newValue);
+                            return;
+                          }
+
+                          const targetColumn = columns.findIndex(
+                            column => column.name === columnId,
+                          );
+                          if (targetColumn < 0) return;
+
+                          setInsertedRows(previous =>
+                            previous.map((insertedRow, idx) =>
+                              idx === insertedIndex
+                                ? insertedRow.map((insertedCell, cellIndex) =>
+                                    cellIndex === targetColumn
+                                      ? newValue
+                                      : insertedCell,
+                                  )
+                                : insertedRow,
+                            ),
+                          );
+                        }}
                       />
                     );
                   })}
@@ -285,19 +514,22 @@ export const ResultsTable = memo(
         <DataTableStatusBar
           executionTimeMs={executionTimeMs}
           rowCount={rowCount}
-          rowsLength={rows.length}
+          rowsLength={displayedRows.length}
           totalCount={totalCount}
           isEditable={isEditable}
           editableInfo={editableInfo}
           changesCount={changesCount}
           isLoadingMore={isLoadingMore ?? false}
           hasMore={hasMore ?? false}
-          onDiscardChanges={discardChanges}
-          onApplyChanges={applyChanges}
+          onDiscardChanges={handleDiscardAll}
+          onApplyChanges={handleApplyAll}
           tabType={tabType}
           viewLayout={viewLayout}
           onViewLayoutChange={onViewLayoutChange}
           onSwitchToSql={onSwitchToSql}
+          onAddRow={tabType === TabType.View && isEditable ? addRow : undefined}
+          pendingInsertRowsCount={insertedRows.length}
+          pendingDeleteRowsCount={deletedRowsMap.size}
           columns={tabType === TabType.View ? columns : undefined}
           visibleColumnNames={
             tabType === TabType.View ? visibleColumnNames : undefined

@@ -1,6 +1,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useRunQuery } from '@/shared/hooks/use-run-query/use-run-query';
-import { applyRowEdits, cancelQuery } from '@/api/database/database-methods';
+import {
+  applyRowEdits,
+  cancelQuery,
+  deleteTableRows,
+  insertTableRows,
+} from '@/api/database/database-methods';
 import { useBuildQueries } from '../use-build-queries/use-build-queries';
 import toast from 'react-hot-toast';
 
@@ -8,7 +13,7 @@ import { type Tab, type TabSort, TabType } from '@/shared/models/tabs.types';
 import { TreeNodeType, type TreeNode } from '@/shared/models/database.types';
 import type { HandleFetchStructure } from '../use-data-structure/use-data-structure.types';
 import type { ExecuteQueryOptions } from '@/api/database/database-methods.types';
-import type { RowEdit } from '@/api/database/database-responses.types';
+import type { QueryChangeSet } from '@/api/database/database-responses.types';
 import { useStore } from '@/stores';
 import { ensureServerConnection } from '@/api/server/methods';
 
@@ -407,21 +412,49 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
   );
 
   const applyQueryTabChanges = useCallback(
-    async (id: string, edits: RowEdit[]) => {
+    async (id: string, changes: QueryChangeSet) => {
       const tab = tabs.get(id);
       if (!tab || !tab.result?.editableInfo) return;
 
       updateTab(id, { loadingChanges: true });
 
       try {
-        const result = await applyRowEdits(
-          tab.serverId,
-          tab.databaseName,
-          tab.result.editableInfo,
-          edits,
-        );
+        const { edits, insertedRows, deletedRowsPkValues, insertColumnNames } =
+          changes;
+        let affectedRows = 0;
 
-        toast.success(`${result.affectedRows} rows updated`);
+        if (edits.length > 0) {
+          const updateResult = await applyRowEdits(
+            tab.serverId,
+            tab.databaseName,
+            tab.result.editableInfo,
+            edits,
+          );
+          affectedRows += updateResult.affectedRows;
+        }
+
+        if (insertedRows.length > 0 && insertColumnNames.length > 0) {
+          const insertResult = await insertTableRows(
+            tab.serverId,
+            tab.databaseName,
+            tab.result.editableInfo,
+            insertColumnNames,
+            insertedRows,
+          );
+          affectedRows += insertResult.affectedRows;
+        }
+
+        if (deletedRowsPkValues.length > 0) {
+          const deleteResult = await deleteTableRows(
+            tab.serverId,
+            tab.databaseName,
+            tab.result.editableInfo,
+            deletedRowsPkValues,
+          );
+          affectedRows += deleteResult.affectedRows;
+        }
+
+        toast.success(`${affectedRows} rows affected`);
 
         await runQueryTab(id, tab.lastExecutedQuery ?? '', {
           ...DEFAULT_QUERY_OPTIONS,

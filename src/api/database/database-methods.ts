@@ -111,3 +111,43 @@ export async function applyRowEdits(
 
   return result;
 }
+
+export async function insertTableRows(
+  serverId: number,
+  database: string,
+  editable: EditableInfo,
+  columnNames: string[],
+  rows: (string | null)[][],
+): Promise<ApplyRowEditsResponse> {
+  const result = await invoke<ApplyRowEditsResponse>(
+    RustMethods.INSERT_TABLE_ROWS,
+    {
+      serverId,
+      database,
+      editable,
+      columnNames,
+      rows,
+    },
+  );
+
+  return result;
+}
+
+export async function deleteTableRows(
+  serverId: number,
+  database: string,
+  editable: EditableInfo,
+  pkValuesList: (string | null)[][],
+): Promise<ApplyRowEditsResponse> {
+  const result = await invoke<ApplyRowEditsResponse>(
+    RustMethods.DELETE_TABLE_ROWS,
+    {
+      serverId,
+      database,
+      editable,
+      pkValuesList,
+    },
+  );
+
+  return result;
+}

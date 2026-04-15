@@ -9,9 +9,13 @@ export const ResultsTableRowCell = memo(
     rowIndex,
     isModified,
     isEven,
+    isSelected,
+    isDeleted,
+    isInserted,
     visibleColumns,
     rowHeight,
     rowStart,
+    onSelect,
     getCellDisplayValue,
     isCellModified,
     isColumnEditable,
@@ -21,17 +25,23 @@ export const ResultsTableRowCell = memo(
       <div
         key={rowIndex}
         className={cn(
-          'absolute top-0 left-0 w-full flex items-center',
-          isModified
+          'absolute top-0 left-0 w-full flex items-center transition-colors',
+          isDeleted
+            ? 'bg-red-900/25'
+            : isInserted
+              ? 'bg-emerald-900/20'
+              : isModified
             ? 'bg-yellow-900/20'
             : isEven
               ? 'bg-muted/30'
               : 'bg-transparent',
+          isSelected && 'ring-1 ring-primary/60',
         )}
         style={{
           height: `${rowHeight}px`,
           transform: `translateY(${rowStart}px)`,
         }}
+        onClick={onSelect}
       >
         {visibleColumns.map(({ column, columnIndex }) => {
           const cell = row[columnIndex] ?? null;

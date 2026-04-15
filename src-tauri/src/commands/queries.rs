@@ -70,6 +70,49 @@ pub async fn apply_row_edits(
 }
 
 #[tauri::command]
+pub async fn insert_table_rows(
+    state: State<'_, AppState>,
+    server_id: i64,
+    database: String,
+    editable: EditableInfo,
+    column_names: Vec<String>,
+    rows: Vec<Vec<Option<String>>>,
+) -> Result<StatementResult, String> {
+    let server = get_server(state.clone(), server_id)?;
+
+    let adapter = state
+        .connections
+        .get_or_connect(&server, &database)
+        .map_err(|e| e.to_string())?;
+
+    adapter
+        .insert_table_rows(&editable, column_names, rows)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_table_rows(
+    state: State<'_, AppState>,
+    server_id: i64,
+    database: String,
+    editable: EditableInfo,
+    pk_values_list: Vec<Vec<Option<String>>>,
+) -> Result<StatementResult, String> {
+    let server = get_server(state.clone(), server_id)?;
+
+    let adapter = state
+        .connections
+        .get_or_connect(&server, &database)
+        .map_err(|e| e.to_string())?;
+
+    adapter
+        .delete_table_rows(&editable, pk_values_list)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn execute_transaction(
     state: State<'_, AppState>,
     server_id: i64,

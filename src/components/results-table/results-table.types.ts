@@ -1,6 +1,7 @@
 import type {
   EditableInfo,
   ForeignKeyTarget,
+  QueryChangeSet,
   QueryColumnInfo,
   RowEdit,
 } from '@/api/database/database-responses.types';
@@ -14,7 +15,7 @@ export interface ResultsTableProps {
   columns: QueryColumnInfo[];
   rows: DataTableRow[];
   onLoadMore: () => void;
-  onApplyChanges: (edits: RowEdit[]) => void;
+  onApplyChanges: (changes: QueryChangeSet) => void;
   editableInfo?: EditableInfo | null;
   isLoading?: boolean;
   isLoadingMore?: boolean;

@@ -18,8 +18,12 @@ export interface ResultsTableRowCellProps {
   rowIndex: number;
   isModified: boolean;
   isEven: boolean;
+  isSelected: boolean;
+  isDeleted: boolean;
+  isInserted: boolean;
   rowHeight: number;
   rowStart: number;
+  onSelect: () => void;
 
   // Row cell properties
   visibleColumns: VisibleColumn[];

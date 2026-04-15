@@ -226,6 +226,16 @@ export async function invokeMock<T>(
         affectedRows: payload.edits?.length ?? 0,
         executionTimeMs: 4,
       } as ApplyRowEditsResponse as T;
+    case RustMethods.INSERT_TABLE_ROWS:
+      return {
+        affectedRows: payload.rows?.length ?? 0,
+        executionTimeMs: 5,
+      } as ApplyRowEditsResponse as T;
+    case RustMethods.DELETE_TABLE_ROWS:
+      return {
+        affectedRows: payload.pkValuesList?.length ?? 0,
+        executionTimeMs: 4,
+      } as ApplyRowEditsResponse as T;
     case RustMethods.CANCEL_QUERY:
       return undefined as T;
     default:

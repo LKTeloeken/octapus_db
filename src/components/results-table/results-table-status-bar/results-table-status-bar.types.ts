@@ -24,4 +24,7 @@ export interface DataTableStatusBarProps {
   visibleColumnNames?: string[];
   onToggleColumnVisibility?: (columnName: string) => void;
   onShowAllColumns?: () => void;
+  onAddRow?: () => void;
+  pendingInsertRowsCount?: number;
+  pendingDeleteRowsCount?: number;
 }
