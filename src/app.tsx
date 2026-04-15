@@ -8,13 +8,14 @@ import {
 } from '@/components/ui/resizable';
 import { useDataStructure } from '@/shared/hooks/use-data-structure/use-data-structure';
 import { useServers } from '@/shared/hooks/use-servers/use-servers';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { CustomToaster } from './components/Toaster';
 import { QueryTabs } from './components/query-tabs/query-tabs';
 import { SidebarBody } from './components/sidebar/sidebar-body/sidebar-body';
 import useTabs from './shared/hooks/use-tabs/use-tabs';
 import { TabType } from './shared/models/tabs.types';
 import { useStore } from './stores';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const App = () => {
   const {
@@ -49,6 +50,7 @@ const App = () => {
     switchViewTabToQuery,
   } = useTabs(handleFetchStructure);
   const { viewLayout, setViewLayout, fetchColumns } = useStore();
+  const tabsCountRef = useRef(tabs.length);
 
   const handleOpenTableTab = useCallback(
     (nodeId: string) => {
@@ -94,13 +96,34 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    tabsCountRef.current = tabs.length;
+  }, [tabs.length]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    const bindCloseGuard = async () => {
+      unlisten = await getCurrentWindow().onCloseRequested(event => {
+        if (tabsCountRef.current === 0) {
+          event.preventDefault();
+        }
+      });
+    };
+
+    void bindCloseGuard();
+
+    return () => unlisten?.();
+  }, []);
+
+  useEffect(() => {
     const handleCloseTabShortcut = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey)) return;
       if (event.key.toLowerCase() !== 'w') return;
-      if (!activeTab || activeTab.type !== TabType.View) return;
 
       event.preventDefault();
-      closeTab(activeTab.id);
+      if (activeTab) {
+        closeTab(activeTab.id);
+      }
     };
 
     window.addEventListener('keydown', handleCloseTabShortcut);

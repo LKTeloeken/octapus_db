@@ -194,18 +194,31 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
     [openTableByReference],
   );
 
-  const closeTab = useCallback((id: string) => {
-    setTabs(prev => {
-      const next = new Map(prev);
-      next.delete(id);
-      return next;
-    });
+  const closeTab = useCallback(
+    (id: string) => {
+      const tabIds = Array.from(tabs.keys());
+      const closingTabIndex = tabIds.indexOf(id);
+      const previousTabId =
+        closingTabIndex > 0 ? tabIds[closingTabIndex - 1] : null;
+      const nextTabId =
+        closingTabIndex >= 0 && closingTabIndex < tabIds.length - 1
+          ? tabIds[closingTabIndex + 1]
+          : null;
+      const nextActiveTabId = previousTabId ?? nextTabId ?? null;
 
-    setActiveTabId(prevActiveId => {
-      if (prevActiveId !== id) return prevActiveId;
-      return null;
-    });
-  }, []);
+      setTabs(prev => {
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+
+      setActiveTabId(prevActiveId => {
+        if (prevActiveId !== id) return prevActiveId;
+        return nextActiveTabId;
+      });
+    },
+    [tabs],
+  );
 
   const setTabContent = useCallback(
     (id: string, content: string) => {
