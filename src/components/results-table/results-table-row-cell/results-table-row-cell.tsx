@@ -9,7 +9,7 @@ export const ResultsTableRowCell = memo(
     rowIndex,
     isModified,
     isEven,
-    columns,
+    visibleColumns,
     rowHeight,
     rowStart,
     getCellDisplayValue,
@@ -33,8 +33,8 @@ export const ResultsTableRowCell = memo(
           transform: `translateY(${rowStart}px)`,
         }}
       >
-        {row.map((cell, cellIndex) => {
-          const column = columns[cellIndex];
+        {visibleColumns.map(({ column, columnIndex }) => {
+          const cell = row[columnIndex] ?? null;
 
           const columnType = column?.typeName;
           const displayValue = getCellDisplayValue(
@@ -49,9 +49,11 @@ export const ResultsTableRowCell = memo(
           };
 
           return (
-            <div className="w-48 min-w-48 max-w-48 border-r border-border">
+            <div
+              key={`cell-${rowIndex}-${column.name}`}
+              className="w-48 min-w-48 max-w-48 border-r border-border"
+            >
               <DataTableCell
-                key={`cell-${rowIndex}-${cellIndex}`}
                 value={cell}
                 columnType={columnType}
                 displayValue={displayValue}

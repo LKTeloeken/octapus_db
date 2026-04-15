@@ -2,6 +2,13 @@ import { memo } from 'react';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { TabType } from '@/shared/models/tabs.types';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 
 import type { DataTableStatusBarProps } from './results-table-status-bar.types';
 
@@ -22,7 +29,14 @@ export const DataTableStatusBar = memo(
     viewLayout,
     onViewLayoutChange,
     onSwitchToSql,
+    columns = [],
+    visibleColumnNames = [],
+    onToggleColumnVisibility,
+    onShowAllColumns,
   }: DataTableStatusBarProps) => {
+    const visibleSet = new Set(visibleColumnNames);
+    const hiddenCount = Math.max(columns.length - visibleColumnNames.length, 0);
+
     return (
       <div className="flex items-center justify-between px-3 py-1.5 border-t border-border bg-purple-glow text-xs text-foreground shrink-0">
         <div className="flex items-center gap-3">
@@ -71,6 +85,60 @@ export const DataTableStatusBar = memo(
               >
                 SQL
               </Button>
+              {columns.length > 0 && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant={hiddenCount > 0 ? 'default' : 'outline'}
+                      size="sm"
+                      className="h-6 px-2 text-[11px]"
+                    >
+                      Colunas
+                      {hiddenCount > 0 ? ` (${hiddenCount} oculta${hiddenCount === 1 ? '' : 's'})` : ''}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-72 p-2">
+                    <div className="space-y-2 max-h-56 overflow-auto pr-1">
+                      {columns.map(column => {
+                        const checked = visibleSet.has(column.name);
+                        const inputId = `column-visibility-${column.name}`;
+                        return (
+                          <div
+                            key={column.name}
+                            className="flex items-center gap-2"
+                          >
+                            <Checkbox
+                              id={inputId}
+                              checked={checked}
+                              onCheckedChange={() =>
+                                onToggleColumnVisibility?.(column.name)
+                              }
+                            />
+                            <Label
+                              htmlFor={inputId}
+                              className="text-xs font-normal truncate cursor-pointer"
+                            >
+                              {column.name}
+                            </Label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="pt-2 border-t border-border mt-2 flex justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[11px]"
+                        onClick={onShowAllColumns}
+                      >
+                        Mostrar todas
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
             </>
           ) : null}
           {changesCount > 0 && (

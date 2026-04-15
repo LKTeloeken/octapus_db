@@ -19,6 +19,9 @@ const DEFAULT_QUERY_OPTIONS: ExecuteQueryOptions = {
   offset: 0,
 };
 
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 function createTab(
   id: string,
   serverId: number,
@@ -67,14 +70,50 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
     (serverId: number, databaseName: string, initialData?: Partial<Tab>) => {
       const newTabId = `${serverId}-${databaseName}-${Date.now()}`;
       const targetTabId = initialData?.id ?? newTabId;
-      const newTab = createTab(targetTabId, serverId, databaseName, initialData);
+
+      let normalizedInitialData = initialData;
+      if (initialData?.type === TabType.Query) {
+        const shouldGenerateSqlTitle =
+          !initialData.title || initialData.title === databaseName;
+
+        if (shouldGenerateSqlTitle) {
+          const sqlTitlePattern = new RegExp(
+            `^${escapeRegExp(databaseName)}\\s+sql\\s+(\\d+)$`,
+            'i',
+          );
+          const maxSqlIndex = Array.from(tabs.values())
+            .filter(
+              tab =>
+                tab.type === TabType.Query &&
+                tab.serverId === serverId &&
+                tab.databaseName === databaseName,
+            )
+            .reduce((max, tab) => {
+              const match = sqlTitlePattern.exec(tab.title);
+              const index = match ? Number(match[1]) : 0;
+              return Number.isFinite(index) ? Math.max(max, index) : max;
+            }, 0);
+
+          normalizedInitialData = {
+            ...initialData,
+            title: `${databaseName} sql ${maxSqlIndex + 1}`,
+          };
+        }
+      }
+
+      const newTab = createTab(
+        targetTabId,
+        serverId,
+        databaseName,
+        normalizedInitialData,
+      );
 
       setTabs(prev => new Map(prev).set(targetTabId, newTab));
       setActiveTabId(targetTabId);
       loadDatabaseStructure(serverId, databaseName);
       return targetTabId;
     },
-    [loadDatabaseStructure],
+    [loadDatabaseStructure, tabs],
   );
 
   const getDefaultSort = useCallback(

@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 import type { ResultsTableProps } from './results-table.types';
-import { memo, useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ColumnCell from './results-table-column-cell/results-table-column-cell';
 import useResultsTable from './use-results-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -39,6 +39,7 @@ export const ResultsTable = memo(
     onSwitchToSql,
   }: ResultsTableProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
+    const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
 
     const {
       isEditable,
@@ -53,17 +54,64 @@ export const ResultsTable = memo(
       changesCount,
     } = useResultsTable(rows, columns, editableInfo, onApplyChanges);
 
+    const visibleColumns = useMemo(
+      () =>
+        columns
+          .map((column, columnIndex) => ({ column, columnIndex }))
+          .filter(({ column }) => !hiddenColumns.has(column.name)),
+      [columns, hiddenColumns],
+    );
+
+    const visibleColumnNames = useMemo(
+      () => visibleColumns.map(({ column }) => column.name),
+      [visibleColumns],
+    );
+
+    const visibleColumnCount = visibleColumns.length;
+
+    const toggleColumnVisibility = useCallback((columnName: string) => {
+      setHiddenColumns(previous => {
+        const next = new Set(previous);
+        if (next.has(columnName)) {
+          next.delete(columnName);
+        } else if (next.size < columns.length - 1) {
+          next.add(columnName);
+        }
+        return next;
+      });
+    }, [columns.length]);
+
+    const showAllColumns = useCallback(() => {
+      setHiddenColumns(new Set());
+    }, []);
+
+    useEffect(() => {
+      setHiddenColumns(previous => {
+        if (previous.size === 0) return previous;
+        const currentNames = new Set(columns.map(column => column.name));
+        const next = new Set(
+          Array.from(previous).filter(columnName => currentNames.has(columnName)),
+        );
+        return next.size === previous.size ? previous : next;
+      });
+    }, [columns]);
+
     const rowVirtualizer = useVirtualizer({
       count: rows.length,
       getScrollElement: () => containerRef.current,
       estimateSize: () =>
         viewLayout === 'vertical'
-          ? VERTICAL_HEADER_HEIGHT + columns.length * VERTICAL_BASE_ROW_HEIGHT
+          ? VERTICAL_HEADER_HEIGHT + visibleColumnCount * VERTICAL_BASE_ROW_HEIGHT
           : ROW_HEIGHT,
       overscan: OVERSCAN,
+      measureElement: element => element.getBoundingClientRect().height,
     });
 
     const virtualItems = rowVirtualizer.getVirtualItems();
+
+    useEffect(() => {
+      rowVirtualizer.measure();
+    }, [rowVirtualizer, viewLayout, visibleColumnCount]);
 
     const handleScroll = useCallback(() => {
       const el = containerRef.current;
@@ -141,6 +189,7 @@ export const ResultsTable = memo(
                   return (
                     <div
                       key={`vertical-row-${rowIndex}`}
+                      ref={rowVirtualizer.measureElement}
                       className={cn(
                         'border rounded-md overflow-hidden absolute left-2 right-2',
                         isRowModified(rowIndex) ? 'border-yellow-500/50' : 'border-border',
@@ -153,9 +202,9 @@ export const ResultsTable = memo(
                       <div className="bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
                         Row {rowIndex + 1}
                       </div>
-                      <div>
-                        {columns.map((column, cellIndex) => {
-                          const cell = row[cellIndex];
+                        <div>
+                        {visibleColumns.map(({ column, columnIndex }) => {
+                          const cell = row[columnIndex] ?? null;
                           return (
                             <div
                               key={`vertical-cell-${rowIndex}-${column.name}`}
@@ -186,8 +235,8 @@ export const ResultsTable = memo(
               </div>
             ) : (
               <div>
-                <div className="bg-background flex items-center border-b border-border sticky top-0 z-20">
-                  {columns.map(column => (
+                  <div className="bg-background flex items-center border-b border-border sticky top-0 z-20">
+                  {visibleColumns.map(({ column }) => (
                     <ColumnCell
                       key={`column-${column.name}`}
                       column={column}
@@ -218,7 +267,7 @@ export const ResultsTable = memo(
                         isEven={isEven}
                         rowHeight={ROW_HEIGHT}
                         rowStart={virtualRow.start}
-                        columns={columns}
+                        visibleColumns={visibleColumns}
                         getCellDisplayValue={getCellDisplayValue}
                         isCellModified={isCellModified}
                         isColumnEditable={isColumnEditable}
@@ -248,6 +297,14 @@ export const ResultsTable = memo(
           viewLayout={viewLayout}
           onViewLayoutChange={onViewLayoutChange}
           onSwitchToSql={onSwitchToSql}
+          columns={tabType === TabType.View ? columns : undefined}
+          visibleColumnNames={
+            tabType === TabType.View ? visibleColumnNames : undefined
+          }
+          onToggleColumnVisibility={
+            tabType === TabType.View ? toggleColumnVisibility : undefined
+          }
+          onShowAllColumns={tabType === TabType.View ? showAllColumns : undefined}
         />
       </div>
     );

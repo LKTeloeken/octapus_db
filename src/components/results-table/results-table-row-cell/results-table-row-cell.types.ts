@@ -7,6 +7,11 @@ import type {
   UpdateCellFn,
 } from '../results-table.types';
 
+export interface VisibleColumn {
+  column: QueryColumnInfo;
+  columnIndex: number;
+}
+
 export interface ResultsTableRowCellProps {
   // Row properties
   row: DataTableRow;
@@ -17,7 +22,7 @@ export interface ResultsTableRowCellProps {
   rowStart: number;
 
   // Row cell properties
-  columns: QueryColumnInfo[];
+  visibleColumns: VisibleColumn[];
   getCellDisplayValue: GetCellDisplayValueFn;
   isCellModified: IsCellModifiedFn;
   isColumnEditable: IsColumnEditableFn;
