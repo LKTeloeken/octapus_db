@@ -112,6 +112,7 @@ export const useDataStructure = () => {
 
         handleSetNodes(formattedStructure);
       } catch (error) {
+        console.log('handleFetchStructure', error);
         toast.error(
           `Failed to load database structure for ${databaseName}: ${String(
             error,
@@ -194,6 +195,7 @@ export const useDataStructure = () => {
 
   const onClickNode = useCallback(
     async (nodeId: string, onClickNodeAction?: (node: TreeNode) => void) => {
+      console.log('onClickNode', nodeId);
       const node = nodesRef.current.nodes.get(nodeId);
 
       if (!node) return;

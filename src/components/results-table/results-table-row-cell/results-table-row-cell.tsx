@@ -25,7 +25,7 @@ export const ResultsTableRowCell = memo(
           isModified
             ? 'bg-yellow-900/20'
             : isEven
-              ? 'bg-muted/30'
+              ? 'bg-muted'
               : 'bg-transparent',
         )}
         style={{

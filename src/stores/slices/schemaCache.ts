@@ -76,8 +76,6 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
       tableName,
     );
 
-    console.log('columns', columns);
-
     // Update the cache with the new columns
     set(state => {
       const cacheEntry = state.cache[key];

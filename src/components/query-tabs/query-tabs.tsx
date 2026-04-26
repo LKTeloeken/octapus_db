@@ -20,7 +20,7 @@ export const QueryTabs = memo(
         onValueChange={onTabChange}
         className="h-full w-full flex flex-col"
       >
-        <TabsList className="p-1 w-full overflow-hidden">
+        <TabsList className="justify-start p-1 w-full overflow-x-auto overflow-y-hidden no-scrollbar">
           {tabs.map(tab => (
             <div key={tab.id} className="relative">
               <TabsTrigger

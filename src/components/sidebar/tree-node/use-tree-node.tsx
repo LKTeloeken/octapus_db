@@ -1,9 +1,12 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { DatabaseIcon, Folder01Icon, HashtagIcon, TableIcon } from "@hugeicons/core-free-icons";
-import { useState } from 'react';
+import { HugeiconsIcon } from '@hugeicons/react';
 import {
-  Server as ServerIcon
-} from 'lucide-react';
+  DatabaseIcon,
+  Folder01Icon,
+  HashtagIcon,
+  TableIcon,
+} from '@hugeicons/core-free-icons';
+import { useState } from 'react';
+import { Server as ServerIcon } from 'lucide-react';
 import type { TreeNode, TreeNodeType } from '@/shared/models/database.types';
 import type { Server } from '@/shared/models/servers.types';
 import type { OpenTab } from '@/shared/hooks/use-query-tabs/use-query-tabs.types';
@@ -44,6 +47,8 @@ export const useTreeNode = (
     e.stopPropagation();
 
     const { type, serverId } = metadata;
+
+    console.log('metadata', metadata);
 
     if (type === 'server' && serverId) {
       openNewTab(serverId, metadata.serverData?.default_database || '');

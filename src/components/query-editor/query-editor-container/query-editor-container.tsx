@@ -1,66 +1,53 @@
-import { useCallback, type FC } from 'react';
-import { format as formatSQL } from 'sql-formatter';
-import { SQLEditor } from '@/components/query-editor/sql-editor/sql-editor';
-import { QueryEditorToolbar } from '@/components/query-editor/query-editor-toolbar/query-editor-toolbar';
+import { useMemo, type FC } from 'react';
+import {
+  QueryEditor,
+  type QueryEditorSchema,
+} from '@/components/query-editor/full-sql-editor/query-editor';
 
-import type {
-  QueryEditorContainerProps,
-  OnSelectionChange,
-} from './query-editor-container.types';
-import { useQueryEditor } from './use-query-editor';
+import type { QueryEditorContainerProps } from './query-editor-container.types';
 
 export const QueryEditorContainer: FC<QueryEditorContainerProps> = ({
   value,
   onChange,
-  onChangeSelection,
   onExecute,
   databaseStructure,
-  isLoading = false,
 }) => {
-  const { selectedQuery, setSelectedQuery } = useQueryEditor();
+  const schema = useMemo(() => {
+    if (databaseStructure) {
+      const _schema: QueryEditorSchema = {
+        tables: [],
+      };
 
-  const handleFormat = useCallback(() => {
-    try {
-      const formatted = formatSQL(value ?? '', {
-        language: 'sql',
-        keywordCase: 'upper',
-        indentStyle: 'standard',
-      });
-      if (formatted !== value) onChange(formatted);
-    } catch {
-      // Silently ignore formatting errors
+      for (const schema of databaseStructure.schemas) {
+        for (const table of schema.tables) {
+          _schema.tables?.push({
+            name: table.name,
+            schema: schema.name,
+            columns: (table.columns || [])?.map(column => ({
+              name: column.name,
+              type: column.dataType,
+              nullable: column.isNullable,
+            })),
+          });
+        }
+      }
+
+      return _schema;
     }
-  }, [value, onChange]);
 
-  const handleSelectionChange: OnSelectionChange = useCallback(
-    selection => {
-      const query = value.slice(selection.start, selection.end);
-      setSelectedQuery(query);
-    },
-    [value, setSelectedQuery],
-  );
-
-  const handleRun = useCallback(() => {
-    onExecute(selectedQuery || value);
-  }, [onExecute, selectedQuery, value]);
+    return undefined;
+  }, [databaseStructure]);
 
   return (
-    <div className="flex flex-col h-full">
-      <QueryEditorToolbar
-        onRun={handleRun}
-        onFormat={handleFormat}
-        isLoading={isLoading}
-        disabled={!value.trim()}
+    <div className="flex flex-col h-full rounded-xl overflow-hidden">
+      <QueryEditor
+        value={value}
+        dialect="postgres"
+        schema={schema}
+        onChange={onChange}
+        onRun={onExecute}
+        runMode="selection-or-all"
       />
-      <div className="flex-1 rounded-xl overflow-hidden">
-        <SQLEditor
-          value={value}
-          databaseStructure={databaseStructure}
-          onChange={onChange}
-          onChangeSelection={handleSelectionChange}
-          onRunQuery={handleRun}
-        />
-      </div>
     </div>
   );
 };

@@ -73,6 +73,21 @@ const App = () => {
     fetchServers();
   }, []);
 
+  useEffect(() => {
+    const handleCloseTabShortcut = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.key.toLowerCase() !== 'w') return;
+
+      event.preventDefault();
+      if (activeTab) {
+        closeTab(activeTab.id);
+      }
+    };
+
+    window.addEventListener('keydown', handleCloseTabShortcut);
+    return () => window.removeEventListener('keydown', handleCloseTabShortcut);
+  }, [activeTab, closeTab]);
+
   return (
     <>
       <ResizablePanelGroup direction="horizontal" className="h-screen w-full">
@@ -112,7 +127,6 @@ const App = () => {
                           setTabContent(activeTab.id, content)
                         }
                         onExecute={query => runQueryTab(activeTab.id, query)}
-                        isLoading={activeTab?.loading || false}
                         databaseStructure={currentStructure}
                       />
                     </ResizablePanel>

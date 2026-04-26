@@ -29,7 +29,7 @@ function createTab(
     databaseName,
     title: databaseName,
     content: '',
-    type: TabType.View,
+    type: TabType.Query,
     loading: false,
     loadingMore: false,
     loadingChanges: false,
@@ -61,6 +61,7 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
 
   const openTab = useCallback(
     (serverId: number, databaseName: string, initialData?: Partial<Tab>) => {
+      console.log('openTab', serverId, databaseName, initialData);
       const newTabId = `${serverId}-${databaseName}-${Date.now()}`;
       const newTab = createTab(newTabId, serverId, databaseName, initialData);
 
@@ -142,6 +143,8 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
       options?: ExecuteQueryOptions,
       fallback?: { serverId: number; databaseName: string },
     ) => {
+      // if (!query) return;
+
       const tab = tabs.get(id);
       const serverId = tab?.serverId ?? fallback?.serverId;
       const databaseName = tab?.databaseName ?? fallback?.databaseName;
@@ -169,6 +172,7 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
           result,
         });
       } catch (error) {
+        console.log('runQueryTab', error);
         toast.error(
           error instanceof Error ? error.message : 'An unknown error occurred',
         );
