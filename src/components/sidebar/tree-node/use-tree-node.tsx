@@ -65,16 +65,41 @@ export const useTreeNode = (
     switch (type) {
       case 'server':
         return (
-          <ServerIcon className={cn('size-4', isConnected && 'text-primary')} />
+          <ServerIcon
+            className={cn(
+              'min-w-4 min-h-4 max-w-4 max-h-4',
+              isConnected && 'text-primary',
+            )}
+          />
         );
       case 'database':
-        return <HugeiconsIcon icon={DatabaseIcon} className="size-4" />;
+        return (
+          <HugeiconsIcon
+            icon={DatabaseIcon}
+            className="min-w-4 min-h-4 max-w-4 max-h-4"
+          />
+        );
       case 'schema':
-        return <HugeiconsIcon icon={Folder01Icon} className="size-4" />;
+        return (
+          <HugeiconsIcon
+            icon={Folder01Icon}
+            className="min-w-4 min-h-4 max-w-4 max-h-4"
+          />
+        );
       case 'table':
-        return <HugeiconsIcon icon={TableIcon} className="size-4" />;
+        return (
+          <HugeiconsIcon
+            icon={TableIcon}
+            className="min-w-4 min-h-4 max-w-4 max-h-4"
+          />
+        );
       case 'column':
-        return <HugeiconsIcon icon={HashtagIcon} className="size-4" />;
+        return (
+          <HugeiconsIcon
+            icon={HashtagIcon}
+            className="min-w-4 min-h-4 max-w-4 max-h-4"
+          />
+        );
       default:
         return null;
     }

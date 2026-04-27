@@ -2,7 +2,7 @@ import { useMemo, type FC } from 'react';
 import {
   QueryEditor,
   type QueryEditorSchema,
-} from '@/components/query-editor/full-sql-editor/query-editor';
+} from '@/components/query-editor/query-editor/query-editor';
 
 import type { QueryEditorContainerProps } from './query-editor-container.types';
 
