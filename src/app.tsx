@@ -41,6 +41,7 @@ const App = () => {
     applyQueryTabChanges,
     runQueryTab,
     handleNextPage,
+    reorderTableTabResult,
   } = useTabs(handleFetchStructure);
 
   const handleOpenTableTab = useCallback(
@@ -133,6 +134,9 @@ const App = () => {
                     <ResizableHandle className="bg-transparent my-1 cursor-col-resize!" />
                     <ResizablePanel defaultSize={60} minSize={20}>
                       <ResultsTable
+                        onReorderTable={() =>
+                          reorderTableTabResult(activeTab.id)
+                        }
                         columns={activeTab?.result?.columns || []}
                         rows={activeTab?.result?.rows || []}
                         editableInfo={activeTab?.result?.editableInfo}
@@ -154,6 +158,8 @@ const App = () => {
                   </ResizablePanelGroup>
                 ) : (
                   <ResultsTable
+                    onReorderTable={() => reorderTableTabResult(activeTab.id)}
+                    viewOrder={activeTab?.viewOrder}
                     columns={activeTab?.result?.columns || []}
                     rows={activeTab?.result?.rows || []}
                     editableInfo={activeTab?.result?.editableInfo}

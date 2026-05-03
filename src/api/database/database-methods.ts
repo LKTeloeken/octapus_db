@@ -45,13 +45,15 @@ export async function getColumns(
   database: string,
   schema: string,
   table: string,
-): Promise<Database.Column[]> {
+): Promise<Database.ColumnStructure[]> {
   const columns = await invoke<GetColumnsResponse>(RustMethods.GET_COLUMNS, {
     serverId,
     database,
     schema,
     table,
   });
+
+  console.log('columns', columns);
 
   return columns;
 }

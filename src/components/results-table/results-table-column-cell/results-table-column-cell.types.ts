@@ -4,4 +4,6 @@ export interface ColumnCellProps {
   column: QueryColumnInfo;
   isPrimaryKeyColumn: boolean;
   className?: string;
+  onReorderTable: () => void;
+  viewOrder?: 'asc' | 'desc';
 }

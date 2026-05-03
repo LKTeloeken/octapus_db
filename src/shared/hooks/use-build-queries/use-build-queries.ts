@@ -13,7 +13,7 @@ export const useBuildQueries = () => {
       .map(column => `${column} ${orderDirection}`)
       .join(', ');
 
-    return `${baseSelect} ORDER BY ${orderBy} ${orderDirection}`;
+    return `${baseSelect} ORDER BY ${orderBy}`;
   };
 
   return { selectQuery };

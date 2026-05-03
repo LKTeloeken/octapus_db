@@ -2,10 +2,15 @@ import { useCallback, useMemo, useState } from 'react';
 import { useRunQuery } from '@/shared/hooks/use-run-query/use-run-query';
 import { applyRowEdits } from '@/api/database/database-methods';
 import { useBuildQueries } from '../use-build-queries/use-build-queries';
+import { useStore } from '@/stores';
 import toast from 'react-hot-toast';
 
 import { type Tab, TabType } from '@/shared/models/tabs.types';
-import { TreeNodeType, type TreeNode } from '@/shared/models/database.types';
+import {
+  TreeNodeType,
+  type ColumnStructure,
+  type TreeNode,
+} from '@/shared/models/database.types';
 import type { HandleFetchStructure } from '../use-data-structure/use-data-structure.types';
 import type { ExecuteQueryOptions } from '@/api/database/database-methods.types';
 import type { RowEdit } from '@/api/database/database-responses.types';
@@ -34,6 +39,7 @@ function createTab(
     loadingMore: false,
     loadingChanges: false,
     queryOptions: DEFAULT_QUERY_OPTIONS,
+    viewOrder: 'desc',
     ...(initialData ?? {}),
   };
 }
@@ -41,6 +47,7 @@ function createTab(
 export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
   const { runQuery } = useRunQuery();
   const { selectQuery } = useBuildQueries();
+  const { fetchColumns } = useStore();
 
   const [tabs, setTabs] = useState<Map<string, Tab>>(new Map());
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -73,12 +80,12 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
   );
 
   const openTableTab = useCallback(
-    (node: TreeNode) => {
+    async (node: TreeNode) => {
       if (node.type !== TreeNodeType.Table) return;
 
       const [, tableName, schemaName, databaseName, serverId] =
         node.id.split('-');
-      const tableTabId = `${serverId}-${databaseName}-${tableName}`;
+      const tableTabId = `${serverId}-${databaseName}-${schemaName}-${tableName}`;
 
       // If the tab already exists, set it as active and run the query to refresh the data
       if (tabs.has(tableTabId)) {
@@ -94,8 +101,24 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
         return;
       }
 
+      const tableColumns = await fetchColumns(
+        Number(serverId),
+        databaseName,
+        schemaName,
+        tableName,
+      );
+      const pkColumns = tableColumns.filter(col => col.isPrimaryKey);
+
+      console.log('tableColumns', tableColumns);
+      console.log('pkColumns', pkColumns);
+
       // If the tab does not exist, create it and run the query to fetch the data
-      const tableQuery = selectQuery(schemaName, tableName);
+      const tableQuery = selectQuery(
+        schemaName,
+        tableName,
+        pkColumns.map(col => col.name),
+        'desc',
+      );
 
       openTab(Number(serverId), databaseName, {
         title: tableName,
@@ -183,6 +206,49 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
     [tabs, runQuery, updateTab],
   );
 
+  const reorderTableTabResult = useCallback(
+    (tabId: string) => {
+      const tab = tabs.get(tabId);
+      console.log('tab', tab);
+      if (!tab) return;
+
+      const result = tab.result;
+      if (!result) return;
+
+      const columns = result.columns;
+      if (!columns) return;
+
+      const primaryKeyColumnIndices =
+        result.editableInfo?.primaryKeyColumnIndices;
+      if (!primaryKeyColumnIndices) return;
+
+      const pkColumns = columns.filter((_, index) =>
+        primaryKeyColumnIndices.includes(index),
+      );
+
+      const [, , schemaName, tableName] = tabId.split('-');
+
+      const newViewOrder = tab.viewOrder === 'asc' ? 'desc' : 'asc';
+
+      console.log('newViewOrder', newViewOrder);
+
+      const newQuery = selectQuery(
+        schemaName,
+        tableName,
+        pkColumns.map(col => col.name),
+        newViewOrder,
+      );
+
+      updateTab(tabId, { content: newQuery, viewOrder: newViewOrder });
+
+      runQueryTab(tabId, newQuery, undefined, {
+        serverId: tab.serverId,
+        databaseName: tab.databaseName,
+      });
+    },
+    [updateTab, selectQuery, runQueryTab],
+  );
+
   const handleNextPage = useCallback(
     async (id: string) => {
       const tab = tabs.get(id);
@@ -268,6 +334,7 @@ export function useTabs(loadDatabaseStructure: HandleFetchStructure) {
     runQueryTab,
     handleNextPage,
     applyQueryTabChanges,
+    reorderTableTabResult,
   };
 }
 

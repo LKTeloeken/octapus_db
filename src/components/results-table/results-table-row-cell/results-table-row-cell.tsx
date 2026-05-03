@@ -21,7 +21,7 @@ export const ResultsTableRowCell = memo(
       <div
         key={rowIndex}
         className={cn(
-          'absolute top-0 left-0 w-full flex items-center',
+          'absolute top-0 left-0 right-0 w-fit flex items-center',
           isModified
             ? 'bg-yellow-900/20'
             : isEven
@@ -49,7 +49,7 @@ export const ResultsTableRowCell = memo(
           };
 
           return (
-            <div className="w-48 min-w-48 max-w-48 border-r border-border">
+            <div className="w-full min-w-48 max-w-48 border-r border-border">
               <DataTableCell
                 key={`cell-${rowIndex}-${cellIndex}`}
                 value={cell}

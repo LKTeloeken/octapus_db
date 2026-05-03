@@ -10,8 +10,10 @@ export type DataTableRow = (string | null)[];
 export interface ResultsTableProps {
   columns: QueryColumnInfo[];
   rows: DataTableRow[];
+  onReorderTable: () => void;
   onLoadMore: () => void;
   onApplyChanges: (edits: RowEdit[]) => void;
+  viewOrder?: 'asc' | 'desc';
   editableInfo?: EditableInfo | null;
   isLoading?: boolean;
   isLoadingMore?: boolean;

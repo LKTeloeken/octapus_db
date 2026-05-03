@@ -7,6 +7,8 @@ export interface ColumnStructure {
   dataType: string;
   isNullable: boolean;
   defaultValue: string | null;
+  isPrimaryKey: boolean;
+  isForeignKey: boolean;
 }
 
 export interface TableStructure {

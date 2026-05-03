@@ -3,7 +3,10 @@ import {
   getColumns,
 } from '@/api/database/database-methods';
 import { getCacheKey, pendingRequests, CACHE_TTL_MS } from './utils';
-import type { DatabaseStructure } from '@/shared/models/database.types';
+import type {
+  ColumnStructure,
+  DatabaseStructure,
+} from '@/shared/models/database.types';
 import type { StateCreator } from 'zustand';
 import type { SchemaCacheState } from './schemaCache.types';
 
@@ -67,8 +70,26 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
 
   fetchColumns: async (serverId, databaseName, schemaName, tableName) => {
     const key = getCacheKey(serverId, databaseName);
+    const existing = get().cache[key];
 
-    // Fetch columns from the API
+    // Return cached columns when the entry is still within TTL and already loaded
+    if (existing && Date.now() - existing.fetchedAt < CACHE_TTL_MS) {
+      const schema = existing.structure.schemas.find(
+        s => s.name === schemaName,
+      );
+      const table = schema?.tables.find(t => t.name === tableName);
+      if (table?.columns) {
+        return table.columns.map(col => ({
+          name: col.name,
+          dataType: col.dataType,
+          isNullable: col.isNullable,
+          defaultValue: col.defaultValue,
+          isPrimaryKey: col.isPrimaryKey,
+          isForeignKey: col.isForeignKey,
+        }));
+      }
+    }
+
     const columns = await getColumns(
       serverId,
       databaseName,
@@ -104,6 +125,8 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
                 dataType: col.dataType,
                 isNullable: col.isNullable,
                 defaultValue: col.defaultValue,
+                isPrimaryKey: col.isPrimaryKey,
+                isForeignKey: col.isForeignKey,
               })),
             };
           }),
@@ -116,6 +139,7 @@ export const createSchemaCacheSlice: StateCreator<SchemaCacheState> = (
           [key]: {
             ...cacheEntry,
             structure: { schemas: updatedSchemas },
+            fetchedAt: Date.now(),
           },
         },
       };

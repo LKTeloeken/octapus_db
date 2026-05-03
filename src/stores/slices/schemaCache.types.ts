@@ -1,4 +1,7 @@
-import type { DatabaseStructure, Column } from '@/shared/models/database.types';
+import type {
+  DatabaseStructure,
+  ColumnStructure,
+} from '@/shared/models/database.types';
 
 export interface SchemaCacheState {
   // Key format: "serverId:databaseName"
@@ -29,7 +32,7 @@ export type FetchColumns = (
   databaseName: string,
   schemaName: string,
   tableName: string,
-) => Promise<Column[]>;
+) => Promise<ColumnStructure[]>;
 
 export type Invalidate = (serverId: number, databaseName?: string) => void;
 

@@ -12,6 +12,7 @@ export interface Tab {
   loadingMore: boolean;
   loadingChanges: boolean;
   queryOptions: ExecuteQueryOptions;
+  viewOrder?: 'asc' | 'desc';
   lastExecutedQuery?: string;
   result?: ExecuteQueryResponse;
 }

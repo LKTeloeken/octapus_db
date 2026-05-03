@@ -16,9 +16,11 @@ export const ResultsTable = memo(
   ({
     columns,
     rows,
+    onReorderTable,
     onLoadMore,
     onApplyChanges,
     editableInfo,
+    viewOrder,
     isLoading,
     isLoadingMore,
     hasMore,
@@ -92,10 +94,12 @@ export const ResultsTable = memo(
             <div className="bg-background flex items-center border-b border-border sticky top-0 z-20">
               {columns.map(column => (
                 <ColumnCell
+                  onReorderTable={onReorderTable}
+                  viewOrder={viewOrder}
                   key={`column-${column.name}`}
                   column={column}
                   isPrimaryKeyColumn={isPrimaryKeyColumn(column.name)}
-                  className="w-48 min-w-48 max-w-48"
+                  className="w-full min-w-48 max-w-48"
                 />
               ))}
             </div>
