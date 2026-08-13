@@ -1,0 +1,157 @@
+name: Release
+
+# Publica os bundles das 3 plataformas numa GitHub Release e gera o
+# latest.json que o updater do app consome.
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # `label` nomeia as cópias de nome fixo publicadas ao final do job,
+        # que dão à landing page links de download permanentes.
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
+            label: macos-arm64
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
+            label: macos-x64
+          - platform: ubuntu-22.04
+            target: ''
+            args: ''
+            label: linux-x86_64
+          # Só NSIS: o bundler do MSI rejeita pre-release não-numérico
+          # (`-beta.2`), restrição que existe apenas no target msi.
+          - platform: windows-latest
+            target: ''
+            args: --bundles nsis
+            label: windows-x64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # WebKit + libdbus (keyring) são pré-requisitos do Tauri no Linux.
+      # Não adicione `libappindicator3-dev`: ele conflita com o
+      # `libayatana-appindicator3-dev`, que é o sucessor usado pelo Tauri 2.
+      - name: Instalar dependências de sistema (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            libdbus-1-dev \
+            pkg-config
+
+      - name: Instalar Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache do Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          key: ${{ matrix.target }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Instalar dependências do frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build e publicação da release
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: app-v__VERSION__
+          releaseName: octapus-db v__VERSION__
+          releaseBody: |
+            Instalação e notas desta versão.
+
+            > **macOS:** o app é assinado ad-hoc, sem certificado da Apple. Ao
+            > baixar o `.dmg` pelo navegador, o Gatekeeper bloqueia na primeira
+            > abertura — libere em **Ajustes do Sistema → Privacidade e
+            > Segurança → Abrir Mesmo Assim**. (No Sequoia o antigo atalho de
+            > clique-direito → Abrir não funciona mais.)
+          # Sai como rascunho para revisão; ao publicar, vira a release "latest"
+          # que o endpoint do updater consulta.
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}
+
+      # Os instaladores levam a versão no nome, então a URL muda a cada
+      # release. Aqui sobe uma cópia de cada um com nome fixo, para a landing
+      # page poder usar links permanentes do tipo
+      # /releases/latest/download/octapus-db-macos-arm64.dmg
+      - name: Publicar cópias com nome fixo
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+          TAG: app-v${{ steps.tauri.outputs.appVersion }}
+          LABEL: ${{ matrix.label }}
+        run: |
+          set -euo pipefail
+          mkdir -p stable-names
+          enviados=0
+
+          while IFS= read -r path; do
+            # O jq do Windows escreve CRLF: sem remover o \r nenhum padrão casa.
+            path="${path%$'\r'}"
+            # Normaliza D:\a\... para D:/a/..., que o bash do Git trata melhor.
+            path="${path//\\//}"
+            [ -n "$path" ] || continue
+
+            # Só instaladores: artefatos do updater (.tar.gz/.zip) e .sig ficam de fora.
+            case "$path" in
+              *-setup.exe) ext=exe ;;
+              *.dmg)       ext=dmg ;;
+              *.AppImage)  ext=AppImage ;;
+              *.deb)       ext=deb ;;
+              *.rpm)       ext=rpm ;;
+              *)           echo "ignorado: $path"; continue ;;
+            esac
+
+            stable="stable-names/octapus-db-${LABEL}.${ext}"
+            cp "$path" "$stable"
+            echo "$(basename "$path")  ->  $(basename "$stable")"
+            gh release upload "$TAG" "$stable" --clobber --repo "$GITHUB_REPOSITORY"
+            enviados=$((enviados + 1))
+          done < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]')
+
+          # Sem isso, um padrão que pare de casar falha em silêncio.
+          if [ "$enviados" -eq 0 ]; then
+            echo "::error::Nenhum instalador reconhecido em ARTIFACT_PATHS: $ARTIFACT_PATHS"
+            exit 1
+          fi

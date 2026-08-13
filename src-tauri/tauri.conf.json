@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "octapus-db",
+  "version": "0.1.0-beta.7",
+  "identifier": "com.octapus-db.app",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "octapus-db",
+        "width": 800,
+        "height": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/octapus-db.png",
+      "icons/octapus-db.png",
+      "icons/octapus-db.png",
+      "icons/octapus-db.icns",
+      "icons/octapus-db.ico"
+    ],
+    "macOS": {
+      "signingIdentity": "-"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIxRTQ1MUY4M0IxNDQ0NDQKUldSRVJCUTcrRkhrSVEyamJpNldDcDB2TGdSUWtvTUpWMXp3REJ5d3JzaXNkWHNzTDVuSkxqU3QK",
+      "endpoints": [
+        "https://github.com/LKTeloeken/octapus_db/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

@@ -1,0 +1,53 @@
+[package]
+name = "octapus_db"
+version = "0.1.0-beta.7"
+description = "Cliente de banco de dados desktop para PostgreSQL, MongoDB e Redis"
+authors = ["LKTeloeken"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "octapus_db_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+deadpool-postgres = "0.14"
+mongodb = "3"
+json5 = "0.4"
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager", "tokio-native-tls-comp"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+postgres-native-tls = "0.5"
+native-tls = "0.2"
+
+# Secrets vault (device-bound encryption at rest)
+aes-gcm = "0.10"
+rand = "0.8"
+
+# Utils
+parking_lot = "0.12"
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+
+# Auto-update (só desktop; o updater não existe em mobile)
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
