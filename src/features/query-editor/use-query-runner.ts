@@ -1,7 +1,6 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import toast from 'react-hot-toast';
 import type { SaveRowChanges } from '@/components/results-table/results-table.types';
-import type { QueryEditorSchema } from '@/components/query-editor/query-editor/query-editor';
 import {
   useApplyRowEdits,
   useDeleteRows,
@@ -10,9 +9,9 @@ import {
 import { useCapabilities } from '@/queries/use-capabilities';
 import { useExecuteQuery } from '@/queries/use-execute-query';
 import { useServers } from '@/queries/use-servers';
-import { useStructure } from '@/queries/use-structure';
 import { useTabsStore, type QueryTab } from '@/stores/tabs-store';
 import { useQueryResultsStore } from './query-results-store';
+import { useSqlCompletion } from './use-sql-completion';
 
 const PLACEHOLDERS: Record<string, string> = {
   postgres: 'SELECT * FROM ...',
@@ -36,25 +35,13 @@ export const useQueryRunner = (tab: QueryTab) => {
   const { data: capabilities } = useCapabilities(tab.serverId);
   const supportsSql = capabilities?.supportsSql ?? true;
 
-  const { data: structure } = useStructure(tab.serverId, tab.database, {
+  const sqlCompletion = useSqlCompletion({
+    serverId: tab.serverId,
+    database: tab.database,
     enabled: supportsSql,
   });
 
   const dbType = servers?.find(s => s.id === tab.serverId)?.dbType ?? 'postgres';
-
-  const editorSchema = useMemo<QueryEditorSchema | undefined>(() => {
-    if (!structure) return undefined;
-
-    return {
-      tables: structure.schemas.flatMap(schema =>
-        schema.tables.map(table => ({
-          name: table.name,
-          schema: schema.name,
-          columns: [],
-        })),
-      ),
-    };
-  }, [structure]);
 
   const executeRun = useCallback(
     async (query: string) => {
@@ -138,14 +125,21 @@ export const useQueryRunner = (tab: QueryTab) => {
     ],
   );
 
+  // Identidade estável: o `useCodeMirror` reconfigura o editor quando o `onChange` muda,
+  // e isso aconteceria a cada tecla.
+  const setContent = useCallback(
+    (content: string) => setQueryContent(tab.id, content),
+    [tab.id, setQueryContent],
+  );
+
   return {
     result: run?.result ?? null,
     isRunning: executeQuery.isPending && !isLoadingMore,
     isLoadingMore,
     supportsSql,
     placeholder: PLACEHOLDERS[dbType] ?? PLACEHOLDERS.postgres,
-    editorSchema,
-    setContent: (content: string) => setQueryContent(tab.id, content),
+    sqlCompletion,
+    setContent,
     executeRun,
     loadMore,
     save,
