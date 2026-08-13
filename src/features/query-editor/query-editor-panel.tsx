@@ -23,7 +23,7 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
     isLoadingMore,
     supportsSql,
     placeholder,
-    editorSchema,
+    sqlCompletion,
     setContent,
     executeRun,
     loadMore,
@@ -63,7 +63,10 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
             height="100%"
             value={tab.content}
             dialect={supportsSql ? 'postgres' : 'mongo'}
-            schema={supportsSql ? editorSchema : undefined}
+            sqlCompletionSource={supportsSql ? sqlCompletion.source : undefined}
+            sqlExtraExtensions={
+              supportsSql ? sqlCompletion.prefetch : undefined
+            }
             placeholderText={placeholder}
             onChange={setContent}
             onRun={executeRun}
