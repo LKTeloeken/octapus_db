@@ -1,6 +1,7 @@
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
 import type {
+  SqlClause,
   SqlStatementContext,
   StatementTableRef,
 } from './sql-completion.types';
@@ -48,6 +49,32 @@ const END_TABLE_LIST = new Set([
   'values',
   'returning',
   'select',
+]);
+
+/**
+ * Keywords que definem a cláusula. `insert`/`delete` caem em `start` de propósito: o
+ * keyword que importa (`into`, `from`) vem logo em seguida e sobrescreve.
+ */
+const CLAUSE_KEYWORDS = new Map<string, SqlClause>([
+  ['select', 'select'],
+  ['from', 'from'],
+  ['join', 'join'],
+  ['on', 'on'],
+  ['using', 'on'],
+  ['where', 'where'],
+  ['group', 'group'],
+  ['having', 'having'],
+  ['order', 'order'],
+  ['limit', 'limit'],
+  ['offset', 'limit'],
+  ['fetch', 'limit'],
+  ['set', 'set'],
+  ['update', 'update'],
+  ['into', 'into'],
+  ['values', 'values'],
+  ['returning', 'returning'],
+  ['insert', 'start'],
+  ['delete', 'start'],
 ]);
 
 /** Nós que o tokenizer usa para palavras reservadas do dialeto. */
@@ -120,30 +147,53 @@ function isTopLevelPosition(state: EditorState, pos: number): boolean {
   return node.name !== '.';
 }
 
-function enclosingStatement(state: EditorState, pos: number): SyntaxNode | null {
+/**
+ * Statement sob o cursor mais a posição usada para achá-lo. Quem sonda a árvore depois
+ * (a detecção de `Parens`) precisa da posição **ajustada**, não da posição crua.
+ */
+function enclosingStatement(
+  state: EditorState,
+  pos: number,
+): { statement: SyntaxNode; scanPos: number } | null {
   // Espaço em branco no fim do documento fica fora do nó `Statement`, então `where |`
   // não acharia statement nenhum. Recuamos até o último caractere significativo.
-  let searchPos = pos;
+  let scanPos = pos;
 
   while (
-    searchPos > 0 &&
-    /\s/.test(state.doc.sliceString(searchPos - 1, searchPos))
+    scanPos > 0 &&
+    /\s/.test(state.doc.sliceString(scanPos - 1, scanPos))
   ) {
-    searchPos -= 1;
+    scanPos -= 1;
   }
 
   // Depois de `;` começa um statement novo: não herdar as tabelas do anterior.
-  if (searchPos > 0 && state.doc.sliceString(searchPos - 1, searchPos) === ';') {
+  if (scanPos > 0 && state.doc.sliceString(scanPos - 1, scanPos) === ';') {
     return null;
   }
 
-  let node: SyntaxNode | null = syntaxTree(state).resolveInner(searchPos, -1);
+  let node: SyntaxNode | null = syntaxTree(state).resolveInner(scanPos, -1);
 
   while (node && node.name !== 'Statement') {
     node = node.parent;
   }
 
-  return node;
+  return node ? { statement: node, scanPos } : null;
+}
+
+/** `true` se houver um nó `Parens` entre a posição e o statement. */
+function hasParensAncestor(
+  state: EditorState,
+  scanPos: number,
+  statement: SyntaxNode,
+): boolean {
+  let node: SyntaxNode | null = syntaxTree(state).resolveInner(scanPos, -1);
+
+  while (node && node !== statement && node.name !== 'Statement') {
+    if (node.name === 'Parens') return true;
+    node = node.parent;
+  }
+
+  return false;
 }
 
 /**
@@ -158,11 +208,13 @@ export function getStatementContextAt(
   pos: number,
 ): SqlStatementContext {
   const atTopLevel = isTopLevelPosition(state, pos);
-  const statement = enclosingStatement(state, pos);
+  const enclosing = enclosingStatement(state, pos);
 
-  if (!statement) {
-    return { tables: [], atTopLevel };
+  if (!enclosing) {
+    return { tables: [], atTopLevel, clause: 'start' };
   }
+
+  const { statement, scanPos } = enclosing;
 
   const tables: StatementTableRef[] = [];
   const seen = new Set<string>();
@@ -170,6 +222,7 @@ export function getStatementContextAt(
   let expect: 'none' | 'table' | 'alias' = 'none';
   let inTableList = false;
   let current: StatementTableRef | null = null;
+  let clause: SqlClause = 'start';
 
   const flush = () => {
     if (!current) return;
@@ -189,6 +242,15 @@ export function getStatementContextAt(
 
     if (KEYWORD_NODES.has(scan.name)) {
       const keyword = text.toLowerCase();
+
+      // Só a última cláusula **antes** do cursor conta. Keyword não reconhecido não
+      // altera nada — é o que mantém `GROUP BY |` em `group` e o que salva os nomes de
+      // coluna que o dialeto também trata como palavra reservada (`id`, `name`, `count`).
+      if (scan.from < pos) {
+        const mapped = CLAUSE_KEYWORDS.get(keyword);
+
+        if (mapped) clause = mapped;
+      }
 
       if (TABLE_INTRO.has(keyword)) {
         flush();
@@ -255,5 +317,12 @@ export function getStatementContextAt(
 
   flush();
 
-  return { tables, atTopLevel };
+  // `INSERT INTO t (|` continua em `into`, mas o cursor está dentro dos parênteses da
+  // lista de colunas. O gate por `into` é essencial: sem ele `count(|`, `(a + |` e
+  // `USING (|` também virariam posição de coluna.
+  if (clause === 'into' && hasParensAncestor(state, scanPos, statement)) {
+    clause = 'insert-columns';
+  }
+
+  return { tables, atTopLevel, clause };
 }

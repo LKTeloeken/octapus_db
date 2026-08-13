@@ -4,6 +4,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import {
   autocompletion,
   snippetCompletion,
+  startCompletion,
   type Completion,
   type CompletionContext,
   type CompletionResult,
@@ -13,7 +14,29 @@ import { keymap, placeholder, EditorView } from '@codemirror/view';
 import { Prec, type Extension } from '@codemirror/state';
 import { keywordCompletionSource, sql, PostgreSQL } from '@codemirror/lang-sql';
 import { javascript } from '@codemirror/lang-javascript';
-import { sqlStaticSource } from './sql-completion/sql-static-sources';
+import { withClauseBoost } from './sql-completion/sql-clause-boost';
+import {
+  sqlStaticSource,
+  staticOptionCategory,
+} from './sql-completion/sql-static-sources';
+
+/**
+ * Sugestão explícita. No macOS fica em `Shift+Space` — o `Cmd+Space` é engolido pelo
+ * Spotlight antes de chegar na janela. Nos outros sistemas, `Ctrl+Space`.
+ *
+ * Ressalva: no mac o `Shift+Space` deixa de inserir espaço. O espaço sozinho segue normal,
+ * e o `Ctrl+Space` / `Alt+i` da própria lib continuam valendo como alternativa.
+ */
+const explicitCompletionKeymap = Prec.highest(
+  keymap.of([
+    {
+      key: 'Mod-Space',
+      mac: 'Shift-Space',
+      run: startCompletion,
+      preventDefault: true,
+    },
+  ]),
+);
 
 export type QueryDialect = 'postgres' | 'mongo';
 
@@ -446,13 +469,15 @@ export function QueryEditor({
   }, [dialect]);
 
   const completionExtension = useMemo(() => {
+    // Os wrappers guardam memo por cláusula, então precisam nascer e morrer junto com a
+    // extensão — por isso são construídos aqui dentro.
     const sources =
       dialect === 'mongo'
         ? [createMongoCompletionSource({ schema })]
         : [
             stableSqlSource,
-            keywordCompletionSource(PostgreSQL, true),
-            sqlStaticSource,
+            withClauseBoost(keywordCompletionSource(PostgreSQL, true), 'keyword'),
+            withClauseBoost(sqlStaticSource, staticOptionCategory),
           ];
 
     return autocompletion({
@@ -462,6 +487,39 @@ export function QueryEditor({
       closeOnBlur: false,
     });
   }, [dialect, schema, stableSqlSource]);
+
+  /**
+   * Cabeçalho de grupo do popup de sugestão (`<completion-section>`, elemento próprio do
+   * CodeMirror). Vive no tema do editor, não no CSS global, porque a cor precisa casar com
+   * o tema do CodeMirror (oneDark) e não com o tema do app.
+   *
+   * O `z-index` e o fundo opaco são o que segura o cabeçalho acima das opções ao rolar: os
+   * `li` são transparentes e, sem isso, pintam por cima do cabeçalho grudado.
+   *
+   * O seletor repete `.cm-tooltip.cm-tooltip-autocomplete` de propósito: é exatamente o do
+   * tema base, e sem empatar na especificidade o `opacity: .7` dele continuaria vencendo —
+   * era o que deixava o cabeçalho translúcido.
+   */
+  const completionSectionTheme = useMemo(() => {
+    const dark = theme === 'dark';
+
+    return EditorView.theme({
+      '.cm-tooltip.cm-tooltip-autocomplete > ul > completion-section': {
+        position: 'sticky',
+        top: '0',
+        zIndex: '1',
+        // Mesmo tom do fundo do tooltip em cada tema (o oneDark não exporta a constante).
+        backgroundColor: dark ? '#353a42' : '#ffffff',
+        borderBottom: `1px solid ${dark ? '#4b5263' : '#d0d7de'}`,
+        color: dark ? '#9aa3b2' : '#57606a',
+        opacity: '1',
+        fontSize: '90%',
+        textTransform: 'uppercase',
+        letterSpacing: '0.04em',
+        padding: '2px 6px',
+      },
+    });
+  }, [theme]);
 
   const runQueryKeymap = useMemo(() => {
     return Prec.highest(
@@ -502,13 +560,16 @@ export function QueryEditor({
     return [
       languageExtension,
       completionExtension,
+      completionSectionTheme,
       ...(sqlExtraExtensions ? [sqlExtraExtensions] : []),
       placeholder(placeholderText),
       runQueryKeymap,
+      explicitCompletionKeymap,
     ];
   }, [
     languageExtension,
     completionExtension,
+    completionSectionTheme,
     sqlExtraExtensions,
     placeholderText,
     runQueryKeymap,

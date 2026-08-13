@@ -8,14 +8,41 @@ export interface StatementTableRef {
   alias?: string;
 }
 
+/**
+ * Cláusula onde o cursor está. Governa qual categoria de sugestão vale mais.
+ * `start` absorve o caso indefinido: documento vazio, logo após `;`, ou statement sem
+ * nenhuma cláusula reconhecida antes do cursor.
+ */
+export type SqlClause =
+  | 'start'
+  | 'select'
+  | 'from'
+  | 'join'
+  | 'on'
+  | 'where'
+  | 'group'
+  | 'having'
+  | 'order'
+  | 'limit'
+  | 'set'
+  | 'update'
+  | 'into'
+  | 'insert-columns'
+  | 'values'
+  | 'returning';
+
 export interface SqlStatementContext {
   tables: StatementTableRef[];
   /**
    * Cursor sem qualificador pontuado antes dele — é onde faz sentido injetar as colunas
    * das tabelas do statement (`select |`, `where |`, `set |`). Depois de um ponto (`u.`)
    * quem resolve é o `schemaCompletionSource` do lang-sql.
+   *
+   * **Invariante:** o boost por cláusula só se aplica quando isto é `true`. Depois de um
+   * ponto não dá para saber se as opções são colunas (`u.`) ou tabelas (`public.`).
    */
   atTopLevel: boolean;
+  clause: SqlClause;
 }
 
 /** Schema + tabela como estão gravados na estrutura do banco (nomes canônicos). */
