@@ -4,6 +4,7 @@ import {
   type Completion,
   type CompletionSource,
 } from '@codemirror/autocomplete';
+import type { SqlCompletionCategory } from './sql-clause-boost';
 
 /**
  * Contextos onde sugestão de texto não faz sentido — mesma guarda que o
@@ -65,17 +66,19 @@ const POSTGRES_FUNCTIONS = [
   'EXTRACT',
 ];
 
-const STATIC_OPTIONS: Completion[] = [
-  ...POSTGRES_PHRASES.map(phrase => ({
-    label: phrase,
-    type: 'keyword',
-  })),
-  ...POSTGRES_FUNCTIONS.map(fn => ({
-    label: fn,
-    type: 'function',
-    detail: 'function',
-    apply: `${fn}()`,
-  })),
+const PHRASE_OPTIONS: Completion[] = POSTGRES_PHRASES.map(phrase => ({
+  label: phrase,
+  type: 'keyword',
+}));
+
+const FUNCTION_OPTIONS: Completion[] = POSTGRES_FUNCTIONS.map(fn => ({
+  label: fn,
+  type: 'function',
+  detail: 'function',
+  apply: `${fn}()`,
+}));
+
+const SNIPPET_OPTIONS: Completion[] = [
   snippetCompletion('SELECT ${columns} FROM ${table};', {
     label: 'select',
     detail: 'SELECT query',
@@ -96,6 +99,28 @@ const STATIC_OPTIONS: Completion[] = [
     detail: 'DELETE query',
     type: 'keyword',
   }),
+];
+
+/**
+ * Categoria de cada opção estática. Precisa ser um registro explícito: frases e snippets
+ * carregam ambos `type: 'keyword'`, então inferir pelo `type` seria frágil.
+ */
+const OPTION_CATEGORY = new WeakMap<Completion, SqlCompletionCategory>();
+
+for (const option of PHRASE_OPTIONS) OPTION_CATEGORY.set(option, 'keyword');
+for (const option of FUNCTION_OPTIONS) OPTION_CATEGORY.set(option, 'function');
+for (const option of SNIPPET_OPTIONS) OPTION_CATEGORY.set(option, 'snippet');
+
+export function staticOptionCategory(
+  option: Completion,
+): SqlCompletionCategory {
+  return OPTION_CATEGORY.get(option) ?? 'keyword';
+}
+
+const STATIC_OPTIONS: Completion[] = [
+  ...PHRASE_OPTIONS,
+  ...FUNCTION_OPTIONS,
+  ...SNIPPET_OPTIONS,
 ];
 
 /**
