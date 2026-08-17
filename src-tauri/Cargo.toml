@@ -1,6 +1,6 @@
 [package]
 name = "octapus_db"
-version = "0.1.0-beta.10"
+version = "0.1.0-beta.11"
 description = "Cliente de banco de dados desktop para PostgreSQL, MongoDB e Redis"
 authors = ["LKTeloeken"]
 edition = "2021"
