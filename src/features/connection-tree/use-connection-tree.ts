@@ -1,4 +1,4 @@
-import { Add01Icon, Edit01Icon } from '@hugeicons/core-free-icons';
+import { Add01Icon, Edit01Icon, RefreshIcon } from '@hugeicons/core-free-icons';
 import { useQueries, type UseQueryResult } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { getCapabilities } from '@/api/connection';
@@ -10,6 +10,7 @@ import type {
   DatabaseStructure,
 } from '@/api/types/structure.types';
 import { useServers } from '@/queries/use-servers';
+import { useRefreshStructure } from '@/queries/use-refresh-structure';
 import { queryKeys } from '@/queries/keys';
 import { STRUCTURE_STALE_TIME_MS } from '@/providers/query-provider';
 import { useFocusStore } from '@/stores/focus-store';
@@ -44,6 +45,8 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
   const openQueryTab = useTabsStore(state => state.openQueryTab);
   const openBrowseTab = useTabsStore(state => state.openBrowseTab);
   const requestFocus = useFocusStore(state => state.requestFocus);
+  const { refreshServer, refreshDatabase, refreshSchema, refreshTable } =
+    useRefreshStructure();
 
   const servers = serversQuery.data ?? [];
   const serverIds = useMemo(
@@ -182,11 +185,19 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
         name: table,
         hasChildren: true,
         isExpanded,
-        isLoading: isExpanded && (colQuery?.isLoading ?? false),
+        isLoading: isExpanded && (colQuery?.isFetching ?? false),
         onClick: () => {
           toggleNode(tableNodeId);
           openTable(serverId, database, schema, table);
         },
+        actions: [
+          {
+            label: 'Atualizar',
+            icon: RefreshIcon,
+            onSelect: () =>
+              void refreshTable(serverId, database, schema, table),
+          },
+        ],
       },
       // Pelo teclado o Enter só abre a tabela: expandir/colapsar as colunas já
       // é papel das setas ←/→.
@@ -235,10 +246,15 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
         name: server.name,
         hasChildren: true,
         isExpanded,
-        isLoading: isExpanded && (dbQuery?.isLoading ?? false),
+        isLoading: isExpanded && (dbQuery?.isFetching ?? false),
         isHighlighted: dbQuery?.isSuccess ?? false,
         onClick: () => toggleNode(serverNodeId),
         actions: [
+          {
+            label: 'Atualizar',
+            icon: RefreshIcon,
+            onSelect: () => void refreshServer(server.id),
+          },
           {
             label: 'Editar',
             icon: Edit01Icon,
@@ -289,9 +305,14 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
           name: db.name,
           hasChildren: true,
           isExpanded: isDbExpanded,
-          isLoading: isDbExpanded && (structureQuery?.isLoading ?? false),
+          isLoading: isDbExpanded && (structureQuery?.isFetching ?? false),
           onClick: () => toggleNode(dbNodeId),
           actions: [
+            {
+              label: 'Atualizar',
+              icon: RefreshIcon,
+              onSelect: () => void refreshDatabase(server.id, db.name),
+            },
             {
               label: 'Nova aba',
               icon: Add01Icon,
@@ -338,6 +359,14 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
               hasChildren: schema.tables.length > 0,
               isExpanded: isSchemaExpanded,
               onClick: () => toggleNode(schemaNodeId),
+              actions: [
+                {
+                  label: 'Atualizar',
+                  icon: RefreshIcon,
+                  onSelect: () =>
+                    void refreshSchema(server.id, db.name, schema.name),
+                },
+              ],
             },
           });
 

@@ -11,6 +11,8 @@ interface TreeState {
   toggleNode: (nodeId: string) => void;
   expandNode: (nodeId: string) => void;
   collapseNode: (nodeId: string) => void;
+  /** Colapsa vários nós de uma vez (refresh de estrutura fecha as tabelas do escopo) */
+  collapseNodes: (nodeIds: string[]) => void;
   setFocusedNode: (nodeId: string | null) => void;
 }
 
@@ -41,6 +43,15 @@ export const useTreeStore = create<TreeState>(set => ({
       if (!state.expanded.has(nodeId)) return state;
       const expanded = new Set(state.expanded);
       expanded.delete(nodeId);
+      return { expanded };
+    });
+  },
+
+  collapseNodes: nodeIds => {
+    set(state => {
+      if (!nodeIds.some(id => state.expanded.has(id))) return state;
+      const expanded = new Set(state.expanded);
+      for (const nodeId of nodeIds) expanded.delete(nodeId);
       return { expanded };
     });
   },
