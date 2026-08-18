@@ -6,7 +6,6 @@ import { Separator } from '@/components/ui/separator';
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Typography } from '@/components/ui/typography';
@@ -25,16 +24,14 @@ export const Sidebar = memo(() => {
           Servidores
         </Typography>
 
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" onClick={openCreateForm}>
-                <HugeiconsIcon icon={Add01Icon} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left">Adicionar servidor</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="sm" onClick={openCreateForm}>
+              <HugeiconsIcon icon={Add01Icon} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">Adicionar servidor</TooltipContent>
+        </Tooltip>
       </div>
 
       <Separator />
@@ -43,7 +40,11 @@ export const Sidebar = memo(() => {
         <ConnectionTree onEditServer={openEditForm} />
       </div>
 
-      <ServerForm open={isFormOpen} onClose={closeForm} server={editingServer} />
+      <ServerForm
+        open={isFormOpen}
+        onClose={closeForm}
+        server={editingServer}
+      />
     </div>
   );
 });

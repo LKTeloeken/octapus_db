@@ -11,6 +11,7 @@ import { UpdateNotifier } from '@/features/update-notifier/update-notifier';
 import { QueryProvider } from '@/providers/query-provider';
 import { useUiStore } from '@/stores/ui-store';
 import { CustomToaster } from './components/Toaster';
+import { TooltipProvider } from './components/ui/tooltip';
 
 const App = () => {
   const theme = useUiStore(state => state.theme);
@@ -23,26 +24,28 @@ const App = () => {
 
   return (
     <QueryProvider>
-      <ResizablePanelGroup direction="horizontal" className="h-screen w-full">
-        <ResizablePanel
-          defaultSize={20}
-          minSize={20}
-          maxSize={50}
-          className="border-r border-border bg-sidebar text-sidebar-foreground"
-        >
-          <Sidebar />
-        </ResizablePanel>
+      <TooltipProvider>
+        <ResizablePanelGroup direction="horizontal" className="h-screen w-full">
+          <ResizablePanel
+            defaultSize={20}
+            minSize={20}
+            maxSize={50}
+            className="border-r border-border bg-sidebar text-sidebar-foreground"
+          >
+            <Sidebar />
+          </ResizablePanel>
 
-        <ResizableHandle className="cursor-col-resize!" />
+          <ResizableHandle className="cursor-col-resize!" />
 
-        <ResizablePanel className="bg-main text-main-foreground p-2">
-          <QueryTabs />
-        </ResizablePanel>
-      </ResizablePanelGroup>
+          <ResizablePanel className="bg-main text-main-foreground p-2">
+            <QueryTabs />
+          </ResizablePanel>
+        </ResizablePanelGroup>
 
-      <CommandPalette />
-      <CustomToaster />
-      <UpdateNotifier />
+        <CommandPalette />
+        <CustomToaster />
+        <UpdateNotifier />
+      </TooltipProvider>
     </QueryProvider>
   );
 };
