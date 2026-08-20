@@ -3,7 +3,7 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
+import { Input } from '@/components/ui/input/input';
 import {
   Popover,
   PopoverContent,
@@ -99,19 +99,18 @@ export const ColumnSelector = memo(
             searchInputRef.current?.focus();
           }}
         >
-          <div className="relative">
-            <HugeiconsIcon
-              icon={Search01Icon}
-              className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground"
-            />
-            <Input
-              ref={searchInputRef}
-              className="h-8 pl-7 text-xs"
-              placeholder="Buscar coluna"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
+          <Input
+            ref={searchInputRef}
+            size="sm"
+            placeholder="Buscar coluna"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <HugeiconsIcon icon={Search01Icon} className="h-3.5 w-3.5" />
+              ),
+            }}
+          />
 
           <Button
             variant="ghost"

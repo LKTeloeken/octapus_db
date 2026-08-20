@@ -1,8 +1,12 @@
-import { Add01Icon, Cancel01Icon, FilterIcon } from '@hugeicons/core-free-icons';
+import {
+  Add01Icon,
+  Cancel01Icon,
+  FilterIcon,
+} from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { memo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Input } from '@/components/ui/input/input';
 import {
   Popover,
   PopoverContent,
@@ -74,8 +78,7 @@ export const FilterBar = memo(
             key={`${filter.column}-${filter.op}-${index}`}
             className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono rounded-md border border-border bg-muted"
           >
-            {filter.column} {OP_LABELS[filter.op]}{' '}
-            {filter.values.join(', ')}
+            {filter.column} {OP_LABELS[filter.op]} {filter.values.join(', ')}
             <button
               type="button"
               className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm hover:bg-accent hover:text-accent-foreground cursor-pointer"
@@ -138,8 +141,10 @@ export const FilterBar = memo(
 
             {needsValue && (
               <Input
-                className="h-8 text-xs"
-                placeholder={op === 'in' ? 'valores separados por vírgula' : 'valor'}
+                size="sm"
+                placeholder={
+                  op === 'in' ? 'valores separados por vírgula' : 'valor'
+                }
                 value={value}
                 onChange={e => setValue(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addFilter()}

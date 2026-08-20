@@ -1,17 +1,24 @@
 use std::collections::HashSet;
-use std::time::Instant;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use deadpool_postgres::Pool;
+use deadpool_postgres::{Pool, Timeouts};
 use tokio_postgres::{Column, Row, SimpleQueryMessage, SimpleQueryRow, Statement};
 
+use super::notices::{message_from_db_error, NoticeHub};
 use super::QueryRegistry;
 
+use crate::adapters::MessageSink;
 use crate::error::{Error, Result};
 use crate::models::{
-    EditableInfo, QueryColumnInfo, QueryOptions, QueryResult, RowEdit, RowInsert, StatementResult,
+    EditableInfo, QueryColumnInfo, QueryMessage, QueryOptions, QueryResult, RowEdit, RowInsert,
+    StatementResult,
 };
 
 use super::util::{get_column_types, quote_ident};
+
+/// Quanto o COUNT espera por uma conexão livre antes de desistir do total.
+const COUNT_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Removes a query_id → backend PID entry when the execution finishes,
 /// including early returns and cancelled/failed queries.
@@ -31,6 +38,8 @@ pub async fn execute_query(
     query: &str,
     options: QueryOptions,
     registry: &QueryRegistry,
+    hub: &Arc<NoticeHub>,
+    sink: Option<Arc<dyn MessageSink>>,
 ) -> Result<QueryResult> {
     let client = pool.get().await?;
     let trimmed = query.trim().trim_end_matches(';');
@@ -39,21 +48,37 @@ pub async fn execute_query(
         return Err(Error::InvalidQuery("Empty query".into()));
     }
 
-    // Map the query_id to this connection's backend PID so cancel_query can
-    // target it with pg_cancel_backend from another connection.
-    let _pid_guard = match options.query_id.as_deref() {
-        Some(query_id) => {
-            let pid: i32 = client
+    // O PID identifica a conexão física que o pool entregou. Serve para duas
+    // coisas: mirar o pg_cancel_backend e rotear os notices que chegarem por
+    // ela enquanto esta query roda.
+    let pid: Option<i32> = if sink.is_some() || options.query_id.is_some() {
+        Some(
+            client
                 .query_one("SELECT pg_backend_pid()", &[])
                 .await?
-                .get(0);
+                .get(0),
+        )
+    } else {
+        None
+    };
+
+    let _pid_guard = match (options.query_id.as_deref(), pid) {
+        (Some(query_id), Some(pid)) => {
             registry.lock().unwrap().insert(query_id.to_string(), pid);
             Some(PidGuard {
                 registry,
                 query_id: query_id.to_string(),
             })
         }
-        None => None,
+        _ => None,
+    };
+
+    // Enquanto a inscrição viver, cada RAISE desta conexão vira mensagem no
+    // front na hora em que o servidor a emite. O guard desinscreve no Drop,
+    // cobrindo também erro e cancelamento.
+    let _notice_sub = match (sink.as_ref(), pid) {
+        (Some(sink), Some(pid)) => Some(hub.subscribe(pid, Arc::clone(sink))),
+        _ => None,
     };
 
     let is_select = is_select_query(trimmed);
@@ -71,14 +96,16 @@ pub async fn execute_query(
         (trimmed.to_string(), None)
     };
 
-    // Run three operations pipelined on the same connection so their network
-    // round-trips overlap instead of stacking up:
+    // Run three operations concurrently so their network round-trips overlap
+    // instead of stacking up:
     //   - prepare(): column metadata (names + original types) + table OIDs,
     //     reused for the result columns and for editability detection;
     //   - simple_query(): the actual data. Postgres renders every value as text,
     //     so jsonb/numeric/uuid/arrays/enums all come back correctly and the
     //     backend never decodes per type;
     //   - COUNT(*): the optional total, which no longer blocks the data fetch.
+    // As duas primeiras são pipelined na mesma conexão; o COUNT roda numa
+    // conexão à parte para não duplicar os notices (ver o comentário abaixo).
     // Only the data query is timed, so `executionTimeMs` reflects execution+fetch
     // (comparable to other clients) — not the extra prepare round-trip nor the
     // count scan. `prepare` only accepts a single statement (None for scripts).
@@ -88,22 +115,45 @@ pub async fn execute_query(
         (messages, exec_started.elapsed())
     };
     let count_fut = async {
-        if options.count_total && is_select {
-            let count_query = format!("SELECT COUNT(*) FROM ({trimmed}) AS __c");
-            client
-                .query_one(&count_query, &[])
-                .await
-                .ok()
-                .and_then(|r| r.get::<_, Option<i64>>(0))
-        } else {
-            None
+        if !(options.count_total && is_select) {
+            return None;
         }
+
+        // Conexão própria de propósito: o COUNT reexecuta a query, e uma função
+        // com RAISE emitiria os mesmos notices de novo. Como o PID desta
+        // conexão não está inscrito no hub, essas mensagens são descartadas e o
+        // log não duplica.
+        let count_query = format!("SELECT COUNT(*) FROM ({trimmed}) AS __c");
+
+        // Espera curta: esta segunda conexão é pedida com a primeira já na mão,
+        // e num pool saturado a espera padrão (30s) seguraria a query inteira.
+        // Sem conexão livre a gente abre mão do total, não do resultado.
+        let timeouts = Timeouts {
+            wait: Some(COUNT_WAIT_TIMEOUT),
+            ..pool.timeouts()
+        };
+        let count_client = pool.timeout_get(&timeouts).await.ok()?;
+        count_client
+            .query_one(&count_query, &[])
+            .await
+            .ok()?
+            .get::<_, Option<i64>>(0)
     };
     let (stmt, (messages, exec_elapsed), total_count) =
         tokio::join!(client.prepare(trimmed), data_fut, count_fut);
 
     let stmt = stmt.ok();
-    let messages = messages?;
+    let messages = match messages {
+        Ok(messages) => messages,
+        Err(err) => {
+            // O toast recebe só a mensagem curta; no log vai o pacote inteiro,
+            // com SQLSTATE, DETAIL, HINT e o CONTEXT da pilha do PL/pgSQL.
+            if let (Some(sink), Some(db_error)) = (sink.as_ref(), err.as_db_error()) {
+                sink.push(message_from_db_error(db_error, true));
+            }
+            return Err(err.into());
+        }
+    };
     let execution_time_ms = exec_elapsed.as_millis() as u64;
 
     let data_rows: Vec<&SimpleQueryRow> = messages
@@ -132,6 +182,14 @@ pub async fn execute_query(
 
     let result_rows = extract_text_rows(rows_to_process);
 
+    if let Some(sink) = sink.as_ref() {
+        sink.push(QueryMessage::status(completion_status(
+            &messages,
+            rows_to_process.len(),
+            execution_time_ms,
+        )));
+    }
+
     // Detect if the result is editable (single source table with a primary key)
     let editable_info = match &stmt {
         Some(stmt) if is_select && !columns.is_empty() => {
@@ -149,6 +207,33 @@ pub async fn execute_query(
         execution_time_ms,
         editable_info,
     })
+}
+
+/// Texto da linha de conclusão. O `CommandComplete` do tokio-postgres carrega
+/// só o número de linhas, não a tag textual do Postgres ("INSERT 0 5"), então o
+/// texto é montado aqui.
+fn completion_status(
+    messages: &[SimpleQueryMessage],
+    returned_rows: usize,
+    execution_time_ms: u64,
+) -> String {
+    if returned_rows > 0 {
+        return format!("{returned_rows} linha(s) retornada(s) · {execution_time_ms} ms");
+    }
+
+    let affected: u64 = messages
+        .iter()
+        .filter_map(|m| match m {
+            SimpleQueryMessage::CommandComplete(rows) => Some(*rows),
+            _ => None,
+        })
+        .sum();
+
+    if affected > 0 {
+        format!("{affected} linha(s) afetada(s) · {execution_time_ms} ms")
+    } else {
+        format!("Concluído sem linhas · {execution_time_ms} ms")
+    }
 }
 
 pub async fn apply_row_edits(

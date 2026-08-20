@@ -87,3 +87,59 @@ pub struct StatementResult {
     pub affected_rows: u64,
     pub execution_time_ms: u64,
 }
+/// Categoria da mensagem, usada pelo front para escolher o estilo da linha.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum QueryMessageKind {
+    Notice,
+    Warning,
+    Error,
+    Info,
+    /// Linha sintética de conclusão emitida pelo próprio app, não pelo banco.
+    Status,
+}
+
+/// Tudo que o banco emite fora do result set durante uma execução: os
+/// `RAISE NOTICE/WARNING/INFO`, o erro detalhado (com a pilha do PL/pgSQL em
+/// `context`) e a linha de conclusão. Chega ao front em streaming, não dentro
+/// do `QueryResult`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryMessage {
+    pub kind: QueryMessageKind,
+    /// Severidade crua do servidor (NOTICE, WARNING, ERROR, INFO, LOG, DEBUG).
+    pub severity: String,
+    pub message: String,
+    pub detail: Option<String>,
+    pub hint: Option<String>,
+    /// `DbError::where_()` — a pilha de chamadas do PL/pgSQL.
+    pub context: Option<String>,
+    pub sql_state: Option<String>,
+    pub position: Option<u32>,
+    pub timestamp_ms: u64,
+}
+
+impl QueryMessage {
+    /// Linha de conclusão do app (contagem + tempo). O Postgres manda só o
+    /// número no `CommandComplete`, sem a tag textual, então o texto é nosso.
+    pub fn status(message: impl Into<String>) -> Self {
+        Self {
+            kind: QueryMessageKind::Status,
+            severity: "STATUS".to_string(),
+            message: message.into(),
+            detail: None,
+            hint: None,
+            context: None,
+            sql_state: None,
+            position: None,
+            timestamp_ms: now_ms(),
+        }
+    }
+}
+
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
