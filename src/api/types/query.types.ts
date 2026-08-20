@@ -51,3 +51,29 @@ export interface StatementResult {
   affectedRows: number;
   executionTimeMs: number;
 }
+
+export type QueryMessageKind =
+  | 'notice'
+  | 'warning'
+  | 'error'
+  | 'info'
+  | 'status';
+
+/**
+ * Mensagem que o banco emite fora do result set — no Postgres, os
+ * `RAISE NOTICE/WARNING/INFO`, o erro detalhado e a linha de conclusão.
+ * Chega em streaming pelo canal do comando, não dentro do QueryResult.
+ */
+export interface QueryMessage {
+  kind: QueryMessageKind;
+  /** Severidade crua do servidor (NOTICE, WARNING, ERROR, INFO, LOG, DEBUG) */
+  severity: string;
+  message: string;
+  detail: string | null;
+  hint: string | null;
+  /** Pilha de chamadas do PL/pgSQL */
+  context: string | null;
+  sqlState: string | null;
+  position: number | null;
+  timestampMs: number;
+}

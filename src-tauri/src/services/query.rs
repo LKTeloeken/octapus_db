@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::adapters::DatabaseAdapter;
+use crate::adapters::{DatabaseAdapter, MessageSink};
 use crate::error::Result;
 use crate::models::{QueryOptions, QueryResult, StatementResult};
 
@@ -21,14 +21,18 @@ impl QueryService {
     }
 
     /// Execute a SELECT query with pagination
+    ///
+    /// `sink` recebe, em streaming, as mensagens que o banco emite fora do
+    /// result set (RAISE NOTICE, erro detalhado, conclusão). `None` = sem log.
     pub async fn execute_query(
         &self,
         adapter: Arc<dyn DatabaseAdapter>,
         query: &str,
         options: QueryOptions,
+        sink: Option<Arc<dyn MessageSink>>,
     ) -> Result<QueryResult> {
         // Future: log to query history, track active queries, etc.
-        adapter.execute_query(query, options).await
+        adapter.execute_query_with_messages(query, options, sink).await
     }
 
     /// Execute a statement (INSERT, UPDATE, DELETE, etc.)

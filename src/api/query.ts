@@ -1,7 +1,9 @@
+import { Channel } from '@tauri-apps/api/core';
 import { call } from './client';
 import { RustCommand } from './commands';
 import type {
   EditableInfo,
+  QueryMessage,
   QueryOptions,
   QueryResult,
   RowEdit,
@@ -9,17 +11,31 @@ import type {
   StatementResult,
 } from './types/query.types';
 
+/**
+ * `onMessage` liga o canal de mensagens do backend: cada RAISE, o erro
+ * detalhado e a linha de conclusão chegam por ele enquanto a query roda.
+ * Sem ele nenhum canal é criado e o backend não emite nada.
+ */
 export function executeQuery(
   serverId: number,
   database: string,
   query: string,
   options?: QueryOptions,
+  onMessage?: (message: QueryMessage) => void,
 ): Promise<QueryResult> {
+  let messages: Channel<QueryMessage> | undefined;
+
+  if (onMessage) {
+    messages = new Channel<QueryMessage>();
+    messages.onmessage = onMessage;
+  }
+
   return call<QueryResult>(RustCommand.ExecuteQuery, {
     serverId,
     database,
     query,
     options,
+    messages,
   });
 }
 

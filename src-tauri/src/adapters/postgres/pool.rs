@@ -1,16 +1,20 @@
+use std::sync::Arc;
 use std::time::Duration;
 
-use deadpool_postgres::{Config, ManagerConfig, Pool, RecyclingMethod, Runtime};
+use deadpool_postgres::{Config, Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
 use postgres_native_tls::MakeTlsConnector;
-use tokio_postgres::NoTls;
+use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
+use tokio_postgres::{NoTls, Socket};
 
 use crate::error::{Error, Result};
 use crate::models::Server;
 
+use super::notices::{NoticeConnect, NoticeHub};
+
 const POOL_MAX_SIZE: usize = 16;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub fn create_pool(server: &Server, database: &str) -> Result<Pool> {
+pub fn create_pool(server: &Server, database: &str, hub: &Arc<NoticeHub>) -> Result<Pool> {
     let mut cfg = Config::new();
 
     if let Some(uri) = server.connection_uri.as_deref() {
@@ -25,6 +29,10 @@ pub fn create_pool(server: &Server, database: &str) -> Result<Pool> {
     }
     cfg.dbname = Some(database.to_string());
     cfg.connect_timeout = Some(CONNECT_TIMEOUT);
+
+    // Garante a entrega dos RAISE NOTICE mesmo em servidores cujo default de
+    // client_min_messages seja mais restritivo que o do Postgres.
+    cfg.options = Some("-c client_min_messages=notice".to_string());
 
     // Keepalive TCP: evita que firewalls/NAT derrubem conexões ociosas em
     // silêncio enquanto o app fica aberto sem uso.
@@ -57,10 +65,38 @@ pub fn create_pool(server: &Server, database: &str) -> Result<Pool> {
             .build()
             .map_err(|e| Error::Connection(format!("TLS setup failed: {e}")))?;
 
-        cfg.create_pool(Some(Runtime::Tokio1), MakeTlsConnector::new(connector))
-            .map_err(|e| Error::Connection(e.to_string()))
+        build_pool(&cfg, MakeTlsConnector::new(connector), hub)
     } else {
-        cfg.create_pool(Some(Runtime::Tokio1), NoTls)
-            .map_err(|e| Error::Connection(e.to_string()))
+        build_pool(&cfg, NoTls, hub)
     }
+}
+
+/// Monta o pool com o `Connect` próprio em vez de `Config::create_pool`: é o
+/// único jeito de ficar com os notices, que o connect padrão do deadpool joga
+/// fora (ver `notices.rs`).
+fn build_pool<T>(cfg: &Config, tls: T, hub: &Arc<NoticeHub>) -> Result<Pool>
+where
+    T: MakeTlsConnect<Socket> + Clone + Sync + Send + 'static,
+    T::Stream: Sync + Send,
+    T::TlsConnect: Sync + Send,
+    <T::TlsConnect as TlsConnect<Socket>>::Future: Send,
+{
+    let pg_config = cfg
+        .get_pg_config()
+        .map_err(|e| Error::Connection(e.to_string()))?;
+
+    let manager = Manager::from_connect(
+        pg_config,
+        NoticeConnect {
+            tls,
+            hub: Arc::clone(hub),
+        },
+        cfg.get_manager_config(),
+    );
+
+    Pool::builder(manager)
+        .config(cfg.get_pool_config())
+        .runtime(Runtime::Tokio1)
+        .build()
+        .map_err(|e| Error::Connection(e.to_string()))
 }

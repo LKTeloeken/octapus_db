@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
+use crate::adapters::MessageSink;
 use crate::error::{Error, Result};
 use crate::models::{
     AdapterCapabilities, ColumnInfo, DatabaseInfo, DatabaseStructure, EditableInfo, IndexInfo,
@@ -37,6 +40,21 @@ pub trait DatabaseAdapter: Send + Sync {
         query: &str,
         options: QueryOptions,
     ) -> Result<QueryResult>;
+
+    /// Igual ao [`DatabaseAdapter::execute_query`], mas com um canal para as
+    /// mensagens que o banco emite fora do result set (no Postgres, os
+    /// `RAISE NOTICE` e o erro detalhado) enquanto a query roda.
+    ///
+    /// O default delega e ignora o sink: um adapter sem esse conceito continua
+    /// executando normalmente, só não alimenta o log.
+    async fn execute_query_with_messages(
+        &self,
+        query: &str,
+        options: QueryOptions,
+        _sink: Option<Arc<dyn MessageSink>>,
+    ) -> Result<QueryResult> {
+        self.execute_query(query, options).await
+    }
 
     /// Browse a table's data with server-side pagination, sorting and
     /// filtering. "Table" is adapter-defined (table/collection/key-prefix).

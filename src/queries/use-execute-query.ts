@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { executeQuery } from '@/api/query';
-import type { QueryOptions } from '@/api/types/query.types';
+import type { QueryMessage, QueryOptions } from '@/api/types/query.types';
 
 export const QUERY_PAGE_SIZE = 500;
 
@@ -9,6 +9,8 @@ export interface ExecuteQueryVariables {
   database: string;
   query: string;
   options?: QueryOptions;
+  /** Recebe as mensagens do banco em streaming; omitir desliga o canal */
+  onMessage?: (message: QueryMessage) => void;
 }
 
 /**
@@ -19,12 +21,24 @@ export interface ExecuteQueryVariables {
  */
 export function useExecuteQuery() {
   return useMutation({
-    mutationFn: ({ serverId, database, query, options }: ExecuteQueryVariables) =>
-      executeQuery(serverId, database, query, {
-        limit: QUERY_PAGE_SIZE,
-        offset: 0,
-        countTotal: true,
-        ...options,
-      }),
+    mutationFn: ({
+      serverId,
+      database,
+      query,
+      options,
+      onMessage,
+    }: ExecuteQueryVariables) =>
+      executeQuery(
+        serverId,
+        database,
+        query,
+        {
+          limit: QUERY_PAGE_SIZE,
+          offset: 0,
+          countTotal: true,
+          ...options,
+        },
+        onMessage,
+      ),
   });
 }

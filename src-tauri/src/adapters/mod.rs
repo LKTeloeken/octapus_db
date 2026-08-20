@@ -1,8 +1,10 @@
+mod message_sink;
 mod traits;
 pub mod mongo;
 pub mod postgres;
 pub mod redisdb;
 
+pub use message_sink::*;
 pub use traits::*;
 
 use std::sync::Arc;

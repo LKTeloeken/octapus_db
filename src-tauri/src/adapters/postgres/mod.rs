@@ -2,17 +2,20 @@ mod browse;
 mod pool;
 mod executor;
 mod metadata;
+mod notices;
 mod util;
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
 
 use crate::error::{Error, Result};
 use crate::models::*;
-use crate::adapters::{DatabaseAdapter, PoolStats};
+use crate::adapters::{DatabaseAdapter, MessageSink, PoolStats};
+
+use self::notices::NoticeHub;
 
 /// Maps in-flight query ids to the backend PID of the connection running
 /// them, so cancel_query can issue pg_cancel_backend from another connection.
@@ -22,15 +25,20 @@ pub struct PostgresAdapter {
     pool: Pool,
     _database: String,
     active_queries: QueryRegistry,
+    /// Roteia os notices que chegam pelas conexões do pool para a execução
+    /// que estiver rodando em cada uma (ver `notices.rs`).
+    notice_hub: Arc<NoticeHub>,
 }
 
 impl PostgresAdapter {
     pub fn new(server: &Server, database: &str) -> Result<Self> {
-        let pool = pool::create_pool(server, database)?;
+        let notice_hub = Arc::new(NoticeHub::default());
+        let pool = pool::create_pool(server, database, &notice_hub)?;
         Ok(Self {
             pool,
             _database: database.to_string(),
             active_queries: Mutex::new(HashMap::new()),
+            notice_hub,
         })
     }
 }
@@ -50,7 +58,24 @@ impl DatabaseAdapter for PostgresAdapter {
         query: &str,
         options: QueryOptions,
     ) -> Result<QueryResult> {
-        executor::execute_query(&self.pool, query, options, &self.active_queries).await
+        self.execute_query_with_messages(query, options, None).await
+    }
+
+    async fn execute_query_with_messages(
+        &self,
+        query: &str,
+        options: QueryOptions,
+        sink: Option<Arc<dyn MessageSink>>,
+    ) -> Result<QueryResult> {
+        executor::execute_query(
+            &self.pool,
+            query,
+            options,
+            &self.active_queries,
+            &self.notice_hub,
+            sink,
+        )
+        .await
     }
 
     async fn apply_row_edits(
