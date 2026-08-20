@@ -38,6 +38,45 @@ no servidor e edição inline de linhas — os três bancos expõem **os mesmos 
 | Virtualização | TanStack Virtual |
 | Editor de código | CodeMirror 6 |
 
+## NixOS
+
+O binário publicado nas releases é ligado dinamicamente contra caminhos do FHS
+(`/usr/lib/...`), que não existem no NixOS. O flake deste repositório reempacota o
+`.deb` oficial com `autoPatchelfHook`, apontando as bibliotecas para o `/nix/store`.
+
+Rodar sem instalar:
+```bash
+nix run github:LKTeloeken/octapus_db
+```
+
+Instalar no perfil:
+```bash
+nix profile install github:LKTeloeken/octapus_db
+```
+
+Em configuração declarativa, use o pacote direto ou o overlay (`overlays.default`,
+que expõe `pkgs.octapus-db`):
+```nix
+{
+  inputs.octapus-db.url = "github:LKTeloeken/octapus_db";
+
+  # no módulo do sistema:
+  environment.systemPackages = [ inputs.octapus-db.packages.x86_64-linux.default ];
+}
+```
+
+Notas:
+- Só há bundle para **x86_64-linux** — é o único Linux que o pipeline de release
+  publica hoje (adicionar arm64 é acrescentar uma linha em `nix/update-release.sh`).
+- O **auto-update embutido não funciona** aqui: o `/nix/store` é somente-leitura e o
+  updater do Tauri no Linux só sabe atualizar AppImage. Atualize com
+  `nix profile upgrade` ou bumpando o input do flake.
+- A cada release nova, o hash pinado precisa ser regerado:
+  `./nix/update-release.sh` (usa a última release; aceita a versão como argumento).
+
+Para desenvolver, o mesmo flake traz o devShell com Rust, pnpm e as libs do WebKit —
+`nix develop`, ou automático via `direnv` (o `.envrc` já está no repositório).
+
 ## Começando
 
 ### Pré-requisitos
@@ -80,6 +119,7 @@ cd src-tauri && cargo build && cargo clippy && cargo test
 │   ├── services/        # ConnectionService (cache de pools), QueryService…
 │   ├── storage/         # SQLite local + secrets (keychain)
 │   └── models/          # tipos serializados para o front
+├── nix/                 # empacotamento para NixOS (flake + reempacote do .deb)
 └── .claude/             # instruções de trabalho para o agente (ver CLAUDE.md)
 ```
 
