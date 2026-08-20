@@ -1,3 +1,6 @@
+import mongodbIcon from '@/assets/mongodb-icon.svg';
+import postgresIcon from '@/assets/postgres-icon.svg';
+import redisIcon from '@/assets/redis-icon.svg';
 import type { DatabaseType } from '@/api/types/server.types';
 
 export const DEFAULT_PORTS: Record<DatabaseType, number> = {
@@ -19,10 +22,11 @@ export const DB_TYPE_LABELS: Record<DatabaseType, string> = {
   redis: 'Redis',
 };
 
+/** URLs resolvidas pelo Vite — caminho literal não é emitido no build */
 export const DB_TYPE_ICONS: Record<DatabaseType, string> = {
-  postgres: 'postgres-icon.svg',
-  mongodb: 'mongodb-icon.svg',
-  redis: 'redis-icon.svg',
+  postgres: postgresIcon,
+  mongodb: mongodbIcon,
+  redis: redisIcon,
 };
 
 /** Types with a working adapter — mysql/sqlite return "coming soon" */
