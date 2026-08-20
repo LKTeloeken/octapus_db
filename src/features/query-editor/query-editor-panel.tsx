@@ -69,9 +69,13 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
   );
 
   return (
-    <ResizablePanelGroup direction="vertical" className="h-full">
-      <ResizablePanel defaultSize={40} minSize={20}>
-        <div className="flex flex-col h-full rounded-xl overflow-hidden">
+    <ResizablePanelGroup direction="vertical" className="h-full gap-1">
+      <ResizablePanel
+        defaultSize={40}
+        minSize={20}
+        className="rounded-md border border-border"
+      >
+        <div className="flex flex-col h-full overflow-hidden">
           <QueryEditor
             className="h-full"
             height="100%"
@@ -89,16 +93,20 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
         </div>
       </ResizablePanel>
 
-      <ResizableHandle className="bg-transparent my-1 cursor-row-resize!" />
+      <ResizableHandle className="bg-transparent cursor-row-resize!" />
 
-      <ResizablePanel defaultSize={60} minSize={20}>
+      <ResizablePanel
+        defaultSize={60}
+        minSize={20}
+        className="rounded-md border border-border bg-sidebar"
+      >
         <Tabs
           value={bottomTab}
           onValueChange={handleBottomTabChange}
-          className="flex flex-col h-full gap-2"
+          className="flex flex-col h-full gap-0"
         >
-          <div className="flex items-center gap-1.5">
-            <TabsList>
+          <div className="flex items-center justify-between gap-2 p-1">
+            <TabsList className="gap-1.5 border-none bg-transparent">
               <TabsTrigger value="results">Resultados</TabsTrigger>
               <TabsTrigger value="messages">
                 Mensagens
@@ -158,7 +166,7 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
             className="flex flex-col min-h-0 data-[state=inactive]:hidden"
           >
             <QueryMessagesLog
-              className="flex-1 min-h-0"
+              className="flex-1 min-h-0 border-t border-border"
               entries={log}
               onClear={clearLog}
             />

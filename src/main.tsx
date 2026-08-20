@@ -1,6 +1,9 @@
 import { createRoot } from 'react-dom/client';
 import { StrictMode, createElement } from 'react';
 import App from '@/app';
+import { disableNativeSpellcheck } from '@/lib/disable-native-spellcheck';
+
+disableNativeSpellcheck();
 
 // Get the root element
 const container = document.getElementById('root');

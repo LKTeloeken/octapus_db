@@ -9,22 +9,20 @@ import {
 import { DEFAULT_DATABASES, DEFAULT_PORTS } from '@/lib/db-defaults';
 import type { ServerFormProps } from './server-form.types';
 
-function emptyForm(): ServerInput {
-  return {
-    name: '',
-    dbType: 'postgres',
-    host: '',
-    port: DEFAULT_PORTS.postgres,
-    username: 'postgres',
-    password: '',
-    defaultDatabase: DEFAULT_DATABASES.postgres,
-    sslEnabled: false,
-    connectionUri: null,
-  };
-}
+const emptyForm: ServerInput = {
+  name: '',
+  dbType: 'postgres',
+  host: '',
+  port: DEFAULT_PORTS.postgres,
+  username: 'postgres',
+  password: '',
+  defaultDatabase: DEFAULT_DATABASES.postgres,
+  sslEnabled: false,
+  connectionUri: null,
+};
 
 export const useServerForm = ({ open, onClose, server }: ServerFormProps) => {
-  const [form, setForm] = useState<ServerInput>(emptyForm());
+  const [form, setForm] = useState<ServerInput>(emptyForm);
   const [openRemoveDialog, setOpenRemoveDialog] = useState(false);
 
   const createServer = useCreateServer();
@@ -50,7 +48,7 @@ export const useServerForm = ({ open, onClose, server }: ServerFormProps) => {
         connectionUri: server.connectionUri,
       });
     } else {
-      setForm(emptyForm());
+      setForm(emptyForm);
     }
   }, [open, server]);
 

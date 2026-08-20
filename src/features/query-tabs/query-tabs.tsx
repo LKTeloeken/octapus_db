@@ -1,4 +1,8 @@
-import { Cancel01Icon, DatabaseIcon, TableIcon } from '@hugeicons/core-free-icons';
+import {
+  Cancel01Icon,
+  DatabaseIcon,
+  TableIcon,
+} from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { memo } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -27,9 +31,9 @@ export const QueryTabs = memo(() => {
     <Tabs
       value={activeTabId ?? ''}
       onValueChange={setActiveTab}
-      className="h-full w-full flex flex-col"
+      className="h-full w-full flex flex-col gap-2"
     >
-      <TabsList className="justify-start p-1 w-full overflow-x-auto overflow-y-hidden no-scrollbar">
+      <TabsList className="justify-start p-2 w-full gap-2 overflow-x-auto overflow-y-hidden no-scrollbar">
         {tabs.map(tab => (
           <div
             key={tab.id}

@@ -80,7 +80,7 @@ export const ColumnSelector = memo(
           <Button
             variant="outline"
             size="sm"
-            className="h-6 gap-1 text-xs"
+            className="gap-1 text-xs"
             disabled={columns.length === 0}
             title="Filtrar colunas (Cmd/Ctrl+Shift+H)"
           >

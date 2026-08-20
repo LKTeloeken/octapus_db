@@ -1,20 +1,17 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { SimpleAlertDialog } from '@/components/ui/simple-alert-dialog';
 import { SimpleDialog } from '@/components/ui/simple-dialog';
 import { Switch } from '@/components/ui/switch';
-import type { DatabaseType } from '@/api/types/server.types';
-import { DB_TYPE_LABELS, SUPPORTED_DB_TYPES } from '@/lib/db-defaults';
+import {
+  DB_TYPE_ICONS,
+  DB_TYPE_LABELS,
+  SUPPORTED_DB_TYPES,
+} from '@/lib/db-defaults';
 import type { ServerFormProps } from './server-form.types';
 import { useServerForm } from './use-server-form';
+import { cn } from '@/lib/utils';
 
 export function ServerForm(props: ServerFormProps) {
   const { open, onClose } = props;
@@ -63,6 +60,30 @@ export function ServerForm(props: ServerFormProps) {
         }
       >
         <div className="flex flex-col gap-6">
+          <div className="flex gap-2">
+            {SUPPORTED_DB_TYPES.map(type => (
+              <div
+                key={type}
+                className={cn(
+                  'flex flex-col items-center w-full gap-2 cursor-pointer border border-border hover:bg-muted rounded-md p-2 transition-colors',
+                  form.dbType === type && 'bg-muted border-primary',
+                  form.dbType !== type && 'border-dashed',
+                  isEditMode &&
+                    form.dbType !== type &&
+                    'border-dashed opacity-50 hover:bg-transparent cursor-default',
+                )}
+                onClick={() => !isEditMode && setDbType(type)}
+              >
+                <img
+                  src={`src/assets/${DB_TYPE_ICONS[type]}`}
+                  alt={DB_TYPE_LABELS[type]}
+                  className="w-10 h-10"
+                />
+                <span>{DB_TYPE_LABELS[type]}</span>
+              </div>
+            ))}
+          </div>
+
           <Input
             type="text"
             label="Nome do servidor"
@@ -70,22 +91,6 @@ export function ServerForm(props: ServerFormProps) {
             value={form.name}
             onChange={e => setField('name', e.target.value)}
           />
-
-          <Select
-            value={form.dbType}
-            onValueChange={value => setDbType(value as DatabaseType)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Tipo de banco" />
-            </SelectTrigger>
-            <SelectContent>
-              {SUPPORTED_DB_TYPES.map(type => (
-                <SelectItem key={type} value={type}>
-                  {DB_TYPE_LABELS[type]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
 
           <div className="flex gap-2">
             <Input
@@ -132,24 +137,30 @@ export function ServerForm(props: ServerFormProps) {
             onChange={e => setField('defaultDatabase', e.target.value || null)}
           />
 
-          <Input
-            type="text"
-            label="URI de conexão (opcional — Atlas, Redis Cloud...)"
-            placeholder="Digite aqui..."
-            value={form.connectionUri ?? ''}
-            onChange={e => setField('connectionUri', e.target.value || null)}
-          />
+          {form.dbType !== 'postgres' && (
+            <>
+              <Input
+                type="text"
+                label="URI de conexão (opcional — Atlas, Redis Cloud...)"
+                placeholder="Digite aqui..."
+                value={form.connectionUri ?? ''}
+                onChange={e =>
+                  setField('connectionUri', e.target.value || null)
+                }
+              />
 
-          <div className="flex items-center gap-2">
-            <Switch
-              id="ssl-enabled"
-              checked={!!form.sslEnabled}
-              onCheckedChange={checked => setField('sslEnabled', checked)}
-            />
-            <Label htmlFor="ssl-enabled" className="text-sm">
-              SSL habilitado
-            </Label>
-          </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="ssl-enabled"
+                  checked={!!form.sslEnabled}
+                  onCheckedChange={checked => setField('sslEnabled', checked)}
+                />
+                <Label htmlFor="ssl-enabled" className="text-sm">
+                  SSL habilitado
+                </Label>
+              </div>
+            </>
+          )}
         </div>
       </SimpleDialog>
 

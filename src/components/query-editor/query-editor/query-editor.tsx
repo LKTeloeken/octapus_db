@@ -20,6 +20,12 @@ import {
   staticOptionCategory,
 } from './sql-completion/sql-static-sources';
 
+const disableSpellcheck = EditorView.contentAttributes.of({
+  spellcheck: 'false',
+  autocorrect: 'off',
+  autocapitalize: 'off',
+});
+
 /**
  * Sugestão explícita. No macOS fica em `Shift+Space` — o `Cmd+Space` é engolido pelo
  * Spotlight antes de chegar na janela. Nos outros sistemas, `Ctrl+Space`.
@@ -476,7 +482,10 @@ export function QueryEditor({
         ? [createMongoCompletionSource({ schema })]
         : [
             stableSqlSource,
-            withClauseBoost(keywordCompletionSource(PostgreSQL, true), 'keyword'),
+            withClauseBoost(
+              keywordCompletionSource(PostgreSQL, true),
+              'keyword',
+            ),
             withClauseBoost(sqlStaticSource, staticOptionCategory),
           ];
 
@@ -561,6 +570,7 @@ export function QueryEditor({
       languageExtension,
       completionExtension,
       completionSectionTheme,
+      disableSpellcheck,
       ...(sqlExtraExtensions ? [sqlExtraExtensions] : []),
       placeholder(placeholderText),
       runQueryKeymap,
@@ -610,7 +620,6 @@ export function QueryEditor({
         onChange={onChange}
         style={{
           fontSize,
-          borderRadius: 8,
           overflow: 'hidden',
           border: theme === 'dark' ? '1px solid #2d3340' : '1px solid #d0d7de',
           // Acompanha o container (painel redimensionável) em vez de altura fixa.

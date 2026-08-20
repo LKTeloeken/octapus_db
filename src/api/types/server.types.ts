@@ -1,9 +1,4 @@
-export type DatabaseType =
-  | 'postgres'
-  | 'mongodb'
-  | 'redis'
-  | 'mysql'
-  | 'sqlite';
+export type DatabaseType = 'postgres' | 'mongodb' | 'redis';
 
 export interface Server {
   id: number;

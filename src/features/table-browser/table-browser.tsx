@@ -6,6 +6,7 @@ import { ColumnSelector } from '@/components/column-selector/column-selector';
 import { FilterBar } from './filter-bar/filter-bar';
 import { useTableBrowser } from './use-table-browser';
 import type { TableBrowserProps } from './table-browser.types';
+import { Input } from '@/components/ui/input/input';
 
 /**
  * Browse view of a table/collection/key-group. All data shaping (filter,
@@ -37,7 +38,10 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
   if (error) {
     return (
       <div className="flex flex-col h-full items-center justify-center gap-3">
-        <Typography variant="p" className="text-destructive text-sm max-w-md text-center">
+        <Typography
+          variant="p"
+          className="text-destructive text-sm max-w-md text-center"
+        >
           {error.message}
         </Typography>
         <Button variant="outline" size="sm" onClick={refetch}>
@@ -48,14 +52,20 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
   }
 
   return (
-    <div className="flex flex-col h-full gap-2">
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <FilterBar columns={columns} filters={tab.filters} onChange={setFilters} />
+    <div className="flex flex-col h-full bg-sidebar rounded-md border border-border">
+      <div className="flex items-center gap-1.5 flex-wrap p-2">
         <ColumnSelector
           columns={columns}
           hiddenColumns={hiddenColumns}
           onChange={setHiddenColumns}
         />
+
+        <Input placeholder="WHERE ..." className="flex-1" size="sm" />
+        {/* <FilterBar
+          columns={columns}
+          filters={tab.filters}
+          onChange={setFilters}
+        /> */}
       </div>
 
       <ResultsTable

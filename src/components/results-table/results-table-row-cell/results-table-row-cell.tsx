@@ -55,13 +55,24 @@ export const ResultsTableRowCell = memo(
               ? 'bg-muted'
               : 'bg-transparent';
 
-    const gutterBg = isRemoved
-      ? 'bg-red-950/60 text-red-300'
+    // Tint overlays an opaque `bg-sidebar` instead of replacing it: a
+    // translucent `bg-primary/30` (or status /60) lets scrolled cell text
+    // show through the sticky gutter.
+    const gutterTint = isRemoved
+      ? 'bg-red-950/60'
       : isAdded
-        ? 'bg-green-950/60 text-green-300'
+        ? 'bg-green-950/60'
         : isSelected
-          ? 'bg-primary/30 text-foreground'
-          : 'bg-background text-muted-foreground';
+          ? 'bg-primary/30'
+          : null;
+
+    const gutterFg = isRemoved
+      ? 'text-red-300'
+      : isAdded
+        ? 'text-green-300'
+        : isSelected
+          ? 'text-foreground'
+          : 'text-muted-foreground';
 
     return (
       <div
@@ -93,14 +104,21 @@ export const ResultsTableRowCell = memo(
             onSelectRowGutter(rowIndex, event);
           }}
           className={cn(
-            'sticky left-0 z-10 border-r border-border flex items-center justify-center',
+            'sticky left-0 z-20 overflow-hidden border-r border-border flex items-center justify-center',
             'text-[10px] font-mono select-none cursor-pointer outline-none',
             'focus-visible:ring-1 focus-visible:ring-ring',
-            gutterBg,
+            'bg-sidebar',
+            gutterFg,
           )}
           style={{ width: `${gutterWidth}px`, height: `${rowHeight}px` }}
         >
-          {rowIndex + 1}
+          {gutterTint && (
+            <span
+              aria-hidden
+              className={cn('absolute inset-0 pointer-events-none', gutterTint)}
+            />
+          )}
+          <span className="relative">{rowIndex + 1}</span>
         </button>
 
         {virtualColumns.map(virtualColumn => {

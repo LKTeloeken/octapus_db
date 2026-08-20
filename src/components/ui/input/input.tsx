@@ -7,7 +7,7 @@ import { useInput } from './use-input';
 
 export const inputControlVariants = cva(
   [
-    'flex min-w-0 items-center rounded-sm border bg-transparent shadow-xs',
+    'flex min-w-0 items-center rounded-md border bg-transparent shadow-xs',
     'border-input dark:bg-input/30',
     'transition-[color,box-shadow] outline-none',
     'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]',
@@ -128,6 +128,9 @@ export function Input({
           )}
 
           <input
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
             {...rest}
             {...inputProps}
             id={inputId}

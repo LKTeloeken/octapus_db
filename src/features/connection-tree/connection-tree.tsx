@@ -20,9 +20,11 @@ const OVERSCAN = 12;
  * (useTreeNavigation) e do clique, que convergem no mesmo cursor.
  */
 export const ConnectionTree = memo(({ onEditServer }: ConnectionTreeProps) => {
-  const { rows, isLoading, isError, error, retry, isEmpty } = useConnectionTree({
-    onEditServer,
-  });
+  const { rows, isLoading, isError, error, retry, isEmpty } = useConnectionTree(
+    {
+      onEditServer,
+    },
+  );
   const parentRef = useRef<HTMLDivElement>(null);
 
   const virtualizer = useVirtualizer({
@@ -59,7 +61,9 @@ export const ConnectionTree = memo(({ onEditServer }: ConnectionTreeProps) => {
   }
 
   if (isEmpty) {
-    return <p className="text-sm text-muted-foreground">No servers connected</p>;
+    return (
+      <p className="text-sm text-muted-foreground">No servers connected</p>
+    );
   }
 
   return (
