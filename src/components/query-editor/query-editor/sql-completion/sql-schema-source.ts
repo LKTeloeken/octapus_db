@@ -154,7 +154,8 @@ export function createSqlSchemaSource(
       columnBoost === null
         ? []
         : statementTables.filter(
-            entry => !ports.peekColumns(entry.target.schema, entry.target.table),
+            entry =>
+              !ports.peekColumns(entry.target.schema, entry.target.table),
           );
 
     if (missing.length > 0) {

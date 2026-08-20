@@ -1,24 +1,31 @@
 use std::time::Instant;
 
-use mongodb::bson::{doc, Bson, Document};
+use mongodb::bson::{doc, Document};
 use mongodb::Database;
 
 use crate::error::{Error, Result};
-use crate::models::{
-    ColumnFilter, FilterOp, QueryResult, SortDirection, TableDataRequest,
-};
+use crate::models::{QueryResult, SortDirection, TableDataRequest};
 
-use super::executor::{collect_cursor, documents_to_table, editable_for, scalar_variants};
-use super::types::{like_to_regex, parse_scalar};
+use super::executor::{collect_cursor, documents_to_table, editable_for};
 
 pub async fn fetch_table_data(
     db: &Database,
     database_name: &str,
     request: TableDataRequest,
 ) -> Result<QueryResult> {
+    if request
+        .where_expr
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty())
+    {
+        return Err(Error::InvalidQuery(
+            "Raw WHERE is only supported for PostgreSQL".into(),
+        ));
+    }
+
     let coll = db.collection::<Document>(&request.table);
 
-    let filter = build_filter(&request.filters)?;
+    let filter = Document::new();
     let sort = build_sort(&request);
 
     let start = Instant::now();
@@ -62,62 +69,8 @@ pub async fn fetch_table_data(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Filter/sort translation (pure, unit-testable)
+// Sort translation (pure, unit-testable)
 // ─────────────────────────────────────────────────────────────────────────────
-
-fn build_filter(filters: &[ColumnFilter]) -> Result<Document> {
-    let conditions: Vec<Document> = filters
-        .iter()
-        .map(build_condition)
-        .collect::<Result<_>>()?;
-
-    Ok(match conditions.len() {
-        0 => Document::new(),
-        1 => conditions.into_iter().next().unwrap(),
-        // $and allows multiple conditions on the same field
-        _ => doc! { "$and": conditions },
-    })
-}
-
-fn build_condition(filter: &ColumnFilter) -> Result<Document> {
-    let field = filter.column.as_str();
-
-    let first_value = || {
-        filter.values.first().map(String::as_str).ok_or_else(|| {
-            Error::InvalidQuery(format!("Filter on field '{field}' requires a value"))
-        })
-    };
-
-    let condition = match filter.op {
-        // Use all plausible typed interpretations so "42" matches both the
-        // number 42 and the string "42"
-        FilterOp::Eq => doc! { field: { "$in": scalar_variants(first_value()?) } },
-        FilterOp::Ne => doc! { field: { "$nin": scalar_variants(first_value()?) } },
-        FilterOp::In => {
-            if filter.values.is_empty() {
-                return Err(Error::InvalidQuery(format!(
-                    "Filter 'in' on field '{field}' requires at least one value"
-                )));
-            }
-            let variants: Vec<Bson> = filter
-                .values
-                .iter()
-                .flat_map(|v| scalar_variants(v))
-                .collect();
-            doc! { field: { "$in": variants } }
-        }
-        FilterOp::Like => doc! { field: { "$regex": like_to_regex(first_value()?) } },
-        FilterOp::Gt => doc! { field: { "$gt": parse_scalar(first_value()?) } },
-        FilterOp::Gte => doc! { field: { "$gte": parse_scalar(first_value()?) } },
-        FilterOp::Lt => doc! { field: { "$lt": parse_scalar(first_value()?) } },
-        FilterOp::Lte => doc! { field: { "$lte": parse_scalar(first_value()?) } },
-        // {field: null} matches both null and missing fields
-        FilterOp::IsNull => doc! { field: Bson::Null },
-        FilterOp::NotNull => doc! { field: { "$ne": Bson::Null } },
-    };
-
-    Ok(condition)
-}
 
 fn build_sort(request: &TableDataRequest) -> Document {
     // Default ordering: `_id` desc (the PK), keeping skip/limit pagination
@@ -141,66 +94,30 @@ fn build_sort(request: &TableDataRequest) -> Document {
 mod tests {
     use super::*;
 
-    fn filter(column: &str, op: FilterOp, values: &[&str]) -> ColumnFilter {
-        ColumnFilter {
-            column: column.into(),
-            op,
-            values: values.iter().map(|v| v.to_string()).collect(),
+    fn empty_request(sort: Vec<crate::models::SortSpec>) -> TableDataRequest {
+        TableDataRequest {
+            schema: None,
+            table: "users".into(),
+            where_expr: None,
+            sort,
+            limit: 10,
+            offset: 0,
+            count_total: false,
         }
     }
 
     #[test]
-    fn eq_matches_typed_and_string() {
-        let doc = build_filter(&[filter("age", FilterOp::Eq, &["42"])]).unwrap();
-        assert_eq!(
-            doc,
-            doc! { "age": { "$in": [Bson::Int64(42), Bson::String("42".into())] } }
-        );
+    fn default_sort_is_id_desc() {
+        assert_eq!(build_sort(&empty_request(vec![])), doc! { "_id": -1 });
     }
 
     #[test]
-    fn eq_plain_string_single_variant() {
-        let doc = build_filter(&[filter("name", FilterOp::Eq, &["ana"])]).unwrap();
-        assert_eq!(doc, doc! { "name": { "$in": [Bson::String("ana".into())] } });
-    }
-
-    #[test]
-    fn multiple_filters_use_and() {
-        let doc = build_filter(&[
-            filter("age", FilterOp::Gte, &["18"]),
-            filter("age", FilterOp::Lt, &["60"]),
-        ])
-        .unwrap();
-        assert_eq!(
-            doc,
-            doc! { "$and": [
-                { "age": { "$gte": Bson::Int64(18) } },
-                { "age": { "$lt": Bson::Int64(60) } },
-            ]}
-        );
-    }
-
-    #[test]
-    fn like_becomes_anchored_regex() {
-        let doc = build_filter(&[filter("name", FilterOp::Like, &["%ana%"])]).unwrap();
-        assert_eq!(doc, doc! { "name": { "$regex": "^.*ana.*$" } });
-    }
-
-    #[test]
-    fn null_filters() {
-        assert_eq!(
-            build_filter(&[filter("x", FilterOp::IsNull, &[])]).unwrap(),
-            doc! { "x": Bson::Null }
-        );
-        assert_eq!(
-            build_filter(&[filter("x", FilterOp::NotNull, &[])]).unwrap(),
-            doc! { "x": { "$ne": Bson::Null } }
-        );
-    }
-
-    #[test]
-    fn empty_in_rejected() {
-        assert!(build_filter(&[filter("x", FilterOp::In, &[])]).is_err());
+    fn explicit_sort_uses_requested_columns() {
+        let sort = build_sort(&empty_request(vec![crate::models::SortSpec {
+            column: "idx".into(),
+            direction: SortDirection::Desc,
+        }]));
+        assert_eq!(sort, doc! { "idx": -1 });
     }
 
     // ── End-to-end (requires a local MongoDB; run with `cargo test -- --ignored`) ──
@@ -254,12 +171,12 @@ mod tests {
             .iter()
             .any(|c| c.name == "age" && (c.data_type == "int" || c.data_type == "long")));
 
-        // Browse: filter age >= 5, sort idx desc, paginate
+        // Browse: sort idx desc, paginate
         let result = adapter
             .fetch_table_data(TableDataRequest {
                 schema: None,
                 table: "users".into(),
-                filters: vec![filter("age", FilterOp::Gte, &["5"])],
+                where_expr: None,
                 sort: vec![SortSpec {
                     column: "idx".into(),
                     direction: crate::models::SortDirection::Desc,
@@ -271,15 +188,13 @@ mod tests {
             .await
             .unwrap();
 
-        // ages cycle 1..9,0; age >= 5 → i % 10 in 5..=9 → 15 of 30 docs
-        assert_eq!(result.total_count, Some(15));
+        assert_eq!(result.total_count, Some(30));
         assert_eq!(result.row_count, 10);
         assert!(result.has_more);
         let editable = result.editable_info.expect("editable by _id");
         assert_eq!(editable.primary_key_columns, vec!["_id".to_string()]);
-        // First row: highest idx with age>=5 → idx=29 (29%10=9)
         let idx_col = result.columns.iter().position(|c| c.name == "idx").unwrap();
-        assert_eq!(result.rows[0][idx_col].as_deref(), Some("29"));
+        assert_eq!(result.rows[0][idx_col].as_deref(), Some("30"));
 
         // Free-form query through the editor
         let q = adapter

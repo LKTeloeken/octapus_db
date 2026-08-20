@@ -1,9 +1,9 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { ColumnFilter, SortSpec } from '@/api/types/browse.types';
+import type { SortSpec } from '@/api/types/browse.types';
 
 /**
  * Hierarchical key factory — invalidation works by prefix:
- * invalidating `tableDataForTable(...)` hits every filter/sort variation
+ * invalidating `tableDataForTable(...)` hits every where/sort variation
  * of that table.
  */
 export const queryKeys = {
@@ -52,7 +52,7 @@ export const queryKeys = {
     database: string,
     schema: string | null,
     table: string,
-    filters: ColumnFilter[],
+    whereExpr: string,
     sort: SortSpec[],
   ) =>
     [
@@ -61,7 +61,7 @@ export const queryKeys = {
       database,
       schema ?? '',
       table,
-      { filters, sort },
+      { whereExpr, sort },
     ] as const,
 };
 

@@ -1,4 +1,7 @@
-import type { ColumnInfo, DatabaseStructure } from '@/api/types/structure.types';
+import type {
+  ColumnInfo,
+  DatabaseStructure,
+} from '@/api/types/structure.types';
 
 /** Tabela citada no statement sob o cursor (FROM, JOIN, UPDATE, INSERT INTO, DELETE FROM). */
 export interface StatementTableRef {

@@ -5,9 +5,11 @@ use deadpool_postgres::Pool;
 
 use crate::error::{Error, Result};
 use crate::models::{
-    ColumnFilter, EditableInfo, FilterOp, QueryColumnInfo, QueryResult, SortDirection, SortSpec,
-    TableDataRequest,
+    EditableInfo, QueryColumnInfo, QueryResult, SortDirection, SortSpec, TableDataRequest,
 };
+use sqlparser::dialect::PostgreSqlDialect;
+use sqlparser::parser::Parser;
+use sqlparser::tokenizer::Token;
 
 use super::executor::extract_text_rows_typed;
 use super::util::{get_columns_ordered, quote_ident};
@@ -21,8 +23,8 @@ pub async fn fetch_table_data(pool: &Pool, request: TableDataRequest) -> Result<
 
     // Fetch column metadata and PK columns in parallel (independent round-trips).
     // Ordered column metadata also validates that the table exists and gives us
-    // the column names for rejecting unknown filter/sort columns. PK columns
-    // drive the default ordering (stable pagination) and editability.
+    // the column names for rejecting unknown sort columns. PK columns drive the
+    // default ordering (stable pagination) and editability.
     let (columns_meta, pk_columns) = tokio::join!(
         get_columns_ordered(&client, schema, &request.table),
         fetch_pk_columns(&client, schema, &request.table),
@@ -41,12 +43,6 @@ pub async fn fetch_table_data(pool: &Pool, request: TableDataRequest) -> Result<
         quote_ident(&request.table),
         clauses.where_clause,
     );
-
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = clauses
-        .params
-        .iter()
-        .map(|v| v as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
 
     // Cast every column to text in SQL so Postgres does all type→text rendering
     // (handles jsonb/numeric/uuid/arrays/enums) and Rust only reads strings.
@@ -76,14 +72,14 @@ pub async fn fetch_table_data(pool: &Pool, request: TableDataRequest) -> Result<
     // fetch — not the (often heavier) count scan.
     let exec_started = Instant::now();
     let data_fut = async {
-        let rows = client.query(&select, &params).await;
+        let rows = client.query(&select, &[]).await;
         (rows, exec_started.elapsed())
     };
     let count_fut = async {
         if request.count_total {
             let count_sql = format!("SELECT COUNT(*) {base}");
             Ok::<Option<i64>, Error>(Some(
-                client.query_one(&count_sql, &params).await?.get::<_, i64>(0),
+                client.query_one(&count_sql, &[]).await?.get::<_, i64>(0),
             ))
         } else {
             Ok(None)
@@ -131,11 +127,10 @@ pub async fn fetch_table_data(pool: &Pool, request: TableDataRequest) -> Result<
 
 #[derive(Debug)]
 struct BuiltClauses {
-    /// Leading-space `" WHERE ..."` or empty
+    /// Leading-space `" WHERE (...)"` or empty
     where_clause: String,
     /// Leading-space `" ORDER BY ..."` or empty
     order_clause: String,
-    params: Vec<String>,
 }
 
 fn build_clauses(
@@ -143,17 +138,9 @@ fn build_clauses(
     type_map: &HashMap<String, String>,
     pk_columns: &[String],
 ) -> Result<BuiltClauses> {
-    let mut params: Vec<String> = Vec::new();
-    let mut conditions: Vec<String> = Vec::new();
-
-    for filter in &request.filters {
-        conditions.push(build_condition(filter, type_map, &mut params)?);
-    }
-
-    let where_clause = if conditions.is_empty() {
-        String::new()
-    } else {
-        format!(" WHERE {}", conditions.join(" AND "))
+    let where_clause = match normalize_where_expr(request.where_expr.as_deref())? {
+        Some(expr) => format!(" WHERE ({expr})"),
+        None => String::new(),
     };
 
     let order_clause = build_order_clause(&request.sort, type_map, pk_columns)?;
@@ -161,65 +148,53 @@ fn build_clauses(
     Ok(BuiltClauses {
         where_clause,
         order_clause,
-        params,
     })
 }
 
-fn build_condition(
-    filter: &ColumnFilter,
-    type_map: &HashMap<String, String>,
-    params: &mut Vec<String>,
-) -> Result<String> {
-    let col_type = column_type(&filter.column, type_map)?;
-    let col = quote_ident(&filter.column);
-
-    // Pushes a value and returns its `$n::text::<type>` placeholder, so the
-    // comparison happens in the column's native type.
-    let push_param = |value: &str, params: &mut Vec<String>| -> String {
-        params.push(value.to_string());
-        format!("${}::text::{}", params.len(), col_type)
+/// Parse `raw` as a single SQL expression. Empty/whitespace → `None`.
+/// A leading `WHERE` keyword is stripped so the input can match the UI label.
+fn normalize_where_expr(raw: Option<&str>) -> Result<Option<String>> {
+    let Some(raw) = raw else {
+        return Ok(None);
     };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
 
-    let first_value = || {
-        filter.values.first().ok_or_else(|| {
-            Error::InvalidQuery(format!(
-                "Filter on column '{}' requires a value",
-                filter.column
-            ))
-        })
+    let expr = strip_leading_where(trimmed);
+    if expr.is_empty() {
+        return Ok(None);
+    }
+
+    let dialect = PostgreSqlDialect {};
+    let mut parser = Parser::new(&dialect)
+        .try_with_sql(expr)
+        .map_err(|e| Error::InvalidQuery(format!("Invalid WHERE expression: {e}")))?;
+    parser
+        .parse_expr()
+        .map_err(|e| Error::InvalidQuery(format!("Invalid WHERE expression: {e}")))?;
+
+    if !matches!(parser.peek_token().token, Token::EOF) {
+        return Err(Error::InvalidQuery(
+            "Filter must be a single WHERE expression".into(),
+        ));
+    }
+
+    Ok(Some(expr.to_string()))
+}
+
+fn strip_leading_where(s: &str) -> &str {
+    let trimmed = s.trim_start();
+    let Some(rest) = trimmed.get(5..) else {
+        return trimmed;
     };
-
-    let condition = match filter.op {
-        FilterOp::Eq => format!("{col} = {}", push_param(first_value()?, params)),
-        FilterOp::Ne => format!("{col} <> {}", push_param(first_value()?, params)),
-        FilterOp::Gt => format!("{col} > {}", push_param(first_value()?, params)),
-        FilterOp::Gte => format!("{col} >= {}", push_param(first_value()?, params)),
-        FilterOp::Lt => format!("{col} < {}", push_param(first_value()?, params)),
-        FilterOp::Lte => format!("{col} <= {}", push_param(first_value()?, params)),
-        FilterOp::In => {
-            if filter.values.is_empty() {
-                return Err(Error::InvalidQuery(format!(
-                    "Filter 'in' on column '{}' requires at least one value",
-                    filter.column
-                )));
-            }
-            let placeholders: Vec<String> = filter
-                .values
-                .iter()
-                .map(|v| push_param(v, params))
-                .collect();
-            format!("{col} IN ({})", placeholders.join(", "))
-        }
-        FilterOp::Like => {
-            // Compare textually so LIKE works on any column type
-            params.push(first_value()?.to_string());
-            format!("{col}::text LIKE ${}", params.len())
-        }
-        FilterOp::IsNull => format!("{col} IS NULL"),
-        FilterOp::NotNull => format!("{col} IS NOT NULL"),
-    };
-
-    Ok(condition)
+    if trimmed[..5].eq_ignore_ascii_case("where")
+        && (rest.is_empty() || rest.starts_with(char::is_whitespace))
+    {
+        return rest.trim_start();
+    }
+    trimmed
 }
 
 fn build_order_clause(
@@ -331,11 +306,11 @@ fn detect_editable_info(
 mod tests {
     use super::*;
 
-    fn req(filters: Vec<ColumnFilter>, sort: Vec<SortSpec>) -> TableDataRequest {
+    fn req(where_expr: Option<&str>, sort: Vec<SortSpec>) -> TableDataRequest {
         TableDataRequest {
             schema: None,
             table: "users".into(),
-            filters,
+            where_expr: where_expr.map(str::to_string),
             sort,
             limit: 100,
             offset: 0,
@@ -355,147 +330,97 @@ mod tests {
         vec!["id".to_string()]
     }
 
-    fn filter(column: &str, op: FilterOp, values: &[&str]) -> ColumnFilter {
-        ColumnFilter {
-            column: column.into(),
-            op,
-            values: values.iter().map(|v| v.to_string()).collect(),
-        }
-    }
-
     #[test]
     fn no_sort_defaults_to_pk_desc() {
-        let built = build_clauses(&req(vec![], vec![]), &types(), &pk()).unwrap();
+        let built = build_clauses(&req(None, vec![]), &types(), &pk()).unwrap();
         assert_eq!(built.where_clause, "");
         assert_eq!(built.order_clause, " ORDER BY \"id\" DESC");
-        assert!(built.params.is_empty());
     }
 
     #[test]
     fn no_sort_no_pk_has_no_order() {
-        let built = build_clauses(&req(vec![], vec![]), &types(), &[]).unwrap();
+        let built = build_clauses(&req(None, vec![]), &types(), &[]).unwrap();
         assert_eq!(built.order_clause, "");
     }
 
     #[test]
-    fn eq_filter_with_cast() {
+    fn empty_where_is_omitted() {
+        let built = build_clauses(&req(Some("   "), vec![]), &types(), &pk()).unwrap();
+        assert_eq!(built.where_clause, "");
+    }
+
+    #[test]
+    fn where_expr_is_parenthesized() {
+        let built = build_clauses(&req(Some("id = 1"), vec![]), &types(), &pk()).unwrap();
+        assert_eq!(built.where_clause, " WHERE (id = 1)");
+    }
+
+    #[test]
+    fn leading_where_keyword_is_stripped() {
         let built =
-            build_clauses(&req(vec![filter("id", FilterOp::Eq, &["7"])], vec![]), &types(), &pk())
+            build_clauses(&req(Some("WHERE id = 1 AND name ILIKE '%ana%'"), vec![]), &types(), &pk())
                 .unwrap();
-        assert_eq!(built.where_clause, " WHERE \"id\" = $1::text::integer");
-        assert_eq!(built.params, vec!["7"]);
-    }
-
-    #[test]
-    fn in_filter_multiple_values() {
-        let built = build_clauses(
-            &req(vec![filter("id", FilterOp::In, &["1", "2", "3"])], vec![]),
-            &types(), &pk(),
-        )
-        .unwrap();
         assert_eq!(
             built.where_clause,
-            " WHERE \"id\" IN ($1::text::integer, $2::text::integer, $3::text::integer)"
+            " WHERE (id = 1 AND name ILIKE '%ana%')"
         );
-        assert_eq!(built.params, vec!["1", "2", "3"]);
     }
 
     #[test]
-    fn like_compares_as_text() {
-        let built = build_clauses(
-            &req(vec![filter("name", FilterOp::Like, &["%ana%"])], vec![]),
-            &types(), &pk(),
+    fn union_after_expr_is_rejected() {
+        let err = build_clauses(
+            &req(Some("id = 1 UNION SELECT 1"), vec![]),
+            &types(),
+            &pk(),
         )
-        .unwrap();
-        assert_eq!(built.where_clause, " WHERE \"name\"::text LIKE $1");
+        .unwrap_err();
+        assert!(err.to_string().contains("single WHERE expression"));
     }
 
     #[test]
-    fn null_filters_use_no_params() {
-        let built = build_clauses(
-            &req(
-                vec![
-                    filter("name", FilterOp::IsNull, &[]),
-                    filter("id", FilterOp::NotNull, &[]),
-                ],
-                vec![],
-            ),
-            &types(), &pk(),
-        )
-        .unwrap();
-        assert_eq!(
-            built.where_clause,
-            " WHERE \"name\" IS NULL AND \"id\" IS NOT NULL"
-        );
-        assert!(built.params.is_empty());
-    }
-
-    #[test]
-    fn multiple_filters_joined_with_and() {
-        let built = build_clauses(
-            &req(
-                vec![
-                    filter("id", FilterOp::Gte, &["10"]),
-                    filter("name", FilterOp::Eq, &["ana"]),
-                ],
-                vec![],
-            ),
-            &types(), &pk(),
-        )
-        .unwrap();
-        assert_eq!(
-            built.where_clause,
-            " WHERE \"id\" >= $1::text::integer AND \"name\" = $2::text::text"
-        );
+    fn invalid_expr_is_rejected() {
+        let err = build_clauses(&req(Some("id ="), vec![]), &types(), &pk()).unwrap_err();
+        assert!(err.to_string().contains("Invalid WHERE expression"));
     }
 
     #[test]
     fn sort_multiple_columns() {
         let built = build_clauses(
             &req(
-                vec![],
+                None,
                 vec![
-                    SortSpec { column: "name".into(), direction: SortDirection::Asc },
-                    SortSpec { column: "id".into(), direction: SortDirection::Desc },
+                    SortSpec {
+                        column: "name".into(),
+                        direction: SortDirection::Asc,
+                    },
+                    SortSpec {
+                        column: "id".into(),
+                        direction: SortDirection::Desc,
+                    },
                 ],
             ),
-            &types(), &pk(),
+            &types(),
+            &pk(),
         )
         .unwrap();
         assert_eq!(built.order_clause, " ORDER BY \"name\" ASC, \"id\" DESC");
     }
 
     #[test]
-    fn unknown_filter_column_rejected() {
-        let err = build_clauses(
-            &req(vec![filter("evil\"; DROP TABLE x;--", FilterOp::Eq, &["1"])], vec![]),
-            &types(), &pk(),
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("Unknown column"));
-    }
-
-    #[test]
     fn unknown_sort_column_rejected() {
         let err = build_clauses(
             &req(
-                vec![],
-                vec![SortSpec { column: "nope".into(), direction: SortDirection::Asc }],
+                None,
+                vec![SortSpec {
+                    column: "nope".into(),
+                    direction: SortDirection::Asc,
+                }],
             ),
-            &types(), &pk(),
+            &types(),
+            &pk(),
         )
         .unwrap_err();
         assert!(err.to_string().contains("Unknown column"));
-    }
-
-    #[test]
-    fn filter_without_value_rejected() {
-        let err = build_clauses(
-            &req(vec![filter("id", FilterOp::Eq, &[])], vec![]),
-            &types(), &pk(),
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("requires a value"));
     }
 
     // ── End-to-end (requires a local Postgres; run with `cargo test -- --ignored`) ──
@@ -550,7 +475,7 @@ mod tests {
             .fetch_table_data(TableDataRequest {
                 schema: None,
                 table: "users".into(),
-                filters: vec![filter("age", FilterOp::Gte, &["10"])],
+                where_expr: Some("age >= 10".into()),
                 sort: vec![SortSpec {
                     column: "id".into(),
                     direction: SortDirection::Desc,
@@ -573,12 +498,12 @@ mod tests {
         assert_eq!(editable.primary_key_columns, vec!["id".to_string()]);
         assert_eq!(editable.schema, "public");
 
-        // Unknown column must be rejected, not interpolated
+        // Trailing statement after the expression must be rejected by the parser
         let err = adapter
             .fetch_table_data(TableDataRequest {
                 schema: None,
                 table: "users".into(),
-                filters: vec![filter("nope", FilterOp::Eq, &["1"])],
+                where_expr: Some("id = 1 UNION SELECT 1".into()),
                 sort: vec![],
                 limit: 10,
                 offset: 0,
@@ -586,7 +511,7 @@ mod tests {
             })
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("Unknown column"));
+        assert!(err.to_string().contains("single WHERE expression"));
 
         drop(adapter);
         admin

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import type { ColumnFilter, SortSpec } from '@/api/types/browse.types';
+import type { SortSpec } from '@/api/types/browse.types';
 import { useHiddenColumnsReset } from '@/components/column-selector/use-hidden-columns-reset';
 import type { SaveRowChanges } from '@/components/results-table/results-table.types';
 import {
@@ -8,25 +8,34 @@ import {
   useDeleteRows,
   useInsertRows,
 } from '@/queries/use-apply-row-edits';
+import { useCapabilities } from '@/queries/use-capabilities';
 import { useTableData } from '@/queries/use-table-data';
 import { useTabsStore, type BrowseTab } from '@/stores/tabs-store';
 
 export const useTableBrowser = (tab: BrowseTab) => {
   const setBrowseSort = useTabsStore(state => state.setBrowseSort);
-  const setBrowseFilters = useTabsStore(state => state.setBrowseFilters);
+  const setBrowseWhere = useTabsStore(state => state.setBrowseWhere);
   const setBrowseHiddenColumns = useTabsStore(
     state => state.setBrowseHiddenColumns,
   );
   const applyEditsMutation = useApplyRowEdits();
   const insertRowsMutation = useInsertRows();
   const deleteRowsMutation = useDeleteRows();
+  const { data: capabilities } = useCapabilities(tab.serverId);
+  const supportsSql = capabilities?.supportsSql === true;
+
+  const [draftWhere, setDraftWhere] = useState(tab.whereExpr);
+
+  useEffect(() => {
+    setDraftWhere(tab.whereExpr);
+  }, [tab.id, tab.whereExpr]);
 
   const data = useTableData({
     serverId: tab.serverId,
     database: tab.database,
     schema: tab.schema,
     table: tab.table,
-    filters: tab.filters,
+    whereExpr: tab.whereExpr,
     sort: tab.sort,
   });
 
@@ -53,10 +62,18 @@ export const useTableBrowser = (tab: BrowseTab) => {
     [activeSort, tab.id, setBrowseSort],
   );
 
-  const setFilters = useCallback(
-    (filters: ColumnFilter[]) => setBrowseFilters(tab.id, filters),
-    [tab.id, setBrowseFilters],
-  );
+  const applyWhere = useCallback(() => {
+    const next = draftWhere.trim();
+    if (next !== tab.whereExpr) {
+      setBrowseWhere(tab.id, next);
+    } else {
+      void data.refetch();
+    }
+  }, [draftWhere, tab.id, tab.whereExpr, setBrowseWhere, data.refetch]);
+
+  const resetWhere = useCallback(() => {
+    setDraftWhere(tab.whereExpr);
+  }, [tab.whereExpr]);
 
   const hiddenColumns = useMemo(
     () => new Set(tab.hiddenColumns),
@@ -79,18 +96,18 @@ export const useTableBrowser = (tab: BrowseTab) => {
     resetHiddenColumns,
   );
 
-  // Cmd/Ctrl+R recarrega os dados da tabela (impede o reload da webview).
+  // Cmd/Ctrl+R applies the draft WHERE (if dirty) and reloads table data.
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'r') {
         event.preventDefault();
-        void data.refetch();
+        applyWhere();
       }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [data.refetch]);
+  }, [applyWhere]);
 
   // Persist deletes, inserts and edits together. Each mutation invalidates the
   // browse query, so the table only reflects changes once the backend confirms.
@@ -141,8 +158,12 @@ export const useTableBrowser = (tab: BrowseTab) => {
     ...data,
     activeSort,
     hiddenColumns,
+    draftWhere,
+    setDraftWhere,
+    applyWhere,
+    resetWhere,
+    supportsSql,
     setSort,
-    setFilters,
     setHiddenColumns,
     save,
   };

@@ -163,17 +163,11 @@ interface RowInsert {
 interface TableDataRequest {
   schema?: string | null;   // Postgres: schema (default 'public'); Mongo/Redis: ignorado
   table: string;            // tabela / collection / grupo de keys
-  filters?: ColumnFilter[];
+  whereExpr?: string;       // Postgres: expressão WHERE (sem a keyword); Mongo/Redis rejeitam se preenchido
   sort?: SortSpec[];
   limit?: number;           // default 500
   offset?: number;          // default 0
   countTotal?: boolean;     // default false
-}
-
-interface ColumnFilter {
-  column: string;
-  op: 'eq' | 'ne' | 'in' | 'like' | 'gt' | 'gte' | 'lt' | 'lte' | 'is_null' | 'not_null';
-  values: string[];   // 'in' usa todos; comparações usam o primeiro; is_null/not_null ignora
 }
 
 interface SortSpec {
@@ -367,17 +361,14 @@ Renderize `result.columns` + `result.rows`. Use `hasMore`/`totalCount` para
 paginação. Se `result.editableInfo != null`, habilite edição inline (§6.6).
 
 ### 6.5 Abrir aba com os dados de uma tabela (browse) — o pedido central
-Ao clicar numa tabela, **não monte query no front** — chame `fetch_table_data`.
-O back gera o SQL/find/scan, valida colunas (sem injection) e pagina no servidor.
+Ao clicar numa tabela, **não monte o SELECT no front** — chame `fetch_table_data`.
+O back gera o SQL/find/scan, valida a expressão WHERE (Postgres) e pagina no servidor.
 
 ```ts
 const request: TableDataRequest = {
   schema: 'public',          // null para Mongo/Redis
   table: 'users',
-  filters: [
-    { column: 'age', op: 'gte', values: ['18'] },
-    { column: 'city', op: 'in', values: ['SP', 'RJ'] },
-  ],
+  whereExpr: "age >= 18 AND city IN ('SP', 'RJ')",
   sort: [{ column: 'created_at', direction: 'desc' }],
   limit: 100,
   offset: 0,
@@ -390,19 +381,21 @@ const data = await invoke<QueryResult>('fetch_table_data', {
 ```
 - **Ordenar por uma coluna:** ao clicar no header, reenvie com
   `sort: [{ column, direction }]`.
-- **Filtrar por uma ou mais colunas:** acumule `ColumnFilter` (são combinados com
-  AND). `values` é sempre `string[]` mesmo para número/data — o back faz o cast.
+- **Filtrar (Postgres):** envie `whereExpr` com uma expressão SQL (sem `WHERE`).
+  O back valida que é uma única expressão (`sqlparser`) e interpola
+  `WHERE (expr)`. Vazio/omitido = sem filtro. Aplicar no Enter, não a cada tecla.
 - **Paginar:** incremente `offset`; use `hasMore` para o botão "próxima".
 - O retorno é o mesmo `QueryResult` do editor → **reaproveite o componente de
   grid**. `editableInfo` vem preenchido quando a tabela tem PK (Postgres) ou
   `_id` (Mongo); no Redis vem `null` (edite via comando nativo).
 
-Comportamento por banco (transparente para o front):
-- **Postgres:** `SELECT ... WHERE ... ORDER BY ... LIMIT/OFFSET` parametrizado.
-- **Mongo:** vira `find().sort().skip().limit()`; `eq`/`in` casam número **e**
-  string; `like` usa `%`/`_` convertidos para regex.
-- **Redis:** `SCAN MATCH grupo:*`, filtra/ordena client-side sobre
-  `key/type/ttl/value` (varredura limitada a 50k keys por sweep).
+Comportamento por banco:
+- **Postgres:** `SELECT ... WHERE (expr) ORDER BY ... LIMIT/OFFSET`. Sort
+  continua parametrizado por identificador quoted; a expressão WHERE é literal.
+- **Mongo:** `find().sort().skip().limit()` — `whereExpr` preenchido é rejeitado.
+- **Redis:** `SCAN MATCH grupo:*`, ordena client-side sobre
+  `key/type/ttl/value` (varredura limitada a 50k keys por sweep). `whereExpr`
+  preenchido é rejeitado.
 
 ### 6.6 Edição inline de células
 Quando `editableInfo != null`, monte os `RowEdit` a partir das células alteradas:

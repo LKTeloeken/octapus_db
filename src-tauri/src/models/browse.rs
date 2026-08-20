@@ -11,8 +11,10 @@ pub struct TableDataRequest {
     /// Schema name; `None` for databases without schemas (MongoDB, Redis).
     pub schema: Option<String>,
     pub table: String,
+    /// Postgres-only raw WHERE expression (without the `WHERE` keyword).
+    /// Mongo/Redis reject a non-empty value.
     #[serde(default)]
-    pub filters: Vec<ColumnFilter>,
+    pub where_expr: Option<String>,
     #[serde(default)]
     pub sort: Vec<SortSpec>,
     #[serde(default = "default_limit")]
@@ -25,34 +27,6 @@ pub struct TableDataRequest {
 
 fn default_limit() -> i64 {
     500
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ColumnFilter {
-    pub column: String,
-    #[serde(default)]
-    pub op: FilterOp,
-    /// Filter values. `Eq`/`Like`/comparisons use the first value; `In` uses
-    /// all of them; `IsNull`/`NotNull` ignore them.
-    #[serde(default)]
-    pub values: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum FilterOp {
-    #[default]
-    Eq,
-    Ne,
-    In,
-    Like,
-    Gt,
-    Gte,
-    Lt,
-    Lte,
-    IsNull,
-    NotNull,
 }
 
 #[derive(Debug, Clone, Deserialize)]

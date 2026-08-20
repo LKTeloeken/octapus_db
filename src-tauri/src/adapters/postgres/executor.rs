@@ -819,7 +819,7 @@ mod tests {
             .fetch_table_data(TableDataRequest {
                 schema: None,
                 table: "rich".into(),
-                filters: vec![],
+                where_expr: None,
                 sort: vec![],
                 limit: 50,
                 offset: 0,

@@ -78,7 +78,7 @@ As senhas são criptografadas por um **cofre próprio do app**
    (lê a senha do cofre **uma vez**).
 2. Expande um database → `list_schemas_with_tables` (cache hit, sem cofre).
 3. Clica numa tabela → abre aba de browse → `fetch_table_data` monta o SELECT/find/scan
-   no backend, parametrizado e paginado, e devolve um `QueryResult`.
+   no backend e pagina, devolvendo um `QueryResult`. Postgres aceita `whereExpr`.
 4. Ordenar/filtrar/paginar → reenvia `fetch_table_data` com novo `TableDataRequest`.
 5. Editar/inserir/remover linhas → alterações ficam pendentes no front e são aplicadas
    em lote no salvar (`apply_row_edits` / `insert_rows` / `delete_rows`), seguido de

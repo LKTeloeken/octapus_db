@@ -14,7 +14,7 @@ pub struct ColumnMeta {
     /// is what the frontend uses to pick the right cell editor.
     pub type_name: String,
     /// `format_type()` output (e.g. `integer`, `jsonb`, `timestamp with time
-    /// zone`) — used to build `$N::text::<type>` casts on filters/edits.
+    /// zone`) — used to build `$N::text::<type>` casts on edits.
     pub format_type: String,
     pub type_oid: u32,
 }
