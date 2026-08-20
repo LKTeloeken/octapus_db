@@ -19,6 +19,8 @@ dist-ssr
 
 # TypeScript build artifacts
 *.d.ts
+# ...menos as declarações de ambiente do Vite (tipos de import de .svg etc.)
+!src/vite-env.d.ts
 *.js
 *.js.map
 tsconfig.tsbuildinfo
