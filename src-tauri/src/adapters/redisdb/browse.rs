@@ -4,9 +4,7 @@ use std::time::Instant;
 use redis::aio::ConnectionManager;
 
 use crate::error::{Error, Result};
-use crate::models::{
-    ColumnFilter, FilterOp, QueryColumnInfo, QueryResult, SortDirection, TableDataRequest,
-};
+use crate::models::{QueryColumnInfo, QueryResult, SortDirection, TableDataRequest};
 
 use super::metadata::{scan_keys, ROOT_GROUP, SCAN_CAP};
 
@@ -34,16 +32,23 @@ impl KeyEntry {
     }
 }
 
-/// Browse a key-prefix group: SCAN candidates, filter/sort client-side over
+/// Browse a key-prefix group: SCAN candidates, sort client-side over
 /// the synthetic columns (key/type/ttl/value), then paginate. The sweep is
 /// capped at [`SCAN_CAP`] keys, so results over huge keyspaces are partial.
 pub async fn fetch_table_data(
     conn: &mut ConnectionManager,
     request: TableDataRequest,
 ) -> Result<QueryResult> {
-    for f in &request.filters {
-        validate_column(&f.column)?;
+    if request
+        .where_expr
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty())
+    {
+        return Err(Error::InvalidQuery(
+            "Raw WHERE is only supported for PostgreSQL".into(),
+        ));
     }
+
     for s in &request.sort {
         validate_column(&s.column)?;
     }
@@ -63,36 +68,12 @@ pub async fn fetch_table_data(
         keys.retain(|k| !k.contains(':'));
     }
 
-    // Filters on the key name alone don't need TYPE/TTL/value lookups,
-    // so apply them before hydrating entries.
-    let key_only_filters: Vec<&ColumnFilter> = request
-        .filters
-        .iter()
-        .filter(|f| f.column == "key")
-        .collect();
-    let detail_filters: Vec<&ColumnFilter> = request
-        .filters
-        .iter()
-        .filter(|f| f.column != "key")
-        .collect();
-
-    keys.retain(|key| {
-        key_only_filters
-            .iter()
-            .all(|f| matches_filter(Some(key.clone()), f))
-    });
     keys.sort();
 
-    let needs_details_early = !detail_filters.is_empty()
-        || request.sort.iter().any(|s| s.column != "key");
+    let needs_details_early = request.sort.iter().any(|s| s.column != "key");
 
     let mut entries: Vec<KeyEntry> = if needs_details_early {
         let mut all = hydrate(conn, &keys).await?;
-        all.retain(|e| {
-            detail_filters
-                .iter()
-                .all(|f| matches_filter(e.column(&f.column), f))
-        });
         sort_entries(&mut all, &request);
         all
     } else {
@@ -245,31 +226,8 @@ async fn fetch_value(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Client-side filtering & sorting over synthetic columns
+// Client-side sorting over synthetic columns
 // ─────────────────────────────────────────────────────────────────────────────
-
-fn matches_filter(cell: Option<String>, filter: &ColumnFilter) -> bool {
-    let first = || filter.values.first().map(String::as_str).unwrap_or("");
-
-    match filter.op {
-        FilterOp::IsNull => cell.is_none(),
-        FilterOp::NotNull => cell.is_some(),
-        _ => {
-            let Some(cell) = cell else { return false };
-            match filter.op {
-                FilterOp::Eq => cell == first(),
-                FilterOp::Ne => cell != first(),
-                FilterOp::In => filter.values.contains(&cell),
-                FilterOp::Like => like_match(first(), &cell),
-                FilterOp::Gt => compare(&cell, first()) == Ordering::Greater,
-                FilterOp::Gte => compare(&cell, first()) != Ordering::Less,
-                FilterOp::Lt => compare(&cell, first()) == Ordering::Less,
-                FilterOp::Lte => compare(&cell, first()) != Ordering::Greater,
-                FilterOp::IsNull | FilterOp::NotNull => unreachable!(),
-            }
-        }
-    }
-}
 
 /// Numeric comparison when both sides parse as numbers, else lexicographic.
 fn compare(a: &str, b: &str) -> Ordering {
@@ -305,89 +263,15 @@ fn sort_entries(entries: &mut [KeyEntry], request: &TableDataRequest) {
     });
 }
 
-/// SQL LIKE matcher (`%` any sequence, `_` single char) without regex.
-/// Iterative two-pointer algorithm with backtracking on the last `%`.
-fn like_match(pattern: &str, text: &str) -> bool {
-    let p: Vec<char> = pattern.chars().collect();
-    let t: Vec<char> = text.chars().collect();
-
-    let (mut pi, mut ti) = (0usize, 0usize);
-    let mut star: Option<usize> = None;
-    let mut star_ti = 0usize;
-
-    while ti < t.len() {
-        if pi < p.len() && (p[pi] == '_' || p[pi] == t[ti]) {
-            pi += 1;
-            ti += 1;
-        } else if pi < p.len() && p[pi] == '%' {
-            star = Some(pi);
-            star_ti = ti;
-            pi += 1;
-        } else if let Some(s) = star {
-            pi = s + 1;
-            star_ti += 1;
-            ti = star_ti;
-        } else {
-            return false;
-        }
-    }
-
-    while pi < p.len() && p[pi] == '%' {
-        pi += 1;
-    }
-
-    pi == p.len()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn filter(column: &str, op: FilterOp, values: &[&str]) -> ColumnFilter {
-        ColumnFilter {
-            column: column.into(),
-            op,
-            values: values.iter().map(|v| v.to_string()).collect(),
-        }
-    }
-
-    #[test]
-    fn like_matching() {
-        assert!(like_match("%ana%", "banana"));
-        assert!(like_match("user:%", "user:42"));
-        assert!(like_match("a_c", "abc"));
-        assert!(!like_match("a_c", "abbc"));
-        assert!(like_match("%", "anything"));
-        assert!(!like_match("user:%", "session:1"));
-        assert!(like_match("", ""));
-        assert!(!like_match("", "x"));
-    }
 
     #[test]
     fn numeric_aware_compare() {
         assert_eq!(compare("9", "10"), Ordering::Less);
         assert_eq!(compare("abc", "abd"), Ordering::Less);
         assert_eq!(compare("2.5", "2.50"), Ordering::Equal);
-    }
-
-    #[test]
-    fn filter_matching() {
-        let f = ColumnFilter {
-            column: "ttl".into(),
-            op: FilterOp::Gte,
-            values: vec!["100".into()],
-        };
-        assert!(matches_filter(Some("150".into()), &f));
-        assert!(!matches_filter(Some("99".into()), &f));
-        assert!(!matches_filter(None, &f));
-
-        let null_f = ColumnFilter {
-            column: "ttl".into(),
-            op: FilterOp::IsNull,
-            values: vec![],
-        };
-        assert!(matches_filter(None, &null_f));
-        assert!(!matches_filter(Some("1".into()), &null_f));
     }
 
     // ── End-to-end (requires a local Redis; run with `cargo test -- --ignored`) ──
@@ -444,7 +328,7 @@ mod tests {
             .fetch_table_data(TableDataRequest {
                 schema: None,
                 table: "user".into(),
-                filters: vec![],
+                where_expr: None,
                 sort: vec![SortSpec {
                     column: "key".into(),
                     direction: crate::models::SortDirection::Desc,
@@ -464,44 +348,12 @@ mod tests {
         assert_eq!(result.rows[0][1].as_deref(), Some("hash"));
         assert!(result.rows[0][3].as_deref().unwrap().contains("name"));
 
-        // Filter on value (forces hydration of all candidates)
-        let filtered = adapter
-            .fetch_table_data(TableDataRequest {
-                schema: None,
-                table: "user".into(),
-                filters: vec![filter("value", FilterOp::Like, &["%user7%"])],
-                sort: vec![],
-                limit: 10,
-                offset: 0,
-                count_total: true,
-            })
-            .await
-            .unwrap();
-        assert_eq!(filtered.total_count, Some(1));
-        assert_eq!(filtered.rows[0][0].as_deref(), Some("user:7"));
-
-        // TTL filter: only session:a has one
-        let with_ttl = adapter
-            .fetch_table_data(TableDataRequest {
-                schema: None,
-                table: "session".into(),
-                filters: vec![filter("ttl", FilterOp::NotNull, &[])],
-                sort: vec![],
-                limit: 10,
-                offset: 0,
-                count_total: true,
-            })
-            .await
-            .unwrap();
-        assert_eq!(with_ttl.total_count, Some(1));
-        assert_eq!(with_ttl.rows[0][0].as_deref(), Some("session:a"));
-
         // Root group only contains unprefixed keys
         let root = adapter
             .fetch_table_data(TableDataRequest {
                 schema: None,
                 table: super::ROOT_GROUP.into(),
-                filters: vec![],
+                where_expr: None,
                 sort: vec![],
                 limit: 10,
                 offset: 0,

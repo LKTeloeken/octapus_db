@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ColumnFilter, SortSpec } from '@/api/types/browse.types';
+import type { SortSpec } from '@/api/types/browse.types';
 import { encodeNodeId } from '@/lib/node-ref';
 
 /**
@@ -26,7 +26,8 @@ export interface BrowseTab extends TabBase {
   /** null for databases without schemas (Mongo/Redis) */
   schema: string | null;
   table: string;
-  filters: ColumnFilter[];
+  /** Applied Postgres WHERE expression; empty means no filter */
+  whereExpr: string;
   sort: SortSpec[];
   /** Nomes das colunas ocultas no front (só renderização, não muda o query) */
   hiddenColumns: string[];
@@ -55,7 +56,7 @@ interface TabsState {
   setQueryContent: (id: string, content: string) => void;
   setQueryHiddenColumns: (id: string, hiddenColumns: string[]) => void;
   setBrowseSort: (id: string, sort: SortSpec[]) => void;
-  setBrowseFilters: (id: string, filters: ColumnFilter[]) => void;
+  setBrowseWhere: (id: string, whereExpr: string) => void;
   setBrowseHiddenColumns: (id: string, hiddenColumns: string[]) => void;
 }
 
@@ -118,7 +119,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       database,
       schema,
       table,
-      filters: [],
+      whereExpr: '',
       sort: [],
       hiddenColumns: [],
     };
@@ -173,9 +174,9 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     }));
   },
 
-  setBrowseFilters: (id, filters) => {
+  setBrowseWhere: (id, whereExpr) => {
     set(state => ({
-      tabs: patchTab<BrowseTab>(state.tabs, id, 'browse', { filters }),
+      tabs: patchTab<BrowseTab>(state.tabs, id, 'browse', { whereExpr }),
     }));
   },
 

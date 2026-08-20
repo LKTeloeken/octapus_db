@@ -1,7 +1,7 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { fetchTableData } from '@/api/browse';
-import type { ColumnFilter, SortSpec } from '@/api/types/browse.types';
+import type { SortSpec } from '@/api/types/browse.types';
 import type {
   EditableInfo,
   QueryColumnInfo,
@@ -16,7 +16,7 @@ export interface UseTableDataParams {
   /** null for Mongo/Redis (hasSchemas=false) */
   schema: string | null;
   table: string;
-  filters?: ColumnFilter[];
+  whereExpr?: string;
   sort?: SortSpec[];
   limit?: number;
   enabled?: boolean;
@@ -40,14 +40,14 @@ export interface UseTableDataResult {
 
 /**
  * Server-side browse of a table/collection/key-group via fetch_table_data.
- * Changing filters/sort changes the query key → fresh first page; pagination
+ * Changing whereExpr/sort changes the query key → fresh first page; pagination
  * accumulates pages through useInfiniteQuery.
  */
 export function useTableData(
   params: UseTableDataParams | null,
 ): UseTableDataResult {
   const limit = params?.limit ?? TABLE_DATA_PAGE_SIZE;
-  const filters = params?.filters ?? [];
+  const whereExpr = params?.whereExpr?.trim() ?? '';
   const sort = params?.sort ?? [];
 
   const query = useInfiniteQuery({
@@ -56,14 +56,14 @@ export function useTableData(
       params?.database ?? '',
       params?.schema ?? null,
       params?.table ?? '',
-      filters,
+      whereExpr,
       sort,
     ),
     queryFn: ({ pageParam }) =>
       fetchTableData(params!.serverId, params!.database, {
         schema: params!.schema,
         table: params!.table,
-        filters,
+        whereExpr: whereExpr || undefined,
         sort,
         limit,
         offset: pageParam,

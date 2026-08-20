@@ -3,11 +3,7 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import { memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tooltip } from '@/components/ui/tooltip/tooltip';
 import { Typography } from '@/components/ui/typography';
 import { ConnectionTree } from '@/features/connection-tree/connection-tree';
 import { ServerForm } from '@/features/server-form/server-form';
@@ -24,13 +20,10 @@ export const Sidebar = memo(() => {
           Servidores
         </Typography>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="sm" onClick={openCreateForm}>
-              <HugeiconsIcon icon={Add01Icon} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">Adicionar servidor</TooltipContent>
+        <Tooltip content="Adicionar servidor" position="left">
+          <Button variant="outline" size="sm" onClick={openCreateForm}>
+            <HugeiconsIcon icon={Add01Icon} />
+          </Button>
         </Tooltip>
       </div>
 

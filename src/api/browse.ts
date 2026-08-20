@@ -4,8 +4,9 @@ import type { TableDataRequest } from './types/browse.types';
 import type { QueryResult } from './types/query.types';
 
 /**
- * Server-side browse: the backend builds the SQL/find/scan, validates
- * columns and paginates — never assemble browse queries on the front.
+ * Server-side browse: the backend builds the SQL/find/scan and paginates.
+ * Postgres accepts an optional `whereExpr`; sort columns are still validated
+ * server-side.
  */
 export function fetchTableData(
   serverId: number,

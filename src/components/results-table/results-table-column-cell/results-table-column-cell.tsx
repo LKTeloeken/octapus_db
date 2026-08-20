@@ -16,7 +16,7 @@ const ColumnCell = ({
     <div
       onClick={() => onSort(column.name)}
       className={cn(
-        'bg-background shadow-[0_1px_0_0_var(--color-border)] h-9 px-2 py-1 text-left align-middle font-medium whitespace-nowrap text-xs select-none border-r border-border flex items-center justify-between cursor-pointer',
+        'bg-sidebar shadow-[0_1px_0_0_var(--color-border)] h-9 px-2 py-1 text-left align-middle font-medium whitespace-nowrap text-xs select-none border-r border-border flex items-center justify-between cursor-pointer',
         isSorted ? 'bg-primary/10 text-primary' : 'text-foreground',
         className,
       )}

@@ -75,28 +75,6 @@ pub fn parse_scalar(value: &str) -> Bson {
     Bson::String(value.to_string())
 }
 
-/// SQL LIKE pattern → anchored regex (`%` → `.*`, `_` → `.`), escaping
-/// everything else so user input can't inject regex syntax.
-pub fn like_to_regex(pattern: &str) -> String {
-    let mut regex = String::with_capacity(pattern.len() + 2);
-    regex.push('^');
-    for c in pattern.chars() {
-        match c {
-            '%' => regex.push_str(".*"),
-            '_' => regex.push('.'),
-            // Escape regex metacharacters
-            '.' | '+' | '*' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|'
-            | '\\' => {
-                regex.push('\\');
-                regex.push(c);
-            }
-            _ => regex.push(c),
-        }
-    }
-    regex.push('$');
-    regex
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,12 +90,5 @@ mod tests {
             parse_scalar("507f1f77bcf86cd799439011"),
             Bson::ObjectId(_)
         ));
-    }
-
-    #[test]
-    fn like_pattern_conversion() {
-        assert_eq!(like_to_regex("%ana%"), "^.*ana.*$");
-        assert_eq!(like_to_regex("a_c"), "^a.c$");
-        assert_eq!(like_to_regex("100% (a.b)"), "^100.* \\(a\\.b\\)$");
     }
 }

@@ -193,7 +193,10 @@ export const ResultsTable = memo(
       document.removeEventListener('mousemove', handleResizeMove);
       document.removeEventListener('mouseup', handleResizeEnd);
       if (!drag) return;
-      setColumnWidths(prev => ({ ...prev, [drag.columnName]: drag.currentWidth }));
+      setColumnWidths(prev => ({
+        ...prev,
+        [drag.columnName]: drag.currentWidth,
+      }));
     }, [handleResizeMove]);
 
     const handleResizeStart = useCallback(
@@ -249,7 +252,9 @@ export const ResultsTable = memo(
     // o Enter alterna o valor direto, como o clique no checkbox faria.
     const handleActivateCell = useCallback(
       (rowIndex: number, columnName: string) => {
-        const columnIndex = visibleColumns.findIndex(c => c.name === columnName);
+        const columnIndex = visibleColumns.findIndex(
+          c => c.name === columnName,
+        );
         const column = visibleColumns[columnIndex];
         if (!column) return;
 
@@ -360,7 +365,7 @@ export const ResultsTable = memo(
     return (
       <div
         className={cn(
-          'flex flex-col h-full rounded-md border overflow-hidden',
+          'flex flex-col h-full overflow-hidden border-t border-border',
           className,
         )}
       >
@@ -399,10 +404,13 @@ export const ResultsTable = memo(
               {/* Header — sticky gutter + only visible columns */}
               <div
                 className="bg-background sticky top-0 z-20 border-b border-border"
-                style={{ width: `${contentWidth}px`, height: `${HEADER_HEIGHT}px` }}
+                style={{
+                  width: `${contentWidth}px`,
+                  height: `${HEADER_HEIGHT}px`,
+                }}
               >
                 <div
-                  className="sticky left-0 z-30 bg-background border-r border-border flex items-center justify-center text-[10px] text-muted-foreground"
+                  className="sticky left-0 z-30 bg-sidebar border-r border-border flex items-center justify-center text-[10px] text-muted-foreground"
                   style={{
                     width: `${GUTTER_WIDTH}px`,
                     height: `${HEADER_HEIGHT}px`,
@@ -440,7 +448,11 @@ export const ResultsTable = memo(
                           no header e no corpo (mesmo virtualizador) */}
                       <div
                         onMouseDown={event =>
-                          handleResizeStart(event, column.name, virtualColumn.size)
+                          handleResizeStart(
+                            event,
+                            column.name,
+                            virtualColumn.size,
+                          )
                         }
                         className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize select-none hover:bg-primary/60 active:bg-primary"
                       />
