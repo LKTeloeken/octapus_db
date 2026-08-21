@@ -73,9 +73,19 @@ stdenv.mkDerivation {
     mkdir -p "$out/share"
     cp -r usr/share/applications usr/share/icons "$out/share/"
 
-    # O .desktop do bundler sai sem categoria e com Exec relativo ao PATH.
+    # O bundler publica o ícone só em 1024x1024, tamanho que o index.theme do
+    # hicolor não varre — por nome (`Icon=octapus_db`) o lançador não acha nada.
+    # Apontar para o arquivo no store é o que garante o ícone na barra/menu.
+    icone="$(find "$out/share/icons" -name "octapus_db.png" -print -quit)"
+    if [ -z "$icone" ]; then
+      echo "octapus-db: ícone não encontrado no .deb — confira o bundle" >&2
+      exit 1
+    fi
+
+    # O .desktop do bundler ainda sai sem categoria e com Exec relativo ao PATH.
     substituteInPlace "$out/share/applications/octapus-db.desktop" \
       --replace-fail "Exec=octapus_db" "Exec=$out/bin/octapus_db" \
+      --replace-fail "Icon=octapus_db" "Icon=$icone" \
       --replace-fail "Categories=" "Categories=Development;Database;"
     echo "StartupWMClass=octapus_db" >> "$out/share/applications/octapus-db.desktop"
 
