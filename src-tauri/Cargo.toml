@@ -44,6 +44,8 @@ aes-gcm = "0.10"
 rand = "0.8"
 # Apaga senhas do heap no drop (o Rust só libera, não sobrescreve)
 zeroize = "1"
+# Deriva a KEK da senha mestre (só usado quando o usuário ativa a opção)
+argon2 = "0.5"
 
 # Utils
 parking_lot = "0.12"

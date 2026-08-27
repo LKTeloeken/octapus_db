@@ -71,6 +71,13 @@ impl ConnectionService {
         adapters.retain(|k, _| k.server_id != server_id);
     }
 
+    /// Derruba todas as conexões de todos os servidores. Usado ao trancar o
+    /// cofre e no reset: sem isso, os pools já abertos continuariam servindo
+    /// dados e "trancado" não significaria nada.
+    pub fn disconnect_all(&self) {
+        self.adapters.write().clear();
+    }
+
     /// Get pool stats for a connection
     pub fn pool_stats(&self, server_id: i64, database: &str) -> Option<PoolStats> {
         let conn_id = ConnectionId::new(server_id, database);

@@ -33,6 +33,12 @@ pub enum VaultHealth {
 /// Chamada uma vez no startup. Nunca falha o boot — um cofre quebrado ainda
 /// deixa o usuário abrir o app, ver os servidores e redigitar as senhas.
 pub fn check_or_seed(conn: &Connection) -> VaultHealth {
+    // Cofre trancado não é cofre quebrado: sem o DEK não dá para julgar, e
+    // semear agora gravaria um canário com uma chave que não existe.
+    if vault::is_locked() {
+        return VaultHealth::Ok;
+    }
+
     match meta::get(conn, CANARY_KEY) {
         Ok(Some(stored)) => match vault::decrypt(&stored) {
             Some(plain) if plain == CANARY_PLAINTEXT => VaultHealth::Ok,
@@ -49,6 +55,12 @@ pub fn check_or_seed(conn: &Connection) -> VaultHealth {
         // Falha de leitura do SQLite não é problema de cofre.
         Err(_) => VaultHealth::Ok,
     }
+}
+
+/// Apaga o canário. Usado no reset destrutivo: a chave nova precisa selar um
+/// canário novo, senão o antigo (da chave velha) acusaria incompatibilidade.
+pub fn clear_canary(conn: &Connection) -> Result<()> {
+    meta::delete(conn, CANARY_KEY)
 }
 
 /// Marca que um segredo legado em texto puro foi migrado para o cofre, então

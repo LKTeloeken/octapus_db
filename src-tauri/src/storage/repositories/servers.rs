@@ -43,6 +43,12 @@ pub fn get_all(storage: &Mutex<Connection>) -> Result<Vec<Server>> {
 /// (needed to open a pool). Prefer [`get_by_id_meta`] when only metadata is
 /// required — este é o único caminho em que a URI existe em texto puro.
 pub fn get_by_id(storage: &Mutex<Connection>, id: i64) -> Result<Server> {
+    // Trancado ≠ quebrado: aqui o front abre o diálogo de senha mestre em vez
+    // de dizer que as senhas se perderam.
+    if vault::is_locked() {
+        return Err(Error::VaultLocked);
+    }
+
     let conn = storage.lock();
     let mut server = select_one(&conn, id)?;
     decrypt_password(&conn, &mut server)?;

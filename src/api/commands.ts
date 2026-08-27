@@ -2,6 +2,11 @@
 export enum RustCommand {
   // Cofre de senhas
   VaultStatus = 'vault_status',
+  VaultUnlock = 'vault_unlock',
+  VaultLock = 'vault_lock',
+  VaultEnableMasterPassword = 'vault_enable_master_password',
+  VaultDisableMasterPassword = 'vault_disable_master_password',
+  VaultReset = 'vault_reset',
 
   // Servers (SQLite local CRUD)
   GetAllServers = 'get_all_servers',

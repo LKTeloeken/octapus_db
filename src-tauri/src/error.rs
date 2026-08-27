@@ -7,8 +7,18 @@ pub enum Error {
     Storage(String),
 
     /// O cofre não conseguiu decifrar um segredo que está guardado — na prática,
-    /// `vault.key` ausente, trocado ou corrompido.
+    /// `vault.key` trocado ou de outra instalação.
     VaultUnavailable,
+
+    /// Existe senha mestre e ela ainda não foi digitada nesta sessão.
+    /// O front reage a este code abrindo o diálogo de destravar.
+    VaultLocked,
+
+    /// A senha mestre digitada não abre o cofre (tag do GCM não confere).
+    WrongMasterPassword,
+
+    /// O `vault.key` não é legível em nenhum formato conhecido.
+    VaultCorrupt,
 
     // Connection errors
     Connection(String),
@@ -35,6 +45,16 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Storage(msg) => write!(f, "Storage error: {msg}"),
+            Self::VaultLocked => write!(
+                f,
+                "O cofre está trancado. Digite a senha mestre para continuar."
+            ),
+            Self::WrongMasterPassword => write!(f, "Senha mestre incorreta."),
+            Self::VaultCorrupt => write!(
+                f,
+                "O arquivo vault.key está corrompido e não pode ser lido. Só é \
+                 possível recomeçar do zero, recadastrando as senhas."
+            ),
             Self::VaultUnavailable => write!(
                 f,
                 "O cofre de senhas não pôde ser aberto: o arquivo vault.key está \
@@ -127,6 +147,9 @@ impl Error {
         match self {
             Self::Storage(_) => "STORAGE_ERROR",
             Self::VaultUnavailable => "VAULT_UNAVAILABLE",
+            Self::VaultLocked => "VAULT_LOCKED",
+            Self::WrongMasterPassword => "WRONG_MASTER_PASSWORD",
+            Self::VaultCorrupt => "VAULT_CORRUPT",
             Self::Connection(_) => "CONNECTION_ERROR",
             Self::PoolExhausted => "POOL_EXHAUSTED",
             Self::ConnectionTimeout => "CONNECTION_TIMEOUT",

@@ -233,12 +233,24 @@ interface AdapterCapabilities {
 
 | Comando | Args | Retorno |
 |---|---|---|
-| `vault_status` | — | `{ healthy: boolean }` |
+| `vault_status` | — | `{ hasMasterPassword, locked, healthy, corrupt }` |
+| `vault_unlock` | `password` | — |
+| `vault_lock` | — | — |
+| `vault_enable_master_password` | `password` | — |
+| `vault_disable_master_password` | `password` | — |
+| `vault_reset` | — | — (**destrutivo**) |
 
-`healthy: false` = o `vault.key` da máquina não abre mais o que está guardado no `app.db`.
-As senhas salvas são irrecuperáveis e precisam ser cadastradas de novo. Nesse estado, os
-comandos que precisam decifrar rejeitam com o code `VAULT_UNAVAILABLE`, mas listar
-servidores continua funcionando.
+- `healthy: false` = o `vault.key` da máquina não abre o que está guardado no `app.db`.
+  As senhas salvas são irrecuperáveis. Comandos que precisam decifrar rejeitam com
+  `VAULT_UNAVAILABLE`, mas listar servidores continua funcionando.
+- `locked: true` = há senha mestre e ela ainda não foi digitada nesta sessão. Aí os
+  comandos rejeitam com `VAULT_LOCKED`. **O front não casa texto de mensagem** (o backend
+  rejeita com string, não com código): em qualquer erro ele consulta `vault_status` e, se
+  vier trancado, abre o diálogo de senha mestre.
+- `vault_unlock` valida por duas vias: a tag do GCM rejeita senha errada
+  (`WRONG_MASTER_PASSWORD`), e o canário rejeita uma chave que é de outra instalação.
+- `vault_reset` apaga `servers.password` e `servers.connection_uri` de **todos** os
+  servidores. Os cadastros continuam; só as credenciais somem.
 
 ### Servidores cadastrados (CRUD — SQLite local, síncrono)
 

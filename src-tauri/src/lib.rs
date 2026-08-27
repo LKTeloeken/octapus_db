@@ -22,7 +22,10 @@ pub fn run() {
             std::fs::create_dir_all(&app_data_dir)
                 .expect("Failed to create app data directory");
 
-            storage::vault::init(&app_data_dir).expect("Failed to initialize secrets vault");
+            // Um cofre trancado (senha mestre) ou corrompido é estado normal de
+            // boot — o app precisa abrir para a pessoa digitar a senha ou resetar.
+            let vault_state =
+                storage::vault::init(&app_data_dir).expect("Failed to initialize secrets vault");
 
             let storage_conn =
                 init_storage(app_data_dir.join("app.db")).expect("Failed to initialize storage");
@@ -32,16 +35,24 @@ pub fn run() {
             let _ = storage::health::run_pending_vacuum(&storage_conn);
 
             // Canário: a chave em vault.key ainda abre o que está guardado?
-            // Um cofre quebrado não impede o boot — só é reportado ao front.
-            let vault_health = storage::health::check_or_seed(&storage_conn);
+            // Só dá para julgar com o cofre destravado; se houver senha mestre,
+            // a checagem acontece no unlock.
+            if vault_state == storage::vault::VaultState::Unlocked {
+                storage::health::check_or_seed(&storage_conn);
+            }
 
-            app.manage(AppState::new(storage_conn, vault_health));
+            app.manage(AppState::new(storage_conn));
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             // Vault
             commands::vault_status,
+            commands::vault_unlock,
+            commands::vault_lock,
+            commands::vault_enable_master_password,
+            commands::vault_disable_master_password,
+            commands::vault_reset,
             // Servers
             commands::create_server,
             commands::get_all_servers,

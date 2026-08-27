@@ -1,8 +1,16 @@
 export interface VaultStatus {
+  /** Há senha mestre configurada nesta instalação */
+  hasMasterPassword: boolean;
   /**
-   * `false` quando o `vault.key` da máquina não abre mais o que está guardado
-   * no `app.db` (arquivo perdido, trocado ou de outra instalação). As senhas
-   * salvas viram irrecuperáveis e precisam ser cadastradas de novo.
+   * Existe senha mestre e ela ainda não foi digitada nesta sessão. A lista de
+   * servidores continua funcionando; só conectar exige destravar.
+   */
+  locked: boolean;
+  /**
+   * `false` quando a chave não abre o que está guardado (canário não bate) ou
+   * o `vault.key` está ilegível. Trancado **não** conta como não-saudável.
    */
   healthy: boolean;
+  /** `vault.key` ilegível em qualquer formato — só resta o reset */
+  corrupt: boolean;
 }

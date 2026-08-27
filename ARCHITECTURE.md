@@ -60,6 +60,18 @@ As senhas são criptografadas por um **cofre próprio do app**
 
 - **Zero prompts e multiplataforma:** não usa Keychain/Secret Service em uso normal, então
   o comportamento é idêntico em macOS/Windows/Linux e não há diálogos de autorização.
+- **Senha mestre (opt-in, desligada por padrão).** Quando ativada, o `vault.key` passa do
+  formato antigo (32 bytes crus) para o v2 —
+  `OCTAVLT2 ‖ salt ‖ params ‖ nonce ‖ AES-GCM(KEK, DEK)` — onde a KEK vem de
+  `Argon2id(senha, salt)`. **O DEK não muda**, então *nenhuma linha do SQLite é
+  recriptografada*: ativar e desativar são instantâneos e reversíveis. Enquanto ninguém
+  ativa, nenhum byte do `vault.key` muda — atualizar o app não mexe em nada.
+  A troca do arquivo passa por `replace_key_file`: backup, escrita atômica, releitura e
+  verificação antes de apagar o backup. Esquecer a senha **não** tem volta: só o reset
+  destrutivo (`vault_reset`), que descarta a chave e apaga senhas e URIs guardadas.
+- **Unlock adiado:** o app abre trancado sem incomodar. A lista de servidores não precisa
+  da chave (`get_all` limpa a senha e a URI vem opaca), então o pedido de senha só aparece
+  quando alguma operação esbarra em `VAULT_LOCKED` — uma vez por sessão, não por conexão.
 - **Trade-off:** é criptografia *em repouso*. Protege contra o `app.db` ser
   copiado/sincronizado **sem** o `vault.key`, mas não contra um atacante local com acesso
   aos dois arquivos. (Proteção forte exigiria uma master password — não implementada.)

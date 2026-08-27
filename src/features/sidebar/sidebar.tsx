@@ -1,4 +1,4 @@
-import { Add01Icon } from '@hugeicons/core-free-icons';
+import { Add01Icon, Settings01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { memo } from 'react';
 import { Button } from '@/components/ui/button';
@@ -7,11 +7,20 @@ import { Tooltip } from '@/components/ui/tooltip/tooltip';
 import { Typography } from '@/components/ui/typography';
 import { ConnectionTree } from '@/features/connection-tree/connection-tree';
 import { ServerForm } from '@/features/server-form/server-form';
+import { SettingsDialog } from '@/features/settings/settings-dialog';
 import { useSidebar } from './use-sidebar';
 
 export const Sidebar = memo(() => {
-  const { isFormOpen, editingServer, openCreateForm, openEditForm, closeForm } =
-    useSidebar();
+  const {
+    isFormOpen,
+    editingServer,
+    isSettingsOpen,
+    openCreateForm,
+    openEditForm,
+    closeForm,
+    openSettings,
+    closeSettings,
+  } = useSidebar();
 
   return (
     <div className="h-full flex flex-col">
@@ -20,11 +29,19 @@ export const Sidebar = memo(() => {
           Servidores
         </Typography>
 
-        <Tooltip content="Adicionar servidor" position="left">
-          <Button variant="outline" size="sm" onClick={openCreateForm}>
-            <HugeiconsIcon icon={Add01Icon} />
-          </Button>
-        </Tooltip>
+        <div className="flex items-center gap-1">
+          <Tooltip content="Adicionar servidor" position="left">
+            <Button variant="outline" size="sm" onClick={openCreateForm}>
+              <HugeiconsIcon icon={Add01Icon} />
+            </Button>
+          </Tooltip>
+
+          <Tooltip content="Configurações" position="left">
+            <Button variant="outline" size="sm" onClick={openSettings}>
+              <HugeiconsIcon icon={Settings01Icon} />
+            </Button>
+          </Tooltip>
+        </div>
       </div>
 
       <Separator />
@@ -38,6 +55,8 @@ export const Sidebar = memo(() => {
         onClose={closeForm}
         server={editingServer}
       />
+
+      <SettingsDialog open={isSettingsOpen} onClose={closeSettings} />
     </div>
   );
 });

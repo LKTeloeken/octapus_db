@@ -14,6 +14,8 @@ interface ConnectionState {
   isConnected: (serverId: number, database: string) => boolean;
   markConnected: (serverId: number, database: string) => void;
   clearServer: (serverId: number) => void;
+  /** Trancar o cofre e resetá-lo derrubam os pools de todos os servidores */
+  clearAll: () => void;
 }
 
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
@@ -28,6 +30,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       return { connected: next };
     });
   },
+
+  clearAll: () => set({ connected: new Set() }),
 
   clearServer: serverId => {
     set(state => {
