@@ -27,11 +27,21 @@ pub fn run() {
             let storage_conn =
                 init_storage(app_data_dir.join("app.db")).expect("Failed to initialize storage");
 
-            app.manage(AppState::new(storage_conn));
+            // Reescreve o arquivo se algum segredo em texto puro foi migrado
+            // para o cofre: o SQLite não sobrescreve páginas liberadas sozinho.
+            let _ = storage::health::run_pending_vacuum(&storage_conn);
+
+            // Canário: a chave em vault.key ainda abre o que está guardado?
+            // Um cofre quebrado não impede o boot — só é reportado ao front.
+            let vault_health = storage::health::check_or_seed(&storage_conn);
+
+            app.manage(AppState::new(storage_conn, vault_health));
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // Vault
+            commands::vault_status,
             // Servers
             commands::create_server,
             commands::get_all_servers,

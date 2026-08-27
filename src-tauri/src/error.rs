@@ -6,6 +6,10 @@ pub enum Error {
     // Storage errors (local SQLite)
     Storage(String),
 
+    /// O cofre não conseguiu decifrar um segredo que está guardado — na prática,
+    /// `vault.key` ausente, trocado ou corrompido.
+    VaultUnavailable,
+
     // Connection errors
     Connection(String),
     PoolExhausted,
@@ -31,6 +35,12 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Storage(msg) => write!(f, "Storage error: {msg}"),
+            Self::VaultUnavailable => write!(
+                f,
+                "O cofre de senhas não pôde ser aberto: o arquivo vault.key está \
+                 ausente, corrompido ou é de outra instalação. As senhas salvas \
+                 precisam ser cadastradas de novo."
+            ),
             Self::Connection(msg) => write!(f, "Connection error: {msg}"),
             Self::PoolExhausted => write!(f, "Connection pool exhausted"),
             Self::ConnectionTimeout => write!(f, "Connection timed out"),
@@ -116,6 +126,7 @@ impl Error {
     pub fn code(&self) -> &'static str {
         match self {
             Self::Storage(_) => "STORAGE_ERROR",
+            Self::VaultUnavailable => "VAULT_UNAVAILABLE",
             Self::Connection(_) => "CONNECTION_ERROR",
             Self::PoolExhausted => "POOL_EXHAUSTED",
             Self::ConnectionTimeout => "CONNECTION_TIMEOUT",

@@ -5,7 +5,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::error::{Error, Result};
 use crate::models::{DatabaseType, Server, ServerInput};
-use crate::storage::{secrets, vault};
+use crate::storage::{health, secrets, vault};
 
 const SELECT_COLUMNS: &str = "id, name, db_type, host, port, username, password, \
                               default_database, ssl_enabled, connection_uri, created_at";
@@ -45,8 +45,8 @@ pub fn get_all(storage: &Mutex<Connection>) -> Result<Vec<Server>> {
 pub fn get_by_id(storage: &Mutex<Connection>, id: i64) -> Result<Server> {
     let conn = storage.lock();
     let mut server = select_one(&conn, id)?;
-    decrypt_password(&conn, &mut server);
-    decrypt_uri(&conn, &mut server);
+    decrypt_password(&conn, &mut server)?;
+    decrypt_uri(&conn, &mut server)?;
     Ok(server)
 }
 
@@ -76,7 +76,7 @@ fn select_one(conn: &Connection, id: i64) -> Result<Server> {
 
 /// Create a new server. A senha **e** a URI de conexão são criptografadas no
 /// cofre antes de serem gravadas — as colunas do SQLite só guardam ciphertext.
-pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server> {
+pub fn create(storage: &Mutex<Connection>, mut input: ServerInput) -> Result<Server> {
     let conn = storage.lock();
 
     let created_at = SystemTime::now()
@@ -115,7 +115,9 @@ pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server>
         .map_err(|e| Error::Storage(e.to_string()))?;
 
     // Keep the plaintext in the returned value for immediate use.
-    server.password = input.password;
+    // `mem::take` porque `ServerInput` tem `Drop` (zeroize) e não permite
+    // mover o campo para fora — o buffer é o mesmo, só troca de dono.
+    server.password = std::mem::take(&mut input.password);
     // A URI, essa sim é serializada para o front — devolve redigida.
     redact_uri_for_display(&conn, &mut server);
 
@@ -124,7 +126,7 @@ pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server>
 
 /// Update an existing server. A senha e a URI são criptografadas no cofre antes
 /// de serem gravadas.
-pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Result<Server> {
+pub fn update(storage: &Mutex<Connection>, id: i64, mut input: ServerInput) -> Result<Server> {
     let conn = storage.lock();
 
     let db_type_str = db_type_to_string(&input.db_type);
@@ -163,7 +165,7 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
             _ => Error::Storage(e.to_string()),
         })?;
 
-    server.password = input.password;
+    server.password = std::mem::take(&mut input.password);
     redact_uri_for_display(&conn, &mut server);
 
     Ok(server)
@@ -211,36 +213,44 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<Server> {
 /// - empty column → legacy keychain install: read it once (last OS prompt),
 ///   re-encrypt into the vault and drop the keychain entry;
 /// - plaintext column (pre-keychain install) → encrypt into the vault in place.
-fn decrypt_password(conn: &Connection, server: &mut Server) {
-    let Some(id) = server.id else { return };
+fn decrypt_password(conn: &Connection, server: &mut Server) -> Result<()> {
+    let Some(id) = server.id else { return Ok(()) };
     let stored = std::mem::take(&mut server.password);
 
     if vault::is_envelope(&stored) {
-        if let Some(plain) = vault::decrypt(&stored) {
-            server.password = plain;
-        }
-        return;
+        // Envelope que não abre = chave errada. Falha alto e com mensagem clara,
+        // em vez de deixar a senha vazia e o banco recusar a conexão depois.
+        server.password = vault::decrypt(&stored).ok_or(Error::VaultUnavailable)?;
+        return Ok(());
     }
 
     // Legacy value: keychain (empty column) or plaintext column.
-    let plaintext = if stored.is_empty() {
-        secrets::get_password(id)
-    } else {
+    let from_plaintext_column = !stored.is_empty();
+    let plaintext = if from_plaintext_column {
         Some(stored)
+    } else {
+        secrets::get_password(id)
     };
 
-    let Some(plain) = plaintext else { return };
+    let Some(plain) = plaintext else { return Ok(()) };
 
     // Migrate into the vault so future reads never touch the keychain again.
     if let Ok(envelope) = vault::encrypt(&plain) {
-        let _ = conn.execute(
+        let migrated = conn.execute(
             "UPDATE servers SET password = ?1 WHERE id = ?2",
             params![envelope, id],
         );
         secrets::delete_password(id);
+
+        // A senha vinda do keychain nunca esteve no arquivo; a que estava na
+        // coluna deixou resíduo em páginas livres, e só o VACUUM tira.
+        if migrated.is_ok() && from_plaintext_column {
+            health::mark_pending_vacuum(conn);
+        }
     }
 
     server.password = plain;
+    Ok(())
 }
 
 /// Cifra a URI para gravação. `None`/vazio continuam `None` na coluna.
@@ -304,11 +314,9 @@ fn plain_uri(stored: &str) -> Option<String> {
 
 /// Substitui a coluna armazenada pela URI em texto puro, migrando valores
 /// legados (URI em texto puro na coluna) para o cofre no caminho.
-fn decrypt_uri(conn: &Connection, server: &mut Server) {
-    let Some(plain) = take_and_migrate_uri(conn, server) else {
-        return;
-    };
-    server.connection_uri = Some(plain);
+fn decrypt_uri(conn: &Connection, server: &mut Server) -> Result<()> {
+    server.connection_uri = take_and_migrate_uri(conn, server)?;
+    Ok(())
 }
 
 /// Valor de exibição da URI: nunca contém a senha embutida. Usado em todo
@@ -317,32 +325,40 @@ fn redact_uri_for_display(conn: &Connection, server: &mut Server) {
     let had_uri = server.connection_uri.as_deref().is_some_and(|u| !u.is_empty());
 
     match take_and_migrate_uri(conn, server) {
-        Some(plain) => server.connection_uri = Some(redact_uri(&plain)),
+        Ok(Some(plain)) => server.connection_uri = Some(redact_uri(&plain)),
         // Havia URI mas o cofre não decifrou: mostra opaco em vez de sumir.
-        None if had_uri => server.connection_uri = Some(URI_MASK.to_string()),
-        None => {}
+        // A lista de servidores continua abrindo mesmo com a chave quebrada.
+        Err(_) if had_uri => server.connection_uri = Some(URI_MASK.to_string()),
+        _ => {}
     }
 }
 
 /// Tira a URI do `server`, migra a coluna para o cofre se ela ainda estiver em
 /// texto puro e devolve o plaintext (ou `None` se não houver / não decifrar).
-fn take_and_migrate_uri(conn: &Connection, server: &mut Server) -> Option<String> {
-    let id = server.id?;
-    let stored = server.connection_uri.take().filter(|s| !s.is_empty())?;
+fn take_and_migrate_uri(conn: &Connection, server: &mut Server) -> Result<Option<String>> {
+    let Some(id) = server.id else { return Ok(None) };
+    let Some(stored) = server.connection_uri.take().filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
 
     if vault::is_envelope(&stored) {
-        return vault::decrypt(&stored);
+        return vault::decrypt(&stored).map(Some).ok_or(Error::VaultUnavailable);
     }
 
     // Legado: URI em texto puro na coluna → cifra em lugar, uma única vez.
     if let Ok(envelope) = vault::encrypt(&stored) {
-        let _ = conn.execute(
+        let migrated = conn.execute(
             "UPDATE servers SET connection_uri = ?1 WHERE id = ?2",
             params![envelope, id],
         );
+
+        // Sobrou a URI antiga em páginas livres do arquivo; VACUUM no próximo boot.
+        if migrated.is_ok() {
+            health::mark_pending_vacuum(conn);
+        }
     }
 
-    Some(stored)
+    Ok(Some(stored))
 }
 
 /// Devolve a URI sem a senha embutida.
@@ -427,10 +443,16 @@ mod tests {
     }
 
     fn input_with_uri() -> ServerInput {
-        ServerInput {
-            connection_uri: Some(URI.into()),
-            ..sample_input()
-        }
+        let mut input = sample_input();
+        input.connection_uri = Some(URI.into());
+        input
+    }
+
+    /// `..base` não compila com `Drop`; monta o input e ajusta a URI.
+    fn input_with(uri: Option<String>) -> ServerInput {
+        let mut input = sample_input();
+        input.connection_uri = uri;
+        input
     }
 
     fn storage() -> Mutex<Connection> {
@@ -485,10 +507,13 @@ mod tests {
         assert!(!stored.contains("s3cret"), "URI password leaked to SQLite");
 
         // O caminho de conexão recebe a URI inteira.
-        assert_eq!(get_by_id(&storage, id).unwrap().connection_uri.unwrap(), URI);
+        assert_eq!(
+            get_by_id(&storage, id).unwrap().connection_uri.as_deref(),
+            Some(URI)
+        );
 
         // Todo caminho que serializa para o front devolve redigido.
-        assert_eq!(created.connection_uri.unwrap(), URI_REDACTED);
+        assert_eq!(created.connection_uri.as_deref(), Some(URI_REDACTED));
         assert_eq!(
             get_all(&storage).unwrap()[0].connection_uri.as_deref(),
             Some(URI_REDACTED)
@@ -521,7 +546,10 @@ mod tests {
 
         let stored = column(&storage, "connection_uri", id).unwrap();
         assert!(vault::is_envelope(&stored), "legacy URI was not migrated");
-        assert_eq!(get_by_id(&storage, id).unwrap().connection_uri.unwrap(), URI);
+        assert_eq!(
+            get_by_id(&storage, id).unwrap().connection_uri.as_deref(),
+            Some(URI)
+        );
     }
 
     #[test]
@@ -533,18 +561,13 @@ mod tests {
         let from_front = get_all(&storage).unwrap()[0].connection_uri.clone();
         assert_eq!(from_front.as_deref(), Some(URI_REDACTED));
 
-        update(
-            &storage,
-            id,
-            ServerInput {
-                connection_uri: from_front,
-                ..sample_input()
-            },
-        )
-        .unwrap();
+        update(&storage, id, input_with(from_front)).unwrap();
 
         // A credencial real sobreviveu — a máscara não foi gravada por cima.
-        assert_eq!(get_by_id(&storage, id).unwrap().connection_uri.unwrap(), URI);
+        assert_eq!(
+            get_by_id(&storage, id).unwrap().connection_uri.as_deref(),
+            Some(URI)
+        );
     }
 
     #[test]
@@ -553,19 +576,11 @@ mod tests {
         let id = create(&storage, input_with_uri()).unwrap().id.unwrap();
 
         let novo = "mongodb+srv://admin:outra@cluster.mongodb.net/db";
-        update(
-            &storage,
-            id,
-            ServerInput {
-                connection_uri: Some(novo.into()),
-                ..sample_input()
-            },
-        )
-        .unwrap();
+        update(&storage, id, input_with(Some(novo.into()))).unwrap();
 
         assert_eq!(
-            get_by_id(&storage, id).unwrap().connection_uri.unwrap(),
-            novo
+            get_by_id(&storage, id).unwrap().connection_uri.as_deref(),
+            Some(novo)
         );
 
         let stored = column(&storage, "connection_uri", id).unwrap();
@@ -619,5 +634,72 @@ mod tests {
 
         // Ilegível → máscara pura, para não vazar por engano.
         assert_eq!(redact_uri("isso-nao-e-uma-uri"), "••••");
+    }
+
+    /// Envelope bem formado, mas cifrado com outra chave (simula `vault.key`
+    /// trocado ou perdido).
+    const FOREIGN: &str = "v1:deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+
+    #[test]
+    fn unreadable_password_fails_loudly_instead_of_silently_empty() {
+        let storage = storage();
+        let id = create(&storage, sample_input()).unwrap().id.unwrap();
+
+        storage
+            .lock()
+            .execute(
+                "UPDATE servers SET password = ?1 WHERE id = ?2",
+                params![FOREIGN, id],
+            )
+            .unwrap();
+
+        // Antes isso virava senha vazia e o banco respondia "authentication
+        // failed"; agora o erro diz o que realmente aconteceu.
+        let err = get_by_id(&storage, id).unwrap_err();
+        assert_eq!(err.code(), "VAULT_UNAVAILABLE");
+
+        // Mas a lista de servidores continua abrindo.
+        assert!(get_all(&storage).is_ok());
+    }
+
+    #[test]
+    fn unreadable_uri_stays_opaque_in_the_list() {
+        let storage = storage();
+        let id = create(&storage, input_with_uri()).unwrap().id.unwrap();
+
+        storage
+            .lock()
+            .execute(
+                "UPDATE servers SET connection_uri = ?1 WHERE id = ?2",
+                params![FOREIGN, id],
+            )
+            .unwrap();
+
+        assert_eq!(
+            get_all(&storage).unwrap()[0].connection_uri.as_deref(),
+            Some(URI_MASK)
+        );
+        assert_eq!(
+            get_by_id(&storage, id).unwrap_err().code(),
+            "VAULT_UNAVAILABLE"
+        );
+    }
+
+    #[test]
+    fn debug_never_prints_secrets() {
+        let storage = storage();
+        let created = create(&storage, input_with_uri()).unwrap();
+
+        // O `created` ainda carrega a senha em claro para uso imediato.
+        assert_eq!(created.password, "s3cret");
+
+        let dump = format!("{created:?}");
+        assert!(!dump.contains("s3cret"), "senha vazou no Debug: {dump}");
+        assert!(!dump.contains("cluster.mongodb.net"), "URI vazou: {dump}");
+        assert!(dump.contains("<redigido>"), "esperava marcador: {dump}");
+
+        // O input também não pode falar demais.
+        let dump = format!("{:?}", input_with_uri());
+        assert!(!dump.contains("s3cret"), "senha vazou no Debug do input: {dump}");
     }
 }

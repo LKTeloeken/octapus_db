@@ -1,4 +1,5 @@
 pub mod database;
+pub mod health;
 pub mod repositories;
 pub mod secrets;
 pub mod vault;

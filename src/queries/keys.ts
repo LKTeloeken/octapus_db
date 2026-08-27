@@ -9,6 +9,8 @@ import type { SortSpec } from '@/api/types/browse.types';
 export const queryKeys = {
   servers: ['servers'] as const,
 
+  vaultStatus: ['vault-status'] as const,
+
   capabilities: (serverId: number) => ['capabilities', serverId] as const,
 
   databases: (serverId: number) => ['databases', serverId] as const,

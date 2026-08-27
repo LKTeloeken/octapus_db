@@ -25,6 +25,12 @@ pub fn init_storage<P: AsRef<Path>>(db_path: P) -> Result<Connection> {
         );
 
         CREATE INDEX IF NOT EXISTS idx_servers_name ON servers(name);
+
+        -- Chave/valor do próprio app: canário do cofre, flag de VACUUM, etc.
+        CREATE TABLE IF NOT EXISTS meta (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
         "#,
     )?;
 

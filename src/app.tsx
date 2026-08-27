@@ -9,6 +9,7 @@ import { CommandPalette } from '@/features/command-palette/command-palette';
 import { QueryTabs } from '@/features/query-tabs/query-tabs';
 import { Sidebar } from '@/features/sidebar/sidebar';
 import { UpdateNotifier } from '@/features/update-notifier/update-notifier';
+import { VaultNotifier } from '@/features/vault-notifier/vault-notifier';
 import { QueryProvider } from '@/providers/query-provider';
 import { useUiStore } from '@/stores/ui-store';
 import { CustomToaster } from './components/Toaster';
@@ -48,6 +49,7 @@ const App = () => {
         <CommandPalette />
         <CustomToaster />
         <UpdateNotifier />
+        <VaultNotifier />
       </TooltipProvider>
     </QueryProvider>
   );

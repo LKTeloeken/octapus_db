@@ -68,7 +68,20 @@ As senhas são criptografadas por um **cofre próprio do app**
   só-migração). Na 1ª conexão de cada servidor, a senha legada é lida do Keychain (um
   último prompt do SO), re-criptografada no vault e removida do Keychain.
 - **Migração da URI legada:** URIs gravadas em texto puro por versões anteriores são
-  cifradas em lugar na primeira leitura, sem intervenção do usuário.
+  cifradas em lugar na primeira leitura, sem intervenção do usuário. Como o SQLite não
+  sobrescreve páginas liberadas, a migração marca `pending_vacuum` na tabela `meta` e o
+  boot seguinte roda um `VACUUM` para levar o resíduo em texto puro junto.
+- **Canário** ([storage/health.rs](src-tauri/src/storage/health.rs)): um valor conhecido,
+  cifrado com a mesma chave e guardado em `meta`. No boot ele responde "a chave em
+  `vault.key` ainda abre o que está guardado?". Se não abrir, o front avisa
+  (`vault_status`) em vez de deixar toda senha decifrar para vazio e o banco responder
+  *authentication failed* — que era o sintoma enganoso de antes. No caminho de conexão,
+  um envelope que não abre agora falha com `VAULT_UNAVAILABLE`; a lista de servidores
+  continua abrindo, com a URI opaca.
+- **Segredo não sobrevive ao `drop`:** `Server`/`ServerInput` implementam `Drop` com
+  `zeroize` (o Rust libera a `String` sem apagar os bytes) e têm `Debug` escrito à mão,
+  que imprime `<redigido>` no lugar da senha e da URI. Cópias dentro dos pools
+  (deadpool/mongodb/redis) seguem fora do nosso alcance.
 - **Leitura sob demanda:** a senha só é decifrada ao **criar** um pool (cache-miss);
   comandos sobre uma conexão já aberta não tocam no cofre.
 

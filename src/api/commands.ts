@@ -1,5 +1,8 @@
 /** Tauri commands exposed by the Rust backend (src-tauri/src/lib.rs) */
 export enum RustCommand {
+  // Cofre de senhas
+  VaultStatus = 'vault_status',
+
   // Servers (SQLite local CRUD)
   GetAllServers = 'get_all_servers',
   GetServer = 'get_server',

@@ -42,6 +42,8 @@ native-tls = "0.2"
 # Secrets vault (device-bound encryption at rest)
 aes-gcm = "0.10"
 rand = "0.8"
+# Apaga senhas do heap no drop (o Rust só libera, não sobrescreve)
+zeroize = "1"
 
 # Utils
 parking_lot = "0.12"

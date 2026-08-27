@@ -3369,6 +3369,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "tokio-postgres",
+ "zeroize",
 ]
 
 [[package]]

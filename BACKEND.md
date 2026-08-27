@@ -229,6 +229,17 @@ interface AdapterCapabilities {
 
 ## 4. Referência completa de comandos
 
+### Cofre de senhas
+
+| Comando | Args | Retorno |
+|---|---|---|
+| `vault_status` | — | `{ healthy: boolean }` |
+
+`healthy: false` = o `vault.key` da máquina não abre mais o que está guardado no `app.db`.
+As senhas salvas são irrecuperáveis e precisam ser cadastradas de novo. Nesse estado, os
+comandos que precisam decifrar rejeitam com o code `VAULT_UNAVAILABLE`, mas listar
+servidores continua funcionando.
+
 ### Servidores cadastrados (CRUD — SQLite local, síncrono)
 
 | Comando | Args | Retorno |

@@ -1,11 +1,13 @@
 mod browse;
 mod servers;
+mod vault;
 mod connections;
 mod queries;
 mod structure;
 
 pub use browse::*;
 pub use servers::*;
+pub use vault::*;
 pub use connections::*;
 pub use queries::*;
 pub use structure::*;
