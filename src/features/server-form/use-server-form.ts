@@ -45,6 +45,8 @@ export const useServerForm = ({ open, onClose, server }: ServerFormProps) => {
         password: '', // never comes back from the backend — must be retyped
         defaultDatabase: server.defaultDatabase,
         sslEnabled: server.sslEnabled,
+        // Vem redigida do backend. Se o usuário não editar, volta igual e o
+        // backend preserva a credencial guardada (ver Server.connectionUri).
         connectionUri: server.connectionUri,
       });
     } else {

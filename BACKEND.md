@@ -28,10 +28,10 @@ Front (invoke) ──▶ commands/   handlers #[tauri::command], validam e deleg
   reaproveitada (pool interno). Não existe um "abrir conexão" explícito — chamar
   qualquer comando com `serverId`+`database` já conecta sob demanda.
 - **`storage/`** — os servidores cadastrados ficam num SQLite local (`app.db`).
-  As **senhas são criptografadas por um cofre próprio** (`storage/vault.rs`,
-  AES-256-GCM com chave presa ao dispositivo em `vault.key`); só o ciphertext fica
-  na coluna do SQLite. Senhas de versões antigas (no keychain do SO) são migradas
-  para o cofre na primeira conexão.
+  As **senhas e as URIs de conexão são criptografadas por um cofre próprio**
+  (`storage/vault.rs`, AES-256-GCM com chave presa ao dispositivo em `vault.key`);
+  só o ciphertext fica nas colunas do SQLite. Senhas de versões antigas (no keychain
+  do SO) e URIs em texto puro são migradas para o cofre na primeira leitura.
 
 ### Como uma chamada flui
 1. Front faz `invoke('execute_query', { serverId, database, query })`.
@@ -88,7 +88,7 @@ interface Server {
   // password NUNCA é serializada para o front
   defaultDatabase: string | null;
   sslEnabled: boolean;
-  connectionUri: string | null;   // URI completa (Atlas, Redis cloud) — opcional
+  connectionUri: string | null;   // URI (Atlas, Redis cloud) — REDIGIDA: senha vira ••••
   createdAt: number;              // epoch em segundos
 }
 
@@ -102,7 +102,7 @@ interface ServerInput {
   password: string;               // criptografada no cofre do back
   defaultDatabase?: string | null;
   sslEnabled?: boolean | null;
-  connectionUri?: string | null;
+  connectionUri?: string | null;  // reenvie a redigida p/ manter a guardada
 }
 ```
 

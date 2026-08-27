@@ -19,7 +19,7 @@ export function updateServer(id: number, input: ServerInput): Promise<Server> {
   return call<Server>(RustCommand.UpdateServer, { id, input });
 }
 
-/** Deletes keychain password and open connections too */
+/** Remove a senha guardada no cofre e as conexões abertas também */
 export function deleteServer(id: number): Promise<void> {
   return call<void>(RustCommand.DeleteServer, { id });
 }

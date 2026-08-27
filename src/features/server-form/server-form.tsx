@@ -144,6 +144,11 @@ export function ServerForm(props: ServerFormProps) {
                 label="URI de conexão (opcional — Atlas, Redis Cloud...)"
                 placeholder="Digite aqui..."
                 value={form.connectionUri ?? ''}
+                helperText={
+                  isEditMode
+                    ? 'A senha aparece mascarada; reescreva a URI inteira para trocá-la.'
+                    : undefined
+                }
                 onChange={e =>
                   setField('connectionUri', e.target.value || null)
                 }

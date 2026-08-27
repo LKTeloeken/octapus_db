@@ -48,8 +48,15 @@ só busca o servidor (e a senha) **no cache-miss**.
 As senhas são criptografadas por um **cofre próprio do app**
 ([storage/vault.rs](src-tauri/src/storage/vault.rs)) — AES-256-GCM com uma chave
 **presa ao dispositivo**, gerada na 1ª execução e guardada em
-`<app_data_dir>/vault.key` (permissão `0600`). O ciphertext fica na própria coluna
-`servers.password` do SQLite; nada vai para o cofre do SO.
+`<app_data_dir>/vault.key` (permissão `0600`). O ciphertext fica nas próprias colunas
+`servers.password` e `servers.connection_uri` do SQLite; nada vai para o cofre do SO.
+
+- **A URI de conexão também é segredo:** `mongodb+srv://user:senha@…` carrega credencial,
+  então passa pelo mesmo cofre. Diferente da senha (que nunca é serializada), a URI **volta
+  para o front redigida** — `mongodb+srv://user:••••@cluster.net`. Se o campo voltar
+  intocado num `update_server`, o backend reconhece a máscara e preserva o valor guardado;
+  qualquer texto diferente é tratado como URI nova. `get_by_id` é o único caminho que
+  devolve a URI inteira, e é o que alimenta os adapters.
 
 - **Zero prompts e multiplataforma:** não usa Keychain/Secret Service em uso normal, então
   o comportamento é idêntico em macOS/Windows/Linux e não há diálogos de autorização.
@@ -60,6 +67,8 @@ As senhas são criptografadas por um **cofre próprio do app**
   via crate `keyring` ([storage/secrets.rs](src-tauri/src/storage/secrets.rs), agora
   só-migração). Na 1ª conexão de cada servidor, a senha legada é lida do Keychain (um
   último prompt do SO), re-criptografada no vault e removida do Keychain.
+- **Migração da URI legada:** URIs gravadas em texto puro por versões anteriores são
+  cifradas em lugar na primeira leitura, sem intervenção do usuário.
 - **Leitura sob demanda:** a senha só é decifrada ao **criar** um pool (cache-miss);
   comandos sobre uma conexão já aberta não tocam no cofre.
 
