@@ -1,8 +1,9 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import type { ColumnCellProps } from './results-table-column-cell.types';
 import { cn } from '@/lib/utils';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { ChevronDown } from '@hugeicons/core-free-icons';
+import { isPgArrayType, pgArrayTypeLabel } from '@/lib/pg-array';
 
 const ColumnCell = ({
   column,
@@ -12,6 +13,16 @@ const ColumnCell = ({
   className,
   onSort,
 }: ColumnCellProps) => {
+  const columnTypeLabel = useMemo(() => {
+    const isArray = isPgArrayType(column.typeName);
+
+    if (isArray) {
+      return pgArrayTypeLabel(column.typeName);
+    }
+
+    return column.typeName;
+  }, [column.typeName]);
+
   return (
     <div
       onClick={() => onSort(column.name)}
@@ -24,7 +35,7 @@ const ColumnCell = ({
       <div className="flex flex-col items-start justify-start">
         <div>{column.name}</div>
         <div className="text-muted-foreground text-xs">
-          {column.typeName}
+          {columnTypeLabel}
           {isPrimaryKeyColumn ? ' (PK)' : ''}
         </div>
       </div>

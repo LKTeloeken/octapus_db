@@ -1,3 +1,5 @@
+import { isPgArrayType } from '@/lib/pg-array';
+
 import type { CellEditorType } from './results-table-cell.types';
 
 const TYPE_MAP: Record<string, CellEditorType> = {
@@ -70,9 +72,9 @@ export function resolveCellEditor(typeName: string): CellEditorType {
 
   if (TYPE_MAP[normalized]) return TYPE_MAP[normalized];
 
-  if (normalized.startsWith('_') || normalized.endsWith('[]')) {
-    return 'json';
-  }
+  // Array do Postgres (`_varchar` é o typname de `varchar[]`): o valor vem
+  // como literal de array, não como JSON.
+  if (isPgArrayType(normalized)) return 'array';
 
   return 'text';
 }

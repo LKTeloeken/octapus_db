@@ -17,6 +17,7 @@ import {
 import { TextEditor } from './editors/text-editor';
 import { NumberEditor } from './editors/number-editor';
 import { JsonEditor } from './editors/json-editor';
+import { ArrayEditor } from './editors/array-editor';
 import { DateEditor } from './editors/date-editor';
 import { UuidEditor } from './editors/uuid-editor';
 
@@ -147,6 +148,17 @@ export const DataTableCell = memo(
             />
           );
 
+        case 'array':
+          return (
+            <ArrayEditor
+              value={editText}
+              columnType={columnType}
+              onSave={handleSave}
+              onCancel={onClose}
+              onSetNull={handleSetNull}
+            />
+          );
+
         case 'json':
           return (
             <JsonEditor
@@ -204,7 +216,7 @@ export const DataTableCell = memo(
         <PopoverContent
           className={cn(
             'max-h-80 overflow-auto p-3',
-            editorType === 'json' ? 'w-96' : 'w-80',
+            editorType === 'json' || editorType === 'array' ? 'w-96' : 'w-80',
           )}
           align="start"
           side="bottom"

@@ -3,6 +3,7 @@ export type CellEditorType =
   | 'number'
   | 'boolean'
   | 'json'
+  | 'array'
   | 'date'
   | 'datetime'
   | 'time'
