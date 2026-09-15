@@ -7,8 +7,12 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const host = process.env.TAURI_DEV_HOST;
 
+// Modo mock roda numa porta separada para conviver com `pnpm tauri dev` (1420)
+// — e, como origin é host:port, localStorage e IndexedDB também ficam isolados.
+const MOCK_PORT = 1430;
+
 // https://vitejs.dev/config/
-export default defineConfig(() => ({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -28,7 +32,7 @@ export default defineConfig(() => ({
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
-    port: 1420,
+    port: mode === "mock" ? MOCK_PORT : 1420,
     strictPort: true,
     host: host || false,
     hmr: host
