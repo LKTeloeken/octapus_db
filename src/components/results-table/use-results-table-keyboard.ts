@@ -1,5 +1,11 @@
 import type { Virtualizer } from '@tanstack/react-virtual';
-import { useCallback, useEffect, useRef, type KeyboardEvent, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react';
 import type { QueryColumnInfo } from '@/api/types/query.types';
 import { useFocusStore } from '@/stores/focus-store';
 import type {
@@ -102,10 +108,16 @@ export const useResultsTableKeyboard = ({
         'ArrowUp',
         'ArrowLeft',
         'ArrowRight',
+        'j',
+        'k',
+        'h',
+        'l',
         'Home',
         'End',
         'Tab',
         'Enter',
+        'Space',
+        ' ',
       ];
       if (!navKeys.includes(event.key)) return;
 
@@ -131,6 +143,7 @@ export const useResultsTableKeyboard = ({
 
       switch (event.key) {
         case 'ArrowDown':
+        case 'j':
           event.preventDefault();
           // Bater no fim com mais páginas disponíveis puxa o próximo lote.
           if (rowIndex === lastRow) {
@@ -141,16 +154,19 @@ export const useResultsTableKeyboard = ({
           return;
 
         case 'ArrowUp':
+        case 'k':
           event.preventDefault();
           moveTo(Math.max(rowIndex - 1, 0), columnIndex);
           return;
 
         case 'ArrowRight':
+        case 'l':
           event.preventDefault();
           moveTo(rowIndex, Math.min(columnIndex + 1, lastColumn));
           return;
 
         case 'ArrowLeft':
+        case 'h':
           event.preventDefault();
           moveTo(rowIndex, Math.max(columnIndex - 1, 0));
           return;
@@ -190,6 +206,9 @@ export const useResultsTableKeyboard = ({
         }
 
         case 'Enter':
+        case 'Space':
+        case ' ':
+          console.log('Space');
           event.preventDefault();
           activateCell(rowIndex, visibleColumns[columnIndex].name);
           return;

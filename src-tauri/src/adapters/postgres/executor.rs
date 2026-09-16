@@ -48,6 +48,17 @@ pub async fn execute_query(
         return Err(Error::InvalidQuery("Empty query".into()));
     }
 
+    // A conexão do pool pode ser reutilizada por outra aba. O search_path é
+    // aplicado somente durante esta execução e restaurado antes de devolver a
+    // conexão ao pool. O nome vem de uma identificação já escapada, nunca de
+    // concatenação livre do SQL do usuário.
+    if let Some(schema) = options.schema.as_deref() {
+        let path = format!("{}, public", quote_ident(schema));
+        client
+            .batch_execute(&format!("SET search_path TO {path}"))
+            .await?;
+    }
+
     // O PID identifica a conexão física que o pool entregou. Serve para duas
     // coisas: mirar o pg_cancel_backend e rotear os notices que chegarem por
     // ela enquanto esta query roda.
@@ -133,11 +144,21 @@ pub async fn execute_query(
             ..pool.timeouts()
         };
         let count_client = pool.timeout_get(&timeouts).await.ok()?;
-        count_client
-            .query_one(&count_query, &[])
-            .await
-            .ok()?
-            .get::<_, Option<i64>>(0)
+        if let Some(schema) = options.schema.as_deref() {
+            let path = format!("{}, public", quote_ident(schema));
+            count_client
+                .batch_execute(&format!("SET search_path TO {path}"))
+                .await
+                .ok()?;
+        }
+
+        let total = count_client.query_one(&count_query, &[]).await;
+
+        if options.schema.is_some() {
+            count_client.batch_execute("RESET search_path").await.ok()?;
+        }
+
+        total.ok()?.get::<_, Option<i64>>(0)
     };
     let (stmt, (messages, exec_elapsed), total_count) =
         tokio::join!(client.prepare(trimmed), data_fut, count_fut);
@@ -150,6 +171,9 @@ pub async fn execute_query(
             // com SQLSTATE, DETAIL, HINT e o CONTEXT da pilha do PL/pgSQL.
             if let (Some(sink), Some(db_error)) = (sink.as_ref(), err.as_db_error()) {
                 sink.push(message_from_db_error(db_error, true));
+            }
+            if options.schema.is_some() {
+                let _ = client.batch_execute("RESET search_path").await;
             }
             return Err(err.into());
         }
@@ -197,6 +221,10 @@ pub async fn execute_query(
         }
         _ => None,
     };
+
+    if options.schema.is_some() {
+        client.batch_execute("RESET search_path").await?;
+    }
 
     Ok(QueryResult {
         columns,

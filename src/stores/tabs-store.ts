@@ -15,6 +15,8 @@ interface TabBase {
 
 export interface QueryTab extends TabBase {
   kind: 'query';
+  /** Schema padrão do editor SQL; null mantém o search_path do servidor. */
+  schema: string | null;
   /** Editor text */
   content: string;
   /** Nomes das colunas ocultas no front (só renderização, não muda o query) */
@@ -42,6 +44,7 @@ interface TabsState {
   openQueryTab: (params: {
     serverId: number;
     database: string;
+    schema?: string | null;
     title?: string;
     content?: string;
   }) => string;
@@ -77,7 +80,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   tabs: new Map(),
   activeTabId: null,
 
-  openQueryTab: ({ serverId, database, title, content }) => {
+  openQueryTab: ({ serverId, database, schema, title, content }) => {
     const id = `query|${serverId}|${database}|${++queryTabCounter}|${Date.now()}`;
     const tab: QueryTab = {
       id,
@@ -85,6 +88,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       title: title ?? database,
       serverId,
       database,
+      schema: schema ?? null,
       content: content ?? '',
       hiddenColumns: [],
     };

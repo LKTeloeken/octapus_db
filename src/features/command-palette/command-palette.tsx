@@ -33,7 +33,7 @@ export function CommandPalette() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
         showCloseButton={false}
-        className="overflow-hidden p-0 sm:max-w-xl"
+        className="overflow-hidden p-0 sm:max-w-xl backdrop-blur-sm bg-background/30"
       >
         <DialogTitle className="sr-only">Command Palette</DialogTitle>
         <DialogDescription className="sr-only">

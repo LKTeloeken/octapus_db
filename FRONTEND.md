@@ -121,7 +121,30 @@ tanto pelo editor livre quanto pelo browse. Características:
 
 ---
 
-## 6. Convenções
+## 6. Modo mock — front sem o Rust
+
+`pnpm dev:mock` sobe só o Vite (porta **1430**) com um backend simulado, para trabalhar em
+telas sem compilar o backend. O mock é instalado no **IPC** (`mockIPC` do
+`@tauri-apps/api/mocks`), então `api/`, `queries/` e as features rodam idênticas ao
+produção — inclusive o `Channel` de mensagens e o plugin de updater.
+
+- Liga por `VITE_MOCK` (arquivo `.env.mock`); em `pnpm build` a variável não existe e o
+  `import()` de `src/mocks/` é eliminado do bundle.
+- Porta própria ⇒ origin própria ⇒ `localStorage` e IndexedDB isolados do app real.
+- Badge **MOCK** no canto controla latência, injeção de erro, respostas vazias e reset
+  dos dados — para desenhar loading, erro e empty state sem editar código.
+- Dataset em `src/mocks/data/`: um servidor de cada tipo (Postgres com schemas/PKs/
+  arrays, Mongo sem schemas, Redis só browsable), com tabelas grandes o bastante para
+  exercitar a virtualização e a paginação de 500.
+
+**Regra de manutenção:** comando novo no backend ⇒ handler novo em
+`src/mocks/handlers.ts`, na mesma lista do `RustCommand`. Sem handler o mock rejeita
+dizendo qual comando falta. Detalhes e receitas em
+[src/mocks/README.md](src/mocks/README.md).
+
+---
+
+## 7. Convenções
 
 - **TypeScript** estrito; tipos de dados do backend em `src/api/types/`.
 - **Tailwind v4** + componentes Radix no padrão shadcn (`src/components/ui/`); use o

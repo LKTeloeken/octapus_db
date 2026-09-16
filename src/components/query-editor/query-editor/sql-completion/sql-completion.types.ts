@@ -60,6 +60,8 @@ export interface ResolvedTable {
  */
 export interface SqlCompletionPorts {
   getStructure: () => DatabaseStructure | undefined;
+  /** Schema padrão da aba; referências qualificadas continuam tendo prioridade. */
+  getDefaultSchema: () => string | null;
   /** Leitura síncrona do cache; `undefined` = colunas ainda não carregadas. */
   peekColumns: (schema: string, table: string) => ColumnInfo[] | undefined;
   /** Garante as colunas no cache (busca só se faltar). Nunca rejeita. */

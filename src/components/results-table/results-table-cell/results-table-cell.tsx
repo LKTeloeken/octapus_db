@@ -98,8 +98,7 @@ export const DataTableCell = memo(
 
     const triggerClassName = cn(
       'w-full text-left font-mono text-xs truncate block px-2 py-1.5 rounded-sm',
-      'hover:bg-muted/60 transition-colors cursor-pointer outline-none',
-      'focus-visible:ring-1 focus-visible:ring-ring',
+      'transition-colors cursor-pointer outline-none',
       isNull && 'text-muted-foreground italic',
       isModified && 'bg-yellow-900/30 text-yellow-200',
     );
@@ -116,6 +115,7 @@ export const DataTableCell = memo(
           tabIndex={-1}
           className={triggerClassName}
           onDoubleClick={() => onActivate(rowIndex, columnName)}
+          onFocus={() => console.log('focus')}
         >
           {text}
         </button>

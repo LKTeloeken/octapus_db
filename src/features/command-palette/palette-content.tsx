@@ -72,7 +72,7 @@ export function PaletteContent({
 
       <div
         ref={parentRef}
-        className="max-h-80 overflow-x-hidden overflow-y-auto scrollbar-thin"
+        className="max-h-80 overflow-x-hidden overflow-y-auto scrollbar-thin p-2"
       >
         {!hasResults ? (
           <div className="py-6 text-center text-sm text-muted-foreground">
@@ -117,7 +117,7 @@ export function PaletteContent({
                   aria-selected={isActive}
                   className={cn(
                     'absolute left-0 top-0 flex w-full cursor-default items-center gap-2 rounded-sm px-2 text-sm select-none',
-                    isActive && 'bg-accent text-accent-foreground',
+                    isActive && 'bg-primary/12 text-primary',
                     isConnecting && 'pointer-events-none opacity-50',
                   )}
                   style={{
@@ -129,7 +129,10 @@ export function PaletteContent({
                 >
                   <HugeiconsIcon
                     icon={TableIcon}
-                    className="h-4 w-4 text-muted-foreground"
+                    className={cn(
+                      'h-4 w-4 text-muted-foreground',
+                      isActive && 'text-primary',
+                    )}
                   />
 
                   <div className="flex min-w-0 flex-1 flex-col">
