@@ -197,6 +197,17 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
             onSelect: () =>
               void refreshTable(serverId, database, schema, table),
           },
+          {
+            label: 'Nova aba',
+            icon: Add01Icon,
+            onSelect: () =>
+              openQueryTab({
+                serverId,
+                database,
+                schema,
+                title: table,
+              }),
+          },
         ],
       },
       // Pelo teclado o Enter só abre a tabela: expandir/colapsar as colunas já
@@ -365,6 +376,17 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
                   icon: RefreshIcon,
                   onSelect: () =>
                     void refreshSchema(server.id, db.name, schema.name),
+                },
+                {
+                  label: 'Nova aba',
+                  icon: Add01Icon,
+                  onSelect: () =>
+                    openQueryTab({
+                      serverId: server.id,
+                      database: db.name,
+                      schema: schema.name,
+                      title: schema.name,
+                    }),
                 },
               ],
             },

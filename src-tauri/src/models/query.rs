@@ -59,6 +59,9 @@ pub struct QueryOptions {
     pub count_total: bool,
     #[serde(default)]
     pub unlimited: bool,
+    /// Schema colocado no início do `search_path` desta execução (Postgres).
+    #[serde(default)]
+    pub schema: Option<String>,
     /// Frontend-generated id used to target this execution from the
     /// `cancel_query` command; without it the query cannot be cancelled.
     #[serde(default)]
@@ -76,6 +79,7 @@ impl Default for QueryOptions {
             offset: 0,
             count_total: false,
             unlimited: false,
+            schema: None,
             query_id: None,
         }
     }

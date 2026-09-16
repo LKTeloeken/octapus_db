@@ -38,8 +38,6 @@ export const QueryTabs = memo(() => {
           <div
             key={tab.id}
             className="relative"
-            // Botão do meio fecha a aba (padrão de navegadores). O preventDefault
-            // no mousedown evita o autoscroll do middle-click no Windows/Linux.
             onMouseDown={event => {
               if (event.button === 1) event.preventDefault();
             }}

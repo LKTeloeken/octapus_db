@@ -19,6 +19,7 @@ import { useStructure } from '@/queries/use-structure';
 export interface UseSqlCompletionParams {
   serverId: number;
   database: string;
+  defaultSchema: string | null;
   enabled: boolean;
 }
 
@@ -42,6 +43,7 @@ export interface SqlCompletion {
 export function useSqlCompletion({
   serverId,
   database,
+  defaultSchema,
   enabled,
 }: UseSqlCompletionParams): SqlCompletion {
   const queryClient = useQueryClient();
@@ -50,10 +52,11 @@ export function useSqlCompletion({
   const target = useRef<{
     serverId: number;
     database: string;
+    defaultSchema: string | null;
     structure: DatabaseStructure | undefined;
-  }>({ serverId, database, structure });
+  }>({ serverId, database, defaultSchema, structure });
 
-  target.current = { serverId, database, structure };
+  target.current = { serverId, database, defaultSchema, structure };
 
   const columnsVersion = useRef(0);
   const ports = useRef<SqlCompletionPorts | null>(null);
@@ -61,6 +64,7 @@ export function useSqlCompletion({
   if (!ports.current) {
     ports.current = {
       getStructure: () => target.current.structure,
+      getDefaultSchema: () => target.current.defaultSchema,
 
       peekColumns: (schema, table) =>
         queryClient.getQueryData<ColumnInfo[]>(

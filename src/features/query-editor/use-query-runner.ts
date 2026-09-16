@@ -58,6 +58,7 @@ export const useQueryRunner = (tab: QueryTab) => {
   const sqlCompletion = useSqlCompletion({
     serverId: tab.serverId,
     database: tab.database,
+    defaultSchema: tab.schema,
     enabled: supportsSql,
   });
 
@@ -95,6 +96,7 @@ export const useQueryRunner = (tab: QueryTab) => {
           serverId: tab.serverId,
           database: tab.database,
           query,
+          options: { schema: tab.schema },
           onMessage,
         });
         setRun(tab.id, { query, result });
@@ -130,6 +132,7 @@ export const useQueryRunner = (tab: QueryTab) => {
       tab.id,
       tab.serverId,
       tab.database,
+      tab.schema,
       executeQuery,
       setRun,
       startLogEntry,
@@ -149,7 +152,11 @@ export const useQueryRunner = (tab: QueryTab) => {
         serverId: tab.serverId,
         database: tab.database,
         query: run.query,
-        options: { offset: run.result.rows.length, countTotal: false },
+        options: {
+          offset: run.result.rows.length,
+          countTotal: false,
+          schema: tab.schema,
+        },
       });
       appendRows(tab.id, page);
     } catch (error) {
@@ -157,7 +164,16 @@ export const useQueryRunner = (tab: QueryTab) => {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [run, isLoadingMore, tab.id, tab.serverId, tab.database, executeQuery, appendRows]);
+  }, [
+    run,
+    isLoadingMore,
+    tab.id,
+    tab.serverId,
+    tab.database,
+    tab.schema,
+    executeQuery,
+    appendRows,
+  ]);
 
   const save = useCallback(
     async ({ edits, inserts, deletes }: SaveRowChanges) => {

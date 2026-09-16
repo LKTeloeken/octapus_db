@@ -39,11 +39,16 @@ interface StatementTable {
 function resolveStatementTables(
   structure: DatabaseStructure,
   refs: StatementTableRef[],
+  defaultSchema?: string | null,
 ): StatementTable[] {
   const resolved: StatementTable[] = [];
 
   for (const ref of refs) {
-    const target = resolveTable(structure, ref.table, ref.schemaHint);
+    const target = resolveTable(
+      structure,
+      ref.table,
+      ref.schemaHint ?? defaultSchema ?? undefined,
+    );
 
     if (target) {
       resolved.push({ ref, target });
@@ -101,13 +106,20 @@ export function createSqlSchemaSource(
   let memo: {
     structure: DatabaseStructure;
     version: number;
+    defaultSchema: string | null;
     source: CompletionSource;
   } | null = null;
 
   const langSourceFor = (structure: DatabaseStructure): CompletionSource => {
     const version = ports.getColumnsVersion();
+    const defaultSchema = ports.getDefaultSchema();
 
-    if (memo && memo.structure === structure && memo.version === version) {
+    if (
+      memo &&
+      memo.structure === structure &&
+      memo.version === version &&
+      memo.defaultSchema === defaultSchema
+    ) {
       return memo.source;
     }
 
@@ -126,12 +138,14 @@ export function createSqlSchemaSource(
     const source = schemaCompletionSource({
       dialect: PostgreSQL,
       schema: buildSqlNamespace(structure, columns),
-      defaultSchema: structure.schemas.some(schema => schema.name === 'public')
-        ? 'public'
-        : undefined,
+      defaultSchema:
+        defaultSchema ??
+        (structure.schemas.some(schema => schema.name === 'public')
+          ? 'public'
+          : undefined),
     });
 
-    memo = { structure, version, source };
+    memo = { structure, version, defaultSchema, source };
 
     return source;
   };
@@ -145,7 +159,11 @@ export function createSqlSchemaSource(
       context.state,
       context.pos,
     );
-    const statementTables = resolveStatementTables(structure, tables);
+    const statementTables = resolveStatementTables(
+      structure,
+      tables,
+      ports.getDefaultSchema(),
+    );
     const columnBoost = boostFor(clause, 'column');
 
     // Em posição de tabela (`FROM |`, `JOIN |`) coluna é ruído: não injeta e nem paga a
@@ -236,7 +254,11 @@ export function sqlPrefetchListener(ports: SqlCompletionPorts): Extension {
         state.selection.main.head,
       );
 
-      for (const { target } of resolveStatementTables(structure, tables)) {
+      for (const { target } of resolveStatementTables(
+        structure,
+        tables,
+        ports.getDefaultSchema(),
+      )) {
         if (!ports.peekColumns(target.schema, target.table)) {
           void ports.ensureColumns(target.schema, target.table);
         }

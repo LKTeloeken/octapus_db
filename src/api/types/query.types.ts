@@ -45,6 +45,8 @@ export interface QueryOptions {
   offset?: number;
   countTotal?: boolean;
   unlimited?: boolean;
+  /** Schema padrão do editor SQL; adapters sem schemas ignoram. */
+  schema?: string | null;
 }
 
 export interface StatementResult {

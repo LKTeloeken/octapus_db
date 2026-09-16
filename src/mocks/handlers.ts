@@ -297,6 +297,7 @@ function resolveQueryTable(
   entry: MockServerEntry,
   database: string,
   query: string,
+  defaultSchema?: string | null,
 ): MockTable | null {
   const db = requireDatabase(entry, database);
 
@@ -307,7 +308,8 @@ function resolveQueryTable(
     const found = db.tables.find(
       candidate =>
         candidate.name === table &&
-        (schema ? candidate.schema === schema : true),
+        (schema ? candidate.schema === schema :
+          defaultSchema ? candidate.schema === defaultSchema : true),
     );
     if (!found) {
       throw `Query error: relation "${qualify(schema ?? '', table)}" does not exist`;
@@ -366,7 +368,12 @@ const queryHandlers: Record<string, MockHandler> = {
       };
     }
 
-    const table = resolveQueryTable(entry, database as string, sql);
+    const table = resolveQueryTable(
+      entry,
+      database as string,
+      sql,
+      opts.schema,
+    );
     if (!table)
       throw `Query error: syntax error at or near "${sql.trim().slice(0, 12)}"`;
 
