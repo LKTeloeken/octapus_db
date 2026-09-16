@@ -276,6 +276,20 @@ interface AdapterCapabilities {
 | `delete_rows` | `{ serverId, database, editable, pkValues: (string\|null)[][] }` | `StatementResult` |
 | `cancel_query` | `{ serverId, database, queryId }` | `void` *(só Postgres; Mongo/Redis retornam "não suportado")* |
 
+### Monitor de processos PostgreSQL
+
+| Comando | Args | Retorno |
+|---|---|---|
+| `list_processes` | `{ serverId }` | `DatabaseProcess[]` *(só PostgreSQL)* |
+| `terminate_process` | `{ serverId, pid }` | `boolean` *(só PostgreSQL)* |
+
+`list_processes` consulta `pg_stat_activity` e devolve PID, banco, usuário,
+aplicação, cliente, estado, query, timestamps, evento de espera, tipo de backend
+e duração da query ativa. A conexão usada pelo monitor é marcada com
+`isOwnProcess` e não pode ser encerrada pela própria operação. O backend também
+valida o tipo do servidor antes de conectar, então os comandos não podem ser
+usados para expor o recurso em MongoDB/Redis.
+
 `StatementResult`: `{ affectedRows: number, executionTimeMs: number }`.
 
 ### Browse de tabela (paginado/ordenado/filtrado — sem digitar query)

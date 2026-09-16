@@ -11,6 +11,7 @@ import type {
   StatementResult,
 } from '@/api/types/query.types';
 import type { Server, ServerInput } from '@/api/types/server.types';
+import type { DatabaseProcess } from '@/api/types/processes.types';
 import type {
   ColumnInfo,
   DatabaseInfo,
@@ -45,6 +46,77 @@ type Args = Record<string, unknown>;
 export type MockHandler = (args: Args) => unknown | Promise<unknown>;
 
 const isEmptyMode = () => useMockStore.getState().emptyMode;
+
+const terminatedProcesses = new Set<number>();
+
+function mockProcesses(serverId: number): DatabaseProcess[] {
+  const entry = requireServerEntry(serverId);
+  if (entry.server.dbType !== 'postgres') {
+    throw 'Process monitoring is only available for PostgreSQL servers';
+  }
+  if (isEmptyMode()) return [];
+
+  const now = Date.now();
+  const processes: DatabaseProcess[] = [
+    {
+      pid: 21840,
+      database: entry.server.defaultDatabase ?? 'postgres',
+      username: entry.server.username,
+      applicationName: 'octapus_db',
+      clientAddress: '127.0.0.1',
+      clientPort: 51_204,
+      state: 'active',
+      query:
+        "SELECT * FROM pedidos WHERE status = 'pending' ORDER BY criado_em DESC",
+      queryStart: new Date(now - 4_200).toISOString(),
+      transactionStart: new Date(now - 5_100).toISOString(),
+      backendStart: new Date(now - 86_000_000).toISOString(),
+      waitEventType: null,
+      waitEvent: null,
+      backendType: 'client backend',
+      durationMs: 4_200,
+      isOwnProcess: false,
+    },
+    {
+      pid: 21841,
+      database: entry.server.defaultDatabase ?? 'postgres',
+      username: entry.server.username,
+      applicationName: 'DBeaver',
+      clientAddress: '192.168.1.42',
+      clientPort: 50_118,
+      state: 'idle in transaction',
+      query: 'UPDATE produtos SET estoque = estoque - 1 WHERE id = 42',
+      queryStart: new Date(now - 122_000).toISOString(),
+      transactionStart: new Date(now - 121_500).toISOString(),
+      backendStart: new Date(now - 250_000_000).toISOString(),
+      waitEventType: 'Client',
+      waitEvent: 'ClientRead',
+      backendType: 'client backend',
+      durationMs: null,
+      isOwnProcess: false,
+    },
+    {
+      pid: 21842,
+      database: entry.server.defaultDatabase ?? 'postgres',
+      username: entry.server.username,
+      applicationName: 'octapus_db',
+      clientAddress: null,
+      clientPort: null,
+      state: 'idle',
+      query: '<IDLE>',
+      queryStart: null,
+      transactionStart: null,
+      backendStart: new Date(now - 32_000_000).toISOString(),
+      waitEventType: 'Client',
+      waitEvent: 'ClientRead',
+      backendType: 'client backend',
+      durationMs: null,
+      isOwnProcess: true,
+    },
+  ];
+
+  return processes.filter(process => !terminatedProcesses.has(process.pid));
+}
 
 // ── Servidores ──────────────────────────────────────────────────────────────
 
@@ -144,6 +216,20 @@ const connectionHandlers: Record<string, MockHandler> = {
 
   [RustCommand.GetCapabilities]: ({ serverId }: Args) =>
     requireServerEntry(serverId as number).capabilities,
+
+  [RustCommand.ListProcesses]: ({ serverId }: Args) =>
+    mockProcesses(serverId as number),
+
+  [RustCommand.TerminateProcess]: ({ serverId, pid }: Args) => {
+    const processes = mockProcesses(serverId as number);
+    const target = processes.find(process => process.pid === pid);
+    if (!target) throw `Query error: backend ${String(pid)} no longer exists`;
+    if (target.isOwnProcess) {
+      throw 'Invalid query: The monitor cannot terminate its own connection';
+    }
+    terminatedProcesses.add(pid as number);
+    return true;
+  },
 };
 
 // ── Estrutura ───────────────────────────────────────────────────────────────
@@ -308,8 +394,11 @@ function resolveQueryTable(
     const found = db.tables.find(
       candidate =>
         candidate.name === table &&
-        (schema ? candidate.schema === schema :
-          defaultSchema ? candidate.schema === defaultSchema : true),
+        (schema
+          ? candidate.schema === schema
+          : defaultSchema
+            ? candidate.schema === defaultSchema
+            : true),
     );
     if (!found) {
       throw `Query error: relation "${qualify(schema ?? '', table)}" does not exist`;

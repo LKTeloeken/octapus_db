@@ -1,4 +1,5 @@
 import {
+  Activity01Icon,
   Cancel01Icon,
   DatabaseIcon,
   TableIcon,
@@ -8,6 +9,7 @@ import { memo } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Typography } from '@/components/ui/typography';
 import { QueryEditorPanel } from '@/features/query-editor/query-editor-panel';
+import { ProcessMonitor } from '@/features/process-monitor/process-monitor';
 import { TableBrowser } from '@/features/table-browser/table-browser';
 import { cn } from '@/lib/utils';
 import { useQueryTabs } from './use-query-tabs';
@@ -48,7 +50,13 @@ export const QueryTabs = memo(() => {
             <TabsTrigger value={tab.id} className="px-2.5 pr-7 sm:px-3 sm:pr-7">
               <code className="flex items-center gap-1 text-[13px] [&>svg]:h-4 [&>svg]:w-4">
                 <HugeiconsIcon
-                  icon={tab.kind === 'browse' ? TableIcon : DatabaseIcon}
+                  icon={
+                    tab.kind === 'browse'
+                      ? TableIcon
+                      : tab.kind === 'processes'
+                        ? Activity01Icon
+                        : DatabaseIcon
+                  }
                   className={cn(tab.id === activeTabId && 'text-primary')}
                 />{' '}
                 {tab.title}
@@ -71,6 +79,8 @@ export const QueryTabs = memo(() => {
         >
           {activeTab.kind === 'browse' ? (
             <TableBrowser tab={activeTab} />
+          ) : activeTab.kind === 'processes' ? (
+            <ProcessMonitor tab={activeTab} />
           ) : (
             <QueryEditorPanel tab={activeTab} />
           )}

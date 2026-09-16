@@ -3,6 +3,7 @@ mod pool;
 mod executor;
 mod metadata;
 mod notices;
+mod processes;
 mod util;
 
 use std::collections::HashMap;
@@ -165,6 +166,14 @@ impl DatabaseAdapter for PostgresAdapter {
         }
 
         Ok(())
+    }
+
+    async fn list_processes(&self) -> Result<Vec<DatabaseProcess>> {
+        processes::list(&self.pool).await
+    }
+
+    async fn terminate_process(&self, pid: i32) -> Result<bool> {
+        processes::terminate(&self.pool, pid).await
     }
 
     fn pool_stats(&self) -> Option<PoolStats> {

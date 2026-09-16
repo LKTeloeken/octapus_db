@@ -5,9 +5,9 @@ use async_trait::async_trait;
 use crate::adapters::MessageSink;
 use crate::error::{Error, Result};
 use crate::models::{
-    AdapterCapabilities, ColumnInfo, DatabaseInfo, DatabaseStructure, EditableInfo, IndexInfo,
-    QueryOptions, QueryResult, RowEdit, RowInsert, SchemaInfo, StatementResult, TableDataRequest,
-    TableInfo,
+    AdapterCapabilities, ColumnInfo, DatabaseInfo, DatabaseProcess, DatabaseStructure,
+    EditableInfo, IndexInfo, QueryOptions, QueryResult, RowEdit, RowInsert, SchemaInfo,
+    StatementResult, TableDataRequest, TableInfo,
 };
 
 /// Core trait that all database adapters must implement.
@@ -130,6 +130,21 @@ pub trait DatabaseAdapter: Send + Sync {
     async fn cancel_query(&self, _query_id: &str) -> Result<()> {
         Err(Error::UnsupportedType(
             "Query cancellation is not supported for this database".into(),
+        ))
+    }
+
+    /// Lists server backends. Currently only PostgreSQL exposes this feature.
+    async fn list_processes(&self) -> Result<Vec<DatabaseProcess>> {
+        Err(Error::UnsupportedType(
+            "Process monitoring is not supported for this database".into(),
+        ))
+    }
+
+    /// Terminates a server backend by PID. The adapter must protect its own
+    /// connection from being terminated by the monitor.
+    async fn terminate_process(&self, _pid: i32) -> Result<bool> {
+        Err(Error::UnsupportedType(
+            "Process termination is not supported for this database".into(),
         ))
     }
 

@@ -88,8 +88,11 @@ palette, dentro do `QueryProvider`.
   (sem schema em Mongo/Redis).
 - **`server-form`** — criar/editar servidor. A senha **nunca** volta do backend: no modo
   edição o campo começa vazio e deve ser redigitado.
-- **`query-tabs`** — gerencia abas; cada aba é um editor livre (`query-editor`) ou um
-  browse (`table-browser`).
+- **`query-tabs`** — gerencia abas; cada aba é um editor livre (`query-editor`), um
+  browse (`table-browser`) ou o monitor de processos PostgreSQL (`process-monitor`).
+- **`process-monitor`** — aberto apenas pela ação do nó de um servidor PostgreSQL;
+  consulta processos periodicamente, mostra uma tabela virtualizada verticalmente
+  e exige confirmação para chamar `pg_terminate_backend`.
 - **`query-editor`** — editor CodeMirror + execução; `use-query-runner` roda a query,
   pagina e aplica edições. Resultados ficam no `query-results-store`.
 - **`table-browser`** — navegação de tabela; `use-table-browser` traduz cliques de

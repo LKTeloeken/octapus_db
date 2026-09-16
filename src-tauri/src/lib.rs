@@ -51,6 +51,9 @@ pub fn run() {
             commands::delete_rows,
             commands::execute_transaction,
             commands::cancel_query,
+            // PostgreSQL process monitor
+            commands::list_processes,
+            commands::terminate_process,
             // Browse (server-side pagination/sort/filter)
             commands::fetch_table_data,
             commands::get_capabilities,

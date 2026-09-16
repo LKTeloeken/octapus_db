@@ -2,12 +2,14 @@ mod browse;
 mod servers;
 mod connections;
 mod queries;
+mod processes;
 mod structure;
 
 pub use browse::*;
 pub use servers::*;
 pub use connections::*;
 pub use queries::*;
+pub use processes::*;
 pub use structure::*;
 
 use std::sync::Arc;

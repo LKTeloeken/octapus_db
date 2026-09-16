@@ -83,3 +83,11 @@ As senhas são criptografadas por um **cofre próprio do app**
 5. Editar/inserir/remover linhas → alterações ficam pendentes no front e são aplicadas
    em lote no salvar (`apply_row_edits` / `insert_rows` / `delete_rows`), seguido de
    refetch via invalidação.
+
+### Monitor de processos PostgreSQL
+
+O nó de um servidor PostgreSQL oferece a aba `processes|<serverId>`. A aba usa
+`list_processes` para ler `pg_stat_activity` com atualização periódica e
+`terminate_process` para chamar `pg_terminate_backend` após confirmação. O comando
+valida novamente o tipo do servidor no backend e nunca permite encerrar a conexão
+que está executando a operação. MongoDB e Redis não exibem essa ação.

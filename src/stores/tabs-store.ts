@@ -10,11 +10,11 @@ interface TabBase {
   id: string;
   title: string;
   serverId: number;
-  database: string;
 }
 
 export interface QueryTab extends TabBase {
   kind: 'query';
+  database: string;
   /** Schema padrão do editor SQL; null mantém o search_path do servidor. */
   schema: string | null;
   /** Editor text */
@@ -25,6 +25,7 @@ export interface QueryTab extends TabBase {
 
 export interface BrowseTab extends TabBase {
   kind: 'browse';
+  database: string;
   /** null for databases without schemas (Mongo/Redis) */
   schema: string | null;
   table: string;
@@ -35,7 +36,11 @@ export interface BrowseTab extends TabBase {
   hiddenColumns: string[];
 }
 
-export type WorkspaceTab = QueryTab | BrowseTab;
+export interface ProcessesTab extends TabBase {
+  kind: 'processes';
+}
+
+export type WorkspaceTab = QueryTab | BrowseTab | ProcessesTab;
 
 interface TabsState {
   tabs: Map<string, WorkspaceTab>;
@@ -54,6 +59,7 @@ interface TabsState {
     schema: string | null;
     table: string;
   }) => string;
+  openProcessesTab: (params: { serverId: number; title?: string }) => string;
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   setQueryContent: (id: string, content: string) => void;
@@ -126,6 +132,29 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       whereExpr: '',
       sort: [],
       hiddenColumns: [],
+    };
+
+    set(state => ({
+      tabs: new Map(state.tabs).set(id, tab),
+      activeTabId: id,
+    }));
+
+    return id;
+  },
+
+  openProcessesTab: ({ serverId, title }) => {
+    const id = `processes|${serverId}`;
+
+    if (get().tabs.has(id)) {
+      set({ activeTabId: id });
+      return id;
+    }
+
+    const tab: ProcessesTab = {
+      id,
+      kind: 'processes',
+      title: title ?? 'Processos',
+      serverId,
     };
 
     set(state => ({

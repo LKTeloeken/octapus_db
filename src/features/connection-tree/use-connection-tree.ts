@@ -1,8 +1,17 @@
-import { Add01Icon, Edit01Icon, RefreshIcon } from '@hugeicons/core-free-icons';
+import {
+  Activity01Icon,
+  Add01Icon,
+  Edit01Icon,
+  RefreshIcon,
+} from '@hugeicons/core-free-icons';
 import { useQueries, type UseQueryResult } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { getCapabilities } from '@/api/connection';
-import { listColumns, listDatabases, listSchemasWithTables } from '@/api/structure';
+import {
+  listColumns,
+  listDatabases,
+  listSchemasWithTables,
+} from '@/api/structure';
 import type { AdapterCapabilities } from '@/api/types/capabilities.types';
 import type {
   ColumnInfo,
@@ -43,6 +52,7 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
   const expanded = useTreeStore(state => state.expanded);
   const toggleNode = useTreeStore(state => state.toggleNode);
   const openQueryTab = useTabsStore(state => state.openQueryTab);
+  const openProcessesTab = useTabsStore(state => state.openProcessesTab);
   const openBrowseTab = useTabsStore(state => state.openBrowseTab);
   const requestFocus = useFocusStore(state => state.requestFocus);
   const { refreshServer, refreshDatabase, refreshSchema, refreshTable } =
@@ -62,7 +72,9 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
   const expandedServerIds = useMemo(
     () =>
       expandedRefs
-        .filter(ref => nodeKind(ref) === 'server' && serverIds.has(ref.serverId))
+        .filter(
+          ref => nodeKind(ref) === 'server' && serverIds.has(ref.serverId),
+        )
         .map(ref => ref.serverId),
     [expandedRefs, serverIds],
   );
@@ -121,7 +133,9 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
 
   // Zip query results back to their entities (results keep input order).
   const databasesByServer = new Map<number, UseQueryResult<DatabaseInfo[]>>();
-  expandedServerIds.forEach((id, i) => databasesByServer.set(id, databaseQueries[i]));
+  expandedServerIds.forEach((id, i) =>
+    databasesByServer.set(id, databaseQueries[i]),
+  );
 
   const capabilitiesByServer = new Map<
     number,
@@ -261,6 +275,19 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
         isHighlighted: dbQuery?.isSuccess ?? false,
         onClick: () => toggleNode(serverNodeId),
         actions: [
+          ...(server.dbType === 'postgres'
+            ? [
+                {
+                  label: 'Processos',
+                  icon: Activity01Icon,
+                  onSelect: () =>
+                    openProcessesTab({
+                      serverId: server.id,
+                      title: `Processos · ${server.name}`,
+                    }),
+                },
+              ]
+            : []),
           {
             label: 'Atualizar',
             icon: RefreshIcon,

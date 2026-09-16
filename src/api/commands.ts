@@ -31,6 +31,10 @@ export enum RustCommand {
   DeleteRows = 'delete_rows',
   CancelQuery = 'cancel_query',
 
+  // PostgreSQL process monitor
+  ListProcesses = 'list_processes',
+  TerminateProcess = 'terminate_process',
+
   // Browse (server-side pagination/sort/filter)
   FetchTableData = 'fetch_table_data',
 }

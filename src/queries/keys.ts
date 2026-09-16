@@ -11,6 +11,8 @@ export const queryKeys = {
 
   capabilities: (serverId: number) => ['capabilities', serverId] as const,
 
+  processes: (serverId: number) => ['processes', serverId] as const,
+
   databases: (serverId: number) => ['databases', serverId] as const,
 
   structure: (serverId: number, database: string) =>
