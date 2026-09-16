@@ -308,8 +308,11 @@ function resolveQueryTable(
     const found = db.tables.find(
       candidate =>
         candidate.name === table &&
-        (schema ? candidate.schema === schema :
-          defaultSchema ? candidate.schema === defaultSchema : true),
+        (schema
+          ? candidate.schema === schema
+          : defaultSchema
+            ? candidate.schema === defaultSchema
+            : true),
     );
     if (!found) {
       throw `Query error: relation "${qualify(schema ?? '', table)}" does not exist`;
@@ -590,7 +593,7 @@ const pluginHandlers: Record<string, MockHandler> = {
       rid: 1,
       available: true,
       currentVersion: '0.1.0-beta.16',
-      version: '0.1.0-beta.17',
+      version: '0.1.0-beta.18',
       date: '2026-09-14 12:00:00.000 +00:00:00',
       body: 'Notas de versão simuladas pelo modo mock.',
       rawJson: {},

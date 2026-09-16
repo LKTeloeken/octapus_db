@@ -2,7 +2,7 @@
 # Regenera nix/release.nix apontando para uma release publicada no GitHub.
 #
 #   ./nix/update-release.sh                 # usa a última release
-#   ./nix/update-release.sh 0.1.0-beta.17   # usa uma versão específica
+#   ./nix/update-release.sh 0.0.0-example # usa uma versão específica
 #
 # Precisa do `gh` autenticado, do `nix` (para o hash SRI) e do `jq`.
 set -euo pipefail
