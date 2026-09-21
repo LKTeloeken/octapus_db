@@ -22,6 +22,7 @@ const PLACEHOLDERS: Record<string, string> = {
   postgres: 'SELECT * FROM ...',
   mongodb: "db.collection.find({ ... })",
   redis: 'GET user:1 · HGETALL session:abc · SCAN 0 MATCH user:*',
+  sqlite: 'SELECT * FROM ...',
 };
 
 /** Identidade estável para abas sem log, evitando re-render por referência nova */

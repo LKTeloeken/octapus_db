@@ -62,6 +62,18 @@ impl AdapterCapabilities {
         }
     }
 
+    pub const fn sqlite() -> Self {
+        Self {
+            // Um arquivo SQLite é um banco só, sem nível de schema
+            has_schemas: false,
+            has_primary_keys: true,
+            supports_sql: true,
+            supports_transactions: true,
+            supports_indexes: true,
+            browsable: true,
+        }
+    }
+
     /// Capabilities by database type, without requiring a live connection.
     /// `None` for types without an adapter yet.
     pub fn for_db_type(db_type: super::DatabaseType) -> Option<Self> {
@@ -69,7 +81,8 @@ impl AdapterCapabilities {
             super::DatabaseType::Postgres => Some(Self::postgres()),
             super::DatabaseType::Mongodb => Some(Self::mongodb()),
             super::DatabaseType::Redis => Some(Self::redis()),
-            super::DatabaseType::Mysql | super::DatabaseType::Sqlite => None,
+            super::DatabaseType::Sqlite => Some(Self::sqlite()),
+            super::DatabaseType::Mysql => None,
         }
     }
 }

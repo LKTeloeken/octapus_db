@@ -60,22 +60,39 @@ export const useServerForm = ({ open, onClose, server }: ServerFormProps) => {
   };
 
   const setDbType = (dbType: DatabaseType) => {
-    setForm(prev => ({
-      ...prev,
-      dbType,
-      // Only swap defaults the user hasn't customized
-      port:
-        prev.port === DEFAULT_PORTS[prev.dbType]
-          ? DEFAULT_PORTS[dbType]
-          : prev.port,
-      defaultDatabase:
-        prev.defaultDatabase === DEFAULT_DATABASES[prev.dbType]
-          ? DEFAULT_DATABASES[dbType]
-          : prev.defaultDatabase,
-    }));
+    setForm(prev => {
+      // O SQLite é um banco de arquivo: host/credencial não existem e a URI
+      // passa a ser o caminho do .db, então o que valia para o outro tipo não
+      // serve — em qualquer sentido da troca.
+      const crossesFileBoundary =
+        (prev.dbType === 'sqlite') !== (dbType === 'sqlite');
+
+      return {
+        ...prev,
+        dbType,
+        // Only swap defaults the user hasn't customized
+        port:
+          prev.port === DEFAULT_PORTS[prev.dbType]
+            ? DEFAULT_PORTS[dbType]
+            : prev.port,
+        defaultDatabase:
+          prev.defaultDatabase === DEFAULT_DATABASES[prev.dbType]
+            ? DEFAULT_DATABASES[dbType]
+            : prev.defaultDatabase,
+        ...(crossesFileBoundary && {
+          host: '',
+          username: '',
+          password: '',
+          connectionUri: null,
+          sslEnabled: false,
+        }),
+      };
+    });
   };
 
   const disableSave = useMemo(() => {
+    // No SQLite a URI é o caminho do arquivo, e é o único campo obrigatório
+    // além do nome — o ramo `hasUri` já cobre esse caso.
     const hasUri = !!form.connectionUri?.trim();
     const hasHostConfig =
       !!form.host && !!form.port && !!form.username && !!form.password;

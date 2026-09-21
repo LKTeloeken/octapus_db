@@ -27,6 +27,8 @@ export function ServerForm(props: ServerFormProps) {
     handleRemove,
   } = useServerForm(props);
 
+  const isFileBased = form.dbType === 'sqlite';
+
   return (
     <>
       <SimpleDialog
@@ -92,73 +94,91 @@ export function ServerForm(props: ServerFormProps) {
             onChange={e => setField('name', e.target.value)}
           />
 
-          <div className="flex gap-2">
+          {isFileBased ? (
+            /* Banco de arquivo: não há host, porta nem credencial — o caminho
+               do .db ocupa o lugar da URI de conexão. */
             <Input
               type="text"
-              label="Host"
-              placeholder="Digite aqui..."
-              className="flex-1"
-              value={form.host}
-              onChange={e => setField('host', e.target.value)}
+              label="Arquivo do banco"
+              placeholder="/Users/voce/dados/app.db"
+              value={form.connectionUri ?? ''}
+              onChange={e => setField('connectionUri', e.target.value || null)}
             />
-            <Input
-              type="number"
-              label="Porta"
-              placeholder="Digite aqui..."
-              className="w-24"
-              value={form.port || ''}
-              onChange={e => setField('port', Number(e.target.value))}
-            />
-          </div>
-
-          <div className="flex gap-2">
-            <Input
-              type="text"
-              label="Usuário"
-              placeholder="Digite aqui..."
-              value={form.username}
-              onChange={e => setField('username', e.target.value)}
-            />
-
-            <Input
-              type="password"
-              label={isEditMode ? 'Senha (redigite para salvar)' : 'Senha'}
-              placeholder="Digite aqui..."
-              value={form.password}
-              onChange={e => setField('password', e.target.value)}
-            />
-          </div>
-
-          <Input
-            type="text"
-            label="Banco de dados padrão"
-            placeholder="Digite aqui..."
-            value={form.defaultDatabase ?? ''}
-            onChange={e => setField('defaultDatabase', e.target.value || null)}
-          />
-
-          {form.dbType !== 'postgres' && (
+          ) : (
             <>
+              <div className="flex gap-2">
+                <Input
+                  type="text"
+                  label="Host"
+                  placeholder="Digite aqui..."
+                  className="flex-1"
+                  value={form.host}
+                  onChange={e => setField('host', e.target.value)}
+                />
+                <Input
+                  type="number"
+                  label="Porta"
+                  placeholder="Digite aqui..."
+                  className="w-24"
+                  value={form.port || ''}
+                  onChange={e => setField('port', Number(e.target.value))}
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <Input
+                  type="text"
+                  label="Usuário"
+                  placeholder="Digite aqui..."
+                  value={form.username}
+                  onChange={e => setField('username', e.target.value)}
+                />
+
+                <Input
+                  type="password"
+                  label={isEditMode ? 'Senha (redigite para salvar)' : 'Senha'}
+                  placeholder="Digite aqui..."
+                  value={form.password}
+                  onChange={e => setField('password', e.target.value)}
+                />
+              </div>
+
               <Input
                 type="text"
-                label="URI de conexão (opcional — Atlas, Redis Cloud...)"
+                label="Banco de dados padrão"
                 placeholder="Digite aqui..."
-                value={form.connectionUri ?? ''}
+                value={form.defaultDatabase ?? ''}
                 onChange={e =>
-                  setField('connectionUri', e.target.value || null)
+                  setField('defaultDatabase', e.target.value || null)
                 }
               />
 
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="ssl-enabled"
-                  checked={!!form.sslEnabled}
-                  onCheckedChange={checked => setField('sslEnabled', checked)}
-                />
-                <Label htmlFor="ssl-enabled" className="text-sm">
-                  SSL habilitado
-                </Label>
-              </div>
+              {form.dbType !== 'postgres' && (
+                <>
+                  <Input
+                    type="text"
+                    label="URI de conexão (opcional — Atlas, Redis Cloud...)"
+                    placeholder="Digite aqui..."
+                    value={form.connectionUri ?? ''}
+                    onChange={e =>
+                      setField('connectionUri', e.target.value || null)
+                    }
+                  />
+
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="ssl-enabled"
+                      checked={!!form.sslEnabled}
+                      onCheckedChange={checked =>
+                        setField('sslEnabled', checked)
+                      }
+                    />
+                    <Label htmlFor="ssl-enabled" className="text-sm">
+                      SSL habilitado
+                    </Label>
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>

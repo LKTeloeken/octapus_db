@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <!-- O SQLite é um banco inteiro dentro de um arquivo -->
+  <path d="M64 8h88l56 56v160a16 16 0 0 1-16 16H64a16 16 0 0 1-16-16V24A16 16 0 0 1 64 8z" fill="#0F80CC"/>
+  <path d="M152 8l56 56h-40a16 16 0 0 1-16-16V8z" fill="#0A5E97"/>
+  <g fill="#FFFFFF">
+    <ellipse cx="128" cy="112" rx="44" ry="15"/>
+    <path d="M84 112v56c0 8.3 19.7 15 44 15s44-6.7 44-15v-56c0 8.3-19.7 15-44 15s-44-6.7-44-15z"/>
+  </g>
+  <path d="M84 140c0 8.3 19.7 15 44 15s44-6.7 44-15" stroke="#0F80CC" stroke-width="7" fill="none"/>
+</svg>
