@@ -32,6 +32,7 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
     executeRun,
     loadMore,
     save,
+    fetchAllRows,
     log,
     unreadMessages,
     clearLog,
@@ -154,9 +155,11 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
                   ? 'A query não retornou resultados'
                   : 'Execute uma query para ver resultados'
               }
+              exportFileName={tab.title}
               onSort={() => {}}
               onLoadMore={loadMore}
               onSave={save}
+              onFetchAllRows={fetchAllRows}
             />
           </TabsContent>
 

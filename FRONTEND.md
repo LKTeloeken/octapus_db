@@ -57,6 +57,7 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
 | `use-table-data` | `fetch_table_data` (browse, com `infiniteQuery`) |
 | `use-execute-query` | editor livre |
 | `use-apply-row-edits` | `apply_row_edits` / `insert_rows` / `delete_rows` |
+| `use-write-export-file` | `write_export_file` (exportação da grade) |
 
 - **Query keys** centralizadas em [queries/keys.ts](src/queries/keys.ts). Mutações
   invalidam a key da tabela afetada → refetch automático.

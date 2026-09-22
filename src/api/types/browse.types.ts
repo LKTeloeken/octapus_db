@@ -14,4 +14,6 @@ export interface TableDataRequest {
   limit?: number;
   offset?: number;
   countTotal?: boolean;
+  /** Ignora o `limit` e traz todas as linhas do filtro (usado na exportação) */
+  unlimited?: boolean;
 }

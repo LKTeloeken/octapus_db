@@ -168,6 +168,7 @@ interface TableDataRequest {
   limit?: number;           // default 500
   offset?: number;          // default 0
   countTotal?: boolean;     // default false
+  unlimited?: boolean;      // ignora o limit e traz tudo (exportação); default false
 }
 
 interface SortSpec {
@@ -284,6 +285,18 @@ interface AdapterCapabilities {
 |---|---|---|
 | `fetch_table_data` | `{ serverId, database, request: TableDataRequest }` | `QueryResult` |
 | `get_capabilities` | `{ serverId }` | `AdapterCapabilities` |
+
+### Exportação
+
+| Comando | Args | Retorno |
+|---|---|---|
+| `write_export_file` | `{ path, contents }` | `void` |
+
+O front serializa (CSV/JSON/SQL) e escolhe o caminho pelo `plugin-dialog`; o backend
+só grava. JSON e SQL também podem ir para a área de transferência
+(`plugin-clipboard-manager`) quando o resultado é pequeno. Para exportar além da
+página carregada, reenvie `fetch_table_data` (ou `execute_query`) com
+`unlimited: true`.
 
 ---
 

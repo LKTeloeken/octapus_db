@@ -365,6 +365,7 @@ mod tests {
                 limit: 20,
                 offset: 0,
                 count_total: true,
+                unlimited: false,
             })
             .await
             .unwrap();
@@ -390,6 +391,7 @@ mod tests {
                 limit: 10,
                 offset: 0,
                 count_total: false,
+                unlimited: false,
             })
             .await
             .unwrap_err();
@@ -552,6 +554,7 @@ mod tests {
                 limit: 50,
                 offset: 0,
                 count_total: true,
+                unlimited: false,
             })
             .await
             .unwrap();

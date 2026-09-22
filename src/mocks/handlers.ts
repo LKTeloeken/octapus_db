@@ -282,7 +282,22 @@ const browseHandlers: Record<string, MockHandler> = {
       limit: typed.limit,
       offset: typed.offset,
       countTotal: typed.countTotal,
+      unlimited: typed.unlimited,
     });
+  },
+};
+
+// ── Exportação ──────────────────────────────────────────────────────────────
+
+const exportHandlers: Record<string, MockHandler> = {
+  // Sem disco no navegador: o arquivo cai no download em vez de um caminho.
+  [RustCommand.WriteExportFile]: ({ path, contents }: Args) => {
+    const url = URL.createObjectURL(new Blob([contents as string]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = String(path).split('/').pop() ?? 'export';
+    link.click();
+    URL.revokeObjectURL(url);
   },
 };
 
@@ -616,6 +631,22 @@ const pluginHandlers: Record<string, MockHandler> = {
   'plugin:process|restart': () => {
     window.location.reload();
   },
+
+  // O diálogo nativo não existe aqui: devolve o caminho que ele devolveria.
+  'plugin:dialog|save': ({ options }: Args) => {
+    const { defaultPath } = (options ?? {}) as { defaultPath?: string };
+    return `/tmp/${defaultPath ?? 'export'}`;
+  },
+
+  // Fora do Tauri quem escreve é o navegador, que pode recusar sem gesto do
+  // usuário — no mock isso não é erro, o que importa é o fluxo ter chegado aqui.
+  'plugin:clipboard-manager|write_text': async ({ text }: Args) => {
+    try {
+      await navigator.clipboard.writeText(text as string);
+    } catch {
+      console.info('[octapus-mock] clipboard recusado pelo navegador');
+    }
+  },
 };
 
 export const handlers: Record<string, MockHandler> = {
@@ -623,6 +654,7 @@ export const handlers: Record<string, MockHandler> = {
   ...connectionHandlers,
   ...structureHandlers,
   ...browseHandlers,
+  ...exportHandlers,
   ...queryHandlers,
   ...pluginHandlers,
 };

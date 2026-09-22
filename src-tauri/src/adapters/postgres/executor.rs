@@ -852,6 +852,7 @@ mod tests {
                 limit: 50,
                 offset: 0,
                 count_total: false,
+                unlimited: false,
             })
             .await
             .unwrap();

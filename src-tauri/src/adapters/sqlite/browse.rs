@@ -42,13 +42,17 @@ pub fn fetch_table_data(
         .collect::<Vec<_>>()
         .join(", ");
 
-    // +1 linha para descobrir o has_more sem uma segunda query.
+    // +1 linha para descobrir o has_more sem uma segunda query; na exportação,
+    // `LIMIT -1` é o jeito do SQLite de pedir tudo sem abrir mão do OFFSET.
     // limit/offset são i64 do TableDataRequest, então interpolar não abre brecha.
+    let limit = if request.unlimited {
+        -1
+    } else {
+        request.limit + 1
+    };
     let select = format!(
         "SELECT {select_list} {base}{} LIMIT {} OFFSET {}",
-        clauses.order_clause,
-        request.limit + 1,
-        request.offset,
+        clauses.order_clause, limit, request.offset,
     );
 
     let start = Instant::now();
@@ -88,8 +92,10 @@ pub fn fetch_table_data(
 
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
-    let has_more = result_rows.len() as i64 > request.limit;
-    result_rows.truncate(request.limit as usize);
+    let has_more = !request.unlimited && result_rows.len() as i64 > request.limit;
+    if has_more {
+        result_rows.truncate(request.limit as usize);
+    }
 
     // Roda depois da página: o COUNT é do rodapé e não deve entrar no tempo
     // de execução exibido.
@@ -283,6 +289,7 @@ mod tests {
             limit: 100,
             offset: 0,
             count_total: false,
+            unlimited: false,
         }
     }
 

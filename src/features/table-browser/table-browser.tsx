@@ -35,6 +35,7 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
     setSort,
     setHiddenColumns,
     save,
+    fetchAllRows,
   } = useTableBrowser(tab);
 
   return (
@@ -87,9 +88,11 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
           executionTimeMs={executionTimeMs}
           totalCount={totalCount}
           rowCount={rowCount}
+          exportFileName={tab.table}
           onSort={setSort}
           onLoadMore={fetchNextPage}
           onSave={save}
+          onFetchAllRows={fetchAllRows}
         />
       )}
     </div>

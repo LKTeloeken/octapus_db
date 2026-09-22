@@ -6,6 +6,7 @@ import type {
 } from './results-table.types';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { QueryColumnInfo } from '@/api/types/query.types';
+import { ExportDialog } from '@/components/export-dialog/export-dialog';
 import ColumnCell from './results-table-column-cell/results-table-column-cell';
 import {
   nextBooleanValue,
@@ -54,6 +55,8 @@ export const ResultsTable = memo(
     onSort,
     onLoadMore,
     onSave,
+    onFetchAllRows,
+    exportFileName,
     editableInfo,
     hiddenColumns,
     activeSort,
@@ -68,6 +71,7 @@ export const ResultsTable = memo(
   }: ResultsTableProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [viewMode, setViewMode] = useState<ResultsViewMode>('table');
+    const [isExportOpen, setIsExportOpen] = useState(false);
 
     // Larguras ajustadas manualmente (arraste no header), por nome de coluna —
     // sobrevive à ocultação/reexibição, que desloca os índices visíveis.
@@ -131,6 +135,18 @@ export const ResultsTable = memo(
       });
       return { visibleColumns: cols, visibleColumnIndices: indices };
     }, [columns, hiddenColumns]);
+
+    // A exportação leva o que está na grade: colunas visíveis, na ordem delas,
+    // carregando o índice original para ler a célula da linha crua.
+    const exportColumns = useMemo(
+      () =>
+        visibleColumns.map((column, index) => ({
+          name: column.name,
+          typeName: column.typeName,
+          index: visibleColumnIndices[index],
+        })),
+      [visibleColumns, visibleColumnIndices],
+    );
 
     // Chave estável por nome (não por índice): preserva a largura de cada
     // coluna quando outra é ocultada/reexibida e os índices se deslocam.
@@ -357,6 +373,7 @@ export const ResultsTable = memo(
             onAddRow={addRow}
             onDiscardChanges={discardChanges}
             onSave={save}
+            onExport={() => setIsExportOpen(true)}
           />
         </div>
       );
@@ -535,6 +552,19 @@ export const ResultsTable = memo(
           onAddRow={addRow}
           onDiscardChanges={discardChanges}
           onSave={save}
+          onExport={() => setIsExportOpen(true)}
+        />
+
+        <ExportDialog
+          open={isExportOpen}
+          onOpenChange={setIsExportOpen}
+          columns={exportColumns}
+          rows={rows}
+          hasMore={hasMore ?? false}
+          totalCount={totalCount}
+          fileName={exportFileName ?? 'resultado'}
+          editableInfo={editableInfo}
+          onFetchAllRows={onFetchAllRows}
         />
       </div>
     );
