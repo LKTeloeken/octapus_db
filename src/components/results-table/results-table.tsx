@@ -97,6 +97,7 @@ export const ResultsTable = memo(
       isRowRemoved,
       isRowSelected,
       isColumnSelected,
+      selectedRows,
       getCellDisplayValue,
       activeCell,
       activateCell,
@@ -560,6 +561,7 @@ export const ResultsTable = memo(
           onOpenChange={setIsExportOpen}
           columns={exportColumns}
           rows={rows}
+          selectedRows={selectedRows}
           hasMore={hasMore ?? false}
           totalCount={totalCount}
           fileName={exportFileName ?? 'resultado'}

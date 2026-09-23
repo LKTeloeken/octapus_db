@@ -29,6 +29,9 @@ import type {
 const existingRowId = (pkKey: string) => `e:${pkKey}`;
 const addedRowId = (tempId: string) => `a:${tempId}`;
 
+/** Identidade estável para "nada selecionado", o caso comum */
+const NO_ROWS: DataTableRow[] = [];
+
 const useResultsTable = (
   rows: DataTableRow[],
   columns: QueryColumnInfo[],
@@ -156,6 +159,17 @@ const useResultsTable = (
     (columnName: string) => selectedColumns.has(columnName),
     [selectedColumns],
   );
+
+  // As linhas selecionadas, na ordem da grade — é o que a exportação oferece
+  // como alternativa ao resultado inteiro. Linhas adicionadas pendentes ficam
+  // de fora: exporta-se o que está no banco, não o rascunho.
+  const selectedRows = useMemo<DataTableRow[]>(() => {
+    if (selectedRowIds.size === 0) return NO_ROWS;
+    return rows.filter((_, index) => {
+      const pkKey = rowKeys[index];
+      return pkKey != null && selectedRowIds.has(existingRowId(pkKey));
+    });
+  }, [rows, rowKeys, selectedRowIds]);
 
   const updateCell = useCallback<UpdateCellFn>(
     (rowIndex, columnId, originalValue, newValue) => {
@@ -451,6 +465,13 @@ const useResultsTable = (
   // never more than one listener competing.
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+
+      // Um diálogo aberto por cima da grade (exportação) recebe as mesmas
+      // teclas: sem isso, o Esc que fecha o modal limparia a seleção junto e o
+      // Backspace marcaria as linhas selecionadas para exclusão.
+      if (target?.closest('[data-slot="dialog-content"]')) return;
+
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
         if (pendingCount > 0) void save();
@@ -459,7 +480,6 @@ const useResultsTable = (
 
       // Don't hijack Cmd+Z/Backspace/Esc while typing in an editor — deixa o
       // desfazer nativo do campo funcionar.
-      const target = event.target as HTMLElement | null;
       const isTyping =
         !!target &&
         (target.tagName === 'INPUT' ||
@@ -511,6 +531,7 @@ const useResultsTable = (
     isRowRemoved,
     isRowSelected,
     isColumnSelected,
+    selectedRows,
     getCellDisplayValue,
     activeCell,
     activateCell,

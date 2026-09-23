@@ -29,6 +29,10 @@ export const ExportDialog = memo((props: ExportDialogProps) => {
     setDelimiter,
     includeHeader,
     setIncludeHeader,
+    hasSelection,
+    selectedCount,
+    onlySelected,
+    setOnlySelected,
     summary,
     canCopy,
     copyBlockedReason,
@@ -75,6 +79,19 @@ export const ExportDialog = memo((props: ExportDialogProps) => {
       }
     >
       <div className="flex flex-col gap-4">
+        {hasSelection && (
+          <div className="flex items-center justify-between">
+            <Label htmlFor="export-only-selected">
+              Apenas as {selectedCount} linhas selecionadas
+            </Label>
+            <Switch
+              id="export-only-selected"
+              checked={onlySelected}
+              onCheckedChange={setOnlySelected}
+            />
+          </div>
+        )}
+
         <div className="flex flex-col gap-2">
           <Label htmlFor="export-format">Formato</Label>
           <Select

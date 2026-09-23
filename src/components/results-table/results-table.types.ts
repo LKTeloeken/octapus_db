@@ -128,6 +128,8 @@ export interface UseResultsTableReturn {
   isRowRemoved: IsRowFlagFn;
   isRowSelected: IsRowFlagFn;
   isColumnSelected: (columnName: string) => boolean;
+  /** Linhas existentes selecionadas, na ordem da grade (sem as adicionadas) */
+  selectedRows: DataTableRow[];
   getCellDisplayValue: GetCellDisplayValueFn;
   /** The single cell open for editing/viewing, or null */
   activeCell: ActiveCell;

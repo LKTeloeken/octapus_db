@@ -26,6 +26,8 @@ export interface ExportDialogProps {
   columns: ExportColumn[];
   /** Linhas já carregadas na grade */
   rows: DataTableRow[];
+  /** Linhas selecionadas na grade; vazio esconde a opção de exportar só elas */
+  selectedRows: DataTableRow[];
   /** true quando a grade tem só parte do resultado */
   hasMore: boolean;
   /** Total no banco, quando o backend contou */

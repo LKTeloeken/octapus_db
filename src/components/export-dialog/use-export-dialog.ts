@@ -27,6 +27,7 @@ const CLIPBOARD_ROW_LIMIT = 5000;
 export const useExportDialog = ({
   columns,
   rows,
+  selectedRows,
   hasMore,
   totalCount,
   fileName,
@@ -37,6 +38,7 @@ export const useExportDialog = ({
   const [format, setFormat] = useState<ExportFormat>('csv');
   const [delimiter, setDelimiter] = useState(DELIMITERS[0].value);
   const [includeHeader, setIncludeHeader] = useState(true);
+  const [onlySelectedPref, setOnlySelectedPref] = useState(true);
   const [busy, setBusy] = useState<'export' | 'copy' | null>(null);
   const writeFile = useWriteExportFile();
 
@@ -54,18 +56,33 @@ export const useExportDialog = ({
     [sqlTable],
   );
 
-  // A grade só tem uma página: o resultado inteiro vem do banco na hora de exportar.
-  const willFetchAll = hasMore && onFetchAllRows != null;
+  // A preferência do usuário só vale enquanto houver seleção; sem ela o switch
+  // some e a exportação volta para o resultado inteiro, sem estado preso.
+  const hasSelection = selectedRows.length > 0;
+  const onlySelected = hasSelection && onlySelectedPref;
+
+  // Só é possível selecionar o que já está na grade, então exportar a seleção
+  // nunca precisa voltar ao banco.
+  const willFetchAll = !onlySelected && hasMore && onFetchAllRows != null;
+
+  const sourceRows = onlySelected ? selectedRows : rows;
 
   // Quantas linhas o arquivo vai ter; null quando o backend não contou o total.
-  const rowsToExport = willFetchAll ? totalCount : rows.length;
+  const rowsToExport = willFetchAll ? totalCount : sourceRows.length;
 
   const summary = useMemo(() => {
+    if (onlySelected) return `${selectedRows.length} linhas selecionadas`;
     if (!willFetchAll) return `${rows.length} linhas carregadas`;
     return totalCount != null
       ? `${totalCount} linhas — buscadas no banco ao exportar`
       : 'resultado inteiro — buscado no banco ao exportar';
-  }, [willFetchAll, rows.length, totalCount]);
+  }, [
+    onlySelected,
+    selectedRows.length,
+    willFetchAll,
+    rows.length,
+    totalCount,
+  ]);
 
   const canCopy = CLIPBOARD_FORMATS.includes(format);
 
@@ -81,18 +98,18 @@ export const useExportDialog = ({
   }, [rowsToExport]);
 
   const buildContents = useCallback(async () => {
-    const allRows = willFetchAll ? await onFetchAllRows!() : rows;
-    const contents = serializeRows(columns, allRows, {
+    const exportRows = willFetchAll ? await onFetchAllRows!() : sourceRows;
+    const contents = serializeRows(columns, exportRows, {
       format,
       delimiter,
       includeHeader,
       sqlTable: sqlTable ?? quoteIdent(fileName),
     });
 
-    return { contents, rowCount: allRows.length };
+    return { contents, rowCount: exportRows.length };
   }, [
     columns,
-    rows,
+    sourceRows,
     format,
     delimiter,
     includeHeader,
@@ -145,6 +162,10 @@ export const useExportDialog = ({
     setDelimiter,
     includeHeader,
     setIncludeHeader,
+    hasSelection,
+    selectedCount: selectedRows.length,
+    onlySelected,
+    setOnlySelected: setOnlySelectedPref,
     summary,
     canCopy,
     copyBlockedReason,
