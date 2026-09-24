@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import toast from 'react-hot-toast';
+import { flushTabsSession } from '@/stores/tabs-session';
 
 /** Atraso antes de checar, para não competir com a carga inicial do app. */
 const CHECK_DELAY_MS = 5_000;
@@ -46,6 +47,10 @@ export const useUpdateNotifier = () => {
     setProgress(0);
 
     try {
+      // No Windows o instalador fecha o app de dentro do downloadAndInstall —
+      // o `restart` nem chega a rodar. A sessão precisa estar em disco antes.
+      await flushTabsSession();
+
       let downloaded = 0;
       let total = 0;
 
@@ -76,6 +81,8 @@ export const useUpdateNotifier = () => {
 
   const restart = useCallback(async () => {
     try {
+      // O usuário pode ter seguido editando enquanto o update baixava.
+      await flushTabsSession();
       await relaunch();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));

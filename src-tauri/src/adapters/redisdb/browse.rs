@@ -81,10 +81,20 @@ pub async fn fetch_table_data(
         Vec::new()
     };
 
+    // Fim da fatia da página: um item a mais para descobrir o has_more; na
+    // exportação (unlimited) vai até o fim da varredura.
+    let page_end = |from: usize, len: usize| {
+        if request.unlimited {
+            len
+        } else {
+            (from + request.limit as usize + 1).min(len)
+        }
+    };
+
     let (total, page_entries) = if needs_details_early {
         let total = entries.len() as i64;
         let from = (request.offset.max(0) as usize).min(entries.len());
-        let to = (from + request.limit as usize + 1).min(entries.len());
+        let to = page_end(from, entries.len());
         (total, entries.drain(from..to).collect::<Vec<_>>())
     } else {
         if request
@@ -97,12 +107,16 @@ pub async fn fetch_table_data(
         }
         let total = keys.len() as i64;
         let from = (request.offset.max(0) as usize).min(keys.len());
-        let to = (from + request.limit as usize + 1).min(keys.len());
+        let to = page_end(from, keys.len());
         (total, hydrate(conn, &keys[from..to]).await?)
     };
 
-    let has_more = page_entries.len() as i64 > request.limit;
-    let page = &page_entries[..page_entries.len().min(request.limit as usize)];
+    let has_more = !request.unlimited && page_entries.len() as i64 > request.limit;
+    let page = if request.unlimited {
+        &page_entries[..]
+    } else {
+        &page_entries[..page_entries.len().min(request.limit as usize)]
+    };
 
     let rows: Vec<Vec<Option<String>>> = page
         .iter()
@@ -336,6 +350,7 @@ mod tests {
                 limit: 10,
                 offset: 0,
                 count_total: true,
+                unlimited: false,
             })
             .await
             .unwrap();
@@ -358,6 +373,7 @@ mod tests {
                 limit: 10,
                 offset: 0,
                 count_total: true,
+                unlimited: false,
             })
             .await
             .unwrap();

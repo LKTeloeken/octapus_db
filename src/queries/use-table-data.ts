@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { fetchTableData } from '@/api/browse';
 import type { SortSpec } from '@/api/types/browse.types';
@@ -107,4 +107,21 @@ export function useTableData(
     },
     refetch: () => void query.refetch(),
   };
+}
+
+/**
+ * Traz o resultado inteiro do filtro atual, sem paginação. Fora do cache de
+ * propósito: é um resultado grande, usado uma vez pela exportação e descartado.
+ */
+export function useFetchAllTableData() {
+  return useMutation({
+    mutationFn: (params: UseTableDataParams) =>
+      fetchTableData(params.serverId, params.database, {
+        schema: params.schema,
+        table: params.table,
+        whereExpr: params.whereExpr?.trim() || undefined,
+        sort: params.sort ?? [],
+        unlimited: true,
+      }),
+  });
 }

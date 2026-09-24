@@ -23,6 +23,7 @@ export const DataTableStatusBar = memo(
     onAddRow,
     onDiscardChanges,
     onSave,
+    onExport,
   }: DataTableStatusBarProps) => {
     return (
       <div className="flex items-center justify-between px-3 py-1.5 border-t border-border bg-purple-glow text-xs text-foreground shrink-0">
@@ -69,6 +70,14 @@ export const DataTableStatusBar = memo(
           )}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="px-2 py-0.5 text-xs rounded border border-accent/25 hover:bg-muted/60 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+            disabled={rowsLength === 0}
+            onClick={onExport}
+          >
+            Exportar
+          </button>
           {isEditable && (
             <button
               type="button"

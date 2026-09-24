@@ -4,6 +4,7 @@ import { generateRows, seedFrom } from './rows';
 import { buildMongoDatabases } from './mongo';
 import { buildPostgresDatabases } from './postgres';
 import { buildRedisDatabases } from './redis';
+import { buildSqliteDatabases } from './sqlite';
 import type { MockDatabase, MockServerEntry, MockTable } from './types';
 
 export * from './types';
@@ -38,6 +39,14 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsIndexes: false,
     browsable: true,
   },
+  sqlite: {
+    hasSchemas: false,
+    hasPrimaryKeys: true,
+    supportsSql: true,
+    supportsTransactions: true,
+    supportsIndexes: true,
+    browsable: true,
+  },
 };
 
 export function buildDatabasesFor(dbType: DatabaseType): MockDatabase[] {
@@ -48,6 +57,8 @@ export function buildDatabasesFor(dbType: DatabaseType): MockDatabase[] {
       return buildMongoDatabases();
     case 'redis':
       return buildRedisDatabases();
+    case 'sqlite':
+      return buildSqliteDatabases();
   }
 }
 
@@ -78,6 +89,18 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     sslEnabled: true,
     connectionUri: 'mongodb+srv://cluster0.exemplo.mongodb.net',
     createdAt: 1_743_465_600,
+  },
+  {
+    name: 'Notas (arquivo)',
+    dbType: 'sqlite',
+    host: '',
+    port: 0,
+    username: '',
+    defaultDatabase: 'main',
+    sslEnabled: false,
+    // No SQLite a "URI" é o caminho do arquivo do banco
+    connectionUri: '/Users/voce/dados/notas.db',
+    createdAt: 1_755_000_000,
   },
   {
     name: 'Cache (dev)',

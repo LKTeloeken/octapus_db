@@ -54,6 +54,8 @@ pub fn run() {
             // Browse (server-side pagination/sort/filter)
             commands::fetch_table_data,
             commands::get_capabilities,
+            // Exportação de resultados
+            commands::write_export_file,
             // Structure (lazy loading)
             commands::list_databases,
             commands::list_schemas,
@@ -61,8 +63,13 @@ pub fn run() {
             commands::list_columns,
             commands::list_indexes,
             commands::list_schemas_with_tables,
+            // Sessão do workspace (abas abertas)
+            commands::load_session,
+            commands::save_session,
         ])
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_process::init());
 
     // O updater só existe em desktop — em mobile a dependência nem é compilada.

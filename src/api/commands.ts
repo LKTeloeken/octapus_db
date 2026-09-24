@@ -33,4 +33,11 @@ export enum RustCommand {
 
   // Browse (server-side pagination/sort/filter)
   FetchTableData = 'fetch_table_data',
+
+  // Exportação de resultados
+  WriteExportFile = 'write_export_file',
+
+  // Sessão do workspace (abas abertas)
+  LoadSession = 'load_session',
+  SaveSession = 'save_session',
 }

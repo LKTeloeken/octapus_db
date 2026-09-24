@@ -1,13 +1,17 @@
 mod browse;
+mod export;
 mod servers;
 mod connections;
 mod queries;
+mod session;
 mod structure;
 
 pub use browse::*;
+pub use export::*;
 pub use servers::*;
 pub use connections::*;
 pub use queries::*;
+pub use session::*;
 pub use structure::*;
 
 use std::sync::Arc;

@@ -57,12 +57,16 @@ pub async fn fetch_table_data(pool: &Pool, request: TableDataRequest) -> Result<
         .collect::<Vec<_>>()
         .join(", ");
 
-    // +1 row to detect has_more without a second query
+    // +1 row to detect has_more without a second query; `LIMIT ALL` na
+    // exportação, que quer o resultado inteiro.
+    let limit_clause = if request.unlimited {
+        " LIMIT ALL".to_string()
+    } else {
+        format!(" LIMIT {}", request.limit + 1)
+    };
     let inner = format!(
-        "SELECT * {base}{} LIMIT {} OFFSET {}",
-        clauses.order_clause,
-        request.limit + 1,
-        request.offset,
+        "SELECT * {base}{}{limit_clause} OFFSET {}",
+        clauses.order_clause, request.offset,
     );
     let select = format!("SELECT {select_list} FROM ({inner}) AS __q");
 
@@ -90,7 +94,7 @@ pub async fn fetch_table_data(pool: &Pool, request: TableDataRequest) -> Result<
     let total_count = total_count?;
     let execution_time_ms = exec_elapsed.as_millis() as u64;
 
-    let has_more = rows.len() as i64 > request.limit;
+    let has_more = !request.unlimited && rows.len() as i64 > request.limit;
     let rows_to_process = if has_more {
         &rows[..request.limit as usize]
     } else {
@@ -315,6 +319,7 @@ mod tests {
             limit: 100,
             offset: 0,
             count_total: false,
+            unlimited: false,
         }
     }
 
@@ -483,6 +488,7 @@ mod tests {
                 limit: 20,
                 offset: 0,
                 count_total: true,
+                unlimited: false,
             })
             .await
             .unwrap();
@@ -508,6 +514,7 @@ mod tests {
                 limit: 10,
                 offset: 0,
                 count_total: false,
+                unlimited: false,
             })
             .await
             .unwrap_err();

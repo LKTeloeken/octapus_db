@@ -23,4 +23,5 @@ export interface DataTableStatusBarProps {
   onAddRow: () => void;
   onDiscardChanges: () => void;
   onSave: SaveFn;
+  onExport: () => void;
 }

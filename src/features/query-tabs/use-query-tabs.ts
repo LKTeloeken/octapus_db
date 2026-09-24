@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
+import { useQueryResultsStore } from '@/stores/query-results-store';
 import { useActiveTab, useTabsStore } from '@/stores/tabs-store';
-import { useQueryResultsStore } from '@/features/query-editor/query-results-store';
 
 export const useQueryTabs = () => {
   const tabs = useTabsStore(state => state.tabs);

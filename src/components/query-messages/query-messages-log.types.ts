@@ -1,4 +1,4 @@
-import type { QueryLogEntry } from '@/features/query-editor/query-results-store';
+import type { QueryLogEntry } from '@/stores/query-results-store';
 
 export type { QueryLogEntry };
 

@@ -3,6 +3,7 @@ mod traits;
 pub mod mongo;
 pub mod postgres;
 pub mod redisdb;
+pub mod sqlite;
 
 pub use message_sink::*;
 pub use traits::*;
@@ -34,7 +35,8 @@ pub async fn create_adapter(
             Err(Error::UnsupportedDatabase("MySQL support coming soon".into()))
         }
         DatabaseType::Sqlite => {
-            Err(Error::UnsupportedDatabase("SQLite support coming soon".into()))
+            let adapter = sqlite::SqliteAdapter::new(server, database)?;
+            Ok(Arc::new(adapter))
         }
     }
 }

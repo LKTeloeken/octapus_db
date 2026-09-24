@@ -10,18 +10,19 @@ import {
 import { useCapabilities } from '@/queries/use-capabilities';
 import { useExecuteQuery } from '@/queries/use-execute-query';
 import { useServers } from '@/queries/use-servers';
-import { useTabsStore, type QueryTab } from '@/stores/tabs-store';
 import {
   useQueryResultsStore,
   type BottomTab,
   type QueryLogEntry,
-} from './query-results-store';
+} from '@/stores/query-results-store';
+import { useTabsStore, type QueryTab } from '@/stores/tabs-store';
 import { useSqlCompletion } from './use-sql-completion';
 
 const PLACEHOLDERS: Record<string, string> = {
   postgres: 'SELECT * FROM ...',
   mongodb: "db.collection.find({ ... })",
   redis: 'GET user:1 · HGETALL session:abc · SCAN 0 MATCH user:*',
+  sqlite: 'SELECT * FROM ...',
 };
 
 /** Identidade estável para abas sem log, evitando re-render por referência nova */
@@ -175,6 +176,21 @@ export const useQueryRunner = (tab: QueryTab) => {
     appendRows,
   ]);
 
+  // Exportação: o grid tem só a primeira página, então a mesma query é
+  // reexecutada sem limite. Sem onMessage, como no loadMore: reemitir os RAISE
+  // duplicaria o log sem valor nenhum.
+  const fetchAllRows = useCallback(async () => {
+    if (!run) return [];
+
+    const result = await executeQuery.mutateAsync({
+      serverId: tab.serverId,
+      database: tab.database,
+      query: run.query,
+      options: { unlimited: true, countTotal: false, schema: tab.schema },
+    });
+    return result.rows;
+  }, [run, tab.serverId, tab.database, tab.schema, executeQuery]);
+
   const save = useCallback(
     async ({ edits, inserts, deletes }: SaveRowChanges) => {
       const editable = run?.result.editableInfo;
@@ -256,6 +272,7 @@ export const useQueryRunner = (tab: QueryTab) => {
     executeRun,
     loadMore,
     save,
+    fetchAllRows,
     log: log ?? EMPTY_LOG,
     unreadMessages,
     clearLog,

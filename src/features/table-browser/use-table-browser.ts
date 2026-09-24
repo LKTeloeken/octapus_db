@@ -9,7 +9,7 @@ import {
   useInsertRows,
 } from '@/queries/use-apply-row-edits';
 import { useCapabilities } from '@/queries/use-capabilities';
-import { useTableData } from '@/queries/use-table-data';
+import { useFetchAllTableData, useTableData } from '@/queries/use-table-data';
 import { useTabsStore, type BrowseTab } from '@/stores/tabs-store';
 
 export const useTableBrowser = (tab: BrowseTab) => {
@@ -21,6 +21,7 @@ export const useTableBrowser = (tab: BrowseTab) => {
   const applyEditsMutation = useApplyRowEdits();
   const insertRowsMutation = useInsertRows();
   const deleteRowsMutation = useDeleteRows();
+  const fetchAllMutation = useFetchAllTableData();
   const { data: capabilities } = useCapabilities(tab.serverId);
   const supportsSql = capabilities?.supportsSql === true;
 
@@ -109,6 +110,28 @@ export const useTableBrowser = (tab: BrowseTab) => {
     return () => window.removeEventListener('keydown', handler);
   }, [applyWhere]);
 
+  // Exportação: a grade mostra uma página por vez, então o arquivo é montado a
+  // partir de uma busca sem limite, com o mesmo filtro e a mesma ordenação.
+  const fetchAllRows = useCallback(async () => {
+    const result = await fetchAllMutation.mutateAsync({
+      serverId: tab.serverId,
+      database: tab.database,
+      schema: tab.schema,
+      table: tab.table,
+      whereExpr: tab.whereExpr,
+      sort: tab.sort,
+    });
+    return result.rows;
+  }, [
+    fetchAllMutation,
+    tab.serverId,
+    tab.database,
+    tab.schema,
+    tab.table,
+    tab.whereExpr,
+    tab.sort,
+  ]);
+
   // Persist deletes, inserts and edits together. Each mutation invalidates the
   // browse query, so the table only reflects changes once the backend confirms.
   const save = useCallback(
@@ -166,5 +189,6 @@ export const useTableBrowser = (tab: BrowseTab) => {
     setSort,
     setHiddenColumns,
     save,
+    fetchAllRows,
   };
 };

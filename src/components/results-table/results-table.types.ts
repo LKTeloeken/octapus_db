@@ -52,6 +52,10 @@ export interface ResultsTableProps {
   onLoadMore: () => void;
   /** Resolve to persist; reject to keep the pending (highlighted) changes */
   onSave: (changes: SaveRowChanges) => void | Promise<void>;
+  /** Busca o resultado inteiro no banco; sem ela a exportação leva só o carregado */
+  onFetchAllRows?: () => Promise<DataTableRow[]>;
+  /** Nome base do arquivo gerado na exportação, sem extensão */
+  exportFileName?: string;
   /** The column/direction currently ordering the data (incl. the PK default) */
   activeSort?: SortSpec | null;
   editableInfo?: EditableInfo | null;
@@ -124,6 +128,8 @@ export interface UseResultsTableReturn {
   isRowRemoved: IsRowFlagFn;
   isRowSelected: IsRowFlagFn;
   isColumnSelected: (columnName: string) => boolean;
+  /** Linhas existentes selecionadas, na ordem da grade (sem as adicionadas) */
+  selectedRows: DataTableRow[];
   getCellDisplayValue: GetCellDisplayValueFn;
   /** The single cell open for editing/viewing, or null */
   activeCell: ActiveCell;

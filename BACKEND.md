@@ -168,6 +168,7 @@ interface TableDataRequest {
   limit?: number;           // default 500
   offset?: number;          // default 0
   countTotal?: boolean;     // default false
+  unlimited?: boolean;      // ignora o limit e traz tudo (exportação); default false
 }
 
 interface SortSpec {
@@ -284,6 +285,30 @@ interface AdapterCapabilities {
 |---|---|---|
 | `fetch_table_data` | `{ serverId, database, request: TableDataRequest }` | `QueryResult` |
 | `get_capabilities` | `{ serverId }` | `AdapterCapabilities` |
+
+### Exportação
+
+| Comando | Args | Retorno |
+|---|---|---|
+| `write_export_file` | `{ path, contents }` | `void` |
+
+O front serializa (CSV/JSON/SQL) e escolhe o caminho pelo `plugin-dialog`; o backend
+só grava. JSON e SQL também podem ir para a área de transferência
+(`plugin-clipboard-manager`) quando o resultado é pequeno. Para exportar além da
+página carregada, reenvie `fetch_table_data` (ou `execute_query`) com
+`unlimited: true`.
+
+### Sessão do workspace (abas abertas — SQLite local)
+
+| Comando | Args | Retorno |
+|---|---|---|
+| `load_session` | — | `string \| null` |
+| `save_session` | `{ snapshot }` | `void` |
+
+Guarda as abas abertas para reabri-las depois de fechar/atualizar o app. O snapshot é
+um JSON **opaco** para o backend — formato e versão são do front
+(`src/stores/tabs-session.ts`); o backend só grava numa linha única da tabela
+`workspace_session` do `app.db`. `save_session` só responde depois de gravar em disco.
 
 ---
 

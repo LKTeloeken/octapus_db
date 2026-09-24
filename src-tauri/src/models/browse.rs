@@ -23,6 +23,10 @@ pub struct TableDataRequest {
     pub offset: i64,
     #[serde(default)]
     pub count_total: bool,
+    /// Ignora o `limit` e devolve todas as linhas que casam com o filtro. Usado
+    /// pela exportação, que precisa do resultado inteiro e não de uma página.
+    #[serde(default)]
+    pub unlimited: bool,
 }
 
 fn default_limit() -> i64 {

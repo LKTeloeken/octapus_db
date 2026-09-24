@@ -30,18 +30,20 @@ pub async fn fetch_table_data(
 
     let start = Instant::now();
 
-    let mut find = coll
-        .find(filter.clone())
-        .skip(request.offset.max(0) as u64)
-        .limit(request.limit + 1); // +1 to detect has_more
+    let mut find = coll.find(filter.clone()).skip(request.offset.max(0) as u64);
+    // +1 to detect has_more; a exportação (unlimited) não corta nada.
+    if !request.unlimited {
+        find = find.limit(request.limit + 1);
+    }
     if !sort.is_empty() {
         find = find.sort(sort);
     }
 
     let cursor = find.await?;
-    let mut docs = collect_cursor(cursor, Some(request.limit as usize + 1)).await?;
+    let cap = (!request.unlimited).then_some(request.limit as usize + 1);
+    let mut docs = collect_cursor(cursor, cap).await?;
 
-    let has_more = docs.len() as i64 > request.limit;
+    let has_more = !request.unlimited && docs.len() as i64 > request.limit;
     if has_more {
         docs.truncate(request.limit as usize);
     }
@@ -103,6 +105,7 @@ mod tests {
             limit: 10,
             offset: 0,
             count_total: false,
+            unlimited: false,
         }
     }
 
@@ -184,6 +187,7 @@ mod tests {
                 limit: 10,
                 offset: 0,
                 count_total: true,
+                unlimited: false,
             })
             .await
             .unwrap();
