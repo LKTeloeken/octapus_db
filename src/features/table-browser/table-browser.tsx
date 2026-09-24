@@ -1,8 +1,11 @@
+import { HugeiconsIcon } from '@hugeicons/react';
+import { PanelRightIcon } from '@hugeicons/core-free-icons';
 import { memo } from 'react';
 import { ResultsTable } from '@/components/results-table/results-table';
 import { Button } from '@/components/ui/button';
 import { Typography } from '@/components/ui/typography';
 import { ColumnSelector } from '@/components/column-selector/column-selector';
+import { cn } from '@/lib/utils';
 import { FilterInput } from './filter-input/filter-input';
 import { useTableBrowser } from './use-table-browser';
 import type { TableBrowserProps } from './table-browser.types';
@@ -36,6 +39,9 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
     setHiddenColumns,
     save,
     fetchAllRows,
+    isValuePanelOpen,
+    toggleValuePanel,
+    closeValuePanel,
   } = useTableBrowser(tab);
 
   return (
@@ -55,6 +61,24 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
             onReset={resetWhere}
           />
         )}
+
+        <Button
+          variant="outline"
+          size="sm"
+          // Sem o WHERE (Mongo/Redis) o botão ainda vai para a direita.
+          className={cn(
+            'ml-auto gap-1 text-xs',
+            // `dark:` também: a variante outline pinta o fundo no tema escuro.
+            isValuePanelOpen &&
+              'bg-accent text-accent-foreground dark:bg-accent',
+          )}
+          aria-pressed={isValuePanelOpen}
+          title="Painel de valor (Cmd/Ctrl+I)"
+          onClick={toggleValuePanel}
+        >
+          <HugeiconsIcon icon={PanelRightIcon} className="h-3 w-3" />
+          Valor
+        </Button>
       </div>
 
       {error ? (
@@ -93,6 +117,8 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
           onLoadMore={fetchNextPage}
           onSave={save}
           onFetchAllRows={fetchAllRows}
+          showValuePanel={isValuePanelOpen}
+          onCloseValuePanel={closeValuePanel}
         />
       )}
     </div>

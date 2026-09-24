@@ -29,8 +29,10 @@ export const ResultsTableVertical = memo(
     getCellDisplayValue,
     updateCell,
     activeCell,
+    focusedCell,
     onActivateCell,
     onCloseCell,
+    onFocusCell,
     onSelectRow,
     onSelectColumn,
     hasMore,
@@ -190,7 +192,15 @@ export const ResultsTableVertical = memo(
                   return (
                     <div
                       key={virtualRecord.key}
-                      className="absolute top-0 border-r border-border"
+                      onMouseDown={() =>
+                        onFocusCell?.(virtualRecord.index, column.name)
+                      }
+                      className={cn(
+                        'absolute top-0 border-r border-border',
+                        focusedCell?.rowIndex === virtualRecord.index &&
+                          focusedCell.columnName === column.name &&
+                          'z-10 ring-1 ring-inset ring-primary',
+                      )}
                       style={{
                         left: `${LABEL_WIDTH + virtualRecord.start}px`,
                         width: `${virtualRecord.size}px`,

@@ -3,6 +3,8 @@ import type {
   ActivateCellFn,
   ActiveCell,
   DataTableRow,
+  FocusCellFn,
+  FocusedCell,
   GetCellDisplayValueFn,
   IsCellModifiedFn,
   IsColumnEditableFn,
@@ -29,8 +31,12 @@ export interface ResultsTableVerticalProps {
   getCellDisplayValue: GetCellDisplayValueFn;
   updateCell: UpdateCellFn;
   activeCell: ActiveCell;
+  /** Célula do cursor — aqui só marca qual célula o painel de valor mostra */
+  focusedCell?: FocusedCell;
   onActivateCell: ActivateCellFn;
   onCloseCell: () => void;
+  /** Clique numa célula → move o cursor para ela */
+  onFocusCell?: FocusCellFn;
   onSelectRow: (rowIndex: number, event: React.MouseEvent) => void;
   onSelectColumn: (columnName: string) => void;
   hasMore?: boolean;

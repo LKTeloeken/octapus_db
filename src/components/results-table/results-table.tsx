@@ -7,6 +7,11 @@ import type {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { QueryColumnInfo } from '@/api/types/query.types';
 import { ExportDialog } from '@/components/export-dialog/export-dialog';
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/components/ui/resizable';
 import ColumnCell from './results-table-column-cell/results-table-column-cell';
 import {
   nextBooleanValue,
@@ -20,6 +25,8 @@ import { EmptyState } from './empty-state';
 import { LoadingState } from './loading-state';
 import { ResultsTableRowCell } from './results-table-row-cell/results-table-row-cell';
 import { ResultsTableVertical } from './results-table-vertical/results-table-vertical';
+import { ResultsTableValuePanel } from './results-table-value-panel/results-table-value-panel';
+import type { ValuePanelTarget } from './results-table-value-panel/results-table-value-panel.types';
 
 const ROW_HEIGHT = 32;
 const HEADER_HEIGHT = 36;
@@ -67,6 +74,8 @@ export const ResultsTable = memo(
     totalCount,
     rowCount,
     emptyMessage,
+    showValuePanel,
+    onCloseValuePanel,
     className,
   }: ResultsTableProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -148,6 +157,46 @@ export const ResultsTable = memo(
         })),
       [visibleColumns, visibleColumnIndices],
     );
+
+    // A célula do painel de valor é a do cursor de teclado. Busca no array
+    // completo de colunas: ocultar a coluna depois de focá-la não esvazia o
+    // painel.
+    const valuePanelTarget = useMemo<ValuePanelTarget | null>(() => {
+      if (!showValuePanel || !focusedCell) return null;
+
+      const { rowIndex, columnName } = focusedCell;
+      const columnIndex = columns.findIndex(c => c.name === columnName);
+      const column = columns[columnIndex];
+      const row = displayRows[rowIndex];
+      // Um refetch pode ter encolhido a tabela sob o cursor.
+      if (!column || !row) return null;
+
+      const originalValue = row[columnIndex] ?? null;
+      return {
+        rowIndex,
+        column,
+        originalValue,
+        value: getCellDisplayValue(rowIndex, columnName, originalValue),
+        // Mesma regra da grade: linha nova edita tudo, removida congela.
+        isEditable: isRowRemoved(rowIndex)
+          ? false
+          : isRowAdded(rowIndex) || isColumnEditable(columnName),
+        isModified: isCellModified(rowIndex, columnName),
+      };
+    }, [
+      showValuePanel,
+      focusedCell,
+      columns,
+      displayRows,
+      getCellDisplayValue,
+      isRowRemoved,
+      isRowAdded,
+      isColumnEditable,
+      isCellModified,
+    ]);
+
+    // Esc no editor do painel devolve o teclado para a grade.
+    const focusGrid = useCallback(() => containerRef.current?.focus(), []);
 
     // Chave estável por nome (não por índice): preserva a largura de cada
     // coluna quando outra é ocultada/reexibida e os índices se deslocam.
@@ -388,151 +437,182 @@ export const ResultsTable = memo(
         )}
       >
         <div className="flex-1 min-h-0">
-          {viewMode === 'vertical' ? (
-            <ResultsTableVertical
-              columns={visibleColumns}
-              columnIndices={visibleColumnIndices}
-              rows={displayRows}
-              isPrimaryKeyColumn={isPrimaryKeyColumn}
-              isColumnEditable={isColumnEditable}
-              isCellModified={isCellModified}
-              isRowModified={isRowModified}
-              isRowAdded={isRowAdded}
-              isRowRemoved={isRowRemoved}
-              isRowSelected={isRowSelected}
-              isColumnSelected={isColumnSelected}
-              getCellDisplayValue={getCellDisplayValue}
-              updateCell={updateCell}
-              activeCell={activeCell}
-              onActivateCell={activateCell}
-              onCloseCell={deactivateCell}
-              onSelectRow={handleSelectRowGutter}
-              onSelectColumn={toggleColumnSelection}
-              hasMore={hasMore}
-              isLoadingMore={isLoadingMore}
-              onLoadMore={onLoadMore}
-            />
-          ) : (
-            <div
-              ref={containerRef}
-              tabIndex={0}
-              onKeyDown={onKeyDown}
-              className="relative h-full w-full overflow-auto scrollbar-thin outline-none"
-            >
-              {/* Header — sticky gutter + only visible columns */}
-              <div
-                className="bg-background sticky top-0 z-20 border-b border-border"
-                style={{
-                  width: `${contentWidth}px`,
-                  height: `${HEADER_HEIGHT}px`,
-                }}
-              >
+          {/* O grupo existe mesmo com o painel fechado: abrir/fechar só
+              acrescenta o irmão, sem remontar a grade (e perder a rolagem). */}
+          <ResizablePanelGroup
+            direction="horizontal"
+            autoSaveId="results-table-value-panel"
+          >
+            <ResizablePanel id="results-grid" order={1} minSize={25}>
+              {viewMode === 'vertical' ? (
+                <ResultsTableVertical
+                  columns={visibleColumns}
+                  columnIndices={visibleColumnIndices}
+                  rows={displayRows}
+                  isPrimaryKeyColumn={isPrimaryKeyColumn}
+                  isColumnEditable={isColumnEditable}
+                  isCellModified={isCellModified}
+                  isRowModified={isRowModified}
+                  isRowAdded={isRowAdded}
+                  isRowRemoved={isRowRemoved}
+                  isRowSelected={isRowSelected}
+                  isColumnSelected={isColumnSelected}
+                  getCellDisplayValue={getCellDisplayValue}
+                  updateCell={updateCell}
+                  activeCell={activeCell}
+                  focusedCell={focusedCell}
+                  onActivateCell={activateCell}
+                  onCloseCell={deactivateCell}
+                  onFocusCell={focusCell}
+                  onSelectRow={handleSelectRowGutter}
+                  onSelectColumn={toggleColumnSelection}
+                  hasMore={hasMore}
+                  isLoadingMore={isLoadingMore}
+                  onLoadMore={onLoadMore}
+                />
+              ) : (
                 <div
-                  className="sticky left-0 z-30 bg-sidebar border-r border-border flex items-center justify-center text-[10px] text-muted-foreground"
-                  style={{
-                    width: `${GUTTER_WIDTH}px`,
-                    height: `${HEADER_HEIGHT}px`,
-                  }}
+                  ref={containerRef}
+                  tabIndex={0}
+                  onKeyDown={onKeyDown}
+                  className="relative h-full w-full overflow-auto scrollbar-thin outline-none"
                 >
-                  #
-                </div>
-                {virtualColumns.map(virtualColumn => {
-                  const column = visibleColumns[virtualColumn.index];
-                  if (!column) return null;
-
-                  return (
+                  {/* Header — sticky gutter + only visible columns */}
+                  <div
+                    className="bg-background sticky top-0 z-20 border-b border-border"
+                    style={{
+                      width: `${contentWidth}px`,
+                      height: `${HEADER_HEIGHT}px`,
+                    }}
+                  >
                     <div
-                      key={virtualColumn.key}
-                      className="absolute top-0"
+                      className="sticky left-0 z-30 bg-sidebar border-r border-border flex items-center justify-center text-[10px] text-muted-foreground"
                       style={{
-                        left: `${GUTTER_WIDTH + virtualColumn.start}px`,
-                        width: `${virtualColumn.size}px`,
+                        width: `${GUTTER_WIDTH}px`,
                         height: `${HEADER_HEIGHT}px`,
                       }}
                     >
-                      <ColumnCell
-                        column={column}
-                        isPrimaryKeyColumn={isPrimaryKeyColumn(column.name)}
-                        isSorted={activeSort?.column === column.name}
-                        sortDirection={
-                          activeSort?.column === column.name
-                            ? activeSort.direction
-                            : undefined
-                        }
-                        onSort={onSort}
-                        className="w-full h-full"
-                      />
-                      {/* Alça de resize: arraste muda a largura desta coluna
-                          no header e no corpo (mesmo virtualizador) */}
-                      <div
-                        onMouseDown={event =>
-                          handleResizeStart(
-                            event,
-                            column.name,
-                            virtualColumn.size,
-                          )
-                        }
-                        className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize select-none hover:bg-primary/60 active:bg-primary"
-                      />
+                      #
                     </div>
-                  );
-                })}
-              </div>
+                    {virtualColumns.map(virtualColumn => {
+                      const column = visibleColumns[virtualColumn.index];
+                      if (!column) return null;
 
-              {/* Body — only visible rows × visible columns */}
-              <div
-                className="relative"
-                style={{
-                  width: `${contentWidth}px`,
-                  height: `${rowVirtualizer.getTotalSize()}px`,
-                }}
-              >
-                {virtualRows.map(virtualRow => {
-                  const row = displayRows[virtualRow.index];
-                  if (!row) return null;
+                      return (
+                        <div
+                          key={virtualColumn.key}
+                          className="absolute top-0"
+                          style={{
+                            left: `${GUTTER_WIDTH + virtualColumn.start}px`,
+                            width: `${virtualColumn.size}px`,
+                            height: `${HEADER_HEIGHT}px`,
+                          }}
+                        >
+                          <ColumnCell
+                            column={column}
+                            isPrimaryKeyColumn={isPrimaryKeyColumn(column.name)}
+                            isSorted={activeSort?.column === column.name}
+                            sortDirection={
+                              activeSort?.column === column.name
+                                ? activeSort.direction
+                                : undefined
+                            }
+                            onSort={onSort}
+                            className="w-full h-full"
+                          />
+                          {/* Alça de resize: arraste muda a largura desta coluna
+                          no header e no corpo (mesmo virtualizador) */}
+                          <div
+                            onMouseDown={event =>
+                              handleResizeStart(
+                                event,
+                                column.name,
+                                virtualColumn.size,
+                              )
+                            }
+                            className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize select-none hover:bg-primary/60 active:bg-primary"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
 
-                  return (
-                    <ResultsTableRowCell
-                      key={virtualRow.key}
-                      row={row}
-                      rowIndex={virtualRow.index}
-                      isModified={isRowModified(virtualRow.index)}
-                      isAdded={isRowAdded(virtualRow.index)}
-                      isRemoved={isRowRemoved(virtualRow.index)}
-                      isSelected={isRowSelected(virtualRow.index)}
-                      isEven={virtualRow.index % 2 === 0}
-                      rowHeight={ROW_HEIGHT}
-                      rowStart={virtualRow.start}
-                      gutterWidth={GUTTER_WIDTH}
-                      totalWidth={contentWidth}
-                      columns={visibleColumns}
-                      columnIndices={visibleColumnIndices}
-                      virtualColumns={virtualColumns}
-                      getCellDisplayValue={getCellDisplayValue}
-                      isCellModified={isCellModified}
-                      isColumnEditable={isColumnEditable}
-                      updateCell={updateCell}
-                      activeColumnName={
-                        activeCell?.rowIndex === virtualRow.index
-                          ? activeCell.columnName
-                          : null
-                      }
-                      focusedColumnName={
-                        focusedCell?.rowIndex === virtualRow.index
-                          ? focusedCell.columnName
-                          : null
-                      }
-                      onActivateCell={handleActivateCell}
-                      onCloseCell={deactivateCell}
-                      onFocusCell={handleFocusCell}
-                      onSelectRowBody={handleSelectRowBody}
-                      onSelectRowGutter={handleSelectRowGutter}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          )}
+                  {/* Body — only visible rows × visible columns */}
+                  <div
+                    className="relative"
+                    style={{
+                      width: `${contentWidth}px`,
+                      height: `${rowVirtualizer.getTotalSize()}px`,
+                    }}
+                  >
+                    {virtualRows.map(virtualRow => {
+                      const row = displayRows[virtualRow.index];
+                      if (!row) return null;
+
+                      return (
+                        <ResultsTableRowCell
+                          key={virtualRow.key}
+                          row={row}
+                          rowIndex={virtualRow.index}
+                          isModified={isRowModified(virtualRow.index)}
+                          isAdded={isRowAdded(virtualRow.index)}
+                          isRemoved={isRowRemoved(virtualRow.index)}
+                          isSelected={isRowSelected(virtualRow.index)}
+                          isEven={virtualRow.index % 2 === 0}
+                          rowHeight={ROW_HEIGHT}
+                          rowStart={virtualRow.start}
+                          gutterWidth={GUTTER_WIDTH}
+                          totalWidth={contentWidth}
+                          columns={visibleColumns}
+                          columnIndices={visibleColumnIndices}
+                          virtualColumns={virtualColumns}
+                          getCellDisplayValue={getCellDisplayValue}
+                          isCellModified={isCellModified}
+                          isColumnEditable={isColumnEditable}
+                          updateCell={updateCell}
+                          activeColumnName={
+                            activeCell?.rowIndex === virtualRow.index
+                              ? activeCell.columnName
+                              : null
+                          }
+                          focusedColumnName={
+                            focusedCell?.rowIndex === virtualRow.index
+                              ? focusedCell.columnName
+                              : null
+                          }
+                          onActivateCell={handleActivateCell}
+                          onCloseCell={deactivateCell}
+                          onFocusCell={handleFocusCell}
+                          onSelectRowBody={handleSelectRowBody}
+                          onSelectRowGutter={handleSelectRowGutter}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </ResizablePanel>
+
+            {showValuePanel && (
+              <>
+                <ResizableHandle className="cursor-col-resize!" />
+                <ResizablePanel
+                  id="results-value-panel"
+                  order={2}
+                  defaultSize={30}
+                  minSize={15}
+                  maxSize={70}
+                >
+                  <ResultsTableValuePanel
+                    target={valuePanelTarget}
+                    updateCell={updateCell}
+                    onClose={onCloseValuePanel}
+                    onEscape={focusGrid}
+                  />
+                </ResizablePanel>
+              </>
+            )}
+          </ResizablePanelGroup>
         </div>
 
         <DataTableStatusBar
