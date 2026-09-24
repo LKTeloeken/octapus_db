@@ -3458,7 +3458,7 @@ dependencies = [
 
 [[package]]
 name = "octapus_db"
-version = "0.1.0-beta.19"
+version = "0.2.0-beta.1"
 dependencies = [
  "aes-gcm",
  "async-trait",

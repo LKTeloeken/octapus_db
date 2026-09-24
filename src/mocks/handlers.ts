@@ -622,7 +622,7 @@ const pluginHandlers: Record<string, MockHandler> = {
       rid: 1,
       available: true,
       currentVersion: '0.1.0-beta.16',
-      version: '0.1.0-beta.19',
+      version: '0.2.0-beta.1',
       date: '2026-09-14 12:00:00.000 +00:00:00',
       body: 'Notas de versão simuladas pelo modo mock.',
       rawJson: {},
