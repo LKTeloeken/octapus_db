@@ -298,6 +298,18 @@ só grava. JSON e SQL também podem ir para a área de transferência
 página carregada, reenvie `fetch_table_data` (ou `execute_query`) com
 `unlimited: true`.
 
+### Sessão do workspace (abas abertas — SQLite local)
+
+| Comando | Args | Retorno |
+|---|---|---|
+| `load_session` | — | `string \| null` |
+| `save_session` | `{ snapshot }` | `void` |
+
+Guarda as abas abertas para reabri-las depois de fechar/atualizar o app. O snapshot é
+um JSON **opaco** para o backend — formato e versão são do front
+(`src/stores/tabs-session.ts`); o backend só grava numa linha única da tabela
+`workspace_session` do `app.db`. `save_session` só responde depois de gravar em disco.
+
 ---
 
 ## 5. Sintaxe do editor livre por banco

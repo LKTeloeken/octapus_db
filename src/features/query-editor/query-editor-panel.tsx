@@ -11,8 +11,8 @@ import {
   ResizablePanelGroup,
 } from '@/components/ui/resizable';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import type { BottomTab } from '@/stores/query-results-store';
 import { useTabsStore } from '@/stores/tabs-store';
-import type { BottomTab } from './query-results-store';
 import { useQueryRunner } from './use-query-runner';
 import type { QueryEditorPanelProps } from './query-editor-panel.types';
 

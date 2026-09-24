@@ -63,6 +63,9 @@ pub fn run() {
             commands::list_columns,
             commands::list_indexes,
             commands::list_schemas_with_tables,
+            // Sessão do workspace (abas abertas)
+            commands::load_session,
+            commands::save_session,
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

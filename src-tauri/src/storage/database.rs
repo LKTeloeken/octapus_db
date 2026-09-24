@@ -25,6 +25,14 @@ pub fn init_storage<P: AsRef<Path>>(db_path: P) -> Result<Connection> {
         );
 
         CREATE INDEX IF NOT EXISTS idx_servers_name ON servers(name);
+
+        -- Sessão do workspace (abas abertas). Linha única: o id fixo em 1
+        -- faz do salvar um upsert, sem histórico.
+        CREATE TABLE IF NOT EXISTS workspace_session (
+            id          INTEGER PRIMARY KEY CHECK (id = 1),
+            snapshot    TEXT NOT NULL,
+            updated_at  INTEGER NOT NULL
+        );
         "#,
     )?;
 

@@ -301,6 +301,20 @@ const exportHandlers: Record<string, MockHandler> = {
   },
 };
 
+// ── Sessão do workspace ─────────────────────────────────────────────────────
+
+/** O SQLite do app vira `localStorage` — a origin do mock já é isolada do app real. */
+const SESSION_STORAGE_KEY = 'octapus-mock-session';
+
+const sessionHandlers: Record<string, MockHandler> = {
+  [RustCommand.LoadSession]: (): string | null =>
+    localStorage.getItem(SESSION_STORAGE_KEY),
+
+  [RustCommand.SaveSession]: ({ snapshot }: Args): void => {
+    localStorage.setItem(SESSION_STORAGE_KEY, snapshot as string);
+  },
+};
+
 // ── Editor livre ────────────────────────────────────────────────────────────
 
 /**
@@ -655,6 +669,7 @@ export const handlers: Record<string, MockHandler> = {
   ...structureHandlers,
   ...browseHandlers,
   ...exportHandlers,
+  ...sessionHandlers,
   ...queryHandlers,
   ...pluginHandlers,
 };

@@ -55,6 +55,8 @@ interface TabsState {
     table: string;
   }) => string;
   closeTab: (id: string) => void;
+  /** Fecha todas as abas do servidor (ex.: servidor excluído); devolve os ids fechados */
+  closeServerTabs: (serverId: number) => string[];
   setActiveTab: (id: string) => void;
   setQueryContent: (id: string, content: string) => void;
   setQueryHiddenColumns: (id: string, hiddenColumns: string[]) => void;
@@ -154,6 +156,30 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
       return { tabs, activeTabId };
     });
+  },
+
+  closeServerTabs: serverId => {
+    const state = get();
+    const order = Array.from(state.tabs.keys());
+    const closed = order.filter(id => state.tabs.get(id)?.serverId === serverId);
+    if (closed.length === 0) return closed;
+
+    const tabs = new Map(state.tabs);
+    for (const id of closed) tabs.delete(id);
+
+    let activeTabId = state.activeTabId;
+    if (activeTabId !== null && closed.includes(activeTabId)) {
+      // Mesma regra do closeTab: ativa a aba que passa a ocupar a posição da
+      // ativa — ou seja, quantas das que ficaram vinham antes dela.
+      const position = order
+        .slice(0, order.indexOf(activeTabId))
+        .filter(id => tabs.has(id)).length;
+      const remaining = Array.from(tabs.keys());
+      activeTabId = remaining[Math.min(position, remaining.length - 1)] ?? null;
+    }
+
+    set({ tabs, activeTabId });
+    return closed;
   },
 
   setActiveTab: id => {

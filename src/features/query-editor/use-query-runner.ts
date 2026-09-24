@@ -10,12 +10,12 @@ import {
 import { useCapabilities } from '@/queries/use-capabilities';
 import { useExecuteQuery } from '@/queries/use-execute-query';
 import { useServers } from '@/queries/use-servers';
-import { useTabsStore, type QueryTab } from '@/stores/tabs-store';
 import {
   useQueryResultsStore,
   type BottomTab,
   type QueryLogEntry,
-} from './query-results-store';
+} from '@/stores/query-results-store';
+import { useTabsStore, type QueryTab } from '@/stores/tabs-store';
 import { useSqlCompletion } from './use-sql-completion';
 
 const PLACEHOLDERS: Record<string, string> = {

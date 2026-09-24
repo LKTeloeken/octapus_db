@@ -21,6 +21,11 @@ lib/ shared/ utilidades puras e hooks genéricos
 **Regra de ouro:** o fluxo é `feature → query/store → api`. Componentes nunca chamam
 `invoke` direto, e a lógica de uma tela vive no seu hook `use-*` (o `.tsx` é só render).
 
+As dependências só descem: `api/` não importa nenhuma camada, e `queries/`/`stores/` não
+importam de `features/` nem de `components/`. Store Zustand mora sempre em `src/stores/` —
+mesmo o que só uma feature usa hoje, porque logo outra camada precisa dele (ex.: excluir
+um servidor limpa o `query-results-store`).
+
 ---
 
 ## 2. Camada de API (`src/api/`)
@@ -71,11 +76,22 @@ Só estado de **UI**, nada que o backend possa fornecer:
 
 | Store | Responsabilidade |
 |---|---|
-| `tabs-store` | abas abertas (query e browse) e aba ativa |
+| `tabs-store` | abas abertas (query e browse) e aba ativa — persistidas como sessão |
+| `query-results-store` | resultado, log de mensagens e aba inferior de cada aba de query (efêmero, por id de aba) |
 | `tree-store` | nós expandidos da sidebar |
 | `recent-tables-store` | tabelas abertas recentemente (command palette) |
 | `connection-store` | registro best-effort de quais `(server, db)` já conectaram na sessão |
+| `focus-store` | pedido de foco do teclado entre a árvore e a grade |
 | `ui-store` | tema e flags de UI |
+
+**Sessão das abas** ([stores/tabs-session.ts](src/stores/tabs-session.ts)): as abas
+sobrevivem ao fechamento e ao update do app. O `main.tsx` chama `restoreTabsSession()`
+antes do primeiro render; daí em diante cada mudança do `tabs-store` é gravada via
+`save_session` (SQLite do backend, não `localStorage`) com throttle de 500 ms. Entra só a
+intenção da aba — query escrita, ordenação, filtro, colunas ocultas; resultados e
+edições pendentes não. Antes de sair por conta própria (instalar/reiniciar o update),
+chame `flushTabsSession()`. Campo novo em `QueryTab`/`BrowseTab` ⇒ trate-o no
+`parseTab` (com default, para snapshots antigos continuarem válidos).
 
 ---
 
@@ -92,7 +108,7 @@ palette, dentro do `QueryProvider`.
 - **`query-tabs`** — gerencia abas; cada aba é um editor livre (`query-editor`) ou um
   browse (`table-browser`).
 - **`query-editor`** — editor CodeMirror + execução; `use-query-runner` roda a query,
-  pagina e aplica edições. Resultados ficam no `query-results-store`.
+  pagina e aplica edições. Resultados ficam no `stores/query-results-store`.
 - **`table-browser`** — navegação de tabela; `use-table-browser` traduz cliques de
   ordenar/filtrar em `TableDataRequest` e orquestra o salvar (edits + inserts + deletes).
 - **`command-palette`** — `Cmd/Ctrl+K`; busca fuzzy de tabelas/servidores.

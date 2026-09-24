@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { StrictMode, createElement } from 'react';
 import App from '@/app';
 import { disableNativeSpellcheck } from '@/lib/disable-native-spellcheck';
+import { restoreTabsSession } from '@/stores/tabs-session';
 
 disableNativeSpellcheck();
 
@@ -24,6 +25,10 @@ async function bootstrap() {
     const { installMocks } = await import('@/mocks/install');
     installMocks();
   }
+
+  // As abas da sessão anterior entram antes do primeiro render (e depois do
+  // mock, que é quem responde o `load_session` no modo mock).
+  await restoreTabsSession();
 
   // Create root using the new React 19 API
   const root = createRoot(container!);

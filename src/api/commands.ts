@@ -36,4 +36,8 @@ export enum RustCommand {
 
   // Exportação de resultados
   WriteExportFile = 'write_export_file',
+
+  // Sessão do workspace (abas abertas)
+  LoadSession = 'load_session',
+  SaveSession = 'save_session',
 }

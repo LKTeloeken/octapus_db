@@ -11,6 +11,8 @@ import {
 } from '@/api/servers';
 import type { ServerInput } from '@/api/types/server.types';
 import { useConnectionStore } from '@/stores/connection-store';
+import { useQueryResultsStore } from '@/stores/query-results-store';
+import { useTabsStore } from '@/stores/tabs-store';
 import { invalidateServerScope, queryKeys, removeServerScope } from './keys';
 
 export function useServers() {
@@ -56,6 +58,12 @@ export function useDeleteServer() {
       queryClient.invalidateQueries({ queryKey: queryKeys.servers });
       removeServerScope(queryClient, id);
       useConnectionStore.getState().clearServer(id);
+
+      // As abas do servidor apontariam para um id que não existe mais — e, com a
+      // sessão persistida, voltariam a cada restart mostrando erro.
+      const closedTabs = useTabsStore.getState().closeServerTabs(id);
+      const { clearRun } = useQueryResultsStore.getState();
+      for (const tabId of closedTabs) clearRun(tabId);
     },
   });
 }
