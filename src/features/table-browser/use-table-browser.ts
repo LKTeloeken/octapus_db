@@ -11,6 +11,7 @@ import {
 import { useCapabilities } from '@/queries/use-capabilities';
 import { useFetchAllTableData, useTableData } from '@/queries/use-table-data';
 import { useTabsStore, type BrowseTab } from '@/stores/tabs-store';
+import { useValuePanelStore } from '@/stores/value-panel-store';
 
 export const useTableBrowser = (tab: BrowseTab) => {
   const setBrowseSort = useTabsStore(state => state.setBrowseSort);
@@ -24,6 +25,9 @@ export const useTableBrowser = (tab: BrowseTab) => {
   const fetchAllMutation = useFetchAllTableData();
   const { data: capabilities } = useCapabilities(tab.serverId);
   const supportsSql = capabilities?.supportsSql === true;
+  const isValuePanelOpen = useValuePanelStore(state => state.isOpen);
+  const toggleValuePanel = useValuePanelStore(state => state.toggleOpen);
+  const setValuePanelOpen = useValuePanelStore(state => state.setOpen);
 
   const [draftWhere, setDraftWhere] = useState(tab.whereExpr);
 
@@ -110,6 +114,34 @@ export const useTableBrowser = (tab: BrowseTab) => {
     return () => window.removeEventListener('keydown', handler);
   }, [applyWhere]);
 
+  // Cmd/Ctrl+I ("inspecionar") alterna o painel de valor; F7 é o mesmo toggle
+  // de painéis do DBeaver. Fica aqui, e não no ResultsTable, porque o painel
+  // só existe na aba de tabela — e só a aba ativa está montada.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.repeat || event.altKey || event.shiftKey) return;
+      const withMod = event.metaKey || event.ctrlKey;
+      const isToggle =
+        (withMod && event.key.toLowerCase() === 'i') ||
+        (!withMod && event.key === 'F7');
+      if (!isToggle) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      toggleValuePanel();
+    };
+
+    // Fase de captura: dentro do CodeMirror do próprio painel o Mod-i é
+    // "selecionar nó pai" e consumiria a tecla antes de chegar à janela.
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [toggleValuePanel]);
+
+  const closeValuePanel = useCallback(
+    () => setValuePanelOpen(false),
+    [setValuePanelOpen],
+  );
+
   // Exportação: a grade mostra uma página por vez, então o arquivo é montado a
   // partir de uma busca sem limite, com o mesmo filtro e a mesma ordenação.
   const fetchAllRows = useCallback(async () => {
@@ -190,5 +222,8 @@ export const useTableBrowser = (tab: BrowseTab) => {
     setHiddenColumns,
     save,
     fetchAllRows,
+    isValuePanelOpen,
+    toggleValuePanel,
+    closeValuePanel,
   };
 };

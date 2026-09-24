@@ -443,8 +443,10 @@ const useResultsTable = (
       setAddedRows([]);
       setRemovedRowKeys(new Set());
       setActiveCell(null);
-      // Deletar linhas desloca os índices: o cursor voltaria para outra linha.
-      setFocusedCell(null);
+      // Deletar ou inserir linhas desloca os índices (a ordem padrão é PK
+      // desc): o cursor voltaria para outra linha. Só edição mantém as
+      // posições — e o painel de valor segue na célula recém-salva.
+      if (deletes.length > 0 || inserts.length > 0) setFocusedCell(null);
       clearSelection();
     } catch {
       // Keep the pending changes highlighted so the user can retry.

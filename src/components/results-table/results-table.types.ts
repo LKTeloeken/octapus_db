@@ -70,6 +70,10 @@ export interface ResultsTableProps {
   rowCount?: number;
   /** Message shown when there are no rows */
   emptyMessage?: string;
+  /** Painel lateral com o valor da célula sob o cursor (a aba de tabela liga) */
+  showValuePanel?: boolean;
+  /** Botão de fechar do painel; sem ele o painel não mostra o X */
+  onCloseValuePanel?: () => void;
   className?: string;
 }
 

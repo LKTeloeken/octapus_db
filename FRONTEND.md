@@ -83,6 +83,7 @@ Só estado de **UI**, nada que o backend possa fornecer:
 | `connection-store` | registro best-effort de quais `(server, db)` já conectaram na sessão |
 | `focus-store` | pedido de foco do teclado entre a árvore e a grade |
 | `ui-store` | tema e flags de UI |
+| `value-panel-store` | painel de valor da aba de tabela: aberto/fechado e preferências de formatação (global, persistido) |
 
 **Sessão das abas** ([stores/tabs-session.ts](src/stores/tabs-session.ts)): as abas
 sobrevivem ao fechamento e ao update do app. O `main.tsx` chama `restoreTabsSession()`
@@ -111,6 +112,9 @@ palette, dentro do `QueryProvider`.
   pagina e aplica edições. Resultados ficam no `stores/query-results-store`.
 - **`table-browser`** — navegação de tabela; `use-table-browser` traduz cliques de
   ordenar/filtrar em `TableDataRequest` e orquestra o salvar (edits + inserts + deletes).
+  É dono do painel de valor (só existe aqui, não no editor livre): botão **Valor** ao lado
+  do WHERE e atalho `Cmd/Ctrl+I` (ou `F7`, o do DBeaver), registrado em fase de captura
+  para funcionar também de dentro do CodeMirror do painel.
 - **`command-palette`** — `Cmd/Ctrl+K`; busca fuzzy de tabelas/servidores.
 
 ---
@@ -133,6 +137,15 @@ tanto pelo editor livre quanto pelo browse. Características:
   - ao **Salvar**, chama `onSave({ edits, inserts, deletes })`; o consumidor dispara
     `delete_rows` → `insert_rows` → `apply_row_edits` e a tela só atualiza após o `ok`
     (via invalidação/refetch).
+- **Painel de valor** ([results-table-value-panel](src/components/results-table/results-table-value-panel)),
+  ligado por `showValuePanel`: mostra e edita a célula sob o cursor (`focusedCell`), num
+  painel redimensionável à direita. Colunas JSON, lista (array) e texto ganham o menu de
+  formato (Binário/HTML/JSON/Texto/XML, quebra de linha, formatar automaticamente, salvar
+  compactado, codificação); o resto é texto simples. A digitação vira edição **pendente**
+  na hora (mesmo `updateCell` da grade) — não há "aplicar". JSON inválido numa coluna JSON
+  não é aplicado; array do Postgres é editado como array JSON e volta como literal `{…}`.
+  A formatação pura mora em [lib/value-format.ts](src/lib/value-format.ts) (JSON
+  reindentado por tokens, sem `JSON.parse`, para não arredondar bigint).
 - **Contrato com o consumidor:** props `columns`, `rows`, `editableInfo`, `onSave`,
   `onLoadMore`, `onReorderTable`. Editável só quando `editableInfo != null`.
 
