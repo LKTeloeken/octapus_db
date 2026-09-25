@@ -13,6 +13,9 @@ export interface NodeRowProps {
   name: string;
   /** Secondary text (column type, table count...) */
   subLabel?: string;
+  /** Tamanho em disco; quando presente ocupa o lugar do botão de ações
+   *  (que continuam no clique direito) */
+  sizeBytes?: number | null;
   hasChildren: boolean;
   isExpanded?: boolean;
   isLoading?: boolean;

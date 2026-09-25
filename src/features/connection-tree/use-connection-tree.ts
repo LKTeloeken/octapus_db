@@ -163,6 +163,7 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
     database: string,
     schema: string | null,
     table: string,
+    sizeBytes: number | null,
     level: number,
   ) => {
     const tableNodeId = encodeNodeId({
@@ -183,6 +184,7 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
         level,
         kind: 'table',
         name: table,
+        sizeBytes,
         hasChildren: true,
         isExpanded,
         isLoading: isExpanded && (colQuery?.isFetching ?? false),
@@ -395,12 +397,19 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
           if (!isSchemaExpanded) continue;
 
           for (const table of schema.tables) {
-            pushTable(server.id, db.name, schema.name, table.name, 3);
+            pushTable(
+              server.id,
+              db.name,
+              schema.name,
+              table.name,
+              table.sizeBytes,
+              3,
+            );
           }
         }
       } else {
         for (const table of structure.schemas.flatMap(s => s.tables)) {
-          pushTable(server.id, db.name, null, table.name, 2);
+          pushTable(server.id, db.name, null, table.name, table.sizeBytes, 2);
         }
       }
     }

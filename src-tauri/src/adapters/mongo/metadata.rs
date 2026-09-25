@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use chrono::Utc;
-use mongodb::bson::{Bson, Document};
+use mongodb::bson::{doc, Bson, Document};
 use mongodb::{Client, Database};
 
 use crate::error::Result;
@@ -39,6 +39,7 @@ pub async fn list_tables(db: &Database, schema_name: &str) -> Result<Vec<TableIn
             schema: schema_name.to_string(),
             table_type: TableType::Table,
             row_estimate: None,
+            size_bytes: None,
         })
         .collect())
 }
@@ -164,12 +165,34 @@ pub async fn list_schemas_with_tables(
     db: &Database,
     schema_name: &str,
 ) -> Result<DatabaseStructure> {
-    let tables = list_tables(db, schema_name)
+    let names: Vec<String> = list_tables(db, schema_name)
         .await?
         .into_iter()
-        .map(|t| TableStructure {
-            name: t.name,
-            table_type: t.table_type,
+        .map(|t| t.name)
+        .collect();
+
+    // Um `$collStats` por coleção, em paralelo — o pool do driver limita
+    // quantos rodam de fato ao mesmo tempo.
+    let mut tasks = tokio::task::JoinSet::new();
+    for (i, name) in names.iter().enumerate() {
+        let db = db.clone();
+        let name = name.clone();
+        tasks.spawn(async move { (i, collection_size(&db, &name).await) });
+    }
+    let mut sizes = vec![None; names.len()];
+    while let Some(joined) = tasks.join_next().await {
+        if let Ok((i, size)) = joined {
+            sizes[i] = size;
+        }
+    }
+
+    let tables = names
+        .into_iter()
+        .zip(sizes)
+        .map(|(name, size_bytes)| TableStructure {
+            name,
+            table_type: TableType::Table,
+            size_bytes,
         })
         .collect();
 
@@ -180,4 +203,40 @@ pub async fn list_schemas_with_tables(
         }],
         fetched_at: Utc::now().timestamp_millis(),
     })
+}
+
+/// Tamanho em disco da coleção (armazenamento + índices) via `$collStats`.
+/// Em cluster shardeado vem um documento por shard, então somamos. Views,
+/// coleções sem permissão de `collStats` ou qualquer erro viram `None` — a
+/// árvore só deixa de mostrar o tamanho, sem falhar a listagem.
+async fn collection_size(db: &Database, collection: &str) -> Option<i64> {
+    let pipeline = vec![doc! { "$collStats": { "storageStats": {} } }];
+    let cursor = db
+        .collection::<Document>(collection)
+        .aggregate(pipeline)
+        .await
+        .ok()?;
+    let docs = collect_cursor(cursor, None).await.ok()?;
+
+    let mut total = None;
+    for stats in docs.iter().filter_map(|d| d.get_document("storageStats").ok()) {
+        // `totalSize` só existe a partir do 4.4; antes somamos as partes
+        let size = bson_number(stats.get("totalSize")).or_else(|| {
+            let storage = bson_number(stats.get("storageSize"))?;
+            Some(storage + bson_number(stats.get("totalIndexSize")).unwrap_or(0))
+        })?;
+        total = Some(total.unwrap_or(0) + size);
+    }
+    total
+}
+
+/// Os contadores do `collStats` chegam como Int32, Int64 ou Double conforme
+/// o tamanho e a versão do servidor.
+fn bson_number(value: Option<&Bson>) -> Option<i64> {
+    match value? {
+        Bson::Int32(n) => Some(*n as i64),
+        Bson::Int64(n) => Some(*n),
+        Bson::Double(n) => Some(*n as i64),
+        _ => None,
+    }
 }

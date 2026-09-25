@@ -15,6 +15,8 @@ export interface TableInfo {
   schema: string;
   tableType: TableType;
   rowEstimate: number | null;
+  /** Dados + índices em disco; null em views e em Mongo/Redis/SQLite */
+  sizeBytes: number | null;
 }
 
 export interface ColumnInfo {
@@ -38,7 +40,12 @@ export interface IndexInfo {
 export interface DatabaseStructure {
   schemas: {
     name: string;
-    tables: { name: string; tableType: TableType }[];
+    tables: {
+      name: string;
+      tableType: TableType;
+      /** Dados + índices em disco; null em views e em Redis/SQLite */
+      sizeBytes: number | null;
+    }[];
   }[];
   /** Epoch in ms */
   fetchedAt: number;

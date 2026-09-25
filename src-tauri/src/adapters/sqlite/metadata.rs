@@ -63,6 +63,7 @@ pub fn list_tables(conn: &Connection, schema_name: &str) -> Result<Vec<TableInfo
                     _ => TableType::Table,
                 },
                 row_estimate: None,
+                size_bytes: None,
             })
         })
         .map_err(db_err)?
@@ -160,6 +161,7 @@ pub fn list_schemas_with_tables(conn: &Connection, schema_name: &str) -> Result<
         .map(|table| TableStructure {
             name: table.name,
             table_type: table.table_type,
+            size_bytes: table.size_bytes,
         })
         .collect();
 

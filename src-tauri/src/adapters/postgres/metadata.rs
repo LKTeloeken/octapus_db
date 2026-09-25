@@ -76,7 +76,10 @@ pub async fn list_tables(pool: &Pool, schema: &str) -> Result<Vec<TableInfo>> {
                     WHEN 'm' THEN 'materialized_view'
                     WHEN 'f' THEN 'foreign'
                 END as table_type,
-                c.reltuples::bigint as row_estimate
+                c.reltuples::bigint as row_estimate,
+                CASE WHEN c.relkind IN ('r', 'm')
+                    THEN pg_total_relation_size(c.oid)
+                END AS size_bytes
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = $1 AND c.relkind IN ('r', 'v', 'm', 'f')
@@ -100,6 +103,7 @@ pub async fn list_tables(pool: &Pool, schema: &str) -> Result<Vec<TableInfo>> {
                     _ => TableType::Table,
                 },
                 row_estimate: r.get(3),
+                size_bytes: r.get(4),
             }
         })
         .collect())
@@ -204,7 +208,11 @@ pub async fn list_schemas_with_tables(pool: &Pool) -> Result<DatabaseStructure> 
             SELECT
                 n.nspname AS schema_name,
                 c.relname AS table_name,
-                c.relkind AS table_kind
+                c.relkind AS table_kind,
+                -- Tabela + índices + TOAST; views e foreign tables não ocupam disco
+                CASE WHEN c.relkind IN ('r', 'm')
+                    THEN pg_total_relation_size(c.oid)
+                END AS size_bytes
             FROM pg_namespace n
             LEFT JOIN pg_class c 
                 ON c.relnamespace = n.oid 
@@ -223,6 +231,7 @@ pub async fn list_schemas_with_tables(pool: &Pool) -> Result<DatabaseStructure> 
         let schema_name: String = row.get(0);
         let table_name: Option<String> = row.get(1);
         let table_kind: Option<i8> = row.get(2);
+        let size_bytes: Option<i64> = row.get(3);
 
         let tables = schemas_map.entry(schema_name).or_default();
 
@@ -236,7 +245,11 @@ pub async fn list_schemas_with_tables(pool: &Pool) -> Result<DatabaseStructure> 
                 _ => TableType::Table,
             };
 
-            tables.push(TableStructure { name, table_type });
+            tables.push(TableStructure {
+                name,
+                table_type,
+                size_bytes,
+            });
         }
     }
 

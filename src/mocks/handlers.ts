@@ -152,11 +152,28 @@ const connectionHandlers: Record<string, MockHandler> = {
 const schemaKey = (entry: MockServerEntry, schema: unknown) =>
   entry.capabilities.hasSchemas ? (schema as string) || 'public' : '';
 
-const toTableInfo = (table: MockTable): TableInfo => ({
+/**
+ * Tamanho em disco sintético, estável entre chamadas. Como no backend, só o
+ * Postgres (e o Mongo, na estrutura da árvore) informam, e views ficam sem.
+ */
+const mockTableSize = (
+  entry: MockServerEntry,
+  table: MockTable,
+  { includeMongo }: { includeMongo: boolean },
+): number | null => {
+  const { dbType } = entry.server;
+  const supported =
+    dbType === 'postgres' || (includeMongo && dbType === 'mongodb');
+  if (!supported || table.tableType === 'view') return null;
+  return 16_384 + table.rowEstimate * table.columns.length * 48;
+};
+
+const toTableInfo = (entry: MockServerEntry, table: MockTable): TableInfo => ({
   name: table.name,
   schema: table.schema,
   tableType: table.tableType,
   rowEstimate: table.rowEstimate,
+  sizeBytes: mockTableSize(entry, table, { includeMongo: false }),
 });
 
 const structureHandlers: Record<string, MockHandler> = {
@@ -192,7 +209,7 @@ const structureHandlers: Record<string, MockHandler> = {
     const wanted = schemaKey(entry, schema);
     return requireDatabase(entry, database as string)
       .tables.filter(table => table.schema === wanted)
-      .map(toTableInfo);
+      .map(table => toTableInfo(entry, table));
   },
 
   [RustCommand.ListColumns]: ({
@@ -247,7 +264,11 @@ const structureHandlers: Record<string, MockHandler> = {
         name,
         tables: tables
           .filter(table => table.schema === name)
-          .map(table => ({ name: table.name, tableType: table.tableType })),
+          .map(table => ({
+            name: table.name,
+            tableType: table.tableType,
+            sizeBytes: mockTableSize(entry, table, { includeMongo: true }),
+          })),
       })),
       fetchedAt,
     };

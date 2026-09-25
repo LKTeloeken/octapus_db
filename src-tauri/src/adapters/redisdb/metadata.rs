@@ -85,6 +85,7 @@ pub async fn list_tables(
             schema: schema_name.to_string(),
             table_type: TableType::Table,
             row_estimate: Some(count),
+            size_bytes: None,
         })
         .collect())
 }
@@ -134,6 +135,7 @@ pub async fn list_schemas_with_tables(
         .map(|t| TableStructure {
             name: t.name,
             table_type: t.table_type,
+            size_bytes: t.size_bytes,
         })
         .collect();
 
