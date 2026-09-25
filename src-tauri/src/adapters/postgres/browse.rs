@@ -476,6 +476,27 @@ mod tests {
             .await
             .unwrap();
 
+        // Tamanho na árvore: tabela com dados tem tamanho, view não
+        adapter
+            .execute_statement("CREATE VIEW adults AS SELECT * FROM users WHERE age >= 18")
+            .await
+            .unwrap();
+        let structure = adapter.list_schemas_with_tables().await.unwrap();
+        let public = structure.schemas.iter().find(|s| s.name == "public").unwrap();
+        let size_of = |name: &str| {
+            public
+                .tables
+                .iter()
+                .find(|t| t.name == name)
+                .unwrap()
+                .size_bytes
+        };
+        assert!(size_of("users").is_some_and(|size| size > 0));
+        assert_eq!(size_of("adults"), None);
+        let tables = adapter.list_tables("public").await.unwrap();
+        let users = tables.iter().find(|t| t.name == "users").unwrap();
+        assert_eq!(users.size_bytes, size_of("users"));
+
         let result = adapter
             .fetch_table_data(TableDataRequest {
                 schema: None,

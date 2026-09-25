@@ -21,6 +21,8 @@ pub struct TableInfo {
     pub schema: String,
     pub table_type: TableType,
     pub row_estimate: Option<i64>,
+    /// Mesmo significado de [`TableStructure::size_bytes`]
+    pub size_bytes: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -74,4 +76,7 @@ pub struct SchemaStructure {
 pub struct TableStructure {
     pub name: String,
     pub table_type: TableType,
+    /// Tamanho total em disco (dados + índices), quando o banco informa.
+    /// `None` para views e bancos sem suporte (Redis, SQLite).
+    pub size_bytes: Option<i64>,
 }

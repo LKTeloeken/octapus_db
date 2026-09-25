@@ -118,6 +118,7 @@ export function useRefreshStructure() {
                     tables: tables.map(table => ({
                       name: table.name,
                       tableType: table.tableType,
+                      sizeBytes: table.sizeBytes,
                     })),
                   }
                 : item,

@@ -13,10 +13,12 @@ import { memo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Spinner } from '@/components/ui/spinner';
+import { formatBytes } from '@/lib/format-bytes';
 import { cn } from '@/lib/utils';
 import type { NodeKind } from '@/lib/node-ref';
 import type { NodeRowProps } from './node-row.types';
@@ -52,6 +54,7 @@ export const NodeRow = memo(
     kind,
     name,
     subLabel,
+    sizeBytes,
     hasChildren,
     isExpanded,
     isLoading,
@@ -61,17 +64,21 @@ export const NodeRow = memo(
     actions,
   }: NodeRowProps) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const hasActions = !!actions?.length;
+    const hasSize = sizeBytes != null;
 
     return (
       <div
         className={cn(
-          'flex items-center gap-2 py-1 px-2 cursor-pointer hover:text-foreground hover:bg-surface-light/50 rounded-md transition-color group relative pr-8',
+          'flex items-center gap-2 py-1 px-2 cursor-pointer hover:text-foreground hover:bg-surface-light/50 rounded-md transition-color group relative',
+          // Espaço reservado para o botão absoluto de ações
+          hasActions && !hasSize && 'pr-8',
           isFocused && 'bg-surface-light/40 ring-1 ring-inset ring-primary',
         )}
         style={{ paddingLeft: `${level * 1.25 + 0.5}rem` }}
         onClick={onClick}
         onContextMenu={
-          actions?.length
+          hasActions
             ? event => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -105,47 +112,63 @@ export const NodeRow = memo(
           </div>
         </div>
 
-        {actions && actions.length > 0 && (
-          <div
-            className={cn(
-              'absolute right-2 transition-opacity',
-              isMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-            )}
+        {hasSize && (
+          <span
+            className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums"
+            title={`${sizeBytes.toLocaleString()} bytes`}
           >
-            <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={event => event.stopPropagation()}
-                >
-                  <HugeiconsIcon
-                    icon={MoreHorizontalIcon}
-                    className="h-4 w-4"
-                  />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-36 p-1" align="end">
-                {actions.map(action => (
+            {formatBytes(sizeBytes)}
+          </span>
+        )}
+
+        {hasActions && (
+          <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+            {hasSize ? (
+              // Sem botão: o menu do clique direito abre ancorado no tamanho
+              <PopoverAnchor className="absolute right-2 h-6" />
+            ) : (
+              <div
+                className={cn(
+                  'absolute right-2 transition-opacity',
+                  isMenuOpen
+                    ? 'opacity-100'
+                    : 'opacity-0 group-hover:opacity-100',
+                )}
+              >
+                <PopoverTrigger asChild>
                   <Button
-                    key={action.label}
                     variant="ghost"
-                    size="sm"
-                    className="w-full justify-start gap-2"
-                    onClick={event => {
-                      event.stopPropagation();
-                      action.onSelect();
-                      setIsMenuOpen(false);
-                    }}
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={event => event.stopPropagation()}
                   >
-                    <HugeiconsIcon icon={action.icon} className="h-3 w-3" />
-                    {action.label}
+                    <HugeiconsIcon
+                      icon={MoreHorizontalIcon}
+                      className="h-4 w-4"
+                    />
                   </Button>
-                ))}
-              </PopoverContent>
-            </Popover>
-          </div>
+                </PopoverTrigger>
+              </div>
+            )}
+            <PopoverContent className="w-36 p-1" align="end">
+              {actions.map(action => (
+                <Button
+                  key={action.label}
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start gap-2"
+                  onClick={event => {
+                    event.stopPropagation();
+                    action.onSelect();
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  <HugeiconsIcon icon={action.icon} className="h-3 w-3" />
+                  {action.label}
+                </Button>
+              ))}
+            </PopoverContent>
+          </Popover>
         )}
       </div>
     );

@@ -167,6 +167,13 @@ mod tests {
         // Structure: collections + sampled columns
         let tables = adapter.list_tables("").await.unwrap();
         assert!(tables.iter().any(|t| t.name == "users"));
+        let structure = adapter.list_schemas_with_tables().await.unwrap();
+        let users = structure.schemas[0]
+            .tables
+            .iter()
+            .find(|t| t.name == "users")
+            .unwrap();
+        assert!(users.size_bytes.is_some_and(|size| size > 0));
         let columns = adapter.list_columns("", "users").await.unwrap();
         assert_eq!(columns[0].name, "_id");
         assert!(columns[0].is_primary_key);
