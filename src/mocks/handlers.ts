@@ -685,6 +685,11 @@ const pluginHandlers: Record<string, MockHandler> = {
       console.info('[octapus-mock] clipboard recusado pelo navegador');
     }
   },
+
+  // Fora do Tauri não há navegador do sistema: abre numa aba nova.
+  'plugin:opener|open_url': ({ url }: Args) => {
+    window.open(url as string, '_blank', 'noopener');
+  },
 };
 
 export const handlers: Record<string, MockHandler> = {

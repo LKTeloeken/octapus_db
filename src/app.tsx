@@ -24,23 +24,25 @@ const App = () => {
 
   return (
     <QueryProvider>
-      <TooltipProvider delayDuration={0}>
+      {/* 500 ms antes do primeiro tooltip; entre vizinhos (skipDelayDuration)
+          eles abrem na hora, sem piscar ao atravessar a toolbar. */}
+      <TooltipProvider delayDuration={500}>
         <ResizablePanelGroup
           direction="horizontal"
-          className="h-screen w-full p-2 gap-1 bg-background"
+          className="h-screen w-full gap-1 bg-bg p-2 text-fg"
         >
           <ResizablePanel
             defaultSize={20}
             minSize={20}
             maxSize={50}
-            className="border border-border rounded-md bg-sidebar text-sidebar-foreground"
+            className="overflow-hidden rounded-lg border border-line bg-surface-1"
           >
             <Sidebar />
           </ResizablePanel>
 
           <ResizableHandle className="cursor-col-resize! bg-transparent" />
 
-          <ResizablePanel className="bg-main text-main-foreground">
+          <ResizablePanel>
             <QueryTabs />
           </ResizablePanel>
         </ResizablePanelGroup>

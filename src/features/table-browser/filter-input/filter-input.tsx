@@ -1,7 +1,9 @@
 import { memo } from 'react';
 import { Input } from '@/components/ui/input/input';
+import { Kbd } from '@/components/ui/kbd';
 import type { FilterInputProps } from './filter-input.types';
 
+/** WHERE do Postgres em mono 12 px; Enter aplica, Esc volta ao filtro aplicado. */
 export const FilterInput = memo(
   ({ value, onChange, onApply, onReset }: FilterInputProps) => {
     return (
@@ -21,11 +23,14 @@ export const FilterInput = memo(
             onReset();
           }
         }}
-        inputClassName="font-mono"
+        inputClassName="font-mono text-small"
         InputProps={{
           startAdornment: (
-            <span className="font-mono text-muted-foreground">WHERE</span>
+            <span className="font-mono text-[11px] tracking-[0.04em] text-fg-subtle">
+              WHERE
+            </span>
           ),
+          endAdornment: <Kbd>↵</Kbd>,
         }}
       />
     );

@@ -1,7 +1,11 @@
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useRef } from 'react';
 import { ColumnSelector } from '@/components/column-selector/column-selector';
 import { useHiddenColumnsReset } from '@/components/column-selector/use-hidden-columns-reset';
-import { QueryEditor } from '@/components/query-editor/query-editor/query-editor';
+import {
+  QueryEditor,
+  type QueryEditorHandle,
+} from '@/components/query-editor/query-editor/query-editor';
+import { QueryEditorToolbar } from '@/components/query-editor/query-editor-toolbar/query-editor-toolbar';
 import { QueryMessagesLog } from '@/components/query-messages/query-messages-log';
 import { ResultsTable } from '@/components/results-table/results-table';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +31,8 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
     isLoadingMore,
     supportsSql,
     placeholder,
+    serverName,
+    dbType,
     sqlCompletion,
     setContent,
     executeRun,
@@ -39,6 +45,10 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
     bottomTab,
     setBottomTab,
   } = useQueryRunner(tab);
+
+  // O Executar da toolbar pede ao editor o mesmo trecho do Mod-Enter.
+  const editorRef = useRef<QueryEditorHandle>(null);
+  const runFromToolbar = useCallback(() => editorRef.current?.run(), []);
 
   const setQueryHiddenColumns = useTabsStore(
     state => state.setQueryHiddenColumns,
@@ -74,11 +84,19 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
       <ResizablePanel
         defaultSize={40}
         minSize={20}
-        className="rounded-md border border-border"
+        className="overflow-hidden rounded-lg border border-line bg-surface-1"
       >
-        <div className="flex flex-col h-full overflow-hidden">
+        <div className="flex h-full flex-col overflow-hidden">
+          <QueryEditorToolbar
+            onRun={runFromToolbar}
+            isLoading={isRunning}
+            serverName={serverName}
+            database={tab.database}
+            dbType={dbType}
+          />
           <QueryEditor
-            className="h-full"
+            ref={editorRef}
+            className="min-h-0 flex-1"
             height="100%"
             value={tab.content}
             dialect={supportsSql ? 'postgres' : 'mongo'}
@@ -94,25 +112,25 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
         </div>
       </ResizablePanel>
 
-      <ResizableHandle className="bg-transparent cursor-row-resize!" />
+      <ResizableHandle withHandle className="bg-transparent cursor-row-resize!" />
 
       <ResizablePanel
         defaultSize={60}
         minSize={20}
-        className="rounded-md border border-border bg-sidebar"
+        className="overflow-hidden rounded-lg border border-line bg-surface-1"
       >
         <Tabs
           value={bottomTab}
           onValueChange={handleBottomTabChange}
           className="flex flex-col h-full gap-0"
         >
-          <div className="flex items-center justify-between gap-2 p-1">
-            <TabsList className="gap-1.5 border-none bg-transparent">
+          <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line-subtle pr-1.5 pl-3.5">
+            <TabsList>
               <TabsTrigger value="results">Resultados</TabsTrigger>
               <TabsTrigger value="messages">
                 Mensagens
                 {unreadMessages > 0 && (
-                  <Badge variant="secondary" className="px-1 py-0">
+                  <Badge className="h-[18px] px-1.5">
                     {unreadMessages}
                   </Badge>
                 )}
@@ -169,7 +187,7 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
             className="flex flex-col min-h-0 data-[state=inactive]:hidden"
           >
             <QueryMessagesLog
-              className="flex-1 min-h-0 border-t border-border"
+              className="flex-1 min-h-0"
               entries={log}
               onClear={clearLog}
             />

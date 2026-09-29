@@ -20,7 +20,6 @@ export interface ResultsTableRowCellProps {
   /** Pending delete, still visible (red) */
   isRemoved: boolean;
   isSelected: boolean;
-  isEven: boolean;
   rowHeight: number;
   rowStart: number;
   /** Sticky left identifier/selection column width */

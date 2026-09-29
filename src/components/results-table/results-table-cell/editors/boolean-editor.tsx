@@ -25,7 +25,7 @@ export const BooleanEditor = memo(function BooleanEditor({
       />
       <label
         htmlFor="bool-editor"
-        className="text-xs font-mono cursor-pointer select-none"
+        className="text-small font-mono text-fg cursor-pointer select-none"
       >
         {isTrue ? 'true' : 'false'}
       </label>

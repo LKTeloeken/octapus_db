@@ -16,6 +16,8 @@ export interface DataTableCellProps {
   displayValue: string | null;
   isEditable: boolean;
   isModified: boolean;
+  /** Linha marcada para exclusão: valor tachado em `--fg-subtle` */
+  isRemoved?: boolean;
   columnType: string;
   /** Position — used to build the save closure and the activate call */
   rowIndex: number;

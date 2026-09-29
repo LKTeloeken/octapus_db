@@ -8,7 +8,7 @@ interface HighlightedLabelProps {
 
 export const HighlightedLabel = memo(
   ({ text, indices }: HighlightedLabelProps) => {
-    if (indices.length === 0) return <span className="font-mono">{text}</span>;
+    if (indices.length === 0) return <span className="text-fg">{text}</span>;
 
     // `indices` is ascending — collapse consecutive matches into runs so each
     // highlighted stretch is a single <span> (≤3 nodes typically) instead of
@@ -37,10 +37,11 @@ export const HighlightedLabel = memo(
     }
 
     return (
-      <span className="font-mono">
+      // Casamento em --fg semibold; o resto do rótulo recua para --fg-muted.
+      <span className="text-fg-muted">
         {segments.map((segment, i) =>
           segment.highlight ? (
-            <span key={i} className="text-destructive font-semibold">
+            <span key={i} className="font-semibold text-fg">
               {segment.text}
             </span>
           ) : (

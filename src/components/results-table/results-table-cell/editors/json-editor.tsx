@@ -79,20 +79,20 @@ export const JsonEditor = memo(function JsonEditor({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+        <label className="text-micro font-medium uppercase text-fg-subtle">
           Editar JSON
         </label>
         <div className="flex gap-1">
           <button
             type="button"
-            className="px-1.5 py-0.5 text-[10px] rounded border border-border hover:bg-muted/60 transition-colors"
+            className="inline-flex h-6 items-center rounded-sm border border-control-border bg-control px-2 text-small text-fg shadow-control transition-colors hover:bg-active"
             onClick={handleFormat}
           >
             Formatar
           </button>
           <button
             type="button"
-            className="px-1.5 py-0.5 text-[10px] rounded border border-border hover:bg-muted/60 transition-colors"
+            className="inline-flex h-6 items-center rounded-sm border border-control-border bg-control px-2 text-small text-fg shadow-control transition-colors hover:bg-active"
             onClick={handleMinify}
           >
             Minificar
@@ -101,10 +101,10 @@ export const JsonEditor = memo(function JsonEditor({
       </div>
       <textarea
         className={
-          'w-full min-h-[120px] max-h-[240px] p-2 text-xs font-mono ' +
-          'bg-background border rounded-md resize-y ' +
-          'focus:outline-none focus:ring-1 focus:ring-ring ' +
-          (error ? 'border-red-500' : 'border-border')
+          'w-full min-h-[120px] max-h-[240px] p-2 text-small font-mono ' +
+          'bg-field text-fg border rounded-sm resize-y ' +
+          'outline-none transition-[border-color,box-shadow] focus:border-iris-text focus:ring-3 focus:ring-iris-soft ' +
+          (error ? 'border-danger' : 'border-line')
         }
         value={editValue}
         onChange={e => {
@@ -115,7 +115,7 @@ export const JsonEditor = memo(function JsonEditor({
         spellCheck={false}
         autoFocus
       />
-      {error && <span className="text-[10px] text-red-400">{error}</span>}
+      {error && <span className="text-small text-danger">{error}</span>}
       <EditorFooter onSave={handleSave} onCancel={onCancel} onSetNull={onSetNull} />
     </div>
   );

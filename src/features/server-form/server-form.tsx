@@ -62,34 +62,46 @@ export function ServerForm(props: ServerFormProps) {
         }
       >
         <div className="flex flex-col gap-6">
-          <div className="flex gap-2">
-            {SUPPORTED_DB_TYPES.map(type => (
-              <div
-                key={type}
-                className={cn(
-                  'flex flex-col items-center w-full gap-2 cursor-pointer border border-border hover:bg-muted rounded-md p-2 transition-colors',
-                  form.dbType === type && 'bg-muted border-primary',
-                  form.dbType !== type && 'border-dashed',
-                  isEditMode &&
-                    form.dbType !== type &&
-                    'border-dashed opacity-50 hover:bg-transparent cursor-default',
-                )}
-                onClick={() => !isEditMode && setDbType(type)}
-              >
-                <img
-                  src={DB_TYPE_ICONS[type]}
-                  alt={DB_TYPE_LABELS[type]}
-                  className="w-10 h-10"
-                />
-                <span>{DB_TYPE_LABELS[type]}</span>
-              </div>
-            ))}
+          {/* Escolha do banco: selecionado em `--active` + anel `--ring`; na
+              edição o tipo não muda e os demais ficam apagados. */}
+          <div role="radiogroup" aria-label="Banco" className="flex gap-2">
+            {SUPPORTED_DB_TYPES.map(type => {
+              const isSelected = form.dbType === type;
+
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  disabled={isEditMode && !isSelected}
+                  className={cn(
+                    'flex w-full cursor-pointer flex-col items-center gap-1.5 rounded-[10px] py-2.5 text-small font-medium transition-colors outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring',
+                    isSelected
+                      ? 'bg-active text-fg ring-[1.5px] ring-inset ring-ring'
+                      : 'text-fg-muted ring-1 ring-inset ring-line hover:bg-hover hover:text-fg',
+                    'disabled:cursor-default disabled:opacity-45 disabled:hover:bg-transparent',
+                  )}
+                  onClick={() => !isEditMode && setDbType(type)}
+                >
+                  <img
+                    src={DB_TYPE_ICONS[type]}
+                    alt=""
+                    className="size-8"
+                  />
+                  {DB_TYPE_LABELS[type]}
+                </button>
+              );
+            })}
           </div>
 
+          {/* Foco inicial no nome, como antes de os cartões de banco virarem
+              botões: sem isso o diálogo focaria o primeiro cartão. */}
           <Input
             type="text"
             label="Nome do servidor"
             placeholder="Digite aqui..."
+            autoFocus
             value={form.name}
             onChange={e => setField('name', e.target.value)}
           />

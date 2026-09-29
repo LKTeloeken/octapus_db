@@ -1,17 +1,21 @@
-import { TableIcon } from '@hugeicons/core-free-icons';
+import { Search01Icon, TableIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Search } from 'lucide-react';
 import { useRef } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Kbd } from '@/components/ui/kbd';
 import { Spinner } from '@/components/ui/spinner';
-import { DB_TYPE_LABELS } from '@/lib/db-defaults';
+import {
+  DB_TYPE_BG_COLOR,
+  DB_TYPE_LABELS,
+  DB_TYPE_TEXT_COLOR,
+} from '@/lib/db-defaults';
 import { cn } from '@/lib/utils';
 import type { PaletteRow, TableEntry } from './command-palette.types';
 import { HighlightedLabel } from './highlighted-label';
 import { usePaletteNavigation } from './use-palette-navigation';
 
-const ITEM_HEIGHT = 52;
+const ITEM_HEIGHT = 44;
 const HEADER_HEIGHT = 30;
 const OVERSCAN = 12;
 
@@ -30,6 +34,9 @@ interface PaletteContentProps {
  * dialog is open (Radix unmounts the content on close), so the virtualizer is
  * created fresh per open, with its lifecycle tied to the scroll element. This
  * avoids a stale virtualizer rendering an empty list on reopen.
+ *
+ * Visual (DESIGN.md §7): vidro vem do DialogContent; o item ativo é realce
+ * neutro (`--active`), nunca Iris; o ícone da tabela leva a cor do banco.
  */
 export function PaletteContent({
   query,
@@ -57,25 +64,32 @@ export function PaletteContent({
     onSelect: row => selectEntry(row.item.entry),
   });
 
+  const resultCount = rows.filter(row => row.kind === 'item').length;
+
   return (
     <div onKeyDown={onKeyDown}>
-      <div className="flex h-11 items-center gap-2 border-b px-3">
-        <Search className="size-4 shrink-0 opacity-50" />
+      <div className="flex h-14 items-center gap-3 border-b border-line-subtle pr-3.5 pl-[18px]">
+        <HugeiconsIcon
+          icon={Search01Icon}
+          className="size-[18px] shrink-0 text-fg-subtle"
+        />
         <input
           autoFocus
+          aria-label="Buscar tabela"
           placeholder="Buscar tabela… (ex.: public.users)"
           value={query}
           onChange={event => setQuery(event.target.value)}
-          className="placeholder:text-muted-foreground flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-hidden"
+          className="h-full w-full bg-transparent text-[16px] text-fg outline-hidden placeholder:text-fg-subtle"
         />
+        <Kbd>esc</Kbd>
       </div>
 
       <div
         ref={parentRef}
-        className="max-h-80 overflow-x-hidden overflow-y-auto scrollbar-thin p-2"
+        className="max-h-96 overflow-x-hidden overflow-y-auto scrollbar-thin px-2 pt-1 pb-2"
       >
         {!hasResults ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">
+          <div className="py-8 text-center text-body text-fg-subtle">
             {isEmptyCache
               ? 'Nenhuma tabela em cache — navegue na árvore para indexá-las.'
               : query.trim()
@@ -84,7 +98,9 @@ export function PaletteContent({
           </div>
         ) : (
           <div
-            className="relative w-full p-1"
+            role="listbox"
+            aria-label="Resultados"
+            className="relative w-full"
             style={{ height: `${virtualizer.getTotalSize()}px` }}
           >
             {virtualizer.getVirtualItems().map(virtualRow => {
@@ -95,7 +111,7 @@ export function PaletteContent({
                 return (
                   <div
                     key={virtualRow.key}
-                    className="text-muted-foreground absolute left-0 top-0 flex w-full items-end px-2 pb-1.5 text-xs font-medium"
+                    className="absolute top-0 left-0 flex w-full items-end px-2.5 pb-1 text-micro font-medium uppercase text-fg-subtle"
                     style={{
                       height: `${virtualRow.size}px`,
                       transform: `translateY(${virtualRow.start}px)`,
@@ -116,8 +132,8 @@ export function PaletteContent({
                   role="option"
                   aria-selected={isActive}
                   className={cn(
-                    'absolute left-0 top-0 flex w-full cursor-default items-center gap-2 rounded-sm px-2 text-sm select-none',
-                    isActive && 'bg-primary/12 text-primary',
+                    'absolute top-0 left-0 flex w-full cursor-default items-center gap-2.5 rounded-md px-2.5 select-none',
+                    isActive && 'bg-active',
                     isConnecting && 'pointer-events-none opacity-50',
                   )}
                   style={{
@@ -127,25 +143,44 @@ export function PaletteContent({
                   onMouseMove={() => setActiveIndex(virtualRow.index)}
                   onClick={() => !isConnecting && selectEntry(entry)}
                 >
-                  <HugeiconsIcon
-                    icon={TableIcon}
-                    className={cn(
-                      'h-4 w-4 text-muted-foreground',
-                      isActive && 'text-primary',
-                    )}
-                  />
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-hover shadow-[inset_0_0_0_1px_var(--line-subtle)]">
+                    <HugeiconsIcon
+                      icon={TableIcon}
+                      className={cn('size-[15px]', DB_TYPE_TEXT_COLOR[entry.dbType])}
+                    />
+                  </span>
 
                   <div className="flex min-w-0 flex-1 flex-col">
-                    <HighlightedLabel text={entry.label} indices={indices} />
-                    <span className="truncate text-xs text-muted-foreground">
+                    <span className="truncate text-body">
+                      <HighlightedLabel text={entry.label} indices={indices} />
+                    </span>
+                    {/* No item ativo a legenda sobe um degrau: --fg-subtle
+                        sobre vidro + realce fica abaixo de 4,5:1. */}
+                    <span
+                      className={cn(
+                        'truncate text-small',
+                        isActive ? 'text-fg-muted' : 'text-fg-subtle',
+                      )}
+                    >
                       {subtitle}
                     </span>
                   </div>
 
                   {isConnecting ? (
-                    <Spinner className="h-3.5 w-3.5" />
+                    <Spinner className="size-3.5 text-fg-subtle" />
+                  ) : isActive ? (
+                    <span className="inline-flex shrink-0 items-center gap-1.5 text-small text-fg-muted">
+                      Abrir <Kbd>↵</Kbd>
+                    </span>
                   ) : (
-                    <Badge variant="outline" className="text-[10px]">
+                    <Badge>
+                      <span
+                        aria-hidden
+                        className={cn(
+                          'size-1.5 rounded-full',
+                          DB_TYPE_BG_COLOR[entry.dbType],
+                        )}
+                      />
                       {DB_TYPE_LABELS[entry.dbType]}
                     </Badge>
                   )}
@@ -153,6 +188,28 @@ export function PaletteContent({
               );
             })}
           </div>
+        )}
+      </div>
+
+      <div className="flex h-[38px] items-center gap-4 border-t border-line-subtle px-4 text-small text-fg-subtle">
+        <span className="inline-flex items-center gap-1.5">
+          <Kbd>↑</Kbd>
+          <Kbd>↓</Kbd>
+          navegar
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <Kbd>↵</Kbd>
+          abrir
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <Kbd>esc</Kbd>
+          fechar
+        </span>
+        <span className="flex-1" />
+        {hasResults && (
+          <span className="tabular-nums">
+            {resultCount} resultado{resultCount === 1 ? '' : 's'}
+          </span>
         )}
       </div>
     </div>

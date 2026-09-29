@@ -1,14 +1,30 @@
 import { HugeiconsIcon } from '@hugeicons/react';
-import { PanelRightIcon } from '@hugeicons/core-free-icons';
+import {
+  Alert02Icon,
+  ArrowRight01Icon,
+  PanelRightIcon,
+  RefreshIcon,
+  ServerStack01Icon,
+} from '@hugeicons/core-free-icons';
 import { memo } from 'react';
+import { ColumnSelector } from '@/components/column-selector/column-selector';
 import { ResultsTable } from '@/components/results-table/results-table';
 import { Button } from '@/components/ui/button';
-import { Typography } from '@/components/ui/typography';
-import { ColumnSelector } from '@/components/column-selector/column-selector';
+import { ContentState } from '@/components/ui/content-state';
+import { Tooltip } from '@/components/ui/tooltip/tooltip';
+import { DB_TYPE_TEXT_COLOR } from '@/lib/db-defaults';
+import { shortcut } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 import { FilterInput } from './filter-input/filter-input';
 import { useTableBrowser } from './use-table-browser';
 import type { TableBrowserProps } from './table-browser.types';
+
+const Crumb = () => (
+  <HugeiconsIcon
+    icon={ArrowRight01Icon}
+    className="size-3 shrink-0 text-fg-disabled"
+  />
+);
 
 /**
  * Browse view of a table/collection/key-group. Sort and pagination happen
@@ -34,6 +50,8 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
     applyWhere,
     resetWhere,
     supportsSql,
+    serverName,
+    dbType,
     fetchNextPage,
     setSort,
     setHiddenColumns,
@@ -45,54 +63,90 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
   } = useTableBrowser(tab);
 
   return (
-    <div className="flex flex-col h-full bg-sidebar rounded-md border border-border">
-      <div className="flex items-center gap-1.5 flex-wrap p-2">
-        <ColumnSelector
-          columns={columns}
-          hiddenColumns={hiddenColumns}
-          onChange={setHiddenColumns}
-        />
+    <div className="flex h-full flex-col overflow-hidden rounded-lg border border-line bg-surface-1">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line-subtle pr-2 pl-3">
+        <nav
+          aria-label="Local"
+          className="flex min-w-0 shrink-0 items-center gap-1.5 text-body text-fg-subtle"
+        >
+          <HugeiconsIcon
+            icon={ServerStack01Icon}
+            className={cn(
+              'size-[15px] shrink-0',
+              dbType ? DB_TYPE_TEXT_COLOR[dbType] : 'text-fg-subtle',
+            )}
+          />
+          <span className="max-w-40 truncate">{serverName}</span>
+          <Crumb />
+          <span className="max-w-32 truncate">{tab.schema ?? tab.database}</span>
+          <Crumb />
+          <span className="max-w-48 truncate font-medium text-fg">
+            {tab.table}
+          </span>
+        </nav>
 
-        {supportsSql && (
+        <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-line" />
+
+        {supportsSql ? (
           <FilterInput
             value={draftWhere}
             onChange={setDraftWhere}
             onApply={applyWhere}
             onReset={resetWhere}
           />
+        ) : (
+          // Sem WHERE (Mongo/Redis) os botões ainda ficam à direita.
+          <span className="flex-1" />
         )}
 
-        <Button
-          variant="outline"
-          size="sm"
-          // Sem o WHERE (Mongo/Redis) o botão ainda vai para a direita.
-          className={cn(
-            'ml-auto gap-1 text-xs',
-            // `dark:` também: a variante outline pinta o fundo no tema escuro.
-            isValuePanelOpen &&
-              'bg-accent text-accent-foreground dark:bg-accent',
-          )}
-          aria-pressed={isValuePanelOpen}
-          title="Painel de valor (Cmd/Ctrl+I)"
-          onClick={toggleValuePanel}
-        >
-          <HugeiconsIcon icon={PanelRightIcon} className="h-3 w-3" />
-          Valor
-        </Button>
+        <ColumnSelector
+          columns={columns}
+          hiddenColumns={hiddenColumns}
+          onChange={setHiddenColumns}
+        />
+
+        <Tooltip content={`Painel de valor (${shortcut('I')})`} position="bottom">
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-pressed={isValuePanelOpen}
+            onClick={toggleValuePanel}
+          >
+            <HugeiconsIcon icon={PanelRightIcon} />
+            Valor
+          </Button>
+        </Tooltip>
+
+        <Tooltip content={`Recarregar (${shortcut('R')})`} position="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Recarregar"
+            onClick={applyWhere}
+          >
+            <HugeiconsIcon icon={RefreshIcon} />
+          </Button>
+        </Tooltip>
       </div>
 
       {error ? (
-        <div className="flex flex-col flex-1 items-center justify-center gap-3">
-          <Typography
-            variant="p"
-            className="text-destructive text-sm max-w-md text-center"
-          >
-            {error.message}
-          </Typography>
-          <Button variant="outline" size="sm" onClick={applyWhere}>
-            Tentar novamente
-          </Button>
-        </div>
+        <ContentState
+          className="flex-1"
+          tone="danger"
+          icon={Alert02Icon}
+          title="A consulta falhou"
+          description={
+            <code className="inline-block max-w-md rounded-sm bg-danger-soft px-2.5 py-1.5 font-mono text-small break-words text-danger">
+              {error.message}
+            </code>
+          }
+          action={
+            <Button variant="outline" size="sm" onClick={applyWhere}>
+              <HugeiconsIcon icon={RefreshIcon} />
+              Tentar de novo
+            </Button>
+          }
+        />
       ) : (
         <ResultsTable
           className="flex-1 min-h-0"

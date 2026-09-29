@@ -23,16 +23,18 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { DataTableStatusBar } from './results-table-status-bar/results-table-status-bar';
 import { EmptyState } from './empty-state';
 import { LoadingState } from './loading-state';
+import { ResultsTablePendingBar } from './results-table-pending-bar/results-table-pending-bar';
 import { ResultsTableRowCell } from './results-table-row-cell/results-table-row-cell';
 import { ResultsTableVertical } from './results-table-vertical/results-table-vertical';
 import { ResultsTableValuePanel } from './results-table-value-panel/results-table-value-panel';
 import type { ValuePanelTarget } from './results-table-value-panel/results-table-value-panel.types';
 
-const ROW_HEIGHT = 32;
-const HEADER_HEIGHT = 36;
+// Densidade compacta do Ink (DESIGN.md §4): linha de 28, header de 40.
+const ROW_HEIGHT = 28;
+const HEADER_HEIGHT = 40;
 const COLUMN_WIDTH = 192;
 const MIN_COLUMN_WIDTH = 60;
-const GUTTER_WIDTH = 48;
+const GUTTER_WIDTH = 44;
 const OVERSCAN_Y = 10;
 const OVERSCAN_X = 3;
 
@@ -399,10 +401,7 @@ export const ResultsTable = memo(
     if (displayRows.length === 0) {
       return (
         <div
-          className={cn(
-            'flex flex-col h-full rounded-md border overflow-hidden',
-            className,
-          )}
+          className={cn('flex h-full flex-col overflow-hidden', className)}
         >
           <EmptyState className="flex-1 min-h-0" message={emptyMessage} />
           <DataTableStatusBar
@@ -412,18 +411,12 @@ export const ResultsTable = memo(
             totalCount={totalCount}
             isEditable={isEditable}
             editableInfo={editableInfo}
-            changesCount={changesCount}
-            addedCount={addedCount}
-            removedCount={removedCount}
-            pendingCount={pendingCount}
             isLoadingMore={isLoadingMore ?? false}
             hasMore={hasMore ?? false}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             onAddRow={addRow}
-            onDiscardChanges={discardChanges}
-            onSave={save}
-            onExport={() => setIsExportOpen(true)}
+                        onExport={() => setIsExportOpen(true)}
           />
         </div>
       );
@@ -431,12 +424,9 @@ export const ResultsTable = memo(
 
     return (
       <div
-        className={cn(
-          'flex flex-col h-full overflow-hidden border-t border-border',
-          className,
-        )}
+        className={cn('flex h-full flex-col overflow-hidden', className)}
       >
-        <div className="flex-1 min-h-0">
+        <div className="relative flex-1 min-h-0">
           {/* O grupo existe mesmo com o painel fechado: abrir/fechar só
               acrescenta o irmão, sem remontar a grade (e perder a rolagem). */}
           <ResizablePanelGroup
@@ -479,14 +469,14 @@ export const ResultsTable = memo(
                 >
                   {/* Header — sticky gutter + only visible columns */}
                   <div
-                    className="bg-background sticky top-0 z-20 border-b border-border"
+                    className="sticky top-0 z-20 border-b border-line bg-surface-2"
                     style={{
                       width: `${contentWidth}px`,
                       height: `${HEADER_HEIGHT}px`,
                     }}
                   >
                     <div
-                      className="sticky left-0 z-30 bg-sidebar border-r border-border flex items-center justify-center text-[10px] text-muted-foreground"
+                      className="sticky left-0 z-30 flex items-center justify-end border-r border-line-subtle bg-surface-2 px-2 font-mono text-[11px] text-fg-subtle"
                       style={{
                         width: `${GUTTER_WIDTH}px`,
                         height: `${HEADER_HEIGHT}px`,
@@ -530,7 +520,7 @@ export const ResultsTable = memo(
                                 virtualColumn.size,
                               )
                             }
-                            className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize select-none hover:bg-primary/60 active:bg-primary"
+                            className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize select-none transition-colors hover:bg-line-strong active:bg-ring"
                           />
                         </div>
                       );
@@ -558,7 +548,6 @@ export const ResultsTable = memo(
                           isAdded={isRowAdded(virtualRow.index)}
                           isRemoved={isRowRemoved(virtualRow.index)}
                           isSelected={isRowSelected(virtualRow.index)}
-                          isEven={virtualRow.index % 2 === 0}
                           rowHeight={ROW_HEIGHT}
                           rowStart={virtualRow.start}
                           gutterWidth={GUTTER_WIDTH}
@@ -595,7 +584,7 @@ export const ResultsTable = memo(
 
             {showValuePanel && (
               <>
-                <ResizableHandle className="cursor-col-resize!" />
+                <ResizableHandle className="cursor-col-resize! bg-line-subtle" />
                 <ResizablePanel
                   id="results-value-panel"
                   order={2}
@@ -613,6 +602,19 @@ export const ResultsTable = memo(
               </>
             )}
           </ResizablePanelGroup>
+
+          {/* Pendências flutuam sobre a grade, em vidro, só enquanto existem. */}
+          {pendingCount > 0 && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-4 z-40 flex justify-center px-4">
+              <ResultsTablePendingBar
+                changesCount={changesCount}
+                addedCount={addedCount}
+                removedCount={removedCount}
+                onDiscard={discardChanges}
+                onSave={save}
+              />
+            </div>
+          )}
         </div>
 
         <DataTableStatusBar
@@ -622,18 +624,12 @@ export const ResultsTable = memo(
           totalCount={totalCount}
           isEditable={isEditable}
           editableInfo={editableInfo}
-          changesCount={changesCount}
-          addedCount={addedCount}
-          removedCount={removedCount}
-          pendingCount={pendingCount}
           isLoadingMore={isLoadingMore ?? false}
           hasMore={hasMore ?? false}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           onAddRow={addRow}
-          onDiscardChanges={discardChanges}
-          onSave={save}
-          onExport={() => setIsExportOpen(true)}
+                  onExport={() => setIsExportOpen(true)}
         />
 
         <ExportDialog

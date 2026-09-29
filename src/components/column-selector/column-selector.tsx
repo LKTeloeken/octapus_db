@@ -1,4 +1,7 @@
-import { Search01Icon, ViewIcon } from '@hugeicons/core-free-icons';
+import {
+  LayoutThreeColumnIcon,
+  Search01Icon,
+} from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -80,19 +83,18 @@ export const ColumnSelector = memo(
           <Button
             variant="outline"
             size="sm"
-            className="gap-1 text-xs"
             disabled={columns.length === 0}
             title="Filtrar colunas (Cmd/Ctrl+Shift+H)"
           >
-            <HugeiconsIcon icon={ViewIcon} className="h-3 w-3" />
+            <HugeiconsIcon icon={LayoutThreeColumnIcon} />
             Colunas
-            <span className="text-muted-foreground">
+            <span className="tabular-nums text-fg-subtle">
               {visibleCount}/{columns.length}
             </span>
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="w-64 p-2 flex flex-col gap-2"
+          className="flex w-64 flex-col gap-1 p-1.5"
           align="start"
           onOpenAutoFocus={event => {
             event.preventDefault();
@@ -105,9 +107,10 @@ export const ColumnSelector = memo(
             placeholder="Buscar coluna"
             value={search}
             onChange={e => setSearch(e.target.value)}
+            className="mb-1"
             InputProps={{
               startAdornment: (
-                <HugeiconsIcon icon={Search01Icon} className="h-3.5 w-3.5" />
+                <HugeiconsIcon icon={Search01Icon} className="size-3.5" />
               ),
             }}
           />
@@ -115,23 +118,23 @@ export const ColumnSelector = memo(
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 justify-start text-xs"
+            className="justify-start px-2 font-normal"
             disabled={allVisible}
             onClick={() => onChange([])}
           >
             Mostrar todas
           </Button>
 
-          <div className="flex flex-col gap-0.5 max-h-60 overflow-y-auto scrollbar-thin">
+          <div className="flex max-h-60 flex-col overflow-y-auto scrollbar-thin">
             {filtered.length === 0 ? (
-              <span className="px-2 py-1.5 text-xs text-muted-foreground">
+              <span className="px-2 py-1.5 text-small text-fg-subtle">
                 Nenhuma coluna encontrada
               </span>
             ) : (
               filtered.map(col => (
                 <label
                   key={col.name}
-                  className="flex items-center gap-2 px-2 py-1 rounded-sm text-xs cursor-pointer hover:bg-accent"
+                  className="flex h-7 shrink-0 cursor-pointer items-center gap-2 rounded-sm px-2 text-body text-fg transition-colors hover:bg-active"
                 >
                   <Checkbox
                     checked={isChecked(col.name)}

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { QueryMessage, QueryMessageKind } from '@/api/types/query.types';
-import { Typography } from '@/components/ui/typography';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type {
   QueryLogEntry,
@@ -10,12 +10,13 @@ import type {
 /** Distância do fim em que ainda consideramos que o usuário está acompanhando */
 const AUTOSCROLL_THRESHOLD_PX = 40;
 
+// Mesmos tons dos badges: NOTICE em info, WARNING em warning, ERROR em danger.
 const KIND_STYLES: Record<QueryMessageKind, string> = {
-  notice: 'text-sky-400 border-sky-400/30',
-  warning: 'text-amber-400 border-amber-400/30',
-  error: 'text-destructive border-destructive/40',
-  info: 'text-muted-foreground border-border',
-  status: 'text-muted-foreground border-border',
+  notice: 'bg-info-soft text-info',
+  warning: 'bg-warning-soft text-warning',
+  error: 'bg-danger-soft text-danger',
+  info: 'bg-hover text-fg-muted',
+  status: 'bg-hover text-fg-muted',
 };
 
 const formatTime = (timestampMs: number) =>
@@ -41,15 +42,15 @@ const MessageRow = memo(({ message }: { message: QueryMessage }) => {
   ].filter(Boolean) as string[];
 
   return (
-    <div className="flex gap-2 px-3 py-1 font-mono text-xs leading-relaxed">
-      <span className="text-muted-foreground shrink-0 tabular-nums">
+    <div className="flex gap-2.5 px-3.5 py-1 font-mono text-small leading-5">
+      <span className="shrink-0 tabular-nums text-fg-subtle">
         {formatTime(message.timestampMs)}
       </span>
       <span
         className={cn(
           // self-start: sem isso o flex row estica o chip até a altura do
           // bloco de texto, que pode ter várias linhas de DETAIL/CONTEXT.
-          'shrink-0 self-start rounded border px-1.5 py-0.5 uppercase',
+          'mt-px inline-flex h-[18px] shrink-0 items-center self-start rounded-[5px] px-1.5 text-[11px] font-medium uppercase',
           KIND_STYLES[message.kind],
         )}
       >
@@ -59,13 +60,13 @@ const MessageRow = memo(({ message }: { message: QueryMessage }) => {
         <p
           className={cn(
             'whitespace-pre-wrap wrap-break-word',
-            message.kind === 'error' && 'text-destructive',
+            message.kind === 'error' ? 'text-danger' : 'text-fg',
           )}
         >
           {message.message}
         </p>
         {extras.length > 0 && (
-          <pre className="mt-0.5 whitespace-pre-wrap wrap-break-word text-muted-foreground">
+          <pre className="mt-0.5 whitespace-pre-wrap wrap-break-word text-fg-muted">
             {extras.join('\n')}
           </pre>
         )}
@@ -77,8 +78,8 @@ const MessageRow = memo(({ message }: { message: QueryMessage }) => {
 MessageRow.displayName = 'MessageRow';
 
 const LogEntry = memo(({ entry }: { entry: QueryLogEntry }) => (
-  <div className="border-b border-border/60 last:border-b-0">
-    <div className="flex gap-2 bg-muted/40 px-3 py-1 font-mono text-[11px] text-muted-foreground">
+  <div className="border-b border-line-subtle last:border-b-0">
+    <div className="flex gap-2.5 bg-surface-2 px-3.5 py-1.5 font-mono text-[11px] text-fg-subtle">
       <span className="shrink-0 tabular-nums">
         {formatTime(entry.startedAt)}
       </span>
@@ -128,11 +129,12 @@ export const QueryMessagesLog = memo(
     if (entries.length === 0) {
       return (
         <div
-          className={cn('flex h-full items-center justify-center', className)}
+          className={cn(
+            'flex h-full items-center justify-center text-body text-fg-subtle',
+            className,
+          )}
         >
-          <Typography variant="p" className="text-muted-foreground">
-            Nenhuma mensagem ainda
-          </Typography>
+          Nenhuma mensagem ainda
         </div>
       );
     }
@@ -149,18 +151,14 @@ export const QueryMessagesLog = memo(
           ))}
         </div>
 
-        <div className="flex shrink-0 items-center justify-between border-t border-border bg-purple-glow px-3 py-1.5 text-xs text-foreground">
+        <div className="flex h-8 shrink-0 items-center justify-between border-t border-line-subtle bg-surface-1 pr-1.5 pl-3.5 text-small text-fg-muted">
           <span>
             {totalMessages} mensage{totalMessages === 1 ? 'm' : 'ns'} em{' '}
             {entries.length} execuç{entries.length === 1 ? 'ão' : 'ões'}
           </span>
-          <button
-            type="button"
-            className="rounded border border-accent/25 px-2 py-0.5 transition-colors hover:bg-muted/60"
-            onClick={onClear}
-          >
+          <Button variant="ghost" size="xs" onClick={onClear}>
             Limpar
-          </button>
+          </Button>
         </div>
       </div>
     );

@@ -4,10 +4,12 @@ import { Spinner } from '@/components/ui/spinner';
 import { ErrorRow } from './error-row';
 import { NodeRow } from './node-row/node-row';
 import { useConnectionTree } from './use-connection-tree';
+import { useTreeEnterAnimation } from './use-tree-enter-animation';
 import { useTreeNavigation } from './use-tree-navigation';
 import type { ConnectionTreeProps } from './connection-tree.types';
 
-const ROW_HEIGHT = 32;
+// Linha de 28 px + 1 px de respiro entre as linhas.
+const ROW_HEIGHT = 29;
 const OVERSCAN = 12;
 
 /**
@@ -26,6 +28,7 @@ export const ConnectionTree = memo(({ onEditServer }: ConnectionTreeProps) => {
     },
   );
   const parentRef = useRef<HTMLDivElement>(null);
+  const { getEnterDelay } = useTreeEnterAnimation(rows);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -45,7 +48,7 @@ export const ConnectionTree = memo(({ onEditServer }: ConnectionTreeProps) => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-4">
-        <Spinner className="h-4 w-4" />
+        <Spinner className="size-4 text-fg-subtle" />
       </div>
     );
   }
@@ -62,7 +65,9 @@ export const ConnectionTree = memo(({ onEditServer }: ConnectionTreeProps) => {
 
   if (isEmpty) {
     return (
-      <p className="text-sm text-muted-foreground">No servers connected</p>
+      <p className="px-2 py-1 text-small text-fg-subtle">
+        Nenhum servidor ainda — use o + para adicionar.
+      </p>
     );
   }
 
@@ -82,6 +87,7 @@ export const ConnectionTree = memo(({ onEditServer }: ConnectionTreeProps) => {
         {virtualizer.getVirtualItems().map(virtualRow => {
           const row = rows[virtualRow.index];
           if (!row) return null;
+          const enterDelay = getEnterDelay(virtualRow.index);
 
           return (
             <div
@@ -97,15 +103,33 @@ export const ConnectionTree = memo(({ onEditServer }: ConnectionTreeProps) => {
                 transform: `translateY(${virtualRow.start}px)`,
               }}
             >
-              {row.variant === 'error' ? (
-                <ErrorRow
-                  level={row.level}
-                  message={row.message}
-                  onRetry={row.onRetry}
-                />
-              ) : (
-                <NodeRow {...row.props} isFocused={row.id === focusedNodeId} />
-              )}
+              {/* A animação de entrada vai num elemento interno: o externo já usa
+                  `transform` para se posicionar na lista virtual. */}
+              <div
+                className={
+                  enterDelay === null
+                    ? undefined
+                    : 'animate-in fade-in-0 slide-in-from-top-1 fill-mode-both duration-180 ease-out'
+                }
+                style={
+                  enterDelay === null
+                    ? undefined
+                    : { animationDelay: `${enterDelay}ms` }
+                }
+              >
+                {row.variant === 'error' ? (
+                  <ErrorRow
+                    level={row.level}
+                    message={row.message}
+                    onRetry={row.onRetry}
+                  />
+                ) : (
+                  <NodeRow
+                    {...row.props}
+                    isFocused={row.id === focusedNodeId}
+                  />
+                )}
+              </div>
             </div>
           );
         })}

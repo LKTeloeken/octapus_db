@@ -131,3 +131,5 @@ cd src-tauri && cargo build && cargo clippy && cargo test
   de dados e como cada tela consome o back.
 - **[FRONTEND.md](FRONTEND.md)** — referência do frontend: estrutura, gerência de estado,
   camada de API e o componente de tabela.
+- **[DESIGN.md](DESIGN.md)** — design system (Ink): cor, tipografia, espaço, movimento,
+  vidro, componentes e o roteiro de migração visual.

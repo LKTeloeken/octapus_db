@@ -54,7 +54,7 @@ export const DateEditor = memo(function DateEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+      <label className="text-micro font-medium uppercase text-fg-subtle">
         Editar{' '}
         {type === 'date' ? 'data' : type === 'time' ? 'hora' : 'data/hora'}
       </label>
@@ -62,9 +62,9 @@ export const DateEditor = memo(function DateEditor({
         type={inputType}
         step={type === 'time' || type === 'datetime' ? '1' : undefined}
         className={
-          'w-full p-2 text-xs font-mono bg-background border rounded-md ' +
-          'focus:outline-none focus:ring-1 focus:ring-ring ' +
-          (error ? 'border-red-500' : 'border-border')
+          'w-full p-2 text-small font-mono text-fg bg-field border rounded-sm ' +
+          'outline-none transition-[border-color,box-shadow] focus:border-iris-text focus:ring-3 focus:ring-iris-soft ' +
+          (error ? 'border-danger' : 'border-line')
         }
         value={editValue}
         onChange={e => {
@@ -74,7 +74,7 @@ export const DateEditor = memo(function DateEditor({
         onKeyDown={handleKeyDown}
         autoFocus
       />
-      {error && <span className="text-[10px] text-red-400">{error}</span>}
+      {error && <span className="text-small text-danger">{error}</span>}
       <EditorFooter onSave={handleSave} onCancel={onCancel} onSetNull={onSetNull} />
     </div>
   );

@@ -6,7 +6,7 @@
   bundles = {
     x86_64-linux = {
       arch = "amd64";
-      hash = "sha256-UN9NGAuXl3dhjPWOBrOlcUmwLVflzYXE8PYVTI3M0AM=";
+      hash = "sha256-DQiPgKmDCcxFFJGveVkOb+EBriBNxYPnm5GHP67kJHA=";
     };
   };
 }

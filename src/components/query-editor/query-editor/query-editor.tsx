@@ -1,6 +1,5 @@
-import { useMemo, useRef } from 'react';
-import CodeMirror from '@uiw/react-codemirror';
-import { oneDark } from '@codemirror/theme-one-dark';
+import { useImperativeHandle, useMemo, useRef, type Ref } from 'react';
+import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import {
   autocompletion,
   snippetCompletion,
@@ -14,6 +13,8 @@ import { keymap, placeholder, EditorView } from '@codemirror/view';
 import { Prec, type Extension } from '@codemirror/state';
 import { keywordCompletionSource, sql, PostgreSQL } from '@codemirror/lang-sql';
 import { javascript } from '@codemirror/lang-javascript';
+import { inkEditorTheme } from '@/lib/codemirror-theme';
+import { useUiStore } from '@/stores/ui-store';
 import { withClauseBoost } from './sql-completion/sql-clause-boost';
 import {
   sqlStaticSource,
@@ -85,6 +86,7 @@ export interface QueryEditorProps {
   minHeight?: string;
   maxHeight?: string;
 
+  /** Sem valor, segue o tema do app */
   theme?: QueryEditorTheme;
   readOnly?: boolean;
   autoFocus?: boolean;
@@ -96,6 +98,14 @@ export interface QueryEditorProps {
   onRun?: (query: string, context: QueryEditorRunContext) => void;
 
   className?: string;
+
+  /** Handle imperativo: o botão Executar da toolbar roda o mesmo que o Mod-Enter */
+  ref?: Ref<QueryEditorHandle>;
+}
+
+export interface QueryEditorHandle {
+  /** Executa a seleção (ou tudo, conforme o `runMode`) — igual ao Mod-Enter */
+  run: () => void;
 }
 
 export type QueryEditorRunMode = 'all' | 'selection' | 'selection-or-all';
@@ -443,15 +453,41 @@ export function QueryEditor({
   height = '360px',
   minHeight,
   maxHeight,
-  theme = 'dark',
+  theme,
   readOnly = false,
   autoFocus = false,
   placeholderText = 'Write your query...',
-  fontSize = 14,
+  fontSize = 13,
   runMode = 'selection-or-all',
   onRun,
   className,
+  ref,
 }: QueryEditorProps) {
+  const appTheme = useUiStore(state => state.theme);
+  const resolvedTheme = theme ?? appTheme;
+  const editorTheme = useMemo(
+    () => inkEditorTheme(resolvedTheme === 'dark'),
+    [resolvedTheme],
+  );
+
+  const codeMirrorRef = useRef<ReactCodeMirrorRef>(null);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      run: () => {
+        const view = codeMirrorRef.current?.view;
+        if (!view) return;
+
+        const runnableQuery = getRunnableQuery(view, runMode);
+        if (runnableQuery) onRun?.(runnableQuery.query, runnableQuery.context);
+        // O foco volta ao editor, como depois do atalho.
+        view.focus();
+      },
+    }),
+    [onRun, runMode],
+  );
+
   // Adaptador de identidade fixa: a prop pode oscilar sem reconfigurar o editor.
   const sqlSourceRef = useRef(sqlCompletionSource);
   sqlSourceRef.current = sqlCompletionSource;
@@ -499,8 +535,8 @@ export function QueryEditor({
 
   /**
    * Cabeçalho de grupo do popup de sugestão (`<completion-section>`, elemento próprio do
-   * CodeMirror). Vive no tema do editor, não no CSS global, porque a cor precisa casar com
-   * o tema do CodeMirror (oneDark) e não com o tema do app.
+   * CodeMirror). As cores vêm dos tokens do Ink, as mesmas do resto do popup
+   * (lib/codemirror-theme.ts), então acompanham claro/escuro sozinhas.
    *
    * O `z-index` e o fundo opaco são o que segura o cabeçalho acima das opções ao rolar: os
    * `li` são transparentes e, sem isso, pintam por cima do cabeçalho grudado.
@@ -509,26 +545,26 @@ export function QueryEditor({
    * tema base, e sem empatar na especificidade o `opacity: .7` dele continuaria vencendo —
    * era o que deixava o cabeçalho translúcido.
    */
-  const completionSectionTheme = useMemo(() => {
-    const dark = theme === 'dark';
-
-    return EditorView.theme({
-      '.cm-tooltip.cm-tooltip-autocomplete > ul > completion-section': {
-        position: 'sticky',
-        top: '0',
-        zIndex: '1',
-        // Mesmo tom do fundo do tooltip em cada tema (o oneDark não exporta a constante).
-        backgroundColor: dark ? '#353a42' : '#ffffff',
-        borderBottom: `1px solid ${dark ? '#4b5263' : '#d0d7de'}`,
-        color: dark ? '#9aa3b2' : '#57606a',
-        opacity: '1',
-        fontSize: '90%',
-        textTransform: 'uppercase',
-        letterSpacing: '0.04em',
-        padding: '2px 6px',
-      },
-    });
-  }, [theme]);
+  const completionSectionTheme = useMemo(
+    () =>
+      EditorView.theme({
+        '.cm-tooltip.cm-tooltip-autocomplete > ul > completion-section': {
+          position: 'sticky',
+          top: '0',
+          zIndex: '1',
+          backgroundColor: 'var(--surface-3)',
+          borderBottom: '1px solid var(--line-subtle)',
+          color: 'var(--fg-subtle)',
+          opacity: '1',
+          fontSize: '11px',
+          fontWeight: '500',
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em',
+          padding: '6px 8px 4px',
+        },
+      }),
+    [],
+  );
 
   const runQueryKeymap = useMemo(() => {
     return Prec.highest(
@@ -588,11 +624,12 @@ export function QueryEditor({
   return (
     <div className={className}>
       <CodeMirror
+        ref={codeMirrorRef}
         value={value}
         height={height}
         minHeight={minHeight}
         maxHeight={maxHeight}
-        theme={theme === 'dark' ? oneDark : 'light'}
+        theme={editorTheme}
         extensions={extensions}
         editable={!readOnly}
         readOnly={readOnly}
@@ -621,7 +658,6 @@ export function QueryEditor({
         style={{
           fontSize,
           overflow: 'hidden',
-          border: theme === 'dark' ? '1px solid #2d3340' : '1px solid #d0d7de',
           // Acompanha o container (painel redimensionável) em vez de altura fixa.
           height,
         }}

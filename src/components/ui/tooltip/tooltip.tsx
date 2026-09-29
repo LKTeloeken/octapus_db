@@ -8,16 +8,19 @@ import {
   Provider,
 } from '@radix-ui/react-tooltip';
 import { cn } from '@/lib/utils';
+import { TOOLTIP_MOTION } from '../motion';
 
 export const TooltipProvider = Provider;
 
+/** Sólido (superfície 3), 12 px, sem seta por padrão; fade curto de 2 px. */
 export function Tooltip({
   position = 'top',
   content,
   children,
   className,
-  delayDuration = 0,
-  arrow = true,
+  // Sem valor: herda o atraso do TooltipProvider (app.tsx).
+  delayDuration,
+  arrow = false,
   sideOffset,
 }: TooltipProps) {
   return (
@@ -29,15 +32,16 @@ export function Tooltip({
       <Portal>
         <Content
           className={cn(
-            'bg-popover text-popover-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance',
+            'z-50 inline-flex w-fit min-h-7 items-center gap-2 origin-(--radix-tooltip-content-transform-origin) rounded-sm border border-line bg-surface-3 px-2.5 py-1 text-small text-fg text-balance shadow-overlay',
+            TOOLTIP_MOTION,
             className,
           )}
           side={position}
-          sideOffset={sideOffset ?? (arrow ? 6 : 4)}
+          sideOffset={sideOffset ?? 6}
         >
           {content}
           {arrow && (
-            <Arrow className="bg-popover fill-popover z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-xs" />
+            <Arrow className="z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-xs bg-surface-3 fill-surface-3" />
           )}
         </Content>
       </Portal>

@@ -1,14 +1,13 @@
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Cancel01Icon } from '@hugeicons/core-free-icons';
+import { Cancel01Icon, Undo02Icon } from '@hugeicons/core-free-icons';
 import { memo } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ResultsTableValuePanelProps } from './results-table-value-panel.types';
 import { useResultsTableValuePanel } from './use-results-table-value-panel';
 import { ValueEditor } from './value-editor';
 import { ValueFormatMenu } from './value-format-menu';
-
-const HEADER_BUTTON_CLASS =
-  'inline-flex h-6 items-center rounded border border-border px-1.5 text-[11px] text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors';
 
 /**
  * Painel lateral com o valor da célula sob o cursor da grade — o "Value
@@ -40,27 +39,17 @@ export const ResultsTableValuePanel = memo(
     } = useResultsTableValuePanel({ target, updateCell });
 
     return (
-      <div className="flex h-full min-w-0 flex-col bg-sidebar">
-        <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border px-2">
-          <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
-            {target ? (
-              <>
-                <span
-                  className="truncate font-mono text-xs font-medium"
-                  title={target.column.name}
-                >
-                  {target.column.name}
-                </span>
-                <span className="truncate text-[10px] text-muted-foreground">
-                  {target.column.typeName}
-                </span>
-              </>
-            ) : (
-              <span className="text-xs font-medium text-muted-foreground">
-                Valor
+      <div className="flex h-full min-w-0 flex-col bg-surface-1">
+        <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-line-subtle pr-1.5 pl-3.5">
+          <span className="shrink-0 text-body font-semibold text-fg">Valor</span>
+          {target && (
+            <Badge mono className="min-w-0" title={target.column.name}>
+              <span className="truncate">
+                {target.column.name} · {target.column.typeName}
               </span>
-            )}
-          </div>
+            </Badge>
+          )}
+          <span className="flex-1" />
 
           {target && isFormattable && (
             <ValueFormatMenu
@@ -78,36 +67,39 @@ export const ResultsTableValuePanel = memo(
           )}
 
           {target?.isModified && (
-            <button
-              type="button"
-              className={HEADER_BUTTON_CLASS}
+            <Button
+              variant="ghost"
+              size="xs"
               title="Desfazer a edição pendente desta célula"
               onClick={revert}
             >
+              <HugeiconsIcon icon={Undo02Icon} />
               Desfazer
-            </button>
+            </Button>
           )}
 
           {target?.isEditable && target.value !== null && (
-            <button
-              type="button"
-              className={cn(HEADER_BUTTON_CLASS, 'italic')}
+            <Button
+              variant="ghost"
+              size="xs"
+              className="italic"
               title="Definir NULL"
               onClick={setNull}
             >
               NULL
-            </button>
+            </Button>
           )}
 
           {onClose && (
-            <button
-              type="button"
-              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Fechar painel de valor"
               title="Fechar painel de valor"
               onClick={onClose}
             >
-              <HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
-            </button>
+              <HugeiconsIcon icon={Cancel01Icon} />
+            </Button>
           )}
         </div>
 
@@ -124,36 +116,40 @@ export const ResultsTableValuePanel = memo(
               onEscape={onEscape}
             />
           ) : (
-            <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
+            <div className="flex h-full items-center justify-center p-4 text-center text-small text-fg-subtle">
               Selecione uma célula para ver o valor
             </div>
           )}
         </div>
 
         {target && (
-          <div className="flex shrink-0 items-center gap-2 border-t border-border px-2 py-1 text-[10px] text-muted-foreground">
+          <div className="flex h-9 shrink-0 items-center gap-2 border-t border-line-subtle px-3.5 text-small text-fg-subtle">
             {issue ? (
               <span
                 className={cn(
                   'truncate',
-                  issue.blocking ? 'text-red-400' : 'text-yellow-400',
+                  issue.blocking ? 'text-danger' : 'text-warning',
                 )}
               >
                 {issue.message}
+              </span>
+            ) : target.isModified ? (
+              <span className="inline-flex items-center gap-2 truncate">
+                <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning" />
+                Edição pendente · linha {target.rowIndex + 1}
               </span>
             ) : (
               <span>Linha {target.rowIndex + 1}</span>
             )}
             <span className="ml-auto flex shrink-0 items-center gap-2">
-              {target.isModified && (
-                <span className="text-yellow-400">pendente</span>
-              )}
               {!target.isEditable ? (
                 <span>somente leitura</span>
               ) : (
                 format === 'binary' && <span>visão binária: só leitura</span>
               )}
-              <span className={cn(sizeLabel === null && 'italic')}>
+              <span
+                className={cn('font-mono text-[11px]', sizeLabel === null && 'italic')}
+              >
                 {sizeLabel ?? 'NULL'}
               </span>
             </span>
