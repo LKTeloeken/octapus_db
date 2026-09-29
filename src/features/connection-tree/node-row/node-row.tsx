@@ -1,14 +1,13 @@
 import {
-  ArrowDown01Icon,
   ArrowRight01Icon,
   DatabaseIcon,
   Folder01Icon,
   HashtagIcon,
   MoreHorizontalIcon,
+  ServerStack01Icon,
   TableIcon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Server as ServerIcon } from 'lucide-react';
 import { memo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,36 +17,25 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Spinner } from '@/components/ui/spinner';
+import { DB_TYPE_TEXT_COLOR } from '@/lib/db-defaults';
 import { formatBytes } from '@/lib/format-bytes';
 import { cn } from '@/lib/utils';
 import type { NodeKind } from '@/lib/node-ref';
 import type { NodeRowProps } from './node-row.types';
 
-const ICON_CLASS = 'min-w-4 min-h-4 max-w-4 max-h-4';
-
-const KIND_ICONS: Record<Exclude<NodeKind, 'server'>, typeof DatabaseIcon> = {
+const KIND_ICONS: Record<NodeKind, typeof DatabaseIcon> = {
+  server: ServerStack01Icon,
   database: DatabaseIcon,
   schema: Folder01Icon,
   table: TableIcon,
   column: HashtagIcon,
 };
 
-const NodeKindIcon = ({
-  kind,
-  isHighlighted,
-}: {
-  kind: NodeKind;
-  isHighlighted?: boolean;
-}) => {
-  if (kind === 'server') {
-    return (
-      <ServerIcon className={cn(ICON_CLASS, isHighlighted && 'text-primary')} />
-    );
-  }
-
-  return <HugeiconsIcon icon={KIND_ICONS[kind]} className={ICON_CLASS} />;
-};
-
+/**
+ * Linha da árvore (28 px). O ícone é neutro, exceto o do servidor, que leva a
+ * cor do banco; o chevron gira em vez de trocar de ícone; a tabela aberta na
+ * aba ativa fica em `--active`; o cursor do teclado é um anel, não um fundo.
+ */
 export const NodeRow = memo(
   ({
     level,
@@ -58,7 +46,8 @@ export const NodeRow = memo(
     hasChildren,
     isExpanded,
     isLoading,
-    isHighlighted,
+    dbType,
+    isOpen,
     isFocused,
     onClick,
     actions,
@@ -66,16 +55,19 @@ export const NodeRow = memo(
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const hasActions = !!actions?.length;
     const hasSize = sizeBytes != null;
+    const isServer = kind === 'server';
 
     return (
       <div
         className={cn(
-          'flex items-center gap-2 py-1 px-2 cursor-pointer hover:text-foreground hover:bg-surface-light/50 rounded-md transition-color group relative',
+          'group relative flex h-7 cursor-pointer items-center gap-1.5 rounded-sm pr-2 text-body transition-colors',
+          isServer ? 'font-medium text-fg' : 'text-fg-muted',
+          isOpen ? 'bg-active text-fg' : 'hover:bg-hover hover:text-fg',
+          isFocused && 'ring-[1.5px] ring-inset ring-ring',
           // Espaço reservado para o botão absoluto de ações
           hasActions && !hasSize && 'pr-8',
-          isFocused && 'bg-surface-light/40 ring-1 ring-inset ring-primary',
         )}
-        style={{ paddingLeft: `${level * 1.25 + 0.5}rem` }}
+        style={{ paddingLeft: `${6 + level * 14}px` }}
         onClick={onClick}
         onContextMenu={
           hasActions
@@ -87,34 +79,44 @@ export const NodeRow = memo(
             : undefined
         }
       >
-        <div className="flex items-center justify-center w-4 h-4 shrink-0">
+        <span className="flex size-3.5 shrink-0 items-center justify-center">
           {hasChildren &&
             (isLoading ? (
-              <Spinner className="w-3 h-3" />
+              <Spinner className="size-3 text-fg-subtle" />
             ) : (
               <HugeiconsIcon
-                icon={isExpanded ? ArrowDown01Icon : ArrowRight01Icon}
-                className={cn(ICON_CLASS, 'text-foreground')}
+                icon={ArrowRight01Icon}
+                className={cn(
+                  'size-3.5 text-fg-subtle transition-transform duration-120 ease-standard motion-reduce:transition-none',
+                  isExpanded && 'rotate-90',
+                )}
               />
             ))}
-        </div>
+        </span>
 
-        <div className="flex items-center gap-2 min-w-0">
-          <NodeKindIcon kind={kind} isHighlighted={isHighlighted} />
+        <HugeiconsIcon
+          icon={KIND_ICONS[kind]}
+          className={cn(
+            'size-4 shrink-0',
+            isServer && dbType
+              ? DB_TYPE_TEXT_COLOR[dbType]
+              : isOpen
+                ? 'text-fg'
+                : 'text-fg-subtle',
+          )}
+        />
 
-          <div className="flex items-baseline gap-1.5 min-w-0">
-            <div className="text-sm truncate">{name}</div>
-            {subLabel && (
-              <div className="text-xs text-muted-foreground truncate">
-                {subLabel}
-              </div>
-            )}
-          </div>
-        </div>
+        {/* O nome tem prioridade: o rótulo secundário (tipo, contagem) encolhe antes. */}
+        <span className="min-w-0 truncate">{name}</span>
+        {subLabel && (
+          <span className="min-w-0 shrink-[3] truncate text-small font-normal text-fg-subtle tabular-nums">
+            {subLabel}
+          </span>
+        )}
 
         {hasSize && (
           <span
-            className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums"
+            className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle"
             title={`${sizeBytes.toLocaleString()} bytes`}
           >
             {formatBytes(sizeBytes)}
@@ -129,7 +131,7 @@ export const NodeRow = memo(
             ) : (
               <div
                 className={cn(
-                  'absolute right-2 transition-opacity',
+                  'absolute right-1 transition-opacity',
                   isMenuOpen
                     ? 'opacity-100'
                     : 'opacity-0 group-hover:opacity-100',
@@ -138,32 +140,32 @@ export const NodeRow = memo(
                 <PopoverTrigger asChild>
                   <Button
                     variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
+                    size="icon-xs"
+                    aria-label={`Ações de ${name}`}
                     onClick={event => event.stopPropagation()}
                   >
-                    <HugeiconsIcon
-                      icon={MoreHorizontalIcon}
-                      className="h-4 w-4"
-                    />
+                    <HugeiconsIcon icon={MoreHorizontalIcon} />
                   </Button>
                 </PopoverTrigger>
               </div>
             )}
-            <PopoverContent className="w-36 p-1" align="end">
+            <PopoverContent className="w-40 p-1.5" align="end">
               {actions.map(action => (
                 <Button
                   key={action.label}
                   variant="ghost"
                   size="sm"
-                  className="w-full justify-start gap-2"
+                  className="w-full justify-start gap-2 px-2 font-normal text-fg hover:bg-active"
                   onClick={event => {
                     event.stopPropagation();
                     action.onSelect();
                     setIsMenuOpen(false);
                   }}
                 >
-                  <HugeiconsIcon icon={action.icon} className="h-3 w-3" />
+                  <HugeiconsIcon
+                    icon={action.icon}
+                    className="size-4 text-fg-muted"
+                  />
                   {action.label}
                 </Button>
               ))}

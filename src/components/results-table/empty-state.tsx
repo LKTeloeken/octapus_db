@@ -1,5 +1,5 @@
-import { cn } from '@/lib/utils';
-import { Typography } from '../ui/typography';
+import { TableIcon } from '@hugeicons/core-free-icons';
+import { ContentState } from '../ui/content-state';
 
 interface EmptyStateProps {
   className?: string;
@@ -10,13 +10,5 @@ export const EmptyState = ({
   className,
   message = 'Execute uma query para ver resultados',
 }: EmptyStateProps) => {
-  return (
-    <div className={cn('flex flex-col h-full', className)}>
-      <div className="flex h-full items-center justify-center">
-        <Typography variant="p" className="text-muted-foreground">
-          {message}
-        </Typography>
-      </div>
-    </div>
-  );
+  return <ContentState className={className} icon={TableIcon} title={message} />;
 };

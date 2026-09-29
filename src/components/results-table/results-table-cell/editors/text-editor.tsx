@@ -30,11 +30,11 @@ export const TextEditor = memo(function TextEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+      <label className="text-micro font-medium uppercase text-fg-subtle">
         Editar texto
       </label>
       <textarea
-        className="w-full min-h-[80px] max-h-[200px] p-2 text-xs font-mono bg-background border border-border rounded-md resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+        className="w-full min-h-[80px] max-h-[200px] p-2 text-small font-mono bg-field text-fg border border-line rounded-sm resize-y outline-none focus:border-iris-text focus:ring-3 focus:ring-iris-soft"
         value={editValue}
         onChange={e => setEditValue(e.target.value)}
         onKeyDown={handleKeyDown}

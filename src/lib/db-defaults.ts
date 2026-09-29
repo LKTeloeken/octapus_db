@@ -35,6 +35,26 @@ export const DB_TYPE_ICONS: Record<DatabaseType, string> = {
   sqlite: sqliteIcon,
 };
 
+/**
+ * Cor de identidade do banco (DESIGN.md §2.5): só no ícone do servidor, no
+ * ícone da aba e em badges — nunca como fundo. Classes literais para o
+ * Tailwind encontrá-las.
+ */
+export const DB_TYPE_TEXT_COLOR: Record<DatabaseType, string> = {
+  postgres: 'text-db-postgres',
+  mongodb: 'text-db-mongo',
+  redis: 'text-db-redis',
+  sqlite: 'text-db-sqlite',
+};
+
+/** Fundo equivalente, para o ponto de 6 px dos badges. */
+export const DB_TYPE_BG_COLOR: Record<DatabaseType, string> = {
+  postgres: 'bg-db-postgres',
+  mongodb: 'bg-db-mongo',
+  redis: 'bg-db-redis',
+  sqlite: 'bg-db-sqlite',
+};
+
 /** Types with a working adapter — mysql returns "coming soon" */
 export const SUPPORTED_DB_TYPES: DatabaseType[] = [
   'postgres',

@@ -28,7 +28,7 @@ export const MockDevPanel = () => {
       <button
         type="button"
         onClick={() => setPanelOpen(true)}
-        className="fixed bottom-3 right-3 z-[9999] rounded-md border border-border bg-background/90 px-2 py-1 font-mono text-[10px] font-bold tracking-widest text-muted-foreground shadow-md backdrop-blur transition-colors hover:text-foreground"
+        className="fixed bottom-3 right-3 z-[9999] rounded-md border border-line bg-surface-3 px-2 py-1 font-mono text-[10px] font-bold tracking-widest text-fg-muted shadow-overlay transition-colors hover:text-fg"
       >
         MOCK
       </button>
@@ -58,15 +58,15 @@ const ExpandedPanel = ({ onClose }: { onClose: () => void }) => {
   };
 
   return (
-    <div className="fixed bottom-3 right-3 z-[9999] w-72 rounded-lg border border-border bg-background/95 p-3 text-xs shadow-xl backdrop-blur">
+    <div className="fixed bottom-3 right-3 z-[9999] w-72 rounded-lg border border-line bg-surface-3 p-3 text-xs shadow-overlay">
       <header className="mb-3 flex items-center justify-between">
-        <span className="font-mono text-[10px] font-bold tracking-widest text-muted-foreground">
+        <span className="font-mono text-[10px] font-bold tracking-widest text-fg-muted">
           MOCK
         </span>
         <button
           type="button"
           onClick={onClose}
-          className="text-muted-foreground transition-colors hover:text-foreground"
+          className="text-fg-muted transition-colors hover:text-fg"
           aria-label="Fechar painel do mock"
         >
           ×
@@ -81,7 +81,7 @@ const ExpandedPanel = ({ onClose }: { onClose: () => void }) => {
           step={50}
           value={latencyMs}
           onChange={event => setLatency(Number(event.target.value))}
-          className="w-full accent-primary"
+          className="w-full accent-iris"
         />
       </Field>
 
@@ -93,10 +93,10 @@ const ExpandedPanel = ({ onClose }: { onClose: () => void }) => {
               type="button"
               onClick={() => setFailMode(mode.value)}
               className={cn(
-                'flex-1 rounded border border-border px-1.5 py-1 transition-colors',
+                'flex-1 rounded border border-line px-1.5 py-1 transition-colors',
                 failMode === mode.value
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'hover:bg-accent',
+                  ? 'bg-iris text-white border-iris'
+                  : 'hover:bg-hover',
               )}
             >
               {mode.label}
@@ -110,7 +110,7 @@ const ExpandedPanel = ({ onClose }: { onClose: () => void }) => {
             onBlur={() => {
               if (!errorMessage.trim()) setErrorMessage(DEFAULT_ERROR_MESSAGE);
             }}
-            className="mt-1.5 w-full rounded border border-border bg-transparent px-1.5 py-1 font-mono text-[10px] outline-none focus:border-ring"
+            className="mt-1.5 w-full rounded border border-line bg-transparent px-1.5 py-1 font-mono text-[10px] outline-none focus:border-iris-text"
           />
         )}
       </Field>
@@ -151,7 +151,7 @@ const Field = ({
   children: ReactNode;
 }) => (
   <div className="mb-3">
-    <div className="mb-1 flex items-center justify-between text-muted-foreground">
+    <div className="mb-1 flex items-center justify-between text-fg-muted">
       <span>{label}</span>
       {value && <span className="font-mono">{value}</span>}
     </div>
@@ -173,7 +173,7 @@ const Toggle = ({
   <label className="mb-2 flex cursor-pointer items-center justify-between gap-2">
     <span className="flex flex-col">
       <span>{label}</span>
-      <span className="text-[10px] text-muted-foreground">{hint}</span>
+      <span className="text-[10px] text-fg-muted">{hint}</span>
     </span>
     <Switch checked={checked} onCheckedChange={onChange} />
   </label>

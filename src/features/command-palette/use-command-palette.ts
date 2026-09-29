@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { connect } from '@/api/connection';
 import { useServers } from '@/queries/use-servers';
+import { useCommandPaletteStore } from '@/stores/command-palette-store';
 import { useConnectionStore } from '@/stores/connection-store';
 import { useRecentTablesStore, type TableRef } from '@/stores/recent-tables-store';
 import { useTabsStore } from '@/stores/tabs-store';
@@ -18,11 +19,13 @@ import { useTableIndex } from './use-table-index';
 const RECENT_BOOST = 50;
 
 export const useCommandPalette = () => {
-  const [open, setOpen] = useState(false);
+  const open = useCommandPaletteStore(state => state.isOpen);
+  const setOpen = useCommandPaletteStore(state => state.setOpen);
+  const togglePalette = useCommandPaletteStore(state => state.toggle);
   const [query, setQuery] = useState('');
   const [connectingId, setConnectingId] = useState<string | null>(null);
 
-  const entries = useTableIndex(open);
+  const liveEntries = useTableIndex(open);
   const recents = useRecentTablesStore(state => state.recents);
   const addRecent = useRecentTablesStore(state => state.addRecent);
   const { data: servers } = useServers();
@@ -34,17 +37,24 @@ export const useCommandPalette = () => {
       if (event.key.toLowerCase() !== 'k') return;
 
       event.preventDefault();
-      setOpen(prev => !prev);
+      togglePalette();
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [togglePalette]);
 
-  // Reset the search field whenever the dialog closes
-  useEffect(() => {
-    if (!open) setQuery('');
-  }, [open]);
+  // A paleta continua visível durante a animação de saída, então nada muda ao
+  // fechar: o campo é zerado ao ABRIR (ainda no render, antes de pintar) e,
+  // fechada, ela segue com o último índice em vez de cair para a lista vazia.
+  const [wasOpen, setWasOpen] = useState(open);
+  const [lastEntries, setLastEntries] = useState(liveEntries);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setQuery('');
+  }
+  if (open && liveEntries !== lastEntries) setLastEntries(liveEntries);
+  const entries = open ? liveEntries : lastEntries;
 
   const recentEntryIds = useMemo(
     () =>

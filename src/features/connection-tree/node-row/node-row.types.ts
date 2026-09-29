@@ -1,4 +1,5 @@
 import type { IconSvgElement } from '@hugeicons/react';
+import type { DatabaseType } from '@/api/types/server.types';
 import type { NodeKind } from '@/lib/node-ref';
 
 export interface NodeRowAction {
@@ -19,8 +20,10 @@ export interface NodeRowProps {
   hasChildren: boolean;
   isExpanded?: boolean;
   isLoading?: boolean;
-  /** Highlights the kind icon (e.g. connected server) */
-  isHighlighted?: boolean;
+  /** Banco do servidor: pinta o ícone com a cor de identidade (só no servidor) */
+  dbType?: DatabaseType;
+  /** Tabela aberta na aba ativa: a linha fica realçada (`--active`) */
+  isOpen?: boolean;
   /** Nó sob o cursor do teclado (setas na árvore) */
   isFocused?: boolean;
   onClick?: () => void;

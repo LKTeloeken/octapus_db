@@ -1,5 +1,8 @@
 import { createRoot } from 'react-dom/client';
 import { StrictMode, createElement } from 'react';
+// Fontes empacotadas: o app roda offline, então nada de Google Fonts.
+import '@fontsource-variable/geist';
+import '@fontsource-variable/geist-mono';
 import App from '@/app';
 import { disableNativeSpellcheck } from '@/lib/disable-native-spellcheck';
 import { restoreTabsSession } from '@/stores/tabs-session';

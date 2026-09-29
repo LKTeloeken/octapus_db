@@ -1,9 +1,28 @@
+import { HugeiconsIcon } from '@hugeicons/react';
+import {
+  Add01Icon,
+  Clock01Icon,
+  Download04Icon,
+} from '@hugeicons/core-free-icons';
 import { memo } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { SegmentedControl } from '@/components/ui/segmented-control/segmented-control';
+import type { SegmentedControlOption } from '@/components/ui/segmented-control/segmented-control.types';
 import { Spinner } from '@/components/ui/spinner';
-import { cn } from '@/lib/utils';
 
+import type { ResultsViewMode } from '../results-table.types';
 import type { DataTableStatusBarProps } from './results-table-status-bar.types';
 
+const VIEW_MODE_OPTIONS: SegmentedControlOption<ResultsViewMode>[] = [
+  { value: 'table', label: 'Tabela' },
+  { value: 'vertical', label: 'Vertical' },
+];
+
+/**
+ * Barra de status da grade (32 px): visualização, contagem e tempo à esquerda;
+ * ações à direita. As pendências ficam na barra flutuante (ResultsTablePendingBar).
+ */
 export const DataTableStatusBar = memo(
   ({
     executionTimeMs,
@@ -11,127 +30,67 @@ export const DataTableStatusBar = memo(
     rowsLength,
     totalCount,
     isEditable,
-    editableInfo,
-    changesCount,
-    addedCount,
-    removedCount,
-    pendingCount,
     isLoadingMore,
     hasMore,
     viewMode,
     onViewModeChange,
     onAddRow,
-    onDiscardChanges,
-    onSave,
     onExport,
   }: DataTableStatusBarProps) => {
     return (
-      <div className="flex items-center justify-between px-3 py-1.5 border-t border-border bg-purple-glow text-xs text-foreground shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center rounded border border-accent/25 overflow-hidden">
-            <button
-              type="button"
-              className={cn(
-                'px-2 py-0.5 transition-colors',
-                viewMode === 'table'
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:bg-muted/60',
-              )}
-              onClick={() => onViewModeChange('table')}
-            >
-              Tabela
-            </button>
-            <button
-              type="button"
-              className={cn(
-                'px-2 py-0.5 transition-colors',
-                viewMode === 'vertical'
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:bg-muted/60',
-              )}
-              onClick={() => onViewModeChange('vertical')}
-            >
-              Vertical
-            </button>
-          </div>
-          {executionTimeMs !== undefined && (
-            <span>Executado em {executionTimeMs}ms</span>
-          )}
-          {rowCount !== undefined && (
-            <span>
-              {rowsLength} linhas carregadas
-              {totalCount != null && ` de ${totalCount} total`}
-            </span>
-          )}
-          {isEditable && editableInfo && (
-            <span className="text-green-400">
-              {editableInfo.schema}.{editableInfo.table}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="px-2 py-0.5 text-xs rounded border border-accent/25 hover:bg-muted/60 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-            disabled={rowsLength === 0}
-            onClick={onExport}
-          >
-            Exportar
-          </button>
-          {isEditable && (
-            <button
-              type="button"
-              className="px-2 py-0.5 text-xs rounded border border-accent/25 hover:bg-muted/60 transition-colors"
-              onClick={onAddRow}
-            >
-              + Nova linha
-            </button>
-          )}
-          {pendingCount > 0 && (
-            <>
-              <span className="flex items-center gap-2">
-                {changesCount > 0 && (
-                  <span className="text-yellow-400">
-                    {changesCount} edição{changesCount === 1 ? '' : 'ões'}
-                  </span>
-                )}
-                {addedCount > 0 && (
-                  <span className="text-green-400">
-                    {addedCount} nova{addedCount === 1 ? '' : 's'}
-                  </span>
-                )}
-                {removedCount > 0 && (
-                  <span className="text-red-400">
-                    {removedCount} removida{removedCount === 1 ? '' : 's'}
-                  </span>
-                )}
-              </span>
-              <button
-                type="button"
-                className="px-2 py-0.5 text-xs rounded border border-accent/25 hover:bg-muted/60 transition-colors"
-                onClick={onDiscardChanges}
-              >
-                Descartar
-              </button>
-              <button
-                type="button"
-                className="px-2 py-0.5 text-xs rounded border border-accent/25 hover:bg-muted/60 transition-colors"
-                onClick={onSave}
-              >
-                Salvar
-              </button>
-            </>
-          )}
-          {isLoadingMore && (
-            <>
-              <Spinner className="h-3 w-3" />
-              <span>Carregando...</span>
-            </>
-          )}
-          {hasMore && !isLoadingMore && (
-            <span>Mais resultados disponíveis</span>
-          )}
-        </div>
+      <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line-subtle bg-surface-1 pr-1.5 pl-2 text-small text-fg-muted">
+        <SegmentedControl
+          aria-label="Visualização"
+          value={viewMode}
+          onValueChange={onViewModeChange}
+          options={VIEW_MODE_OPTIONS}
+        />
+
+        {rowCount !== undefined && (
+          <span className="whitespace-nowrap tabular-nums">
+            <span className="text-fg">{rowsLength}</span>
+            {totalCount != null ? ` de ${totalCount}` : ''} linhas
+          </span>
+        )}
+
+        {executionTimeMs !== undefined && (
+          <span className="inline-flex items-center gap-1.5 font-mono text-[11px] whitespace-nowrap text-fg-subtle">
+            <HugeiconsIcon icon={Clock01Icon} className="size-[13px]" />
+            {executionTimeMs} ms
+          </span>
+        )}
+
+        {!isEditable && rowsLength > 0 && <Badge>Somente leitura</Badge>}
+
+        {isLoadingMore && (
+          <span className="inline-flex items-center gap-1.5 text-fg-subtle">
+            <Spinner className="size-3" />
+            Carregando…
+          </span>
+        )}
+        {hasMore && !isLoadingMore && (
+          <span className="whitespace-nowrap text-fg-subtle">
+            Mais resultados disponíveis
+          </span>
+        )}
+
+        <span className="flex-1" />
+
+        {isEditable && (
+          <Button variant="ghost" size="xs" onClick={onAddRow}>
+            <HugeiconsIcon icon={Add01Icon} />
+            Nova linha
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={rowsLength === 0}
+          onClick={onExport}
+        >
+          <HugeiconsIcon icon={Download04Icon} />
+          Exportar
+        </Button>
       </div>
     );
   },

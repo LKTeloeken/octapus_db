@@ -33,7 +33,9 @@ export function CommandPalette() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
         showCloseButton={false}
-        className="overflow-hidden p-0 sm:max-w-xl backdrop-blur-sm bg-background/30"
+        // Vidro (DESIGN.md §7): camada temporária sobre a grade, blur 24 e
+        // sobre o scrim do diálogo; opaca se o sistema reduzir transparência.
+        className="top-[112px] translate-y-0 gap-0 overflow-hidden rounded-xl border-glass-border bg-glass p-0 shadow-glass backdrop-blur-[24px] backdrop-saturate-[1.4] reduced-transparency:bg-surface-3 reduced-transparency:backdrop-blur-none sm:max-w-[640px]"
       >
         <DialogTitle className="sr-only">Command Palette</DialogTitle>
         <DialogDescription className="sr-only">

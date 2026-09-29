@@ -1,11 +1,11 @@
 import { memo, useMemo } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
-import { oneDark } from '@codemirror/theme-one-dark';
 import { html } from '@codemirror/lang-html';
 import { json } from '@codemirror/lang-json';
 import { xml } from '@codemirror/lang-xml';
 import type { Extension } from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
+import { inkEditorTheme } from '@/lib/codemirror-theme';
 import type { ValueFormat } from '@/lib/value-format';
 import { useUiStore } from '@/stores/ui-store';
 
@@ -50,6 +50,7 @@ export const ValueEditor = memo(
     onEscape,
   }: ValueEditorProps) => {
     const theme = useUiStore(state => state.theme);
+    const editorTheme = useMemo(() => inkEditorTheme(theme === 'dark'), [theme]);
 
     const extensions = useMemo(() => {
       const list: Extension[] = [disableSpellcheck, ...languageFor(format)];
@@ -77,7 +78,7 @@ export const ValueEditor = memo(
         className="h-full"
         height="100%"
         value={value}
-        theme={theme === 'dark' ? oneDark : 'light'}
+        theme={editorTheme}
         extensions={extensions}
         // Só `readOnly`, sem `editable={false}`: continua dando para focar,
         // selecionar pelo teclado, buscar (Cmd/Ctrl+F) e copiar.

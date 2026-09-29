@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { Button } from '@/components/ui/button';
 
 interface EditorFooterProps {
   onSave: () => void;
@@ -15,32 +16,25 @@ export const EditorFooter = memo(function EditorFooter({
   hint = 'Ctrl+Enter para salvar',
 }: EditorFooterProps) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-[10px] text-muted-foreground">{hint}</span>
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[11px] text-fg-subtle">{hint}</span>
       <div className="flex gap-1.5">
         {onSetNull && (
-          <button
-            type="button"
-            className="px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:bg-muted/80 transition-colors italic"
+          <Button
+            variant="ghost"
+            size="xs"
+            className="italic"
             onClick={onSetNull}
           >
             NULL
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
-          className="px-2.5 py-1 text-xs rounded-md border border-border bg-muted hover:bg-muted/80 transition-colors"
-          onClick={onCancel}
-        >
+        <Button variant="outline" size="xs" onClick={onCancel}>
           Cancelar
-        </button>
-        <button
-          type="button"
-          className="px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-          onClick={onSave}
-        >
+        </Button>
+        <Button size="xs" onClick={onSave}>
           Salvar
-        </button>
+        </Button>
       </div>
     </div>
   );

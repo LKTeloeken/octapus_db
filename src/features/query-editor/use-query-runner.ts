@@ -63,7 +63,8 @@ export const useQueryRunner = (tab: QueryTab) => {
     enabled: supportsSql,
   });
 
-  const dbType = servers?.find(s => s.id === tab.serverId)?.dbType ?? 'postgres';
+  const server = servers?.find(s => s.id === tab.serverId);
+  const dbType = server?.dbType ?? 'postgres';
 
   const executeRun = useCallback(
     async (query: string) => {
@@ -267,6 +268,8 @@ export const useQueryRunner = (tab: QueryTab) => {
     isLoadingMore,
     supportsSql,
     placeholder: PLACEHOLDERS[dbType] ?? PLACEHOLDERS.postgres,
+    serverName: server?.name ?? '',
+    dbType,
     sqlCompletion,
     setContent,
     executeRun,

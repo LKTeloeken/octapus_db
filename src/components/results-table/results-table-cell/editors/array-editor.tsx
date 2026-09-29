@@ -112,12 +112,12 @@ export const ArrayEditor = memo(function ArrayEditor({
   return (
     <div className="flex flex-col gap-2" onKeyDown={handleKeyDown}>
       <div className="flex items-center justify-between">
-        <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+        <label className="text-micro font-medium uppercase text-fg-subtle">
           Editar {pgArrayTypeLabel(columnType)}
         </label>
         <button
           type="button"
-          className="px-1.5 py-0.5 text-[10px] rounded border border-border hover:bg-muted/60 transition-colors"
+          className="inline-flex h-6 items-center rounded-sm border border-control-border bg-control px-2 text-small text-fg shadow-control transition-colors hover:bg-active"
           onClick={toggleMode}
         >
           {mode === 'list' ? 'Editar literal' : 'Editar em lista'}
@@ -127,7 +127,7 @@ export const ArrayEditor = memo(function ArrayEditor({
       {mode === 'list' ? (
         <div className="flex flex-col gap-1">
           {items.length === 0 && (
-            <span className="text-[10px] text-muted-foreground italic py-1">
+            <span className="text-small text-fg-subtle italic py-1">
               Array vazio
             </span>
           )}
@@ -135,7 +135,7 @@ export const ArrayEditor = memo(function ArrayEditor({
           <div className="flex flex-col gap-1 max-h-[200px] overflow-y-auto">
             {items.map((item, index) => (
               <div key={index} className="flex items-center gap-1">
-                <span className="w-5 shrink-0 text-right text-[10px] text-muted-foreground font-mono">
+                <span className="w-5 shrink-0 text-right text-[11px] text-fg-subtle font-mono">
                   {index + 1}
                 </span>
                 <input
@@ -147,10 +147,10 @@ export const ArrayEditor = memo(function ArrayEditor({
                     }
                   }}
                   className={cn(
-                    'flex-1 min-w-0 px-2 py-1 text-xs font-mono bg-background',
-                    'border border-border rounded-md',
-                    'focus:outline-none focus:ring-1 focus:ring-ring',
-                    item === null && 'text-muted-foreground italic',
+                    'flex-1 min-w-0 px-2 py-1 text-small font-mono',
+                    'border border-line bg-field text-fg rounded-sm',
+                    'outline-none focus:border-iris-text focus:ring-3 focus:ring-iris-soft',
+                    item === null && 'text-fg-subtle italic',
                   )}
                   value={item ?? 'NULL'}
                   readOnly={item === null}
@@ -169,8 +169,8 @@ export const ArrayEditor = memo(function ArrayEditor({
                   title={item === null ? 'Voltar para texto' : 'Definir NULL'}
                   className={cn(
                     'shrink-0 h-6 w-6 inline-flex items-center justify-center rounded-sm',
-                    'text-xs text-muted-foreground hover:bg-muted transition-colors',
-                    item === null && 'text-foreground bg-muted',
+                    'text-xs text-fg-subtle hover:bg-hover hover:text-fg transition-colors',
+                    item === null && 'bg-active text-fg',
                   )}
                   onClick={() => updateItem(index, item === null ? '' : null)}
                 >
@@ -179,7 +179,7 @@ export const ArrayEditor = memo(function ArrayEditor({
                 <button
                   type="button"
                   title="Remover item"
-                  className="shrink-0 h-6 w-6 inline-flex items-center justify-center rounded-sm text-xs text-muted-foreground hover:bg-muted transition-colors"
+                  className="shrink-0 size-6 inline-flex items-center justify-center rounded-sm text-xs text-fg-subtle hover:bg-hover hover:text-fg transition-colors"
                   onClick={() => removeItem(index)}
                 >
                   ×
@@ -190,14 +190,14 @@ export const ArrayEditor = memo(function ArrayEditor({
 
           <button
             type="button"
-            className="self-start px-1.5 py-0.5 text-[10px] rounded border border-border hover:bg-muted/60 transition-colors"
+            className="self-start inline-flex h-6 items-center rounded-sm border border-control-border bg-control px-2 text-small text-fg shadow-control transition-colors hover:bg-active"
             onClick={() => insertItem(items.length)}
           >
             + Adicionar item
           </button>
 
           <span
-            className="text-[10px] text-muted-foreground font-mono truncate"
+            className="text-[11px] text-fg-subtle font-mono truncate"
             title={preview}
           >
             {preview}
@@ -206,10 +206,10 @@ export const ArrayEditor = memo(function ArrayEditor({
       ) : (
         <textarea
           className={cn(
-            'w-full min-h-[120px] max-h-[240px] p-2 text-xs font-mono',
-            'bg-background border rounded-md resize-y',
-            'focus:outline-none focus:ring-1 focus:ring-ring',
-            error ? 'border-red-500' : 'border-border',
+            'w-full min-h-[120px] max-h-[240px] p-2 text-small font-mono',
+            'bg-field text-fg border rounded-sm resize-y',
+            'outline-none focus:border-iris-text focus:ring-3 focus:ring-iris-soft',
+            error ? 'border-danger' : 'border-line',
           )}
           value={raw}
           onChange={e => {
@@ -221,7 +221,7 @@ export const ArrayEditor = memo(function ArrayEditor({
         />
       )}
 
-      {error && <span className="text-[10px] text-red-400">{error}</span>}
+      {error && <span className="text-small text-danger">{error}</span>}
 
       <EditorFooter
         onSave={handleSave}

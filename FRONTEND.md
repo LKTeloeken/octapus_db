@@ -83,6 +83,7 @@ Só estado de **UI**, nada que o backend possa fornecer:
 | `connection-store` | registro best-effort de quais `(server, db)` já conectaram na sessão |
 | `focus-store` | pedido de foco do teclado entre a árvore e a grade |
 | `ui-store` | tema e flags de UI |
+| `command-palette-store` | paleta de comandos aberta/fechada — aberta pelo `Cmd/Ctrl+K`, pela busca da sidebar e pelo botão Comandos |
 | `value-panel-store` | painel de valor da aba de tabela: aberto/fechado e preferências de formatação (global, persistido) |
 
 **Sessão das abas** ([stores/tabs-session.ts](src/stores/tabs-session.ts)): as abas
@@ -115,7 +116,8 @@ palette, dentro do `QueryProvider`.
   É dono do painel de valor (só existe aqui, não no editor livre): botão **Valor** ao lado
   do WHERE e atalho `Cmd/Ctrl+I` (ou `F7`, o do DBeaver), registrado em fase de captura
   para funcionar também de dentro do CodeMirror do painel.
-- **`command-palette`** — `Cmd/Ctrl+K`; busca fuzzy de tabelas/servidores.
+- **`command-palette`** — `Cmd/Ctrl+K` (ou a busca da sidebar / botão Comandos, via
+  `command-palette-store`); busca fuzzy de tabelas/servidores.
 
 ---
 

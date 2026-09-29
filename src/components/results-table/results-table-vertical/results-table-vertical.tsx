@@ -5,7 +5,7 @@ import { DataTableCell } from '../results-table-cell/results-table-cell';
 import type { ResultsTableVerticalProps } from './results-table-vertical.types';
 
 const ROW_HEIGHT = 32;
-const HEADER_HEIGHT = 28;
+const HEADER_HEIGHT = 32;
 const LABEL_WIDTH = 208;
 const RECORD_WIDTH = 192;
 const OVERSCAN_Y = 10;
@@ -88,11 +88,11 @@ export const ResultsTableVertical = memo(
       >
         {/* Header: pinned corner + one label per visible record */}
         <div
-          className="sticky top-0 z-20 bg-background border-b border-border"
+          className="sticky top-0 z-20 border-b border-line bg-surface-2"
           style={{ width: `${contentWidth}px`, height: `${HEADER_HEIGHT}px` }}
         >
           <div
-            className="sticky left-0 z-30 bg-background border-r border-border px-2 py-1.5 text-xs font-medium text-muted-foreground"
+            className="sticky left-0 z-30 flex items-center border-r border-line-subtle bg-surface-2 px-2.5 text-micro font-medium uppercase text-fg-subtle"
             style={{ width: `${LABEL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}
           >
             Coluna
@@ -108,15 +108,17 @@ export const ResultsTableVertical = memo(
                 key={virtualRecord.key}
                 onClick={event => onSelectRow(virtualRecord.index, event)}
                 className={cn(
-                  'absolute top-0 border-r border-border px-2 py-1.5 text-xs font-mono text-left cursor-pointer outline-none',
-                  removed
-                    ? 'bg-red-900/30 text-red-300'
-                    : added
-                      ? 'bg-green-900/30 text-green-300'
-                      : isRowModified(virtualRecord.index)
-                        ? 'text-yellow-300'
-                        : 'text-muted-foreground',
-                  selected && 'ring-1 ring-inset ring-primary',
+                  'absolute top-0 cursor-pointer border-r border-line-subtle px-2.5 text-left font-mono text-[11px] tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
+                  // Mesma codificação da grade: estado pendente + seleção em Iris.
+                  selected
+                    ? 'bg-iris-soft text-iris-text'
+                    : removed
+                      ? 'bg-danger-soft text-danger line-through'
+                      : added
+                        ? 'bg-success-soft text-success'
+                        : isRowModified(virtualRecord.index)
+                          ? 'text-warning'
+                          : 'text-fg-subtle',
                 )}
                 style={{
                   left: `${LABEL_WIDTH + virtualRecord.start}px`,
@@ -124,6 +126,7 @@ export const ResultsTableVertical = memo(
                   height: `${HEADER_HEIGHT}px`,
                 }}
               >
+                {removed ? '− ' : added ? '+ ' : isRowModified(virtualRecord.index) ? '• ' : ''}
                 #{virtualRecord.index + 1}
               </button>
             );
@@ -142,17 +145,13 @@ export const ResultsTableVertical = memo(
             const column = columns[virtualField.index];
             if (!column) return null;
 
-            const isEven = virtualField.index % 2 === 0;
             const isPk = isPrimaryKeyColumn(column.name);
             const columnSelected = isColumnSelected(column.name);
 
             return (
               <div
                 key={virtualField.key}
-                className={cn(
-                  'absolute top-0 left-0',
-                  isEven ? 'bg-muted' : 'bg-transparent',
-                )}
+                className="absolute top-0 left-0"
                 style={{
                   height: `${ROW_HEIGHT}px`,
                   width: `${contentWidth}px`,
@@ -163,15 +162,17 @@ export const ResultsTableVertical = memo(
                   type="button"
                   onClick={() => onSelectColumn(column.name)}
                   className={cn(
-                    'sticky left-0 z-10 bg-background border-r border-border flex flex-col justify-center px-2 text-left cursor-pointer outline-none w-full',
-                    columnSelected && 'bg-accent/40',
+                    'sticky left-0 z-10 flex w-full cursor-pointer flex-col justify-center border-r border-b border-line-subtle bg-surface-1 px-2.5 text-left outline-none',
+                    columnSelected && 'bg-iris-soft',
                   )}
                   style={{ width: `${LABEL_WIDTH}px`, height: `${ROW_HEIGHT}px` }}
                 >
-                  <div className="text-xs truncate">{column.name}</div>
-                  <div className="text-[10px] text-muted-foreground truncate">
+                  <div className="truncate text-small font-medium text-fg">
+                    {column.name}
+                  </div>
+                  <div className="truncate font-mono text-[11px] leading-[14px] text-fg-subtle">
                     {column.typeName}
-                    {isPk ? ' (PK)' : ''}
+                    {isPk ? ' · PK' : ''}
                   </div>
                 </button>
 
@@ -196,10 +197,13 @@ export const ResultsTableVertical = memo(
                         onFocusCell?.(virtualRecord.index, column.name)
                       }
                       className={cn(
-                        'absolute top-0 border-r border-border',
+                        'absolute top-0 border-r border-b border-line-subtle',
+                        isRowRemoved(virtualRecord.index)
+                          ? 'bg-danger-soft'
+                          : isRowAdded(virtualRecord.index) && 'bg-success-soft',
                         focusedCell?.rowIndex === virtualRecord.index &&
                           focusedCell.columnName === column.name &&
-                          'z-10 ring-1 ring-inset ring-primary',
+                          'z-10 ring-[1.5px] ring-inset ring-ring',
                       )}
                       style={{
                         left: `${LABEL_WIDTH + virtualRecord.start}px`,
@@ -215,6 +219,7 @@ export const ResultsTableVertical = memo(
                           virtualRecord.index,
                           column.name,
                         )}
+                        isRemoved={isRowRemoved(virtualRecord.index)}
                         isEditable={editable}
                         rowIndex={virtualRecord.index}
                         columnName={column.name}

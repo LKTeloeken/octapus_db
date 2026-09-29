@@ -44,6 +44,8 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
   const toggleNode = useTreeStore(state => state.toggleNode);
   const openQueryTab = useTabsStore(state => state.openQueryTab);
   const openBrowseTab = useTabsStore(state => state.openBrowseTab);
+  // A aba de tabela tem o mesmo id do nó da árvore: basta comparar.
+  const activeTabId = useTabsStore(state => state.activeTabId);
   const requestFocus = useFocusStore(state => state.requestFocus);
   const { refreshServer, refreshDatabase, refreshSchema, refreshTable } =
     useRefreshStructure();
@@ -188,6 +190,7 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
         hasChildren: true,
         isExpanded,
         isLoading: isExpanded && (colQuery?.isFetching ?? false),
+        isOpen: activeTabId === tableNodeId,
         onClick: () => {
           toggleNode(tableNodeId);
           openTable(serverId, database, schema, table);
@@ -260,7 +263,7 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
         hasChildren: true,
         isExpanded,
         isLoading: isExpanded && (dbQuery?.isFetching ?? false),
-        isHighlighted: dbQuery?.isSuccess ?? false,
+        dbType: server.dbType,
         onClick: () => toggleNode(serverNodeId),
         actions: [
           {

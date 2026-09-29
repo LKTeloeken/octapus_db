@@ -9,6 +9,7 @@ import {
   useInsertRows,
 } from '@/queries/use-apply-row-edits';
 import { useCapabilities } from '@/queries/use-capabilities';
+import { useServers } from '@/queries/use-servers';
 import { useFetchAllTableData, useTableData } from '@/queries/use-table-data';
 import { useTabsStore, type BrowseTab } from '@/stores/tabs-store';
 import { useValuePanelStore } from '@/stores/value-panel-store';
@@ -24,6 +25,9 @@ export const useTableBrowser = (tab: BrowseTab) => {
   const deleteRowsMutation = useDeleteRows();
   const fetchAllMutation = useFetchAllTableData();
   const { data: capabilities } = useCapabilities(tab.serverId);
+  // Servidor da aba: nome e banco para o breadcrumb da toolbar.
+  const { data: servers } = useServers();
+  const server = servers?.find(item => item.id === tab.serverId);
   const supportsSql = capabilities?.supportsSql === true;
   const isValuePanelOpen = useValuePanelStore(state => state.isOpen);
   const toggleValuePanel = useValuePanelStore(state => state.toggleOpen);
@@ -218,6 +222,8 @@ export const useTableBrowser = (tab: BrowseTab) => {
     applyWhere,
     resetWhere,
     supportsSql,
+    serverName: server?.name ?? '',
+    dbType: server?.dbType,
     setSort,
     setHiddenColumns,
     save,

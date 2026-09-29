@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 
 import type { DataTableCellProps } from './results-table-cell.types';
+import { CELL_TYPE_COLOR } from './cell-type-style';
 import {
   isBooleanTrue,
   nextBooleanValue,
@@ -27,6 +28,7 @@ export const DataTableCell = memo(
     displayValue,
     isEditable,
     isModified,
+    isRemoved = false,
     columnType,
     rowIndex,
     columnName,
@@ -56,8 +58,10 @@ export const DataTableCell = memo(
       return (
         <div
           className={cn(
-            'group flex items-center gap-2 w-full px-2 py-1.5',
-            isModified && 'bg-yellow-900/30',
+            'group flex h-full w-full items-center gap-2 px-2.5',
+            isModified
+              ? 'bg-warning-soft'
+              : 'transition-[background-color] duration-600 ease-standard motion-reduce:duration-120',
           )}
         >
           <Checkbox
@@ -75,9 +79,9 @@ export const DataTableCell = memo(
           />
           <span
             className={cn(
-              'text-xs font-mono',
-              isNull && 'text-muted-foreground italic',
-              isModified && 'text-yellow-200',
+              'font-mono text-small',
+              isNull ? 'text-fg-subtle italic' : 'text-data-bool',
+              isRemoved && 'text-fg-subtle line-through',
             )}
           >
             {isNull ? 'NULL' : isTrue ? 'true' : 'false'}
@@ -86,7 +90,7 @@ export const DataTableCell = memo(
             <button
               type="button"
               title="Definir NULL"
-              className="ml-auto hidden group-hover:inline-flex h-4 w-4 items-center justify-center rounded-sm text-xs text-muted-foreground hover:bg-muted"
+              className="ml-auto hidden size-4 items-center justify-center rounded-xs text-xs text-fg-subtle group-hover:inline-flex hover:bg-hover hover:text-fg"
               onClick={() => updateCell(rowIndex, columnName, value, null)}
             >
               ∅
@@ -96,11 +100,18 @@ export const DataTableCell = memo(
       );
     }
 
+    // Cor pelo tipo; números à direita e tabulares; NULL em itálico apagado.
     const triggerClassName = cn(
-      'w-full text-left font-mono text-xs truncate block px-2 py-1.5 rounded-sm',
-      'transition-colors cursor-pointer outline-none',
-      isNull && 'text-muted-foreground italic',
-      isModified && 'bg-yellow-900/30 text-yellow-200',
+      'block h-full w-full truncate px-2.5 text-left font-mono text-small leading-[27px]',
+      'cursor-pointer outline-none',
+      // A tinta aparece na hora e some devagar (600 ms) depois do salvar: o
+      // CSS usa a transição do estado de destino, então ela só vale sem tinta.
+      !isModified &&
+        'transition-[background-color] duration-600 ease-standard motion-reduce:duration-120',
+      editorType === 'number' && 'text-right tabular-nums',
+      isNull ? 'text-fg-subtle italic' : CELL_TYPE_COLOR[editorType],
+      isModified && 'bg-warning-soft',
+      isRemoved && 'text-fg-subtle line-through',
     );
 
     // Closed cell: a plain button, no Radix Popover mounted. Only the single
@@ -125,9 +136,9 @@ export const DataTableCell = memo(
     const renderEditor = () => {
       if (!isEditable) {
         return (
-          <div className="text-xs font-mono whitespace-pre-wrap break-all max-h-[240px] overflow-auto">
+          <div className="max-h-[240px] overflow-auto font-mono text-small break-all whitespace-pre-wrap text-fg">
             {isNull ? (
-              <span className="text-muted-foreground italic">NULL</span>
+              <span className="text-fg-subtle italic">NULL</span>
             ) : (
               text
             )}

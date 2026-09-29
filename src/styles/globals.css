@@ -1,198 +1,355 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
 
 @custom-variant dark (&:is(.dark *));
+/* Quem pede menos transparência no sistema recebe superfície sólida no vidro. */
+@custom-variant reduced-transparency (@media (prefers-reduced-transparency: reduce));
+
+/*
+ * Ink — design system do octapus_db (ver DESIGN.md). Valores em OKLCH.
+ * `:root` é o tema claro e `.dark` o escuro (padrão do app, no <html>).
+ * Os aliases do shadcn (background, primary, muted…) saíram no fim da
+ * migração: use sempre os nomes do Ink (DESIGN.md §9).
+ */
 
 :root {
-  --background: oklch(0.994 0 0);
-  --foreground: oklch(0 0 0);
-  --card: oklch(0.994 0 0);
-  --card-foreground: oklch(0 0 0);
-  --popover: oklch(0.9911 0 0);
-  --popover-foreground: oklch(0 0 0);
-  --primary: oklch(0.5393 0.2713 286.7462);
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.954 0.0063 255.4755);
-  --secondary-foreground: oklch(0.1344 0 0);
-  --muted: oklch(0.9702 0 0);
-  --muted-foreground: oklch(0.4386 0 0);
-  --accent: oklch(0.9393 0.0288 266.368);
-  --accent-foreground: oklch(0.5445 0.1903 259.4848);
-  --destructive: oklch(0.629 0.1902 23.0704);
-  --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.93 0.0094 286.2156);
-  --input: oklch(0.9401 0 0);
-  --ring: oklch(0 0 0);
-  --chart-1: oklch(0.7459 0.1483 156.4499);
-  --chart-2: oklch(0.5393 0.2713 286.7462);
-  --chart-3: oklch(0.7336 0.1758 50.5517);
-  --chart-4: oklch(0.5828 0.1809 259.7276);
-  --chart-5: oklch(0.559 0 0);
-  --sidebar: oklch(0.9777 0.0051 247.8763);
-  --sidebar-foreground: oklch(0 0 0);
-  --sidebar-primary: oklch(0 0 0);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.9401 0 0);
-  --sidebar-accent-foreground: oklch(0 0 0);
-  --sidebar-border: oklch(0.9401 0 0);
-  --sidebar-ring: oklch(0 0 0);
-  --font-sans: Plus Jakarta Sans, sans-serif;
-  --font-serif: Lora, serif;
-  --font-mono: IBM Plex Mono, monospace;
-  --radius: 0.75rem;
-  --shadow-x: 1px;
-  --shadow-y: 2px;
-  --shadow-blur: 5px;
-  --shadow-spread: 1px;
-  --shadow-opacity: 0.06;
-  --shadow-color: hsl(0 0% 0%);
-  --shadow-2xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
-  --shadow-xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
-  --shadow-sm:
-    0px 4px 8px -1px hsl(0 0% 0% / 0.1), 0px 1px 2px -2px hsl(0 0% 0% / 0.1);
-  --shadow:
-    0px 4px 8px -1px hsl(0 0% 0% / 0.1), 0px 1px 2px -2px hsl(0 0% 0% / 0.1);
-  --shadow-md:
-    0px 4px 8px -1px hsl(0 0% 0% / 0.1), 0px 2px 4px -2px hsl(0 0% 0% / 0.1);
-  --shadow-lg:
-    0px 4px 8px -1px hsl(0 0% 0% / 0.1), 0px 4px 6px -2px hsl(0 0% 0% / 0.1);
-  --shadow-xl:
-    0px 4px 8px -1px hsl(0 0% 0% / 0.1), 0px 8px 10px -2px hsl(0 0% 0% / 0.1);
-  --shadow-2xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.25);
-  --tracking-normal: 0em;
-  --spacing: 0.27rem;
+  /* Superfícies */
+  --bg: oklch(0.955 0.004 265);
+  --surface-1: oklch(0.995 0.001 265);
+  --surface-2: oklch(0.975 0.003 265);
+  --surface-3: oklch(1 0 0);
+  --hover: oklch(0 0 0 / 4%);
+  --active: oklch(0 0 0 / 7%);
+
+  /* Linhas */
+  --line-subtle: oklch(0 0 0 / 6%);
+  --line: oklch(0 0 0 / 10%);
+  --line-strong: oklch(0 0 0 / 18%);
+
+  /* Texto */
+  --fg: oklch(0.22 0.012 265);
+  --fg-muted: oklch(0.44 0.014 265);
+  --fg-subtle: oklch(0.5 0.014 265);
+  --fg-disabled: oklch(0.7 0.01 265);
+
+  /* Iris — acento: ação primária, foco, seleção, controle ligado */
+  --iris: oklch(0.52 0.18 282);
+  --iris-hover: oklch(0.47 0.18 282);
+  --iris-text: oklch(0.5 0.18 282);
+  --iris-soft: oklch(0.55 0.18 282 / 10%);
+  --ring: oklch(0.55 0.18 282 / 50%);
+
+  /* Semânticas */
+  --success: oklch(0.5 0.13 158);
+  --success-soft: oklch(0.6 0.13 158 / 12%);
+  --warning: oklch(0.52 0.12 70);
+  --warning-soft: oklch(0.75 0.14 75 / 18%);
+  --danger: oklch(0.53 0.19 25);
+  --danger-soft: oklch(0.6 0.19 25 / 10%);
+  --info: oklch(0.52 0.13 240);
+  --info-soft: oklch(0.6 0.13 240 / 10%);
+
+  /* Identidade dos bancos */
+  --db-postgres: oklch(0.52 0.11 250);
+  --db-mongo: oklch(0.55 0.14 150);
+  --db-redis: oklch(0.55 0.19 27);
+  --db-sqlite: oklch(0.56 0.1 220);
+
+  /* Tipos de dado na grade */
+  --data-number: oklch(0.5 0.12 240);
+  --data-date: oklch(0.5 0.09 185);
+  --data-bool: oklch(0.52 0.15 350);
+  --data-json: oklch(0.54 0.13 55);
+
+  /* Sintaxe (CodeMirror) */
+  --syn-keyword: oklch(0.5 0.18 285);
+  --syn-function: oklch(0.5 0.12 240);
+  --syn-string: oklch(0.5 0.12 150);
+  --syn-number: oklch(0.54 0.13 55);
+  --syn-type: oklch(0.5 0.09 185);
+
+  /* Vidro */
+  --glass: oklch(1 0 0 / 80%);
+  --glass-border: oklch(0 0 0 / 8%);
+  --glass-highlight: oklch(1 0 0 / 70%);
+  --scrim: oklch(0 0 0 / 25%);
+
+  /* Controles — campo rebaixado; botão secundário branco com sombra leve */
+  --field: oklch(1 0 0);
+  --control: oklch(1 0 0);
+  --control-border: var(--line-strong);
+  --control-shadow: 0 1px 2px oklch(0.21 0.034 265 / 6%);
+
+  /* Elevação — só a sombra; o contorno de 1 px vem da borda do componente */
+  --elev-1: 0 1px 2px oklch(0.21 0.034 265 / 10%);
+  --elev-2: 0 12px 32px -8px oklch(0.21 0.034 265 / 16%);
+  --elev-3: 0 24px 64px -12px oklch(0.21 0.034 265 / 25%);
+
+  /* Movimento (iguais nos dois temas) */
+  --duration-press: 80ms;
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 240ms;
+  --duration-slower: 320ms;
+  --duration-settle: 600ms;
 }
 
 .dark {
-  --background: oklch(0.2223 0.006 271.1393);
-  --foreground: oklch(0.9551 0 0);
-  --card: oklch(0.2568 0.0076 274.6528);
-  --card-foreground: oklch(0.9551 0 0);
-  --popover: oklch(0.2568 0.0076 274.6528);
-  --popover-foreground: oklch(0.9551 0 0);
-  --primary: oklch(0.6132 0.2294 291.7437);
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.294 0.013 272.9312);
-  --secondary-foreground: oklch(0.9551 0 0);
-  --muted: oklch(0.294 0.013 272.9312);
-  --muted-foreground: oklch(0.7058 0 0);
-  --accent: oklch(0.2795 0.0368 260.031);
-  --accent-foreground: oklch(0.7857 0.1153 246.6596);
-  --destructive: oklch(0.7106 0.1661 22.2162);
-  --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.3289 0.0092 268.3843);
-  --input: oklch(0.3289 0.0092 268.3843);
-  --ring: oklch(0.6132 0.2294 291.7437);
-  --chart-1: oklch(0.8003 0.1821 151.711);
-  --chart-2: oklch(0.6132 0.2294 291.7437);
-  --chart-3: oklch(0.8077 0.1035 19.5706);
-  --chart-4: oklch(0.6691 0.1569 260.1063);
-  --chart-5: oklch(0.7058 0 0);
-  --sidebar: oklch(0.2011 0.0039 286.0396);
-  --sidebar-foreground: oklch(0.9551 0 0);
-  --sidebar-primary: oklch(0.6132 0.2294 291.7437);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.294 0.013 272.9312);
-  --sidebar-accent-foreground: oklch(0.6132 0.2294 291.7437);
-  --sidebar-border: oklch(0.3289 0.0092 268.3843);
-  --sidebar-ring: oklch(0.6132 0.2294 291.7437);
-  --font-sans: Plus Jakarta Sans, sans-serif;
-  --font-serif: Lora, serif;
-  --font-mono: IBM Plex Mono, monospace;
-  --radius: 0.75rem;
-  --shadow-x: 1px;
-  --shadow-y: 2px;
-  --shadow-blur: 5px;
-  --shadow-spread: 1px;
-  --shadow-opacity: 0.06;
-  --shadow-color: hsl(0 0% 0%);
-  --shadow-2xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
-  --shadow-xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
-  --shadow-sm:
-    0px 4px 8px -1px hsl(0 0% 0% / 0.1), 0px 1px 2px -2px hsl(0 0% 0% / 0.1);
-  --shadow:
-    0px 4px 8px -1px hsl(0 0% 0% / 0.1), 0px 1px 2px -2px hsl(0 0% 0% / 0.1);
-  --shadow-md:
-    0px 4px 8px -1px hsl(0 0% 0% / 0.1), 0px 2px 4px -2px hsl(0 0% 0% / 0.1);
-  --shadow-lg:
-    0px 4px 8px -1px hsl(0 0% 0% / 0.1), 0px 4px 6px -2px hsl(0 0% 0% / 0.1);
-  --shadow-xl:
-    0px 4px 8px -1px hsl(0 0% 0% / 0.1), 0px 8px 10px -2px hsl(0 0% 0% / 0.1);
-  --shadow-2xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.25);
-  --spacing: 0.27rem;
+  /* Superfícies */
+  --bg: oklch(0.165 0.006 265);
+  --surface-1: oklch(0.2 0.007 265);
+  --surface-2: oklch(0.228 0.008 265);
+  --surface-3: oklch(0.26 0.009 265);
+  --hover: oklch(1 0 0 / 4.5%);
+  --active: oklch(1 0 0 / 7.5%);
+
+  /* Linhas */
+  --line-subtle: oklch(1 0 0 / 5.5%);
+  --line: oklch(1 0 0 / 8.5%);
+  --line-strong: oklch(1 0 0 / 15%);
+
+  /* Texto */
+  --fg: oklch(0.95 0.004 265);
+  --fg-muted: oklch(0.76 0.01 265);
+  --fg-subtle: oklch(0.68 0.012 265);
+  --fg-disabled: oklch(0.45 0.01 265);
+
+  /* Iris — acento: ação primária, foco, seleção, controle ligado */
+  --iris: oklch(0.55 0.16 282);
+  --iris-hover: oklch(0.58 0.16 282);
+  --iris-text: oklch(0.77 0.12 282);
+  --iris-soft: oklch(0.66 0.15 282 / 16%);
+  --ring: oklch(0.7 0.15 282 / 60%);
+
+  /* Semânticas */
+  --success: oklch(0.76 0.14 158);
+  --success-soft: oklch(0.76 0.14 158 / 14%);
+  --warning: oklch(0.82 0.13 78);
+  --warning-soft: oklch(0.82 0.13 78 / 14%);
+  --danger: oklch(0.7 0.17 22);
+  --danger-soft: oklch(0.7 0.17 22 / 14%);
+  --info: oklch(0.76 0.11 235);
+  --info-soft: oklch(0.76 0.11 235 / 14%);
+
+  /* Identidade dos bancos */
+  --db-postgres: oklch(0.68 0.1 250);
+  --db-mongo: oklch(0.74 0.15 150);
+  --db-redis: oklch(0.66 0.19 27);
+  --db-sqlite: oklch(0.76 0.09 220);
+
+  /* Tipos de dado na grade */
+  --data-number: oklch(0.8 0.09 235);
+  --data-date: oklch(0.8 0.08 185);
+  --data-bool: oklch(0.78 0.1 350);
+  --data-json: oklch(0.8 0.1 60);
+
+  /* Sintaxe (CodeMirror) */
+  --syn-keyword: oklch(0.76 0.12 285);
+  --syn-function: oklch(0.8 0.09 235);
+  --syn-string: oklch(0.8 0.1 150);
+  --syn-number: oklch(0.8 0.1 60);
+  --syn-type: oklch(0.8 0.08 185);
+
+  /* Vidro */
+  --glass: oklch(0.26 0.009 265 / 78%);
+  --glass-border: oklch(1 0 0 / 9%);
+  --glass-highlight: oklch(1 0 0 / 6%);
+  --scrim: oklch(0 0 0 / 45%);
+
+  /* Controles — campo rebaixado (mais escuro que o painel); botão secundário claro */
+  --field: oklch(0 0 0 / 20%);
+  --control: oklch(1 0 0 / 6%);
+  --control-border: var(--line);
+  --control-shadow: 0 0 #0000;
+
+  /* Elevação — no escuro a sombra é longa e densa; o nível 1 ganha um brilho no topo */
+  --elev-1: 0 1px 2px oklch(0 0 0 / 40%), inset 0 1px 0 oklch(1 0 0 / 4%);
+  --elev-2: 0 12px 32px -8px oklch(0 0 0 / 65%);
+  --elev-3: 0 24px 64px -12px oklch(0 0 0 / 75%);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+
+  --spacing: 0.25rem;
+
+  /* Ink */
+  --color-bg: var(--bg);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-hover: var(--hover);
+  --color-active: var(--active);
+  --color-line-subtle: var(--line-subtle);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-fg-disabled: var(--fg-disabled);
+  --color-iris: var(--iris);
+  --color-iris-hover: var(--iris-hover);
+  --color-iris-text: var(--iris-text);
+  --color-iris-soft: var(--iris-soft);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-db-postgres: var(--db-postgres);
+  --color-db-mongo: var(--db-mongo);
+  --color-db-redis: var(--db-redis);
+  --color-db-sqlite: var(--db-sqlite);
+  --color-data-number: var(--data-number);
+  --color-data-date: var(--data-date);
+  --color-data-bool: var(--data-bool);
+  --color-data-json: var(--data-json);
+  --color-syn-keyword: var(--syn-keyword);
+  --color-syn-function: var(--syn-function);
+  --color-syn-string: var(--syn-string);
+  --color-syn-number: var(--syn-number);
+  --color-syn-type: var(--syn-type);
+  --color-glass: var(--glass);
+  --color-glass-border: var(--glass-border);
+  --color-glass-highlight: var(--glass-highlight);
+  --color-scrim: var(--scrim);
+  --color-field: var(--field);
+  --color-control: var(--control);
+  --color-control-border: var(--control-border);
 
-  --font-sans: Plus Jakarta Sans, sans-serif;
-  --font-mono: IBM Plex Mono, monospace;
-  --font-serif: Lora, serif;
+  /* Raio — `rounded` sem sufixo usa --radius: raio de controle */
+  --radius: 6px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  /* Elevação — e os nomes do Tailwind mapeados para os níveis do Ink */
+  --shadow-raised: var(--elev-1);
+  --shadow-overlay: var(--elev-2);
+  --shadow-modal: var(--elev-3);
+  --shadow-control: var(--control-shadow);
+  /* Botão primário: brilho de 1 px no topo + sombra curta, igual nos dois temas */
+  --shadow-cta: inset 0 1px 0 oklch(1 0 0 / 15%), 0 1px 2px oklch(0 0 0 / 25%);
+  /* Vidro: sombra modal + brilho de 1 px no topo */
+  --shadow-glass: var(--elev-3), inset 0 1px 0 var(--glass-highlight);
+  --shadow-2xs: var(--elev-1);
+  --shadow-xs: var(--elev-1);
+  --shadow-sm: var(--elev-1);
+  --shadow: var(--elev-1);
+  --shadow-md: var(--elev-2);
+  --shadow-lg: var(--elev-3);
+  --shadow-xl: var(--elev-3);
+  --shadow-2xl: var(--elev-3);
 
-  --shadow-2xs: var(--shadow-2xs);
-  --shadow-xs: var(--shadow-xs);
-  --shadow-sm: var(--shadow-sm);
-  --shadow: var(--shadow);
-  --shadow-md: var(--shadow-md);
-  --shadow-lg: var(--shadow-lg);
-  --shadow-xl: var(--shadow-xl);
-  --shadow-2xl: var(--shadow-2xl);
-  --radius: 0.75rem;
-  --tracking-tighter: calc(var(--tracking-normal) - 0.05em);
-  --tracking-tight: calc(var(--tracking-normal) - 0.025em);
-  --tracking-wide: calc(var(--tracking-normal) + 0.025em);
-  --tracking-wider: calc(var(--tracking-normal) + 0.05em);
-  --tracking-widest: calc(var(--tracking-normal) + 0.1em);
-  --tracking-normal: var(--tracking-normal);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
-  --spacing: var(--spacing);
+  /* Tipografia */
+  --text-micro: 11px;
+  --text-micro--line-height: 14px;
+  --text-micro--letter-spacing: 0.04em;
+  --text-small: 12px;
+  --text-small--line-height: 16px;
+  --text-body: 13px;
+  --text-body--line-height: 20px;
+  --text-heading: 14px;
+  --text-heading--line-height: 20px;
+  --text-title: 16px;
+  --text-title--line-height: 24px;
+  --text-title--letter-spacing: -0.01em;
+  --text-display: 24px;
+  --text-display--line-height: 32px;
+  --text-display--letter-spacing: -0.02em;
+
+  /* Movimento */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --default-transition-duration: 120ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Carregando: barra indeterminada de 2 px e brilho do skeleton — os únicos loops */
+  --animate-indeterminate: ink-indeterminate 1.2s cubic-bezier(0.65, 0, 0.35, 1)
+    infinite;
+  --animate-shimmer: ink-shimmer 1.4s linear infinite;
+
+  @keyframes ink-indeterminate {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(340%);
+    }
+  }
+
+  @keyframes ink-shimmer {
+    from {
+      background-position: -300px 0;
+    }
+    to {
+      background-position: 300px 0;
+    }
+  }
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-line outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
-    letter-spacing: var(--tracking-normal);
+    @apply bg-bg text-fg;
   }
+}
+
+/* Vidro: só em camadas flutuantes e temporárias (DESIGN.md §7). */
+@utility glass {
+  background: var(--glass);
+  backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    var(--elev-3),
+    inset 0 1px 0 var(--glass-highlight);
+}
+/*
+ * Em componentes que já trazem fundo/borda/sombra (ex.: DialogContent), use as
+ * classes equivalentes para o cn() resolver o conflito: `bg-glass
+ * border-glass-border shadow-glass backdrop-blur-[20px] backdrop-saturate-[1.4]
+ * reduced-transparency:bg-surface-3 reduced-transparency:backdrop-blur-none`.
+ */
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background: var(--surface-3);
+    backdrop-filter: none;
+  }
+}
+
+/*
+ * Movimento reduzido: as entradas/saídas do tw-animate-css (menus, diálogos,
+ * tooltips) perdem escala e deslocamento e viram só um fade curto.
+ */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    --tw-enter-scale: 1 !important;
+    --tw-exit-scale: 1 !important;
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+    --tw-duration: 120ms !important;
+  }
+}
+
+/* Barra de rolagem fina nas listas virtualizadas (árvore, grade, paleta). */
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
 .no-scrollbar::-webkit-scrollbar {

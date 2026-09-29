@@ -5,24 +5,28 @@ import { cn } from '@/lib/utils';
 import type { InputFieldProps } from './input.types';
 import { useInput } from './use-input';
 
+/**
+ * Campo do Ink: fundo rebaixado (`--field`), borda `--line` que reforça no
+ * hover; no foco a borda vira Iris com halo de 3 px (`--iris-soft`); em erro,
+ * o mesmo desenho em `--danger`.
+ */
 export const inputControlVariants = cva(
   [
-    'flex min-w-0 items-center rounded-md border bg-transparent shadow-xs',
-    'border-input dark:bg-input/30',
-    'transition-[color,box-shadow] outline-none',
-    'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]',
+    'flex min-w-0 items-center rounded-sm border border-line bg-field text-fg',
+    'transition-[border-color,box-shadow] outline-none hover:border-line-strong',
+    'focus-within:border-iris-text focus-within:ring-3 focus-within:ring-iris-soft focus-within:hover:border-iris-text',
     'has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:opacity-50',
     "[&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0",
   ],
   {
     variants: {
       size: {
-        sm: 'h-8 gap-1.5 px-2 text-xs',
-        default: 'h-9 gap-2 px-3 text-sm',
-        lg: 'h-10 gap-2 px-4 text-base',
+        sm: 'h-7 gap-1.5 px-2 text-body',
+        default: 'h-8 gap-2 px-2.5 text-body',
+        lg: 'h-9 gap-2 px-3 text-heading',
       },
       error: {
-        true: 'border-destructive ring-destructive/20 dark:ring-destructive/40 focus-within:border-destructive focus-within:ring-destructive/20',
+        true: 'border-danger hover:border-danger focus-within:border-danger focus-within:ring-danger-soft focus-within:hover:border-danger',
         false: '',
       },
     },
@@ -94,11 +98,11 @@ export function Input({
         <Label
           htmlFor={inputId}
           data-slot="input-label"
-          className={cn(isInvalid && 'text-destructive', labelClassName)}
+          className={cn(isInvalid && 'text-danger', labelClassName)}
         >
           {label}
           {required && (
-            <span className="text-destructive" aria-hidden>
+            <span className="text-danger" aria-hidden>
               *
             </span>
           )}
@@ -121,7 +125,7 @@ export function Input({
           {startAdornment != null && (
             <span
               data-slot="input-start-adornment"
-              className="flex shrink-0 items-center text-muted-foreground"
+              className="flex shrink-0 items-center text-fg-subtle"
             >
               {startAdornment}
             </span>
@@ -144,8 +148,8 @@ export function Input({
             data-slot="input"
             className={cn(
               'h-full min-w-0 flex-1 bg-transparent outline-none',
-              'file:text-foreground placeholder:text-muted-foreground',
-              'selection:bg-primary selection:text-primary-foreground',
+              'file:text-fg placeholder:text-fg-subtle',
+              'selection:bg-iris/40 selection:text-fg',
               'file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium',
               'disabled:pointer-events-none disabled:cursor-not-allowed',
               inputClassName,
@@ -157,7 +161,7 @@ export function Input({
           {endAdornment != null && (
             <span
               data-slot="input-end-adornment"
-              className="flex shrink-0 items-center text-muted-foreground"
+              className="flex shrink-0 items-center text-fg-subtle"
             >
               {endAdornment}
             </span>
@@ -181,8 +185,8 @@ export function Input({
           id={helperId}
           data-slot="input-helper"
           className={cn(
-            'text-xs',
-            isInvalid ? 'text-destructive' : 'text-muted-foreground',
+            'text-small',
+            isInvalid ? 'text-danger' : 'text-fg-subtle',
             helperTextClassName,
           )}
         >

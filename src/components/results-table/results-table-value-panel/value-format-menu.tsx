@@ -1,6 +1,7 @@
 import { HugeiconsIcon } from '@hugeicons/react';
 import { ArrowDown01Icon } from '@hugeicons/core-free-icons';
 import { memo } from 'react';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -8,6 +9,7 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -59,17 +61,14 @@ export const ValueFormatMenu = memo(
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="inline-flex h-6 items-center gap-1 rounded border border-border px-1.5 text-[11px] font-medium hover:bg-muted/60 data-[state=open]:bg-muted transition-colors outline-none"
-            title="Formato de exibição"
-          >
+          <Button variant="ghost" size="xs" title="Formato de exibição">
             {VALUE_FORMAT_LABELS[format]}
             <HugeiconsIcon icon={ArrowDown01Icon} className="size-3" />
-          </button>
+          </Button>
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent align="end" className="w-60">
+        {/* Largura pelo conteúdo: com 13 px, rótulos longos não quebram. */}
+        <DropdownMenuContent align="end" className="w-max min-w-60">
           <DropdownMenuRadioGroup
             value={format}
             onValueChange={next => onFormatChange(next as ValueFormat)}
@@ -110,9 +109,9 @@ export const ValueFormatMenu = memo(
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               Codificação
-              <span className="ml-auto text-[10px] text-muted-foreground">
+              <DropdownMenuShortcut>
                 {VALUE_ENCODINGS.find(e => e.value === encoding)?.label}
-              </span>
+              </DropdownMenuShortcut>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="w-52">
               <DropdownMenuRadioGroup

@@ -1,10 +1,15 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Versão exibida no rodapé da sidebar (a mesma que o updater publica).
+const { version } = JSON.parse(
+  readFileSync(path.resolve(__dirname, "package.json"), "utf-8"),
+) as { version: string };
 const host = process.env.TAURI_DEV_HOST;
 
 // Modo mock roda numa porta separada para conviver com `pnpm tauri dev` (1420)
@@ -14,6 +19,9 @@ const MOCK_PORT = 1430;
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
+  define: {
+    __APP_VERSION__: JSON.stringify(version),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

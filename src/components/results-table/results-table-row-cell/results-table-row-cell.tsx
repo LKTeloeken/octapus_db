@@ -20,7 +20,6 @@ export const ResultsTableRowCell = memo(
     isAdded,
     isRemoved,
     isSelected,
-    isEven,
     columns,
     columnIndices,
     rowHeight,
@@ -40,39 +39,35 @@ export const ResultsTableRowCell = memo(
     onSelectRowBody,
     onSelectRowGutter,
   }: ResultsTableRowCellProps) => {
-    // Pending status (red delete > green add > yellow edit) wins over the
-    // selection tint; a normal selected row gets the primary tint instead of
-    // the zebra striping.
+    // Estado pendente (removida > nova) tinge a linha; célula editada tinge só a
+    // célula. A seleção usa `--iris-soft` na linha sem estado e aparece SEMPRE
+    // no gutter — o estado pendente nunca a esconde (DESIGN.md §2.4).
     const rowBg = isRemoved
-      ? 'bg-red-900/20'
+      ? 'bg-danger-soft'
       : isAdded
-        ? 'bg-green-900/20'
-        : isModified
-          ? 'bg-yellow-900/20'
-          : isSelected
-            ? 'bg-primary/15'
-            : isEven
-              ? 'bg-muted'
-              : 'bg-transparent';
-
-    // Tint overlays an opaque `bg-sidebar` instead of replacing it: a
-    // translucent `bg-primary/30` (or status /60) lets scrolled cell text
-    // show through the sticky gutter.
-    const gutterTint = isRemoved
-      ? 'bg-red-950/60'
-      : isAdded
-        ? 'bg-green-950/60'
+        ? 'bg-success-soft'
         : isSelected
-          ? 'bg-primary/30'
+          ? 'bg-iris-soft'
           : null;
 
-    const gutterFg = isRemoved
-      ? 'text-red-300'
+    // O tom do gutter é uma camada sobre o `bg-surface-1` opaco: um fundo
+    // translúcido direto deixaria o texto rolado aparecer por trás dele.
+    const gutterTint = isSelected
+      ? 'bg-iris-soft'
+      : isRemoved
+        ? 'bg-danger-soft'
+        : isAdded
+          ? 'bg-success-soft'
+          : null;
+
+    // Codificação dupla: além da cor, um glifo (legível para daltônicos).
+    const marker = isRemoved
+      ? { glyph: '−', color: 'text-danger' }
       : isAdded
-        ? 'text-green-300'
-        : isSelected
-          ? 'text-foreground'
-          : 'text-muted-foreground';
+        ? { glyph: '+', color: 'text-success' }
+        : isModified
+          ? { glyph: '•', color: 'text-warning' }
+          : null;
 
     return (
       <div
@@ -80,12 +75,7 @@ export const ResultsTableRowCell = memo(
           if (!startedInsideRow(event)) return;
           onSelectRowBody(rowIndex, event);
         }}
-        className={cn(
-          'absolute top-0 left-0',
-          rowBg,
-          // A primary ring always marks the selection, even on status rows.
-          isSelected && 'ring-1 ring-inset ring-primary',
-        )}
+        className={cn('absolute top-0 left-0', rowBg)}
         style={{
           height: `${rowHeight}px`,
           width: `${totalWidth}px`,
@@ -104,11 +94,9 @@ export const ResultsTableRowCell = memo(
             onSelectRowGutter(rowIndex, event);
           }}
           className={cn(
-            'sticky left-0 z-20 overflow-hidden border-r border-border flex items-center justify-center',
-            'text-[10px] font-mono select-none cursor-pointer outline-none',
-            'focus-visible:ring-1 focus-visible:ring-ring',
-            'bg-sidebar',
-            gutterFg,
+            'sticky left-0 z-20 flex items-center justify-between overflow-hidden border-r border-b border-line-subtle bg-surface-1 pr-2 pl-1.5',
+            'cursor-pointer select-none font-mono text-[11px] tabular-nums outline-none',
+            'focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
           )}
           style={{ width: `${gutterWidth}px`, height: `${rowHeight}px` }}
         >
@@ -118,7 +106,20 @@ export const ResultsTableRowCell = memo(
               className={cn('absolute inset-0 pointer-events-none', gutterTint)}
             />
           )}
-          <span className="relative">{rowIndex + 1}</span>
+          <span
+            aria-hidden
+            className={cn('relative font-semibold', marker?.color)}
+          >
+            {marker?.glyph}
+          </span>
+          <span
+            className={cn(
+              'relative',
+              isSelected ? 'text-iris-text' : 'text-fg-subtle',
+            )}
+          >
+            {rowIndex + 1}
+          </span>
         </button>
 
         {virtualColumns.map(virtualColumn => {
@@ -145,9 +146,10 @@ export const ResultsTableRowCell = memo(
                 onFocusCell(rowIndex, column.name);
               }}
               className={cn(
-                'absolute top-0 border-r border-border',
+                'absolute top-0 border-r border-b border-line-subtle',
+                // Cursor de teclado: anel inset de 1,5 px, sem fundo.
                 focusedColumnName === column.name &&
-                  'z-10 ring-1 ring-inset ring-primary',
+                  'z-10 ring-[1.5px] ring-inset ring-ring',
               )}
               style={{
                 left: `${gutterWidth + virtualColumn.start}px`,
@@ -160,6 +162,7 @@ export const ResultsTableRowCell = memo(
                 columnType={column.typeName}
                 displayValue={displayValue}
                 isModified={isCellModified(rowIndex, column.name)}
+                isRemoved={isRemoved}
                 isEditable={editable}
                 rowIndex={rowIndex}
                 columnName={column.name}
