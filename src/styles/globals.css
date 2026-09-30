@@ -68,6 +68,14 @@
   --syn-number: oklch(0.54 0.13 55);
   --syn-type: oklch(0.5 0.09 185);
 
+  /* Semáforo do macOS — cinza em repouso, cores do sistema no hover */
+  --traffic-rest: oklch(0 0 0 / 14%);
+  --traffic-edge: oklch(0 0 0 / 12%);
+  --traffic-glyph: oklch(0 0 0 / 55%);
+  --traffic-close: oklch(0.68 0.2 27);
+  --traffic-minimize: oklch(0.83 0.16 80);
+  --traffic-zoom: oklch(0.72 0.19 145);
+
   /* Vidro */
   --glass: oklch(1 0 0 / 80%);
   --glass-border: oklch(0 0 0 / 8%);
@@ -150,6 +158,14 @@
   --syn-number: oklch(0.8 0.1 60);
   --syn-type: oklch(0.8 0.08 185);
 
+  /* Semáforo do macOS — as cores do hover são as mesmas nos dois temas */
+  --traffic-rest: oklch(1 0 0 / 20%);
+  --traffic-edge: oklch(0 0 0 / 20%);
+  --traffic-glyph: oklch(0 0 0 / 55%);
+  --traffic-close: oklch(0.68 0.2 27);
+  --traffic-minimize: oklch(0.83 0.16 80);
+  --traffic-zoom: oklch(0.72 0.19 145);
+
   /* Vidro */
   --glass: oklch(0.26 0.009 265 / 78%);
   --glass-border: oklch(1 0 0 / 9%);
@@ -214,6 +230,12 @@
   --color-syn-string: var(--syn-string);
   --color-syn-number: var(--syn-number);
   --color-syn-type: var(--syn-type);
+  --color-traffic-rest: var(--traffic-rest);
+  --color-traffic-edge: var(--traffic-edge);
+  --color-traffic-glyph: var(--traffic-glyph);
+  --color-traffic-close: var(--traffic-close);
+  --color-traffic-minimize: var(--traffic-minimize);
+  --color-traffic-zoom: var(--traffic-zoom);
   --color-glass: var(--glass);
   --color-glass-border: var(--glass-border);
   --color-glass-highlight: var(--glass-highlight);

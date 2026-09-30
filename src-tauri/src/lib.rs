@@ -5,10 +5,11 @@ mod models;
 mod services;
 mod state;
 mod storage;
+mod window_chrome;
 
 use state::AppState;
 use storage::init_storage;
-use tauri::{Builder, Manager};
+use tauri::{Builder, Manager, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -29,7 +30,16 @@ pub fn run() {
 
             app.manage(AppState::new(storage_conn));
 
+            if let Some(window) = app.get_webview_window("main") {
+                window_chrome::hide_traffic_lights(&window.as_ref().window());
+            }
+
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::Resized(_) = event {
+                window_chrome::hide_traffic_lights(window);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             // Servers

@@ -178,6 +178,18 @@ Numa tela típica de tabela: superfícies neutras ~70% · texto e ícones ~22% �
 ~4% · Iris ~3% · semânticas ~1%. Se Iris passar de ~5%, algo está usando o acento no lugar
 de um neutro.
 
+### 2.10 Barra de título
+
+A barra de título é desenhada pelo app (`features/window-controls/`). Não há faixa própria:
+o cabeçalho da sidebar e a linha de abas arrastam a janela (`data-tauri-drag-region`).
+
+- **macOS** — semáforo à esquerda, no lugar da marca. Cinza em repouso (`--traffic-rest`);
+  no hover do grupo as três ganham `--traffic-close`, `--traffic-minimize` e `--traffic-zoom`,
+  iguais nos dois temas. São as únicas cores de sistema fora do Ink.
+- **Linux** — minimizar, maximizar e fechar como botões `ghost` no fim da linha de abas; o de
+  fechar usa `danger-soft` no hover.
+- **Windows** — barra do sistema.
+
 ---
 
 ## 3. Tipografia

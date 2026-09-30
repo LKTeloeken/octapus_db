@@ -3469,6 +3469,8 @@ dependencies = [
  "keyring",
  "mongodb",
  "native-tls",
+ "objc2 0.6.4",
+ "objc2-app-kit",
  "parking_lot",
  "postgres-native-tls",
  "rand 0.8.5",

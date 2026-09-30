@@ -13,7 +13,8 @@ import { Kbd } from '@/components/ui/kbd';
 import { Tooltip } from '@/components/ui/tooltip/tooltip';
 import { ConnectionTree } from '@/features/connection-tree/connection-tree';
 import { ServerForm } from '@/features/server-form/server-form';
-import { shortcut } from '@/lib/platform';
+import { TrafficLights } from '@/features/window-controls/window-controls';
+import { customTitlebar, shortcut } from '@/lib/platform';
 import { useSidebar } from './use-sidebar';
 
 export const Sidebar = memo(() => {
@@ -32,11 +33,23 @@ export const Sidebar = memo(() => {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2.5 pr-2.5 pl-3.5">
-        <OctapusMark />
-        <span className="text-heading font-semibold tracking-tight">
-          Octapus
-        </span>
+      {/* Também é a barra de título: arrastar move a janela, duplo clique
+          maximiza. `deep` vale para os filhos; botões continuam clicáveis. */}
+      <div
+        data-tauri-drag-region="deep"
+        className="flex h-12 shrink-0 items-center gap-2.5 pr-2.5 pl-3.5"
+      >
+        {/* No macOS o semáforo ocupa o lugar da marca — os dois não cabem. */}
+        {customTitlebar === 'mac' ? (
+          <TrafficLights />
+        ) : (
+          <>
+            <OctapusMark />
+            <span className="text-heading font-semibold tracking-tight">
+              Octapus
+            </span>
+          </>
+        )}
         <span className="flex-1" />
         <Tooltip content="Adicionar servidor" position="bottom">
           <Button
@@ -99,7 +112,9 @@ export const Sidebar = memo(() => {
           <Button
             variant="ghost"
             size="icon"
-            aria-label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}
+            aria-label={
+              theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'
+            }
             onClick={toggleTheme}
           >
             <HugeiconsIcon icon={theme === 'dark' ? Sun03Icon : Moon02Icon} />
