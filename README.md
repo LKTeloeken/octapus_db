@@ -1,114 +1,49 @@
-# octapus_db
+# octapus-db — empacotamento Nix
 
-Cliente de banco de dados **desktop**, multi-banco, construído com **Tauri 2 + React 19**.
-Conecta em **PostgreSQL, MongoDB e Redis** atrás de uma interface única: árvore de
-estrutura, editor de queries, navegação de tabelas com paginação/ordenação/filtro
-no servidor e edição inline de linhas — os três bancos expõem **os mesmos comandos**.
+Branch só de empacotamento do [octapus-db](https://github.com/LKTeloeken/octapus_db).
+Não tem o código do app: reempacota o `.deb` oficial de cada release para rodar no
+NixOS. O código e o ambiente de desenvolvimento (`nix develop`) estão na `main`.
 
-> Status: em desenvolvimento. MySQL e SQLite estão previstos (retornam "coming soon").
+O binário publicado é ligado dinamicamente contra caminhos do FHS (`/usr/lib/...`),
+que não existem no NixOS. O `nix/package.nix` reescreve o interpretador e as libs para
+o `/nix/store` com `autoPatchelfHook` e injeta o que o WebKit precisa em runtime.
 
-## Funcionalidades
+## Usar
 
-- **Multi-banco** — Postgres, MongoDB e Redis com a mesma UI; o que muda por banco
-  é decidido por `get_capabilities` (esconde nível schema, editor SQL, etc.).
-- **Conexão lazy** — não há "abrir conexão"; qualquer comando conecta sob demanda e
-  o pool fica em cache por `(servidor, database)`.
-- **Sidebar em árvore** — bancos → schemas → tabelas/collections → colunas, carregados
-  incrementalmente.
-- **Editor de queries** — sintaxe nativa por banco (SQL / shell Mongo / comandos Redis),
-  com CodeMirror, paginação e cancelamento.
-- **Browse de tabela** — paginação, ordenação e filtros montados e validados no backend
-  (sem SQL no front, sem injection).
-- **Edição inline + inserção/remoção de linhas** — alterações ficam pendentes (verde =
-  nova, vermelho = removida, amarelo = editada) e só são aplicadas ao salvar.
-- **Command palette** (`Cmd/Ctrl+K`) para navegação rápida.
-- **Senhas criptografadas** — cofre próprio (AES-256-GCM, chave presa ao dispositivo);
-  sem prompts do SO e comportamento idêntico nos 3 sistemas.
-
-## Stack
-
-| Camada | Tecnologia |
-|---|---|
-| Shell desktop | Tauri 2 (Rust) |
-| Backend | Rust — tokio, deadpool-postgres, mongodb, redis, rusqlite, keyring |
-| Frontend | React 19 + TypeScript + Vite 6 |
-| Estilo | Tailwind CSS v4 + Radix UI (padrão shadcn) |
-| Estado do servidor | TanStack Query (React Query) v5 + persistência em IndexedDB |
-| Estado de UI | Zustand |
-| Virtualização | TanStack Virtual |
-| Editor de código | CodeMirror 6 |
-
-## NixOS
-
-O pacote Nix mora na branch [`nix`](https://github.com/LKTeloeken/octapus_db/tree/nix),
-só de empacotamento: ela reempacota o `.deb` oficial com `autoPatchelfHook` e é
-atualizada sozinha a cada release publicada (workflow `nix-release.yml`).
-
+Rodar sem instalar:
 ```bash
 nix run github:LKTeloeken/octapus_db/nix
 ```
 
-Instalação no perfil, configuração declarativa e detalhes: ver o
-[README da branch `nix`](https://github.com/LKTeloeken/octapus_db/tree/nix#readme).
-O endereço antigo (`github:LKTeloeken/octapus_db`, sem `/nix`) ficou congelado na
-1.0.0 e avisa sobre a mudança.
-
-Para desenvolver, o flake da `main` traz o devShell com Rust, pnpm e as libs do WebKit —
-`nix develop`, ou automático via `direnv` (o `.envrc` já está no repositório).
-
-## Começando
-
-### Pré-requisitos
-- **Node** + **pnpm**
-- **Rust** (toolchain estável; o projeto valida com 1.96)
-- Dependências de sistema do Tauri 2 (WebKit). No **Linux**, `libdbus-1-dev` +
-  `pkg-config` só são necessários para a migração única de senhas que ainda estejam no
-  Secret Service de versões antigas — o uso normal não depende disso (ver
-  [ARCHITECTURE.md](ARCHITECTURE.md#segredos--senhas)).
-
-### Rodar
+Instalar no perfil:
 ```bash
-pnpm install
-pnpm tauri dev     # app completo (Vite + Rust)
+nix profile install github:LKTeloeken/octapus_db/nix
 ```
 
-### Outros scripts
-```bash
-pnpm dev           # só o frontend (Vite) em http://localhost:1420
-pnpm type-check    # tsc --noEmit
-pnpm tauri build   # empacota o app de produção
-# backend:
-cd src-tauri && cargo build && cargo clippy && cargo test
+Em configuração declarativa, use o pacote direto ou o overlay (`overlays.default`,
+que expõe `pkgs.octapus-db`):
+```nix
+{
+  inputs.octapus-db.url = "github:LKTeloeken/octapus_db/nix";
+
+  # no módulo do sistema:
+  environment.systemPackages = [ inputs.octapus-db.packages.x86_64-linux.default ];
+}
 ```
 
-## Estrutura do repositório
+Atualizar: `nix profile upgrade --all --refresh`, ou `nix flake update octapus-db` na
+sua configuração. O auto-update embutido do app não funciona aqui: o `/nix/store` é
+somente-leitura e o updater do Tauri no Linux só atualiza AppImage.
 
-```
-.
-├── src/                 # Frontend React (ver FRONTEND.md)
-│   ├── api/             # camada tipada de invoke (client + comandos por domínio)
-│   ├── queries/         # hooks React Query (estado do servidor)
-│   ├── stores/          # stores Zustand (estado de UI: abas, árvore, tema)
-│   ├── features/        # telas: sidebar, connection-tree, query-editor, table-browser…
-│   ├── components/      # results-table, query-editor e UI (Radix/shadcn)
-│   └── providers/       # QueryProvider (React Query + persistência)
-├── src-tauri/src/       # Backend Rust (ver BACKEND.md)
-│   ├── commands/        # handlers #[tauri::command]
-│   ├── adapters/        # DatabaseAdapter: postgres | mongo | redisdb
-│   ├── services/        # ConnectionService (cache de pools), QueryService…
-│   ├── storage/         # SQLite local + secrets (keychain)
-│   └── models/          # tipos serializados para o front
-├── nix/                 # pacote Nix congelado (o atual vive na branch `nix`)
-└── .claude/             # instruções de trabalho para o agente (ver CLAUDE.md)
-```
+## Como esta branch é mantida
 
-## Documentação
-
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — visão geral do sistema (front + back), fluxo
-  de dados e decisões de design.
-- **[BACKEND.md](BACKEND.md)** — referência do backend Rust: comandos `invoke`, modelos
-  de dados e como cada tela consome o back.
-- **[FRONTEND.md](FRONTEND.md)** — referência do frontend: estrutura, gerência de estado,
-  camada de API e o componente de tabela.
-- **[DESIGN.md](DESIGN.md)** — design system (Ink): cor, tipografia, espaço, movimento,
-  vidro, componentes e o roteiro de migração visual.
+- `nix/release.nix` (versão + hash do `.deb`) é regerado pelo workflow
+  `.github/workflows/nix-release.yml` da `main` sempre que uma release é **publicada**.
+  Ele só grava aqui depois que `nix build` passar com o hash novo.
+- Para refazer à mão: `./nix/update-release.sh [versão]` (precisa de `gh` e `jq`; usa o
+  `nix` se houver, senão `openssl`), ou dispare o workflow em *Actions → Nix → Run
+  workflow*.
+- Só há bundle para **x86_64-linux**, o único Linux que o pipeline publica. Para arm64,
+  acrescente a linha em `nix/update-release.sh`.
+- Mudanças de empacotamento (dependência nova, `.desktop`, wrapper) se fazem aqui, em
+  `nix/package.nix`.
