@@ -11,8 +11,8 @@
       release = import ./nix/release.nix;
     in
     {
-      # Para consumir o pacote em configurações NixOS / home-manager sem precisar
-      # referenciar `packages.<system>` na mão.
+      # Congelado junto com o pacote (ver `avisoMudanca`); o overlay atualizado
+      # está na branch `nix`.
       overlays.default = final: _prev: {
         octapus-db = final.callPackage ./nix/package.nix { };
       };
@@ -31,9 +31,15 @@
           librsvg
           openssl
         ];
-        # Só os sistemas com bundle publicado ganham `packages`/`apps`; nos demais
-        # (macOS, aarch64-linux) o flake continua servindo só o devShell.
+        # O pacote mudou para a branch `nix` (github:LKTeloeken/octapus_db/nix),
+        # atualizada sozinha a cada release. Aqui ele fica congelado na última
+        # versão pinada, só para não quebrar quem instalou pelo endereço antigo —
+        # com um aviso a cada avaliação. Remover numa versão futura.
         temBundle = release.bundles ? ${system};
+        avisoMudanca = pkgs.lib.warn (
+          "octapus-db: o pacote Nix mudou para github:LKTeloeken/octapus_db/nix; "
+          + "este endereço está congelado na ${release.version} e não recebe mais versões."
+        );
       in
       {
         devShells.default = pkgs.mkShell {
@@ -52,7 +58,7 @@
       }
       // pkgs.lib.optionalAttrs temBundle (
         let
-          octapus-db = pkgs.callPackage ./nix/package.nix { };
+          octapus-db = avisoMudanca (pkgs.callPackage ./nix/package.nix { });
         in
         {
           packages = {
