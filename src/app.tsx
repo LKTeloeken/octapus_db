@@ -27,7 +27,9 @@ const App = () => {
       {/* 500 ms antes do primeiro tooltip; entre vizinhos (skipDelayDuration)
           eles abrem na hora, sem piscar ao atravessar a toolbar. */}
       <TooltipProvider delayDuration={500}>
+        {/* A moldura de 8 px em volta dos painéis também arrasta a janela. */}
         <ResizablePanelGroup
+          data-tauri-drag-region
           direction="horizontal"
           className="h-screen w-full gap-1 bg-bg p-2 text-fg"
         >

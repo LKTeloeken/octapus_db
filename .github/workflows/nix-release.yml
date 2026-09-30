@@ -1,0 +1,63 @@
+name: Nix
+
+# Atualiza a branch `nix` (empacotamento para NixOS) quando uma release é
+# publicada: regera o nix/release.nix com a versão e o hash do .deb novo, valida
+# com `nix build` e só então grava.
+#
+# Roda na publicação, não no build do release.yml: enquanto a release é
+# rascunho o .deb não é público, e um novo push na `release` pode reenviar os
+# assets e mudar o hash.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Versão sem o prefixo app- (vazio = última release)
+        required: false
+
+permissions:
+  contents: write
+
+# Duas publicações seguidas não disputam o push na branch.
+concurrency: nix-release
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nix
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Regerar nix/release.nix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-${EVENT_TAG#app-v}}"
+          ./nix/update-release.sh $version
+          git diff -- nix/release.nix
+
+      # Baixa o .deb com o hash novo e reempacota: um hash errado ou uma lib que
+      # sumiu do bundle falham aqui, antes de chegar a quem usa o flake.
+      - name: Validar o pacote
+        run: nix build .#octapus-db --print-build-logs
+
+      - name: Gravar na branch nix
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- nix/release.nix; then
+            echo "nix/release.nix já está nesta versão"
+            exit 0
+          fi
+          version="$(sed -nE 's/^ *version = "([^"]+)";/\1/p' nix/release.nix)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nix/release.nix
+          git commit -m "nix: octapus-db $version"
+          git push origin HEAD:nix

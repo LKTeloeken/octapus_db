@@ -636,6 +636,9 @@ function emitFinish(
 
 // ── Plugins ─────────────────────────────────────────────────────────────────
 
+let mockWindowMaximized = false;
+let mockEventId = 0;
+
 const pluginHandlers: Record<string, MockHandler> = {
   'plugin:updater|check': () => {
     if (!useMockStore.getState().updateAvailable) return null;
@@ -685,6 +688,21 @@ const pluginHandlers: Record<string, MockHandler> = {
       console.info('[octapus-mock] clipboard recusado pelo navegador');
     }
   },
+
+  // Barra de título: não há janela nativa, só o estado que o front consulta.
+  'plugin:window|minimize': () => null,
+  'plugin:window|toggle_maximize': () => {
+    mockWindowMaximized = !mockWindowMaximized;
+  },
+  'plugin:window|is_maximized': () => mockWindowMaximized,
+  'plugin:window|close': () => {
+    console.info('[octapus-mock] fechar janela ignorado');
+  },
+  'plugin:window|is_fullscreen': () => false,
+  'plugin:window|set_fullscreen': () => null,
+  // `onResized` assina um evento; no mock ele nunca dispara.
+  'plugin:event|listen': () => ++mockEventId,
+  'plugin:event|unlisten': () => null,
 
   // Fora do Tauri não há navegador do sistema: abre numa aba nova.
   'plugin:opener|open_url': ({ url }: Args) => {

@@ -40,41 +40,20 @@ no servidor e edição inline de linhas — os três bancos expõem **os mesmos 
 
 ## NixOS
 
-O binário publicado nas releases é ligado dinamicamente contra caminhos do FHS
-(`/usr/lib/...`), que não existem no NixOS. O flake deste repositório reempacota o
-`.deb` oficial com `autoPatchelfHook`, apontando as bibliotecas para o `/nix/store`.
+O pacote Nix mora na branch [`nix`](https://github.com/LKTeloeken/octapus_db/tree/nix),
+só de empacotamento: ela reempacota o `.deb` oficial com `autoPatchelfHook` e é
+atualizada sozinha a cada release publicada (workflow `nix-release.yml`).
 
-Rodar sem instalar:
 ```bash
-nix run github:LKTeloeken/octapus_db
+nix run github:LKTeloeken/octapus_db/nix
 ```
 
-Instalar no perfil:
-```bash
-nix profile install github:LKTeloeken/octapus_db
-```
+Instalação no perfil, configuração declarativa e detalhes: ver o
+[README da branch `nix`](https://github.com/LKTeloeken/octapus_db/tree/nix#readme).
+O endereço antigo (`github:LKTeloeken/octapus_db`, sem `/nix`) ficou congelado na
+1.0.0 e avisa sobre a mudança.
 
-Em configuração declarativa, use o pacote direto ou o overlay (`overlays.default`,
-que expõe `pkgs.octapus-db`):
-```nix
-{
-  inputs.octapus-db.url = "github:LKTeloeken/octapus_db";
-
-  # no módulo do sistema:
-  environment.systemPackages = [ inputs.octapus-db.packages.x86_64-linux.default ];
-}
-```
-
-Notas:
-- Só há bundle para **x86_64-linux** — é o único Linux que o pipeline de release
-  publica hoje (adicionar arm64 é acrescentar uma linha em `nix/update-release.sh`).
-- O **auto-update embutido não funciona** aqui: o `/nix/store` é somente-leitura e o
-  updater do Tauri no Linux só sabe atualizar AppImage. Atualize com
-  `nix profile upgrade` ou bumpando o input do flake.
-- A cada release nova, o hash pinado precisa ser regerado:
-  `./nix/update-release.sh` (usa a última release; aceita a versão como argumento).
-
-Para desenvolver, o mesmo flake traz o devShell com Rust, pnpm e as libs do WebKit —
+Para desenvolver, o flake da `main` traz o devShell com Rust, pnpm e as libs do WebKit —
 `nix develop`, ou automático via `direnv` (o `.envrc` já está no repositório).
 
 ## Começando
@@ -119,7 +98,7 @@ cd src-tauri && cargo build && cargo clippy && cargo test
 │   ├── services/        # ConnectionService (cache de pools), QueryService…
 │   ├── storage/         # SQLite local + secrets (keychain)
 │   └── models/          # tipos serializados para o front
-├── nix/                 # empacotamento para NixOS (flake + reempacote do .deb)
+├── nix/                 # pacote Nix congelado (o atual vive na branch `nix`)
 └── .claude/             # instruções de trabalho para o agente (ver CLAUDE.md)
 ```
 

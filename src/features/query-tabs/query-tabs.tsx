@@ -11,12 +11,14 @@ import { memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { ContentState } from '@/components/ui/content-state';
 import { Kbd } from '@/components/ui/kbd';
+import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip } from '@/components/ui/tooltip/tooltip';
 import { QueryEditorPanel } from '@/features/query-editor/query-editor-panel';
 import { TableBrowser } from '@/features/table-browser/table-browser';
+import { WindowControls } from '@/features/window-controls/window-controls';
 import { DB_TYPE_TEXT_COLOR } from '@/lib/db-defaults';
-import { shortcut } from '@/lib/platform';
+import { customTitlebar, shortcut } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 import { useQueryTabs } from './use-query-tabs';
 
@@ -34,7 +36,7 @@ export const QueryTabs = memo(() => {
   } = useQueryTabs();
 
   if (tabs.length === 0) {
-    return (
+    const emptyState = (
       <ContentState
         icon={TableIcon}
         title="Nenhuma aba aberta"
@@ -48,6 +50,22 @@ export const QueryTabs = memo(() => {
         }
       />
     );
+
+    // Sem abas não há linha de abas: no Linux os controles ganham uma faixa
+    // própria, senão a janela ficaria sem como fechar/maximizar.
+    if (customTitlebar !== 'linux') return emptyState;
+
+    return (
+      <div className="flex h-full w-full flex-col gap-1.5">
+        <div
+          data-tauri-drag-region="deep"
+          className="flex h-9 shrink-0 items-center justify-end"
+        >
+          <WindowControls />
+        </div>
+        <div className="min-h-0 flex-1">{emptyState}</div>
+      </div>
+    );
   }
 
   return (
@@ -56,7 +74,11 @@ export const QueryTabs = memo(() => {
       onValueChange={setActiveTab}
       className="h-full w-full flex flex-col gap-1.5"
     >
-      <div className="flex h-9 shrink-0 items-center gap-1">
+      {/* Também é a barra de título (ver Sidebar): o espaço livre arrasta. */}
+      <div
+        data-tauri-drag-region="deep"
+        className="flex h-9 shrink-0 items-center gap-1"
+      >
         <TabsList
           variant="document"
           className="min-w-0 shrink justify-start overflow-x-auto overflow-y-hidden no-scrollbar px-0.5"
@@ -127,6 +149,16 @@ export const QueryTabs = memo(() => {
           Comandos
           <Kbd>{shortcut('K')}</Kbd>
         </Button>
+
+        {customTitlebar === 'linux' && (
+          <>
+            <Separator
+              orientation="vertical"
+              className="mx-1 h-[18px]! bg-line"
+            />
+            <WindowControls />
+          </>
+        )}
       </div>
 
       {activeTab && (

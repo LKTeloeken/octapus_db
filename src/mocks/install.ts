@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { mockIPC } from '@tauri-apps/api/mocks';
+import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { MockDevPanel } from './dev-panel';
 import { route } from './router';
 
@@ -23,6 +23,8 @@ export function installMocks(): void {
   mockIPC((command, payload) =>
     route(command, (payload ?? {}) as Record<string, unknown>),
   );
+  // `getCurrentWindow()` (barra de título) lê a janela atual dos metadados.
+  mockWindows('main');
 
   mountDevPanel();
 
