@@ -60,8 +60,10 @@ const editorChrome = (dark: boolean) =>
         color: 'var(--fg-muted)',
       },
       '.cm-placeholder': { color: 'var(--fg-subtle)' },
-      // Popups (autocomplete, info): sólidos como os menus do app.
+      // Popups (autocomplete, info): sólidos como os menus do app. Moram no `body`
+      // (query-editor.tsx), então o tamanho da fonte não vem mais do editor.
       '.cm-tooltip': {
+        fontSize: '13px',
         backgroundColor: 'var(--surface-3)',
         color: 'var(--fg)',
         border: '1px solid var(--line)',

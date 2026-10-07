@@ -112,3 +112,14 @@ cd src-tauri && cargo build && cargo clippy && cargo test
   camada de API e o componente de tabela.
 - **[DESIGN.md](DESIGN.md)** — design system (Ink): cor, tipografia, espaço, movimento,
   vidro, componentes e o roteiro de migração visual.
+
+## Licença
+
+Licenciado sob **MIT** ou **Apache-2.0**, à sua escolha.
+
+- [LICENSE-MIT](LICENSE-MIT)
+- [LICENSE-APACHE](LICENSE-APACHE)
+
+Salvo declaração em contrário, toda contribuição enviada intencionalmente para inclusão
+neste projeto, nos termos da licença Apache-2.0, será licenciada como acima, sem termos
+ou condições adicionais.
