@@ -50,6 +50,8 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
     applyWhere,
     resetWhere,
     supportsSql,
+    whereCompletionSource,
+    whereCompletionExtensions,
     serverName,
     dbType,
     fetchNextPage,
@@ -78,7 +80,9 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
           />
           <span className="max-w-40 truncate">{serverName}</span>
           <Crumb />
-          <span className="max-w-32 truncate">{tab.schema ?? tab.database}</span>
+          <span className="max-w-32 truncate">
+            {tab.schema ?? tab.database}
+          </span>
           <Crumb />
           <span className="max-w-48 truncate font-medium text-fg">
             {tab.table}
@@ -93,6 +97,8 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
             onChange={setDraftWhere}
             onApply={applyWhere}
             onReset={resetWhere}
+            completionSource={whereCompletionSource}
+            completionExtensions={whereCompletionExtensions}
           />
         ) : (
           // Sem WHERE (Mongo/Redis) os botões ainda ficam à direita.
@@ -105,7 +111,10 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
           onChange={setHiddenColumns}
         />
 
-        <Tooltip content={`Painel de valor (${shortcut('I')})`} position="bottom">
+        <Tooltip
+          content={`Painel de valor (${shortcut('I')})`}
+          position="bottom"
+        >
           <Button
             variant="ghost"
             size="sm"
@@ -122,7 +131,7 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
             variant="ghost"
             size="icon"
             aria-label="Recarregar"
-            onClick={applyWhere}
+            onClick={() => applyWhere()}
           >
             <HugeiconsIcon icon={RefreshIcon} />
           </Button>
@@ -141,7 +150,7 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
             </code>
           }
           action={
-            <Button variant="outline" size="sm" onClick={applyWhere}>
+            <Button variant="outline" size="sm" onClick={() => applyWhere()}>
               <HugeiconsIcon icon={RefreshIcon} />
               Tentar de novo
             </Button>

@@ -5,6 +5,7 @@ import type {
   SqlStatementContext,
   StatementTableRef,
 } from './sql-completion.types';
+import { sqlFragmentContextFacet } from './sql-fragment-context';
 
 type SyntaxNode = ReturnType<ReturnType<typeof syntaxTree>['resolveInner']>;
 type Doc = EditorState['doc'];
@@ -204,6 +205,24 @@ function hasParensAncestor(
  * **não desce em `Parens`** — subquery e CTE não entram (ver os limites no plano).
  */
 export function getStatementContextAt(
+  state: EditorState,
+  pos: number,
+): SqlStatementContext {
+  const parsed = parseStatementContext(state, pos);
+  const fragment = state.facet(sqlFragmentContextFacet);
+
+  if (!fragment) return parsed;
+
+  // Editor de fragmento (filtro WHERE): as tabelas implícitas vêm antes das escritas, e
+  // a cláusula declarada só vale enquanto o texto não abriu outra por conta própria.
+  return {
+    tables: [...fragment.tables, ...parsed.tables],
+    atTopLevel: parsed.atTopLevel,
+    clause: parsed.clause === 'start' ? fragment.clause : parsed.clause,
+  };
+}
+
+function parseStatementContext(
   state: EditorState,
   pos: number,
 ): SqlStatementContext {

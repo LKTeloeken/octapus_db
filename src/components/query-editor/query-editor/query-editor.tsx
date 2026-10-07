@@ -2,6 +2,7 @@ import { useImperativeHandle, useMemo, useRef, type Ref } from 'react';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import {
   autocompletion,
+  currentCompletions,
   snippetCompletion,
   startCompletion,
   type Completion,
@@ -9,8 +10,14 @@ import {
   type CompletionResult,
   type CompletionSource,
 } from '@codemirror/autocomplete';
-import { keymap, placeholder, EditorView } from '@codemirror/view';
-import { Prec, type Extension } from '@codemirror/state';
+import { keymap, placeholder, tooltips, EditorView } from '@codemirror/view';
+import {
+  EditorState,
+  Prec,
+  Transaction,
+  type ChangeSpec,
+  type Extension,
+} from '@codemirror/state';
 import { keywordCompletionSource, sql, PostgreSQL } from '@codemirror/lang-sql';
 import { javascript } from '@codemirror/lang-javascript';
 import { inkEditorTheme } from '@/lib/codemirror-theme';
@@ -43,6 +50,61 @@ const explicitCompletionKeymap = Prec.highest(
       preventDefault: true,
     },
   ]),
+);
+
+/**
+ * Popups (autocomplete, info) montados no `body`, fora da árvore do editor. Dentro dela
+ * ficam presos a qualquer ancestral com `overflow: hidden` — e, com `transform` ou
+ * `backdrop-filter` no caminho (o vidro do Ink), nem o `position: fixed` escapa. Num
+ * editor baixo, como o filtro WHERE, o menu simplesmente sumia. O contêiner herda as
+ * classes de tema do editor, então o visual não muda.
+ */
+const bodyTooltips = tooltips({
+  parent: typeof document === 'undefined' ? undefined : document.body,
+});
+
+/**
+ * Editor de uma linha só: quebra de linha colada vira espaço. A troca é de um caractere
+ * por um, então a seleção calculada pela transação original continua válida.
+ */
+const singleLineFilter = EditorState.transactionFilter.of(tr => {
+  if (!tr.docChanged || tr.newDoc.lines === 1) return tr;
+
+  const changes: ChangeSpec[] = [];
+
+  tr.changes.iterChanges((from, to, _fromB, _toB, inserted) => {
+    changes.push({
+      from,
+      to,
+      insert: inserted.toString().replace(/[\r\n]/g, ' '),
+    });
+  });
+
+  return {
+    changes,
+    selection: tr.selection,
+    effects: tr.effects,
+    scrollIntoView: tr.scrollIntoView,
+    userEvent: tr.annotation(Transaction.userEvent),
+  };
+});
+
+/**
+ * Ajustes visuais do modo `singleLine`: sem respiro vertical, rolagem só horizontal.
+ * `Prec.highest` porque o tema do Ink (prop `theme`) entra depois e venceria o empate.
+ */
+const singleLineTheme = Prec.highest(
+  EditorView.theme({
+    '&': { height: '100%' },
+    '.cm-scroller': {
+      lineHeight: '20px',
+      overflowY: 'hidden',
+      scrollbarWidth: 'none',
+    },
+    // 20 px de linha + 3 px em cima e embaixo = os 26 px úteis do Input sm.
+    '.cm-content': { padding: '3px 0' },
+    '.cm-line': { padding: '0' },
+  }),
 );
 
 export type QueryDialect = 'postgres' | 'mongo';
@@ -93,6 +155,13 @@ export interface QueryEditorProps {
   placeholderText?: string;
 
   fontSize?: number;
+
+  /**
+   * Campo de uma linha (filtro WHERE): sem gutter, Enter executa e Esc chama `onEscape`.
+   * Com o popup de sugestão aberto, Enter/Esc continuam sendo dele.
+   */
+  singleLine?: boolean;
+  onEscape?: () => void;
 
   runMode?: QueryEditorRunMode;
   onRun?: (query: string, context: QueryEditorRunContext) => void;
@@ -460,6 +529,8 @@ export function QueryEditor({
   fontSize = 13,
   runMode = 'selection-or-all',
   onRun,
+  singleLine = false,
+  onEscape,
   className,
   ref,
 }: QueryEditorProps) {
@@ -601,16 +672,67 @@ export function QueryEditor({
     );
   }, [onRun, runMode]);
 
+  // Enter em `Prec.high`, abaixo do keymap do autocomplete (`Prec.highest`): com o popup
+  // aberto ele aceita a sugestão; só com o popup fechado chega aqui.
+  //
+  // Esc não pode seguir a mesma regra: o `closeCompletion` da lib consome a tecla sempre
+  // que há uma consulta pendente ou um resultado vazio, mesmo sem popup na tela — e o Esc
+  // logo depois de digitar "não fazia nada". Por isso ele vai na frente do autocomplete e
+  // só cede quando há opções visíveis.
+  const singleLineExtensions = useMemo(() => {
+    if (!singleLine) return [];
+
+    return [
+      singleLineFilter,
+      singleLineTheme,
+      Prec.high(
+        keymap.of([
+          {
+            key: 'Enter',
+            run: view => {
+              const runnableQuery = getRunnableQuery(view, runMode);
+              if (runnableQuery) {
+                onRun?.(runnableQuery.query, runnableQuery.context);
+              }
+              return true;
+            },
+          },
+        ]),
+      ),
+    ];
+  }, [singleLine, onRun, runMode]);
+
+  const escapeKeymap = useMemo(() => {
+    if (!singleLine || !onEscape) return [];
+
+    return Prec.highest(
+      keymap.of([
+        {
+          key: 'Escape',
+          run: view => {
+            if (currentCompletions(view.state).length > 0) return false;
+            onEscape();
+            return true;
+          },
+        },
+      ]),
+    );
+  }, [singleLine, onEscape]);
+
   const extensions = useMemo(() => {
     return [
+      // Antes do `completionExtension`: no mesmo `Prec`, quem vem primeiro vence.
+      escapeKeymap,
       languageExtension,
       completionExtension,
       completionSectionTheme,
+      bodyTooltips,
       disableSpellcheck,
       ...(sqlExtraExtensions ? [sqlExtraExtensions] : []),
       placeholder(placeholderText),
       runQueryKeymap,
       explicitCompletionKeymap,
+      ...singleLineExtensions,
     ];
   }, [
     languageExtension,
@@ -619,6 +741,8 @@ export function QueryEditor({
     sqlExtraExtensions,
     placeholderText,
     runQueryKeymap,
+    singleLineExtensions,
+    escapeKeymap,
   ]);
 
   return (
@@ -635,10 +759,10 @@ export function QueryEditor({
         readOnly={readOnly}
         autoFocus={autoFocus}
         basicSetup={{
-          lineNumbers: true,
-          foldGutter: true,
-          highlightActiveLine: true,
-          highlightActiveLineGutter: true,
+          lineNumbers: !singleLine,
+          foldGutter: !singleLine,
+          highlightActiveLine: !singleLine,
+          highlightActiveLineGutter: !singleLine,
           bracketMatching: true,
           closeBrackets: true,
           autocompletion: false,

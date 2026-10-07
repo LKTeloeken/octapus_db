@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import type { SortSpec } from '@/api/types/browse.types';
 import { useHiddenColumnsReset } from '@/components/column-selector/use-hidden-columns-reset';
+import { sqlFragmentContext } from '@/components/query-editor/query-editor/sql-completion/sql-fragment-context';
 import type { SaveRowChanges } from '@/components/results-table/results-table.types';
 import {
   useApplyRowEdits,
@@ -11,6 +12,7 @@ import {
 import { useCapabilities } from '@/queries/use-capabilities';
 import { useServers } from '@/queries/use-servers';
 import { useFetchAllTableData, useTableData } from '@/queries/use-table-data';
+import { useSqlCompletion } from '@/features/query-editor/use-sql-completion';
 import { useTabsStore, type BrowseTab } from '@/stores/tabs-store';
 import { useValuePanelStore } from '@/stores/value-panel-store';
 
@@ -34,6 +36,25 @@ export const useTableBrowser = (tab: BrowseTab) => {
   const setValuePanelOpen = useValuePanelStore(state => state.setOpen);
 
   const [draftWhere, setDraftWhere] = useState(tab.whereExpr);
+
+  // Autocomplete do filtro: o mesmo do editor de query, com a tabela aberta como
+  // contexto implícito — o texto do filtro não tem `FROM` para a varredura achar.
+  const sqlCompletion = useSqlCompletion({
+    serverId: tab.serverId,
+    database: tab.database,
+    defaultSchema: tab.schema ?? null,
+    enabled: supportsSql,
+  });
+  const whereCompletionExtensions = useMemo(
+    () => [
+      sqlCompletion.prefetch,
+      sqlFragmentContext({
+        tables: [{ table: tab.table, schemaHint: tab.schema ?? undefined }],
+        clause: 'where',
+      }),
+    ],
+    [sqlCompletion.prefetch, tab.table, tab.schema],
+  );
 
   useEffect(() => {
     setDraftWhere(tab.whereExpr);
@@ -71,14 +92,19 @@ export const useTableBrowser = (tab: BrowseTab) => {
     [activeSort, tab.id, setBrowseSort],
   );
 
-  const applyWhere = useCallback(() => {
-    const next = draftWhere.trim();
-    if (next !== tab.whereExpr) {
-      setBrowseWhere(tab.id, next);
-    } else {
-      void data.refetch();
-    }
-  }, [draftWhere, tab.id, tab.whereExpr, setBrowseWhere, data.refetch]);
+  // O filtro passa o texto que acabou de executar; sem argumento (recarregar, Cmd+R),
+  // vale o rascunho.
+  const applyWhere = useCallback(
+    (expr: string = draftWhere) => {
+      const next = expr.trim();
+      if (next !== tab.whereExpr) {
+        setBrowseWhere(tab.id, next);
+      } else {
+        void data.refetch();
+      }
+    },
+    [draftWhere, tab.id, tab.whereExpr, setBrowseWhere, data.refetch],
+  );
 
   const resetWhere = useCallback(() => {
     setDraftWhere(tab.whereExpr);
@@ -222,6 +248,8 @@ export const useTableBrowser = (tab: BrowseTab) => {
     applyWhere,
     resetWhere,
     supportsSql,
+    whereCompletionSource: sqlCompletion.source,
+    whereCompletionExtensions,
     serverName: server?.name ?? '',
     dbType: server?.dbType,
     setSort,
