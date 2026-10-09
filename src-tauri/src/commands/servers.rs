@@ -27,6 +27,8 @@ pub fn update_server(
 ) -> Result<Server, String> {
     // Disconnect existing connections when server config changes
     state.connections.disconnect_server(id);
+    // O que se enxerga do banco pode ter mudado: o catálogo sai da memória e do disco
+    state.catalog.forget_server(id);
 
     servers::update(&state.storage, id, input).map_err(|e| e.to_string())
 }
@@ -35,6 +37,7 @@ pub fn update_server(
 pub fn delete_server(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     // Disconnect all connections for this server first
     state.connections.disconnect_server(id);
+    state.catalog.forget_server(id);
 
     servers::delete(&state.storage, id).map_err(|e| e.to_string())
 }

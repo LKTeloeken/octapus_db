@@ -1,5 +1,6 @@
 mod browse;
 mod executor;
+pub(crate) mod introspect;
 mod metadata;
 mod util;
 
@@ -202,13 +203,6 @@ impl DatabaseAdapter for SqliteAdapter {
             .await
     }
 
-    async fn list_schemas_with_tables(&self) -> Result<DatabaseStructure> {
-        let database = self.database.clone();
-
-        self.with_conn(move |conn| metadata::list_schemas_with_tables(conn, &database))
-            .await
-    }
-
     async fn test_connection(&self) -> Result<()> {
         self.with_conn(move |conn| {
             // Um arquivo que não é banco falha aqui, com a mensagem do SQLite
@@ -251,6 +245,8 @@ mod tests {
             default_database: None,
             ssl_enabled: false,
             connection_uri: Some(path.to_string_lossy().into_owned()),
+            scope_databases: None,
+            scope_schemas: None,
             created_at: 0,
         }
     }
@@ -346,11 +342,6 @@ mod tests {
         assert!(indexes
             .iter()
             .any(|index| index.name == "idx_users_name" && index.columns == vec!["name"]));
-
-        // O SQLite não tem schema: a estrutura vem como um "schema" só, o banco
-        let structure = adapter.list_schemas_with_tables().await.unwrap();
-        assert_eq!(structure.schemas.len(), 1);
-        assert_eq!(structure.schemas[0].name, "main");
 
         // ── Browse com filtro, ordenação e total ─────────────────────────
         let result = adapter

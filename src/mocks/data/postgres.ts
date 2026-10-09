@@ -1,5 +1,6 @@
 import type { MockColumn, MockDatabase, MockTable } from './types';
 import * as gen from './rows';
+import { buildSaasDatabase } from './tenants';
 
 /** OIDs reais do catálogo do Postgres — o front usa só para exibir/depurar */
 const OID = {
@@ -528,6 +529,8 @@ export function buildPostgresDatabases(): MockDatabase[] {
       tables: [eventos, metricasDiarias].map(clone),
     },
     { name: 'postgres', sizeBytes: 8_569_344, tables: [] },
+    // 5.000 schemas × 150 tabelas: o caso multi-tenant do catálogo
+    buildSaasDatabase(),
   ];
 }
 

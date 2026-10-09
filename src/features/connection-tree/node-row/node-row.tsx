@@ -2,13 +2,17 @@ import {
   ArrowRight01Icon,
   DatabaseIcon,
   Folder01Icon,
+  FolderLibraryIcon,
   HashtagIcon,
+  Layers01Icon,
   MoreHorizontalIcon,
   ServerStack01Icon,
   TableIcon,
+  ViewIcon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { memo, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -20,15 +24,24 @@ import { Spinner } from '@/components/ui/spinner';
 import { DB_TYPE_TEXT_COLOR } from '@/lib/db-defaults';
 import { formatBytes } from '@/lib/format-bytes';
 import { cn } from '@/lib/utils';
+import type { CatalogNodeKind } from '@/api/types/catalog.types';
 import type { NodeKind } from '@/lib/node-ref';
 import type { NodeRowProps } from './node-row.types';
 
 const KIND_ICONS: Record<NodeKind, typeof DatabaseIcon> = {
   server: ServerStack01Icon,
   database: DatabaseIcon,
+  shape: FolderLibraryIcon,
   schema: Folder01Icon,
   table: TableIcon,
   column: HashtagIcon,
+};
+
+/** Views e tabelas particionadas se distinguem da tabela comum pelo ícone */
+const RELATION_ICONS: Partial<Record<CatalogNodeKind, typeof DatabaseIcon>> = {
+  view: ViewIcon,
+  materializedView: ViewIcon,
+  partitioned: Layers01Icon,
 };
 
 /**
@@ -47,6 +60,8 @@ export const NodeRow = memo(
     isExpanded,
     isLoading,
     dbType,
+    relationKind,
+    badge,
     isOpen,
     isFocused,
     onClick,
@@ -95,7 +110,9 @@ export const NodeRow = memo(
         </span>
 
         <HugeiconsIcon
-          icon={KIND_ICONS[kind]}
+          icon={
+            (relationKind && RELATION_ICONS[relationKind]) ?? KIND_ICONS[kind]
+          }
           className={cn(
             'size-4 shrink-0',
             isServer && dbType
@@ -112,6 +129,15 @@ export const NodeRow = memo(
           <span className="min-w-0 shrink-[3] truncate text-small font-normal text-fg-subtle tabular-nums">
             {subLabel}
           </span>
+        )}
+        {badge && (
+          <Badge
+            variant="warning"
+            className="font-mono tabular-nums"
+            title={badge.title}
+          >
+            {badge.label}
+          </Badge>
         )}
 
         {hasSize && (
@@ -149,7 +175,7 @@ export const NodeRow = memo(
                 </PopoverTrigger>
               </div>
             )}
-            <PopoverContent className="w-40 p-1.5" align="end">
+            <PopoverContent className="w-48 p-1.5" align="end">
               {actions.map(action => (
                 <Button
                   key={action.label}

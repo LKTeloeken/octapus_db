@@ -4,7 +4,11 @@ import { STRUCTURE_STALE_TIME_MS } from '@/providers/query-provider';
 import { queryKeys } from './keys';
 import { useCallback } from 'react';
 
-/** Full schemas+tables tree of one database (sidebar + editor autocomplete) */
+/**
+ * Full schemas+tables tree of one database (sidebar + editor autocomplete) —
+ * só para bancos sem catálogo no backend (Mongo, Redis, SQLite); o Postgres
+ * pede fatias ao catálogo (`use-catalog`).
+ */
 export function useStructure(
   serverId: number | null | undefined,
   database: string | null | undefined,

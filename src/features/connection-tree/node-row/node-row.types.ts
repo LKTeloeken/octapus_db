@@ -1,4 +1,5 @@
 import type { IconSvgElement } from '@hugeicons/react';
+import type { CatalogNodeKind } from '@/api/types/catalog.types';
 import type { DatabaseType } from '@/api/types/server.types';
 import type { NodeKind } from '@/lib/node-ref';
 
@@ -22,6 +23,11 @@ export interface NodeRowProps {
   isLoading?: boolean;
   /** Banco do servidor: pinta o ícone com a cor de identidade (só no servidor) */
   dbType?: DatabaseType;
+  /** Aviso curto ao lado do nome (tenant fora do formato dominante: `−3`),
+   *  com a explicação no `title` */
+  badge?: { label: string; title: string };
+  /** Tipo da relação, quando o catálogo informa (view e particionada têm ícone próprio) */
+  relationKind?: CatalogNodeKind;
   /** Tabela aberta na aba ativa: a linha fica realçada (`--active`) */
   isOpen?: boolean;
   /** Nó sob o cursor do teclado (setas na árvore) */

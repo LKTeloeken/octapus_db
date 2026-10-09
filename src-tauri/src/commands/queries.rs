@@ -186,7 +186,7 @@ pub async fn cancel_query(
 ) -> Result<(), String> {
     // Cancellation only makes sense against the connection running the query.
     // If it isn't open, there is nothing to cancel — don't create a pool.
-    let Some(adapter) = state.connections.get_cached(server_id, &database) else {
+    let Some((adapter, _)) = state.connections.get_cached(server_id, &database) else {
         return Ok(());
     };
 

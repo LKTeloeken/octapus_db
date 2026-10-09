@@ -38,3 +38,7 @@ tsconfig.tsbuildinfo
 .direnv
 
 .env*
+
+# Medições de desempenho (perf/catalog): dados brutos de cada máquina, regerados
+# pelos testes `perf::` e `pnpm perf:front` — os relatórios (*.md) ficam versionados
+perf/catalog/results/

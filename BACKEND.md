@@ -4,10 +4,15 @@ Documento de referência do backend em Rust/Tauri do **octapus_db**. Explica com
 back está organizado, todos os comandos (`invoke`) disponíveis, os formatos de
 dados, e instruções passo a passo para implementar cada tela do front.
 
-> **Bancos suportados:** PostgreSQL, MongoDB e Redis. Os três expõem **exatamente
-> os mesmos comandos** — o front não precisa saber o tipo do banco para a maioria
+> **Bancos suportados:** PostgreSQL, MongoDB, Redis e SQLite. Os quatro expõem
+> **os mesmos comandos** — o front não precisa saber o tipo do banco para a maioria
 > das operações. Onde o comportamento muda, o comando `get_capabilities` informa
 > o que renderizar.
+>
+> **Estrutura do banco:** Postgres, Mongo e SQLite respondem pelo **catálogo de
+> metadados** (comandos `catalog_*`, §1.1 e §6.3) — o front pede fatias (filhos de um
+> nó, busca, resolução), nunca a estrutura inteira. Só o Redis ainda usa
+> `list_schemas_with_tables`.
 
 ---
 
@@ -15,9 +20,12 @@ dados, e instruções passo a passo para implementar cada tela do front.
 
 ```
 Front (invoke) ──▶ commands/   handlers #[tauri::command], validam e delegam
-                   services/    wrappers finos de orquestração
-                   adapters/    DatabaseAdapter trait → postgres | mongo | redisdb
-                   storage/     SQLite local (servers) + vault (senhas criptografadas)
+                   services/    orquestração: ConnectionService, CatalogService, ...
+                   catalog/     núcleo do catálogo de metadados (Rust puro, sem banco)
+                   adapters/    DatabaseAdapter trait → postgres | mongo | redisdb | sqlite
+                                + fontes do catálogo (`introspect.rs` de cada banco)
+                   storage/     SQLite local (servers, sessão) + vault (senhas criptografadas)
+Front (listen) ◀── evento `catalog-event` (progresso dos catálogos)
 ```
 
 - **`adapters/`** — toda conexão e execução de query vive aqui. Cada banco
@@ -35,9 +43,62 @@ Front (invoke) ──▶ commands/   handlers #[tauri::command], validam e deleg
 
 ### Como uma chamada flui
 1. Front faz `invoke('execute_query', { serverId, database, query })`.
-2. O handler busca o `Server` no SQLite e decifra a senha pelo cofre (`vault`).
-3. `get_or_connect(server, database)` devolve o adapter (do cache ou novo).
-4. O adapter executa e devolve um `QueryResult` já serializado.
+2. `connect_adapter` (`commands/mod.rs`) devolve o adapter do cache — com um ping só se
+   ele ficou parado mais de 30 s. No cache-miss busca o `Server` no SQLite, decifra a
+   senha pelo cofre (`vault`) e cria o pool.
+3. O adapter executa e devolve um `QueryResult` já serializado.
+
+Custo fixo por comando: o pool usa `RecyclingMethod::Fast` com um hook que só valida
+conexões paradas, e os metadados usam `prepare_cached` — um comando de metadado sobre
+uma conexão em uso custa **uma** ida e volta ao banco.
+
+### 1.1 Catálogo de metadados
+
+A estrutura dos bancos (schemas, tabelas, coleções) mora no backend, num catálogo por
+`(serverId, database)`. O front só pede fatias. Motivo e medições:
+[perf/catalog/](perf/catalog/README.md) — num banco com 5.000 schemas × 150 tabelas, a
+listagem inteira (com o tamanho de cada tabela) levava o backend ao OOM.
+
+- **`catalog/`** — o núcleo, sem banco nem rede: nomes internados, **formatos**
+  (conjuntos de relações compartilhados entre schemas iguais), índice nome → formatos,
+  `children` paginado/filtrado, busca fuzzy agrupada (`nucleo-matcher`), resolução de
+  nome sem schema pelo `search_path`, drift entre tenants, agrupamento por formato e
+  persistência em disco (`OCTCAT` + versão + lz4/postcard cifrado com a chave do vault;
+  versão diferente = arquivo descartado e refeito). Escopo salvo (`NameScope`) também
+  mora aqui.
+- **Fontes** (trait `CatalogSource`, `catalog/source.rs`), uma por banco, numa conexão
+  **dedicada** (não disputa com o pool do editor):
+  - **Postgres** (`adapters/postgres/introspect.rs`): transação `REPEATABLE READ READ
+    ONLY` com `SET LOCAL statement_timeout/lock_timeout` e `jit = off`. Camada 0 = nomes
+    dos schemas; depois uma varredura calcula formato + fingerprint (`sum(hashtext(oid:xmin))`)
+    de cada schema e só **um representante por formato** traz as relações. Detecta
+    capacidade por versão/fork e cai num caminho em massa quando não dá.
+  - **Mongo** (`adapters/mongo/introspect.rs`): um `listCollections` com `nameOnly` e
+    `authorizedCollections`; tamanho só da coleção aberta (`$collStats`).
+  - **SQLite** (`adapters/sqlite/introspect.rs`): `sqlite_schema`; fingerprint pelo
+    `schema_version`; tamanho pelo `dbstat`.
+  - Mongo e SQLite não têm schema: as relações ficam num schema **sem nome**
+    (`FLAT_SCHEMA = ""`).
+- **`CatalogService`** (`services/catalog.rs`):
+  - **duas faixas** por catálogo, cada uma com sua conexão: sincronização (segundo plano)
+    e prioridade (o usuário está esperando: abrir um schema ainda não carregado, o
+    tamanho da tabela aberta). Pedidos urgentes simultâneos viram um lote;
+  - **revalida por evento** — abrir o database (se a última sincronização tem mais de
+    60 s) ou refresh manual — nunca por polling;
+  - abre do **disco** na hora e revalida em seguida; salva a cada sincronização;
+  - **manutenção a cada minuto**: salva o pendente, fecha conexões paradas há 5 min,
+    tira da memória os catálogos menos usados acima de 256 MB (ficam no disco) e, na
+    partida, apaga arquivos sem uso há 30 dias;
+  - servidor editado ou excluído → `forget_server` tira da memória e do disco.
+  - A senha só é decifrada ao criar a entrada do catálogo (cache-miss).
+- **Eventos** `catalog-event` (`models/catalog.rs`): `syncing`, `schemas` (camada 0),
+  `relations`, `ready` (com `added`/`removed`/`changed`), `error`, `cancelled`.
+
+**Para mexer:** consulta nova → método em `Catalog` (`catalog/query.rs`) + comando em
+`commands/catalog.rs`; banco novo → implementar `CatalogSource` e incluir em
+`adapters::has_catalog`/`create_catalog_source`. Nada de voltar a listar a estrutura
+inteira (`list_schemas_with_tables` é default `UnsupportedType` na trait, só o Redis
+implementa) nem de pedir `pg_total_relation_size`/`$collStats` em massa.
 
 ---
 
@@ -76,7 +137,7 @@ Todos os campos chegam em `camelCase`.
 ### Server / ServerInput
 ```ts
 type DatabaseType = 'postgres' | 'mongodb' | 'redis' | 'mysql' | 'sqlite';
-// (mysql e sqlite ainda não têm adapter — retornam erro "coming soon")
+// (mysql ainda não tem adapter — retorna erro "coming soon")
 
 interface Server {
   id: number;
@@ -88,8 +149,12 @@ interface Server {
   // password NUNCA é serializada para o front
   defaultDatabase: string | null;
   sslEnabled: boolean;
-  connectionUri: string | null;   // URI completa (Atlas, Redis cloud) — opcional
+  connectionUri: string | null;   // URI completa (Atlas, Redis cloud); no SQLite, o caminho do arquivo
   createdAt: number;              // epoch em segundos
+  // Escopo salvo: padrões separados por vírgula; `*` e `?`; `!` na frente exclui.
+  // null = sem restrição. Ver "Escopo" em §4.
+  scopeDatabases: string | null;  // databases visíveis (list_databases)
+  scopeSchemas: string | null;    // schemas visíveis (Postgres: catálogo e list_schemas)
 }
 
 // Enviado em create_server / update_server:
@@ -103,6 +168,8 @@ interface ServerInput {
   defaultDatabase?: string | null;
   sslEnabled?: boolean | null;
   connectionUri?: string | null;
+  scopeDatabases?: string | null; // só espaços = null
+  scopeSchemas?: string | null;
 }
 ```
 
@@ -207,22 +274,105 @@ interface IndexInfo {
   indexType: string;
 }
 
-// Árvore completa em uma chamada (para montar a sidebar):
+// Árvore completa em uma chamada — só o Redis (os demais usam o catálogo):
 interface DatabaseStructure {
   schemas: { name: string; tables: { name: string; tableType: string }[] }[];
   fetchedAt: number; // epoch em ms
 }
 ```
 
+### Catálogo de metadados
+Espelho em `src/api/types/catalog.types.ts` (Rust: `models/catalog.rs` e
+`catalog/model.rs`).
+```ts
+type CatalogNodeKind =
+  'schema' | 'table' | 'view' | 'materializedView' | 'foreign' | 'partitioned';
+
+interface CatalogNode {
+  name: string;
+  kind: CatalogNodeKind;
+  childCount: number | null;     // tabelas de um schema, partições de um pai; null = não carregado
+  state: 'unloaded' | 'loaded' | 'stale' | null;   // só schemas
+  drift: { missing: number; extra: number } | null; // só schemas: diferença p/ o formato dominante
+}
+
+// Nó cujos filhos se pede. Mongo/SQLite: { kind: 'schema', schema: '' }
+type CatalogPath =
+  | { kind: 'schemas' }
+  | { kind: 'schema'; schema: string }
+  | { kind: 'partitions'; schema: string; table: string }
+  | { kind: 'shape'; key: string };      // schemas de um grupo (árvore agrupada)
+
+interface CatalogPage<T> { total: number; offset: number; items: T[] } // total já filtrado
+
+interface SchemaGroup { total: number; sample: string[] }
+
+// Mesma relação em vários schemas = um resultado (`schemas`); busca `schema.tabela`
+// devolve pares (`schema`); um schema não tem nenhum dos dois.
+interface CatalogSearchHit {
+  serverId: number; database: string;
+  name: string; kind: CatalogNodeKind; score: number;
+  schema: string | null; schemas: SchemaGroup | null;
+}
+
+type CatalogResolution =
+  | { status: 'found'; schema: string; table: string; kind: CatalogNodeKind }
+  | { status: 'ambiguous'; table: string; schemas: SchemaGroup }
+  | { status: 'notFound' };
+
+interface CatalogStatus {
+  serverId: number; database: string;
+  syncing: boolean;
+  fetchedAt: number | null;      // última revalidação concluída (ms)
+  fromDisk: boolean;             // veio do arquivo e ainda não revalidou
+  error: string | null;
+  serverVersion: string | null;
+  stats: { schemas; loaded; stale; unloaded; shapes; distinctNames; relations; approxHeapBytes };
+}
+
+// Árvore agrupada por formato
+interface ShapeGroup {
+  key: string;                   // hash do conteúdo do formato; 'other' para o resto
+  role: 'dominant' | 'variant' | 'other';
+  tables: number | null;
+  missing: string[]; extra: string[];   // só nas variações
+  schemas: number;
+}
+
+interface CatalogDriftReport {
+  dominant: { tables: number; schemas: SchemaGroup } | null;
+  divergent: { schemas: SchemaGroup; missing: string[]; extra: string[] }[];
+}
+
+// "Copiar diagnóstico": só contagens e tempos, nenhum nome
+interface CatalogDiagnostics {
+  appVersion: string;
+  status: CatalogStatus;
+  lastSync: { at; strategy: 'shapeFirst' | 'bulk'; schemas; shapes; fetched; shared;
+              added; removed; changed; layer0Ms; totalMs } | null;
+  drift: { dominantTables: number | null; dominantSchemas; divergentGroups; divergentSchemas };
+}
+
+// Evento `catalog-event`
+type CatalogEvent = { serverId: number; database: string } & (
+  | { type: 'syncing' }
+  | { type: 'schemas'; added: string[]; removed: string[] }
+  | { type: 'relations'; schemas: number }
+  | { type: 'ready'; added: string[]; removed: string[]; changed: string[]; fetchedAt: number | null }
+  | { type: 'error'; message: string }
+  | { type: 'cancelled' }
+);
+```
+
 ### AdapterCapabilities
 ```ts
 interface AdapterCapabilities {
-  hasSchemas: boolean;          // Postgres true; Mongo/Redis false
-  hasPrimaryKeys: boolean;      // Postgres/Mongo true; Redis false
-  supportsSql: boolean;         // só Postgres
-  supportsTransactions: boolean;// só Postgres
-  supportsIndexes: boolean;     // Postgres/Mongo true; Redis false
-  browsable: boolean;           // os três true
+  hasSchemas: boolean;          // só Postgres true
+  hasPrimaryKeys: boolean;      // Postgres/Mongo/SQLite true; Redis false
+  supportsSql: boolean;         // Postgres e SQLite
+  supportsTransactions: boolean;// Postgres e SQLite
+  supportsIndexes: boolean;     // Postgres/Mongo/SQLite true; Redis false
+  browsable: boolean;           // os quatro true
 }
 ```
 
@@ -237,8 +387,8 @@ interface AdapterCapabilities {
 | `get_all_servers` | — | `Server[]` |
 | `get_server` | `{ id }` | `Server` |
 | `create_server` | `{ input: ServerInput }` | `Server` |
-| `update_server` | `{ id, input: ServerInput }` | `Server` (derruba conexões do server) |
-| `delete_server` | `{ id }` | `void` (apaga o segredo + conexões) |
+| `update_server` | `{ id, input: ServerInput }` | `Server` (derruba conexões e esquece os catálogos do server) |
+| `delete_server` | `{ id }` | `void` (apaga o segredo, as conexões e os catálogos) |
 
 ### Conexão
 
@@ -251,7 +401,7 @@ interface AdapterCapabilities {
 
 `PoolStats`: `{ size, available, inUse, waiting }` (todos `number`).
 
-### Estrutura (lazy loading — monte a sidebar incrementalmente)
+### Estrutura
 
 | Comando | Args | Retorno |
 |---|---|---|
@@ -260,10 +410,43 @@ interface AdapterCapabilities {
 | `list_tables` | `{ serverId, database, schema }` | `TableInfo[]` |
 | `list_columns` | `{ serverId, database, schema, table }` | `ColumnInfo[]` |
 | `list_indexes` | `{ serverId, database, schema, table }` | `IndexInfo[]` |
-| `list_schemas_with_tables` | `{ serverId, database }` | `DatabaseStructure` |
+| `list_schemas_with_tables` | `{ serverId, database }` | `DatabaseStructure` *(só Redis)* |
 
-> `list_schemas_with_tables` traz schemas+tabelas de uma vez (bom para a árvore
-> inicial). `list_columns`/`list_indexes` continuam sob demanda ao expandir.
+> `list_databases` devolve **só os nomes** em Postgres e Mongo (`sizeBytes: null` — o
+> tamanho de cada database custava de segundos a minutos) e já aplica o escopo
+> `scopeDatabases`; `list_schemas` aplica o `scopeSchemas`. `list_columns`/`list_indexes`
+> continuam sob demanda ao abrir uma tabela. Para schemas e tabelas, use o catálogo.
+
+### Catálogo de metadados (Postgres, Mongo, SQLite — §1.1)
+
+Tudo responde **da memória do backend**; só carregar um schema que ainda não chegou ou
+pedir um tamanho vai ao banco, pela faixa de prioridade. Listas têm teto de 1.000 itens
+por chamada.
+
+| Comando | Args | Retorno | Vai ao banco? |
+|---|---|---|---|
+| `catalog_open` | `{ serverId, database }` | `CatalogStatus` | abre (do disco, se houver) e revalida em 2º plano se a última for > 60 s |
+| `catalog_status` | `{ serverId, database }` | `CatalogStatus \| null` | não (null = não está aberto) |
+| `catalog_children` | `{ serverId, database, path, filter?, offset, limit }` | `CatalogPage<CatalogNode>` | só se o schema ainda não carregou |
+| `catalog_search` | `{ query, limit, serverId?, database? }` | `CatalogSearchHit[]` | não — sem `serverId`/`database`, busca em todos os catálogos abertos |
+| `catalog_resolve` | `{ serverId, database, table, searchPath }` | `CatalogResolution` | não |
+| `catalog_complete` | `{ serverId, database, schema?, prefix, limit }` | `CatalogNode[]` | só para carregar o schema |
+| `catalog_shapes` | `{ serverId, database }` | `ShapeGroup[]` | não (vazio = sem formato repetido) |
+| `catalog_drift` | `{ serverId, database }` | `CatalogDriftReport` | não |
+| `catalog_refresh` | `{ serverId, database, schema? }` | `CatalogStatus` | sim: um schema na hora, ou o database em 2º plano |
+| `catalog_cancel` | `{ serverId, database }` | `boolean` | interrompe a sincronização em andamento |
+| `catalog_relation_size` | `{ serverId, database, schema, table }` | `number \| null` | sim (só da tabela aberta) |
+| `catalog_diagnostics` | `{ serverId, database }` | `CatalogDiagnostics` | não |
+
+O progresso chega pelo evento global **`catalog-event`** (`CatalogEvent`): o front escuta
+com `listen` e invalida só as fatias daquele database. No Redis, os comandos que abrem
+um catálogo respondem `UnsupportedDatabase`.
+
+**Escopo salvo:** `scopeDatabases`/`scopeSchemas` do `Server` usam a sintaxe de
+`catalog::NameScope` — padrões separados por vírgula ou quebra de linha, `*` qualquer
+trecho, `?` um caractere, `!` na frente exclui, sem diferenciar maiúsculas; sem padrão
+de inclusão, tudo entra (menos o excluído). Schema fora do escopo não é lido, listado nem
+buscado. O escopo entra na identidade do arquivo do catálogo.
 
 ### Editor livre de queries
 
@@ -354,25 +537,44 @@ const ok = await invoke<boolean>('connect', { serverId, database: null });
 Mongo `admin`, Redis `0`). Trate a rejeição (string) como falha de conexão.
 
 ### 6.3 Buscar a estrutura (sidebar em árvore)
-Fluxo recomendado, lazy:
+Fluxo com o catálogo (Postgres, Mongo, SQLite):
 ```ts
 const dbs = await invoke<DatabaseInfo[]>('list_databases', { serverId });
-// ao expandir um database:
-const struct = await invoke<DatabaseStructure>('list_schemas_with_tables', {
-  serverId, database,
+// ao expandir um database: abre o catálogo (do disco na hora, revalida em 2º plano)
+const status = await invoke<CatalogStatus>('catalog_open', { serverId, database });
+// a primeira janela de schemas (filtro e "carregar mais" mudam filter/limit)
+const schemas = await invoke<CatalogPage<CatalogNode>>('catalog_children', {
+  serverId, database, path: { kind: 'schemas' }, filter: null, offset: 0, limit: 500,
+});
+// ao expandir um schema (Mongo/SQLite: schema: '' direto sob o database)
+const tables = await invoke<CatalogPage<CatalogNode>>('catalog_children', {
+  serverId, database, path: { kind: 'schema', schema }, filter: null, offset: 0, limit: 500,
 });
 // ao expandir uma tabela (colunas/índices):
 const cols = await invoke<ColumnInfo[]>('list_columns', {
   serverId, database, schema, table,
 });
+// e escute o progresso:
+await listen<CatalogEvent>('catalog-event', ({ payload }) => { /* invalida as fatias */ });
 ```
-**Adapte a UI pelo `capabilities`:** se `hasSchemas === false` (Mongo/Redis),
+- **Logo depois de abrir** a lista pode vir vazia: a camada 0 chega pelo evento
+  `schemas` em poucas centenas de ms. Um schema ainda não carregado vem com
+  `childCount: null` e `state: 'unloaded'`; abrir ele carrega na hora.
+- **Partições** ficam dentro da tabela particionada (`kind: 'partitioned'`): peça
+  `{ kind: 'partitions', schema, table }`.
+- **Agrupado por formato:** `catalog_shapes` dá os grupos e `{ kind: 'shape', key }` os
+  schemas de cada um. O `drift` de cada schema diz quantas tabelas faltam/sobram em
+  relação ao formato dominante.
+- **Tamanho:** só da tabela aberta, com `catalog_relation_size`.
+- **Redis** continua com `list_schemas_with_tables`: `database` = índice numérico
+  (`"0"`...), `table` = grupo de keys pelo prefixo antes do primeiro `:` (ex.: `user`),
+  colunas fixas `key / type / ttl / value`. Keys sem `:` ficam no grupo `(root)`.
+
+**Adapte a UI pelo `capabilities`:** se `hasSchemas === false` (Mongo, SQLite, Redis),
 não mostre o nível "schema" — pule direto database → tabelas/collections/grupos.
 - **Mongo:** `database` = database, `table` = collection, colunas inferidas por
   amostragem de ~100 documentos (campo ausente vira `isNullable`).
-- **Redis:** `database` = índice numérico (`"0"`...), `table` = grupo de keys
-  pelo prefixo antes do primeiro `:` (ex.: `user`), colunas fixas
-  `key / type / ttl / value`. Keys sem `:` ficam no grupo `(root)`.
+- **SQLite:** um arquivo, database `main`; tabelas e views do `sqlite_schema`.
 
 ### 6.4 Janela de query (editor livre)
 ```ts
@@ -479,8 +681,10 @@ export const db = {
     call<boolean>('connect', { serverId, database: database ?? null }),
   capabilities: (serverId: number) =>
     call<AdapterCapabilities>('get_capabilities', { serverId }),
-  structure: (serverId: number, database: string) =>
-    call<DatabaseStructure>('list_schemas_with_tables', { serverId, database }),
+  catalogChildren: (serverId: number, database: string, path: CatalogPath, limit = 500) =>
+    call<CatalogPage<CatalogNode>>('catalog_children', {
+      serverId, database, path, filter: null, offset: 0, limit,
+    }),
   tableData: (serverId: number, database: string, request: TableDataRequest) =>
     call<QueryResult>('fetch_table_data', { serverId, database, request }),
   query: (serverId: number, database: string, query: string, options?: QueryOptions) =>
@@ -494,16 +698,17 @@ export const db = {
 
 ## 8. Resumo do mapeamento por banco
 
-| Conceito | PostgreSQL | MongoDB | Redis |
-|---|---|---|---|
-| `database` | database | database | índice numérico (`"0"`) |
-| `schema` | schema real | ignorado (`hasSchemas=false`) | ignorado |
-| `table` | tabela/view | collection | grupo de keys por prefixo `:` |
-| `columns` | colunas reais | inferidas por amostragem | `key/type/ttl/value` |
-| PK / edição | PK real | `_id` | sem edição inline |
-| editor livre | SQL | `db.coll.find({...})` | `GET`, `HGETALL`, `SCAN`... |
-| `get_capabilities` | tudo `true` | sem schema/SQL/transação | só `browsable` |
+| Conceito | PostgreSQL | MongoDB | SQLite | Redis |
+|---|---|---|---|---|
+| `database` | database | database | `main` (o arquivo) | índice numérico (`"0"`) |
+| `schema` | schema real | `""` no catálogo (`hasSchemas=false`) | `""` no catálogo | ignorado |
+| `table` | tabela/view | collection | tabela/view | grupo de keys por prefixo `:` |
+| estrutura | catálogo | catálogo | catálogo | `list_schemas_with_tables` |
+| `columns` | colunas reais | inferidas por amostragem | colunas reais | `key/type/ttl/value` |
+| PK / edição | PK real | `_id` | PK real | sem edição inline |
+| editor livre | SQL | `db.coll.find({...})` | SQL | `GET`, `HGETALL`, `SCAN`... |
+| `get_capabilities` | tudo `true` | sem schema/SQL/transação | sem schema | só `browsable` |
 
-O front pode ser **uniforme**: use os mesmos componentes para os três bancos e
+O front pode ser **uniforme**: use os mesmos componentes para os quatro bancos e
 deixe `get_capabilities` decidir o que esconder (nível schema, editor SQL,
 edição inline). Os comandos e os formatos de retorno são idênticos.

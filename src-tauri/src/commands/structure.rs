@@ -1,5 +1,7 @@
 use tauri::State;
 
+use crate::catalog::NameScope;
+
 use crate::models::{ColumnInfo, DatabaseInfo, DatabaseStructure, IndexInfo, SchemaInfo, TableInfo};
 use crate::state::AppState;
 use crate::storage::repositories::servers;
@@ -20,11 +22,18 @@ pub async fn list_databases(
 
     let adapter = connect_adapter(&state, server_id, db).await?;
 
-    state
+    let databases = state
         .structure
         .list_databases(adapter)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // Escopo salvo: um database por tenant, e o usuário só quer alguns
+    let scope = NameScope::parse(server.scope_databases.as_deref());
+    Ok(databases
+        .into_iter()
+        .filter(|database| scope.allows(&database.name))
+        .collect())
 }
 
 #[tauri::command]
@@ -34,12 +43,19 @@ pub async fn list_schemas(
     database: String,
 ) -> Result<Vec<SchemaInfo>, String> {
     let adapter = connect_adapter(&state, server_id, &database).await?;
+    let server = servers::get_by_id_meta(&state.storage, server_id).map_err(|e| e.to_string())?;
 
-    state
+    let schemas = state
         .structure
         .list_schemas(adapter)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    let scope = NameScope::parse(server.scope_schemas.as_deref());
+    Ok(schemas
+        .into_iter()
+        .filter(|schema| scope.allows(&schema.name))
+        .collect())
 }
 
 #[tauri::command]

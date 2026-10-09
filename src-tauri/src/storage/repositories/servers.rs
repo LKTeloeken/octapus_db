@@ -8,7 +8,8 @@ use crate::models::{DatabaseType, Server, ServerInput};
 use crate::storage::{secrets, vault};
 
 const SELECT_COLUMNS: &str = "id, name, db_type, host, port, username, password, \
-                              default_database, ssl_enabled, connection_uri, created_at";
+                              default_database, ssl_enabled, connection_uri, created_at, \
+                              scope_databases, scope_schemas";
 
 /// Get all servers (metadata only). The UI never displays passwords, so the
 /// stored ciphertext is never decrypted nor returned here.
@@ -79,8 +80,9 @@ pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server>
 
     let mut stmt = conn.prepare(&format!(
         "INSERT INTO servers (name, db_type, host, port, username, password, \
-                              default_database, ssl_enabled, connection_uri, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
+                              default_database, ssl_enabled, connection_uri, created_at, \
+                              scope_databases, scope_schemas) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
          RETURNING {SELECT_COLUMNS}"
     ))?;
 
@@ -97,6 +99,8 @@ pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server>
                 ssl_enabled,
                 input.connection_uri,
                 created_at,
+                blank_to_none(input.scope_databases),
+                blank_to_none(input.scope_schemas),
             ],
             map_row,
         )
@@ -120,7 +124,8 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
     let mut stmt = conn.prepare(&format!(
         "UPDATE servers \
          SET name = ?1, db_type = ?2, host = ?3, port = ?4, username = ?5, \
-             password = ?6, default_database = ?7, ssl_enabled = ?8, connection_uri = ?9 \
+             password = ?6, default_database = ?7, ssl_enabled = ?8, connection_uri = ?9, \
+             scope_databases = ?11, scope_schemas = ?12 \
          WHERE id = ?10 \
          RETURNING {SELECT_COLUMNS}"
     ))?;
@@ -138,6 +143,8 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
                 ssl_enabled,
                 input.connection_uri,
                 id,
+                blank_to_none(input.scope_databases),
+                blank_to_none(input.scope_schemas),
             ],
             map_row,
         )
@@ -186,7 +193,14 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<Server> {
         ssl_enabled: row.get::<_, i32>(8)? != 0,
         connection_uri: row.get(9)?,
         created_at: row.get(10)?,
+        scope_databases: row.get(11)?,
+        scope_schemas: row.get(12)?,
     })
+}
+
+/// Escopo só com espaços é o mesmo que nenhum.
+fn blank_to_none(value: Option<String>) -> Option<String> {
+    value.filter(|rules| !rules.trim().is_empty())
 }
 
 /// Replace `server.password` (the stored value) with the plaintext password.
@@ -263,6 +277,8 @@ mod tests {
             default_database: None,
             ssl_enabled: None,
             connection_uri: None,
+            scope_databases: None,
+            scope_schemas: None,
         }
     }
 
@@ -293,5 +309,38 @@ mod tests {
         // Metadata paths never expose the secret.
         assert_eq!(get_by_id_meta(&storage, id).unwrap().password, "");
         assert_eq!(get_all(&storage).unwrap()[0].password, "");
+    }
+
+    #[test]
+    fn scope_round_trips_and_blank_means_none() {
+        vault::init_for_tests();
+        // A tabela nasce sem as colunas de escopo: quem as cria é a migração
+        let storage = Mutex::new(init_storage(":memory:").unwrap());
+
+        let created = create(
+            &storage,
+            ServerInput {
+                scope_schemas: Some("tenant_*, !tenant_test*".into()),
+                scope_databases: Some("   ".into()),
+                ..sample_input()
+            },
+        )
+        .unwrap();
+        let id = created.id.unwrap();
+        let meta = get_by_id_meta(&storage, id).unwrap();
+        assert_eq!(meta.scope_schemas.as_deref(), Some("tenant_*, !tenant_test*"));
+        assert_eq!(meta.scope_databases, None);
+
+        let updated = update(
+            &storage,
+            id,
+            ServerInput {
+                scope_databases: Some("tenantdb_*".into()),
+                ..sample_input()
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.scope_databases.as_deref(), Some("tenantdb_*"));
+        assert_eq!(updated.scope_schemas, None);
     }
 }

@@ -40,6 +40,32 @@ invoke(cmd, args)
 `args.messages` é a instância de `Channel`, não a string `__CHANNEL__:id`; para emitir uma
 mensagem basta `channel.onmessage(payload)`.
 
+## Catálogo e eventos
+
+Os comandos `catalog_*` vão para [`catalog.ts`](catalog.ts), um `CatalogService` em
+pequeno: sincroniza em camadas emitindo `catalog-event` (`syncing` → `schemas` →
+`relations` → `ready`), carrega na hora o schema pedido antes da sincronização chegar,
+agrupa a busca por nome e resolve tabela sem schema. A forma de cada database vem do
+dataset; Mongo e SQLite, que não têm schema, ficam todos no schema sem nome
+(`FLAT_SCHEMA`), como no backend. Só o Redis responde "sem catálogo".
+
+O mock também agrupa por formato (`catalog_shapes` e o caminho `{ kind: 'shape' }`), com
+o mesmo critério do backend (Jaccard ≥ 0,5 com o molde), marca o drift de cada schema e
+monta o `catalog_diagnostics`. O escopo salvo no servidor (`scopeDatabases`,
+`scopeSchemas`) vale como no backend ([`scope.ts`](scope.ts)): filtra a lista de
+databases e os schemas do catálogo, e editar o servidor zera os catálogos dele.
+
+Para desenhar em escala, o Postgres do mock traz o database **`saas`**
+([`data/tenants.ts`](data/tenants.ts)): 5.000 schemas `tenant_NNNNN` com as mesmas 150
+tabelas, como a fixture de `perf/catalog/` (múltiplos de 100 sem as 3 últimas). Nada é
+gerado de antemão; uma tabela só vira `MockTable` quando alguém a abre. O Mongo traz
+ainda 2.000 databases `tenant_NNNN` (um database por cliente), para o filtro e a janela
+do nível do servidor.
+
+Eventos globais (`listen` do `@tauri-apps/api/event`) passam por
+[`events.ts`](events.ts): `plugin:event|listen` registra o callback e `mockEmit(evento,
+payload)` o dispara. O reset do painel também zera o catálogo.
+
 ## Painel de dev
 
 Badge `MOCK` no canto inferior direito. Controla latência, injeção de erro

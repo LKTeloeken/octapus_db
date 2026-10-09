@@ -19,6 +19,8 @@ const emptyForm: ServerInput = {
   defaultDatabase: DEFAULT_DATABASES.postgres,
   sslEnabled: false,
   connectionUri: null,
+  scopeDatabases: null,
+  scopeSchemas: null,
 };
 
 export const useServerForm = ({ open, onClose, server }: ServerFormProps) => {
@@ -46,6 +48,8 @@ export const useServerForm = ({ open, onClose, server }: ServerFormProps) => {
         defaultDatabase: server.defaultDatabase,
         sslEnabled: server.sslEnabled,
         connectionUri: server.connectionUri,
+        scopeDatabases: server.scopeDatabases,
+        scopeSchemas: server.scopeSchemas,
       });
     } else {
       setForm(emptyForm);

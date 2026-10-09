@@ -43,8 +43,10 @@ export function executeQuery(serverId, database, query, options?) {
 }
 ```
 
-Módulos: `servers.ts`, `connection.ts`, `structure.ts`, `browse.ts`, `query.ts`.
-Tipos em `src/api/types/` (`server`, `structure`, `browse`, `query`, `capabilities`).
+Módulos: `servers.ts`, `connection.ts`, `structure.ts`, `catalog.ts`, `browse.ts`,
+`query.ts`, `export.ts`, `session.ts`, `window.ts`. Tipos em `src/api/types/` (`server`,
+`structure`, `catalog`, `browse`, `query`, `capabilities`). O `catalog.ts` também expõe
+`onCatalogEvent` — o `listen` do evento `catalog-event` (ver §4).
 Os formatos seguem o BACKEND.md §3 — tudo em `camelCase`, célula sempre `string | null`.
 
 ---
@@ -58,7 +60,11 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
 |---|---|
 | `use-servers` | CRUD de servidores |
 | `use-capabilities` | `get_capabilities` |
-| `use-databases` / `use-structure` / `use-columns` / `use-indexes` | estrutura (lazy) |
+| `use-databases` / `use-columns` / `use-indexes` | databases, colunas e índices (sob demanda) |
+| `use-catalog` | catálogo do backend: `catalogStatusQuery` (abre com `catalog_open`), `catalogChildrenQuery`, `catalogShapesQuery`, `useCatalogSearch`, `useCatalogRelationSize`, `useCatalogRefresh`, `useCatalogDiagnostics`; `hasCatalog`/`isFlatCatalog` dizem quem usa |
+| `use-catalog-events` | liga o `catalog-event` às invalidações (montado pela árvore) |
+| `use-refresh-structure` | "Atualizar" da árvore (servidor, database, schema, tabela) |
+| `use-structure` | estrutura inteira — só Redis (os demais usam o catálogo) |
 | `use-table-data` | `fetch_table_data` (browse, com `infiniteQuery`) |
 | `use-execute-query` | editor livre |
 | `use-apply-row-edits` | `apply_row_edits` / `insert_rows` / `delete_rows` |
@@ -68,8 +74,10 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
   invalidam a key da tabela afetada → refetch automático.
 - **Persistência:** domínios de metadados (`servers`, `capabilities`, `databases`,
   `structure`, `columns`, `indexes`) vão para IndexedDB; dados de tabela são sempre ao
-  vivo. Config em [providers/query-provider.tsx](src/providers/query-provider.tsx)
-  (`refetchOnWindowFocus: false`, `retry: 1`).
+  vivo, e o catálogo também não vai (o backend já guarda em disco, cifrado). Config em
+  [providers/query-provider.tsx](src/providers/query-provider.tsx)
+  (`refetchOnWindowFocus: false`, `retry: 1`). O `buster` sobe quando o formato do cache
+  persistido muda (`catalog-v1` descartou a estrutura inteira que os Postgres guardavam).
 
 ### Zustand — `src/stores/`
 Só estado de **UI**, nada que o backend possa fornecer:
@@ -78,7 +86,7 @@ Só estado de **UI**, nada que o backend possa fornecer:
 |---|---|
 | `tabs-store` | abas abertas (query e browse) e aba ativa — persistidas como sessão |
 | `query-results-store` | resultado, log de mensagens e aba inferior de cada aba de query (efêmero, por id de aba) |
-| `tree-store` | nós expandidos da sidebar |
+| `tree-store` | nós expandidos da sidebar, filtro e tamanho da janela de cada nó grande, databases agrupados por formato |
 | `recent-tables-store` | tabelas abertas recentemente (command palette) |
 | `connection-store` | registro best-effort de quais `(server, db)` já conectaram na sessão |
 | `focus-store` | pedido de foco do teclado entre a árvore e a grade |
@@ -95,6 +103,24 @@ edições pendentes não. Antes de sair por conta própria (instalar/reiniciar o
 chame `flushTabsSession()`. Campo novo em `QueryTab`/`BrowseTab` ⇒ trate-o no
 `parseTab` (com default, para snapshots antigos continuarem válidos).
 
+### O catálogo no front
+Postgres, Mongo e SQLite não têm a estrutura no front: ela mora no catálogo do backend
+(BACKEND.md §1.1), e as telas pedem **fatias**.
+
+- **Keys fracionadas** sob `['catalog', serverId, database, …]` (status, cada janela de
+  filhos com caminho + filtro + limite, grupos por formato, tamanho, resolve, complete) e
+  `['catalog-search', …]` para a palette. `staleTime: Infinity`: nada fica velho sozinho.
+- **Eventos → invalidação** ([use-catalog-events.ts](src/queries/use-catalog-events.ts),
+  função pura `catalogEventInvalidations`): `syncing`/`error`/`cancelled` → status;
+  `schemas`/`relations` → as fatias daquele database e a busca; `ready` → também marca
+  como velhas (sem refetch) as colunas dos schemas que mudaram.
+- **Sem schema:** Mongo e SQLite guardam tudo no schema sem nome `FLAT_SCHEMA` (`''`);
+  pede-se `{ kind: 'schema', schema: '' }` e, na aba e na palette, ele vira `null`.
+- **Janelas:** listas grandes vêm de 500 em 500 (`CATALOG_PAGE_SIZE`); filtro e "carregar
+  mais" mudam a key, e `keepPreviousData` segura a janela anterior na tela.
+- **Servidor editado ou excluído:** as keys do servidor são invalidadas/removidas
+  (`invalidateServerScope`), e o backend esquece os catálogos dele.
+
 ---
 
 ## 4. Telas (`src/features/`)
@@ -102,22 +128,54 @@ chame `flushTabsSession()`. Campo novo em `QueryTab`/`BrowseTab` ⇒ trate-o no
 Shell em [app.tsx](src/app.tsx): `Sidebar` (esquerda) + `QueryTabs` (direita) + command
 palette, dentro do `QueryProvider`.
 
-- **`sidebar` / `connection-tree`** — árvore lazy de servidores → bancos → tabelas;
-  carrega filhos ao expandir (`use-connection-tree`). Adapta níveis por `capabilities`
-  (sem schema em Mongo/Redis).
+- **`sidebar` / `connection-tree`** — árvore virtualizada de servidores → bancos →
+  schemas → tabelas → colunas, montada como lista plana em `use-connection-tree`
+  (`FlatRow`: nó, erro, filtro, "carregar mais"). Com catálogo, cada nível é uma janela de
+  500 com **linha de filtro** acima de 50 itens (`/` foca o filtro; Enter/↓ voltam à
+  lista; Esc limpa) e **"carregar mais"**; a lista de databases de um servidor ganha o
+  mesmo filtro e janela, aplicados no front. Mongo e SQLite mostram as relações direto sob
+  o database. Num database multi-tenant:
+  - **agrupar por formato** (ação do database, estado em `tree-store.shapeGrouped`):
+    "Formato principal", "Variação" (aviso `−3` com as tabelas que faltam no `title`) e
+    "Outros schemas"; o nó do grupo usa `NodeRef.shape`, os schemas de dentro mantêm o
+    id de sempre;
+  - **aviso de drift** na lista simples, no lugar da contagem de tabelas;
+  - **"Copiar diagnóstico"** (contagens e tempos, sem nomes —
+    [lib/catalog-diagnostics.ts](src/lib/catalog-diagnostics.ts)).
+
+  Tamanho só da tabela aberta (`catalog_relation_size`). Rótulos dos grupos e do aviso em
+  [shape-labels.ts](src/features/connection-tree/shape-labels.ts). O Redis segue com a
+  estrutura inteira (`use-structure`).
 - **`server-form`** — criar/editar servidor. A senha **nunca** volta do backend: no modo
-  edição o campo começa vazio e deve ser redigitado.
+  edição o campo começa vazio e deve ser redigitado. **Escopo** opcional: "Databases
+  visíveis" e, no Postgres, "Schemas visíveis" (padrões com `*`, `?` e `!` para excluir —
+  aplicados no backend).
 - **`query-tabs`** — gerencia abas; cada aba é um editor livre (`query-editor`) ou um
   browse (`table-browser`).
 - **`query-editor`** — editor CodeMirror + execução; `use-query-runner` roda a query,
   pagina e aplica edições. Resultados ficam no `stores/query-results-store`.
+  **Autocomplete SQL** ([use-sql-completion.ts](src/features/query-editor/use-sql-completion.ts)
+  + [sql-completion/](src/components/query-editor/query-editor/sql-completion)): com
+  catálogo, o namespace compilado é só a estrutura **quente** — o schema da aba, o
+  `public`, os schemas citados no statement e o de até 8 tabelas sem schema
+  (`catalog_resolve`), trazidos pela porta `warm`; os demais schemas entram por prefixo
+  (`completeSchemas`, a partir de 2 letras). Colunas ainda não carregadas de um tenant saem
+  na hora emprestadas da mesma tabela de outro tenant em cache (`peekSimilarColumns`,
+  marcadas "prévia de …") e as reais chegam em segundo plano. No SQLite o banco (`main`)
+  é o schema padrão.
 - **`table-browser`** — navegação de tabela; `use-table-browser` traduz cliques de
   ordenar/filtrar em `TableDataRequest` e orquestra o salvar (edits + inserts + deletes).
   É dono do painel de valor (só existe aqui, não no editor livre): botão **Valor** ao lado
   do WHERE e atalho `Cmd/Ctrl+I` (ou `F7`, o do DBeaver), registrado em fase de captura
   para funcionar também de dentro do CodeMirror do painel.
 - **`command-palette`** — `Cmd/Ctrl+K` (ou a busca da sidebar / botão Comandos, via
-  `command-palette-store`); busca fuzzy de tabelas/servidores.
+  `command-palette-store`). Nos bancos com catálogo a busca é do backend
+  (`catalog_search`, 50 resultados, nos catálogos abertos) e a mesma tabela em vários
+  schemas vira **um grupo** ("orders em 5.000 schemas"): Enter reescreve a busca para
+  `.orders` com o cursor antes do ponto, para escolher o schema. Abrir a paleta abre os
+  catálogos dos databases das abas e dos recentes. O Redis segue no fuzzy local
+  (`use-table-index`). Montagem dos itens em
+  [palette-items.ts](src/features/command-palette/palette-items.ts).
 
 ---
 
@@ -167,7 +225,12 @@ produção — inclusive o `Channel` de mensagens e o plugin de updater.
   dos dados — para desenhar loading, erro e empty state sem editar código.
 - Dataset em `src/mocks/data/`: um servidor de cada tipo (Postgres com schemas/PKs/
   arrays, Mongo sem schemas, Redis só browsable), com tabelas grandes o bastante para
-  exercitar a virtualização e a paginação de 500.
+  exercitar a virtualização e a paginação de 500. Para escala: o database **`saas`** do
+  Postgres (5.000 schemas de tenant × 150 tabelas, com drift nos múltiplos de 100) e
+  2.000 databases `tenant_NNNN` no Mongo — nada é materializado de antemão.
+- Catálogo simulado em `src/mocks/catalog.ts` (sincroniza em camadas emitindo
+  `catalog-event`, carga prioritária, busca agrupada, grupos por formato, escopo,
+  diagnóstico) e eventos globais em `src/mocks/events.ts`.
 
 **Regra de manutenção:** comando novo no backend ⇒ handler novo em
 `src/mocks/handlers.ts`, na mesma lista do `RustCommand`. Sem handler o mock rejeita
@@ -185,4 +248,8 @@ dizendo qual comando falta. Detalhes e receitas em
 - **Padrão hook + view:** `feature.tsx` só renderiza; lógica em `use-feature.ts`.
 - **Arquivos de tipos** colocados ao lado do componente como `*.types.ts`.
 - **Erros do backend** chegam como `ApiError` (mensagem em string) — trate com `toast`.
-- Rode `pnpm type-check` antes de concluir mudanças no front.
+- Rode `pnpm type-check` antes de concluir mudanças no front, e `pnpm test` (Vitest) —
+  hooks testados com `renderToString`: o zustand lê o estado **inicial** da store no SSR,
+  então os testes preenchem `useTreeStore.getInitialState()`.
+- Medições de desempenho do front em `src/perf/` (`pnpm perf:front`), ao lado das do
+  backend (`perf/catalog/`).

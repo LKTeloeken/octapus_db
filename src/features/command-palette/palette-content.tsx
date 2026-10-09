@@ -1,7 +1,12 @@
-import { Search01Icon, TableIcon } from '@hugeicons/core-free-icons';
+import {
+  Folder01Icon,
+  Layers01Icon,
+  Search01Icon,
+  TableIcon,
+} from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Kbd } from '@/components/ui/kbd';
 import { Spinner } from '@/components/ui/spinner';
@@ -11,7 +16,12 @@ import {
   DB_TYPE_TEXT_COLOR,
 } from '@/lib/db-defaults';
 import { cn } from '@/lib/utils';
-import type { PaletteRow, TableEntry } from './command-palette.types';
+import type {
+  PaletteItem,
+  PaletteRow,
+  PaletteTarget,
+  QueryCaret,
+} from './command-palette.types';
 import { HighlightedLabel } from './highlighted-label';
 import { usePaletteNavigation } from './use-palette-navigation';
 
@@ -22,12 +32,30 @@ const OVERSCAN = 12;
 interface PaletteContentProps {
   query: string;
   setQuery: (value: string) => void;
+  /** Posição do cursor pedida por um item que reescreveu a busca */
+  caret: QueryCaret | null;
   rows: PaletteRow[];
   hasResults: boolean;
   connectingId: string | null;
-  selectEntry: (entry: TableEntry) => void;
+  selectItem: (item: PaletteItem) => void;
   isEmptyCache: boolean;
 }
+
+const dbTypeOf = (target: PaletteTarget) =>
+  target.kind === 'table' ? target.entry.dbType : target.dbType;
+
+/** O que o Enter faz no item ativo */
+const actionOf = (target: PaletteTarget) => {
+  if (target.kind === 'schema') return 'Listar';
+  if (target.kind === 'group' && target.schemas.total > 1) return 'Escolher schema';
+  return 'Abrir';
+};
+
+const iconOf = (target: PaletteTarget) => {
+  if (target.kind === 'schema') return Folder01Icon;
+  if (target.kind === 'group') return Layers01Icon;
+  return TableIcon;
+};
 
 /**
  * Inner palette UI — input + virtualized result list. Rendered only while the
@@ -41,13 +69,23 @@ interface PaletteContentProps {
 export function PaletteContent({
   query,
   setQuery,
+  caret,
   rows,
   hasResults,
   connectingId,
-  selectEntry,
+  selectItem,
   isEmptyCache,
 }: PaletteContentProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Um item reescreveu a busca (`.orders`, `tenant_42.`): o cursor vai para
+  // onde o usuário continua digitando
+  useEffect(() => {
+    if (!caret) return;
+    inputRef.current?.focus();
+    inputRef.current?.setSelectionRange(caret.position, caret.position);
+  }, [caret]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -61,7 +99,7 @@ export function PaletteContent({
   const { activeIndex, setActiveIndex, onKeyDown } = usePaletteNavigation({
     rows,
     virtualizer,
-    onSelect: row => selectEntry(row.item.entry),
+    onSelect: row => selectItem(row.item),
   });
 
   const resultCount = rows.filter(row => row.kind === 'item').length;
@@ -74,6 +112,7 @@ export function PaletteContent({
           className="size-[18px] shrink-0 text-fg-subtle"
         />
         <input
+          ref={inputRef}
           autoFocus
           aria-label="Buscar tabela"
           placeholder="Buscar tabela… (ex.: public.users)"
@@ -91,7 +130,7 @@ export function PaletteContent({
         {!hasResults ? (
           <div className="py-8 text-center text-body text-fg-subtle">
             {isEmptyCache
-              ? 'Nenhuma tabela em cache — navegue na árvore para indexá-las.'
+              ? 'Nenhuma tabela indexada ainda — abra um banco na árvore.'
               : query.trim()
                 ? 'Nenhum resultado.'
                 : 'Nenhuma tabela acessada recentemente.'}
@@ -122,8 +161,9 @@ export function PaletteContent({
                 );
               }
 
-              const { entry, indices, subtitle } = row.item;
-              const isConnecting = connectingId === entry.id;
+              const { target, label, indices, subtitle } = row.item;
+              const dbType = dbTypeOf(target);
+              const isConnecting = connectingId === row.item.key;
               const isActive = virtualRow.index === activeIndex;
 
               return (
@@ -141,18 +181,18 @@ export function PaletteContent({
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                   onMouseMove={() => setActiveIndex(virtualRow.index)}
-                  onClick={() => !isConnecting && selectEntry(entry)}
+                  onClick={() => !isConnecting && selectItem(row.item)}
                 >
                   <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-hover shadow-[inset_0_0_0_1px_var(--line-subtle)]">
                     <HugeiconsIcon
-                      icon={TableIcon}
-                      className={cn('size-[15px]', DB_TYPE_TEXT_COLOR[entry.dbType])}
+                      icon={iconOf(target)}
+                      className={cn('size-[15px]', DB_TYPE_TEXT_COLOR[dbType])}
                     />
                   </span>
 
                   <div className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate text-body">
-                      <HighlightedLabel text={entry.label} indices={indices} />
+                      <HighlightedLabel text={label} indices={indices} />
                     </span>
                     {/* No item ativo a legenda sobe um degrau: --fg-subtle
                         sobre vidro + realce fica abaixo de 4,5:1. */}
@@ -170,7 +210,7 @@ export function PaletteContent({
                     <Spinner className="size-3.5 text-fg-subtle" />
                   ) : isActive ? (
                     <span className="inline-flex shrink-0 items-center gap-1.5 text-small text-fg-muted">
-                      Abrir <Kbd>↵</Kbd>
+                      {actionOf(target)} <Kbd>↵</Kbd>
                     </span>
                   ) : (
                     <Badge>
@@ -178,10 +218,10 @@ export function PaletteContent({
                         aria-hidden
                         className={cn(
                           'size-1.5 rounded-full',
-                          DB_TYPE_BG_COLOR[entry.dbType],
+                          DB_TYPE_BG_COLOR[dbType],
                         )}
                       />
-                      {DB_TYPE_LABELS[entry.dbType]}
+                      {DB_TYPE_LABELS[dbType]}
                     </Badge>
                   )}
                 </div>

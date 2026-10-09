@@ -2,6 +2,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { memo, useRef } from 'react';
 import { Spinner } from '@/components/ui/spinner';
 import { ErrorRow } from './error-row';
+import { FilterRow } from './filter-row';
+import { MoreRow } from './more-row';
 import { NodeRow } from './node-row/node-row';
 import { useConnectionTree } from './use-connection-tree';
 import { useTreeEnterAnimation } from './use-tree-enter-animation';
@@ -38,7 +40,7 @@ export const ConnectionTree = memo(({ onEditServer }: ConnectionTreeProps) => {
     getItemKey: index => rows[index].id,
   });
 
-  const { focusedNodeId, setFocusedNode, onKeyDown, onFocus } =
+  const { focusedNodeId, setFocusedNode, onKeyDown, onFocus, leaveFilter } =
     useTreeNavigation({
       rows,
       virtualizer,
@@ -95,7 +97,9 @@ export const ConnectionTree = memo(({ onEditServer }: ConnectionTreeProps) => {
               // O mousedown já foca o container (tabIndex=0); aqui só alinhamos
               // o cursor do teclado com o que foi clicado.
               onMouseDown={() => {
-                if (row.variant === 'node') setFocusedNode(row.id);
+                if (row.variant === 'node' || row.variant === 'more') {
+                  setFocusedNode(row.id);
+                }
               }}
               className="absolute left-0 top-0 w-full"
               style={{
@@ -122,6 +126,24 @@ export const ConnectionTree = memo(({ onEditServer }: ConnectionTreeProps) => {
                     level={row.level}
                     message={row.message}
                     onRetry={row.onRetry}
+                  />
+                ) : row.variant === 'filter' ? (
+                  <FilterRow
+                    level={row.level}
+                    nodeId={row.nodeId}
+                    value={row.value}
+                    total={row.total}
+                    placeholder={row.placeholder}
+                    onChange={row.onChange}
+                    onLeave={() => leaveFilter(row.nodeId)}
+                  />
+                ) : row.variant === 'more' ? (
+                  <MoreRow
+                    level={row.level}
+                    remaining={row.remaining}
+                    isLoading={row.isLoading}
+                    isFocused={row.id === focusedNodeId}
+                    onMore={row.onMore}
                   />
                 ) : (
                   <NodeRow

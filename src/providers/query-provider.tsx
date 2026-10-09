@@ -41,6 +41,10 @@ export const QueryProvider = ({ children }: { children: ReactNode }) => {
       persistOptions={{
         persister,
         maxAge: STRUCTURE_STALE_TIME_MS,
+        // Sobe quando o formato do cache persistido muda. `catalog-v1`: os
+        // Postgres passaram para o catálogo do backend, e a estrutura inteira
+        // que ficava aqui (dezenas de MB num banco multi-tenant) é descartada
+        buster: 'catalog-v1',
         dehydrateOptions: {
           shouldDehydrateQuery: query =>
             query.state.status === 'success' &&

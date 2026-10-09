@@ -26,4 +26,26 @@ export type FlatRow =
       level: number;
       message: string;
       onRetry: () => void;
+    }
+  | {
+      /** Filtro dos filhos de um nó grande (schemas de tenant, tabelas) */
+      variant: 'filter';
+      id: string;
+      level: number;
+      /** Nó cujos filhos o filtro restringe */
+      nodeId: string;
+      value: string;
+      /** Filhos que passam no filtro */
+      total: number;
+      placeholder: string;
+      onChange: (value: string) => void;
+    }
+  | {
+      /** A janela mostra só parte dos filhos: pede a próxima */
+      variant: 'more';
+      id: string;
+      level: number;
+      remaining: number;
+      isLoading: boolean;
+      onMore: () => void;
     };

@@ -12,6 +12,13 @@ export interface Server {
   connectionUri: string | null;
   /** Epoch in seconds */
   createdAt: number;
+  /**
+   * Escopo salvo: que databases o app enxerga (padrões com `*` e `?`, `!` na
+   * frente exclui; separados por vírgula). null = todos
+   */
+  scopeDatabases: string | null;
+  /** Escopo salvo: que schemas o catálogo lê (Postgres). null = todos */
+  scopeSchemas: string | null;
 }
 
 export interface ServerInput {
@@ -25,6 +32,8 @@ export interface ServerInput {
   defaultDatabase?: string | null;
   sslEnabled?: boolean | null;
   connectionUri?: string | null;
+  scopeDatabases?: string | null;
+  scopeSchemas?: string | null;
 }
 
 export interface PoolStats {

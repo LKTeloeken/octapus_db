@@ -22,6 +22,9 @@ pub enum Error {
     // State errors
     InvalidState(String),
 
+    /// A operação foi cancelada a pedido (não é falha do banco)
+    Cancelled,
+
     // Adapter errors
     UnsupportedDatabase(String),
     UnsupportedType(String),
@@ -39,6 +42,7 @@ impl fmt::Display for Error {
             Self::NotFound(msg) => write!(f, "Not found: {msg}"),
             Self::AlreadyExists(msg) => write!(f, "Already exists: {msg}"),
             Self::InvalidState(msg) => write!(f, "Invalid state: {msg}"),
+            Self::Cancelled => write!(f, "Operation cancelled"),
             Self::UnsupportedDatabase(msg) => write!(f, "Unsupported database: {msg}"),
             Self::UnsupportedType(msg) => write!(f, "Unsupported type: {msg}"),
         }
@@ -124,6 +128,7 @@ impl Error {
             Self::NotFound(_) => "NOT_FOUND",
             Self::AlreadyExists(_) => "ALREADY_EXISTS",
             Self::InvalidState(_) => "INVALID_STATE",
+            Self::Cancelled => "CANCELLED",
             Self::UnsupportedDatabase(_) => "UNSUPPORTED_DATABASE",
             Self::UnsupportedType(_) => "UNSUPPORTED_TYPE",
         }

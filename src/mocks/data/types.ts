@@ -48,6 +48,8 @@ export interface MockDatabase {
   name: string;
   sizeBytes: number | null;
   tables: MockTable[];
+  /** `tenants`: as tabelas vêm de `data/tenants.ts`, geradas sob demanda */
+  generated?: 'tenants';
 }
 
 export interface MockServerEntry {

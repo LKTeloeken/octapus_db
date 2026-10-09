@@ -22,6 +22,20 @@ export enum RustCommand {
   ListIndexes = 'list_indexes',
   ListSchemasWithTables = 'list_schemas_with_tables',
 
+  // Catálogo de metadados (árvore, busca, autocomplete em escala)
+  CatalogOpen = 'catalog_open',
+  CatalogStatus = 'catalog_status',
+  CatalogChildren = 'catalog_children',
+  CatalogSearch = 'catalog_search',
+  CatalogResolve = 'catalog_resolve',
+  CatalogComplete = 'catalog_complete',
+  CatalogDrift = 'catalog_drift',
+  CatalogRefresh = 'catalog_refresh',
+  CatalogCancel = 'catalog_cancel',
+  CatalogRelationSize = 'catalog_relation_size',
+  CatalogShapes = 'catalog_shapes',
+  CatalogDiagnostics = 'catalog_diagnostics',
+
   // Free query editor
   ExecuteQuery = 'execute_query',
   ExecuteStatement = 'execute_statement',

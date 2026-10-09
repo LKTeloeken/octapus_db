@@ -1,34 +1,32 @@
-use std::collections::BTreeMap;
-use chrono::Utc;
-
 use deadpool_postgres::Pool;
 
 use crate::error::Result;
-use crate::models::{
-    ColumnInfo, DatabaseInfo, IndexInfo, SchemaInfo, TableInfo, TableType, DatabaseStructure, SchemaStructure,
-    TableStructure,
-};
+use crate::models::{ColumnInfo, DatabaseInfo, IndexInfo, SchemaInfo, TableInfo, TableType};
 
 pub async fn list_databases(pool: &Pool) -> Result<Vec<DatabaseInfo>> {
     let client = pool.get().await?;
 
-    let rows = client
-        .query(
+    // Statement em cache por conexão: depois da primeira vez, uma ida e volta
+    let statement = client
+        .prepare_cached(
             r#"
-            SELECT d.datname, pg_database_size(d.datname) as size_bytes
+            SELECT d.datname
             FROM pg_database d
             WHERE d.datistemplate = false
             ORDER BY d.datname
             "#,
-            &[],
         )
         .await?;
+    let rows = client.query(&statement, &[]).await?;
 
     Ok(rows
         .iter()
         .map(|r| DatabaseInfo {
             name: r.get(0),
-            size_bytes: r.get(1),
+            // Sem tamanho: pg_database_size varre o disco de cada database e
+            // levou 71–125 s num servidor com um banco multi-tenant grande
+            // (perf/catalog/BASELINE.md, H9). O front não mostra o tamanho.
+            size_bytes: None,
         })
         .collect())
 }
@@ -36,8 +34,8 @@ pub async fn list_databases(pool: &Pool) -> Result<Vec<DatabaseInfo>> {
 pub async fn list_schemas(pool: &Pool) -> Result<Vec<SchemaInfo>> {
     let client = pool.get().await?;
 
-    let rows = client
-        .query(
+    let statement = client
+        .prepare_cached(
             r#"
             SELECT
                 n.nspname,
@@ -48,9 +46,9 @@ pub async fn list_schemas(pool: &Pool) -> Result<Vec<SchemaInfo>> {
             GROUP BY n.nspname
             ORDER BY n.nspname
             "#,
-            &[],
         )
         .await?;
+    let rows = client.query(&statement, &[]).await?;
 
     Ok(rows
         .iter()
@@ -64,8 +62,8 @@ pub async fn list_schemas(pool: &Pool) -> Result<Vec<SchemaInfo>> {
 pub async fn list_tables(pool: &Pool, schema: &str) -> Result<Vec<TableInfo>> {
     let client = pool.get().await?;
 
-    let rows = client
-        .query(
+    let statement = client
+        .prepare_cached(
             r#"
             SELECT
                 c.relname,
@@ -85,9 +83,9 @@ pub async fn list_tables(pool: &Pool, schema: &str) -> Result<Vec<TableInfo>> {
             WHERE n.nspname = $1 AND c.relkind IN ('r', 'v', 'm', 'f')
             ORDER BY c.relname
             "#,
-            &[&schema],
         )
         .await?;
+    let rows = client.query(&statement, &[&schema]).await?;
 
     Ok(rows
         .iter()
@@ -112,8 +110,8 @@ pub async fn list_tables(pool: &Pool, schema: &str) -> Result<Vec<TableInfo>> {
 pub async fn list_columns(pool: &Pool, schema: &str, table: &str) -> Result<Vec<ColumnInfo>> {
     let client = pool.get().await?;
 
-    let rows = client
-        .query(
+    let statement = client
+        .prepare_cached(
             r#"
             SELECT
                 a.attname,
@@ -143,9 +141,9 @@ pub async fn list_columns(pool: &Pool, schema: &str, table: &str) -> Result<Vec<
               AND NOT a.attisdropped
             ORDER BY a.attnum
             "#,
-            &[&schema, &table],
         )
         .await?;
+    let rows = client.query(&statement, &[&schema, &table]).await?;
 
     Ok(rows
         .iter()
@@ -164,8 +162,8 @@ pub async fn list_columns(pool: &Pool, schema: &str, table: &str) -> Result<Vec<
 pub async fn list_indexes(pool: &Pool, schema: &str, table: &str) -> Result<Vec<IndexInfo>> {
     let client = pool.get().await?;
 
-    let rows = client
-        .query(
+    let statement = client
+        .prepare_cached(
             r#"
             SELECT
                 i.relname,
@@ -183,9 +181,9 @@ pub async fn list_indexes(pool: &Pool, schema: &str, table: &str) -> Result<Vec<
             GROUP BY i.relname, ix.indisunique, ix.indisprimary, am.amname
             ORDER BY i.relname
             "#,
-            &[&schema, &table],
         )
         .await?;
+    let rows = client.query(&statement, &[&schema, &table]).await?;
 
     Ok(rows
         .iter()
@@ -197,69 +195,4 @@ pub async fn list_indexes(pool: &Pool, schema: &str, table: &str) -> Result<Vec<
             index_type: r.get(4),
         })
         .collect())
-}
-
-pub async fn list_schemas_with_tables(pool: &Pool) -> Result<DatabaseStructure> {
-    let client = pool.get().await?;
-
-    let rows = client
-        .query(
-            r#"
-            SELECT
-                n.nspname AS schema_name,
-                c.relname AS table_name,
-                c.relkind AS table_kind,
-                -- Tabela + índices + TOAST; views e foreign tables não ocupam disco
-                CASE WHEN c.relkind IN ('r', 'm')
-                    THEN pg_total_relation_size(c.oid)
-                END AS size_bytes
-            FROM pg_namespace n
-            LEFT JOIN pg_class c 
-                ON c.relnamespace = n.oid 
-                AND c.relkind IN ('r', 'v', 'm', 'f')
-            WHERE n.nspname NOT IN ('pg_toast', 'pg_catalog', 'information_schema')
-            ORDER BY n.nspname, c.relname
-            "#,
-            &[],
-        )
-        .await?;
-
-    // Group by schema using BTreeMap for consistent ordering
-    let mut schemas_map: BTreeMap<String, Vec<TableStructure>> = BTreeMap::new();
-
-    for row in &rows {
-        let schema_name: String = row.get(0);
-        let table_name: Option<String> = row.get(1);
-        let table_kind: Option<i8> = row.get(2);
-        let size_bytes: Option<i64> = row.get(3);
-
-        let tables = schemas_map.entry(schema_name).or_default();
-
-        // Only add if table exists (LEFT JOIN may produce nulls for empty schemas)
-        if let (Some(name), Some(kind)) = (table_name, table_kind) {
-            let table_type = match kind as u8 as char {
-                'r' => TableType::Table,
-                'v' => TableType::View,
-                'm' => TableType::MaterializedView,
-                'f' => TableType::Foreign,
-                _ => TableType::Table,
-            };
-
-            tables.push(TableStructure {
-                name,
-                table_type,
-                size_bytes,
-            });
-        }
-    }
-
-    let schemas = schemas_map
-        .into_iter()
-        .map(|(name, tables)| SchemaStructure { name, tables })
-        .collect();
-
-    Ok(DatabaseStructure {
-        schemas,
-        fetched_at: Utc::now().timestamp_millis(),
-    })
 }

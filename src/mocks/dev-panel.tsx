@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { mockCatalog } from './catalog';
 import { resetDataset } from './data';
 import {
   DEFAULT_ERROR_MESSAGE,
@@ -54,6 +55,7 @@ const ExpandedPanel = ({ onClose }: { onClose: () => void }) => {
   /** Os dados vivem em memória; recarregar é o jeito mais honesto de zerar. */
   const resetData = () => {
     resetDataset();
+    mockCatalog.reset();
     window.location.reload();
   };
 

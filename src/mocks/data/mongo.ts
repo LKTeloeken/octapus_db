@@ -168,7 +168,19 @@ export function buildMongoDatabases(): MockDatabase[] {
     },
     { name: 'logs', sizeBytes: 2_147_483_648, tables: [eventos].map(clone) },
     { name: 'admin', sizeBytes: 40_960, tables: [] },
+    ...buildTenantDatabases(),
   ];
+}
+
+/** Um database por cliente: o nível do servidor ganha filtro e janela */
+const TENANT_DATABASES = 2_000;
+
+function buildTenantDatabases(): MockDatabase[] {
+  return Array.from({ length: TENANT_DATABASES }, (_, i) => ({
+    name: `tenant_${String(i + 1).padStart(4, '0')}`,
+    sizeBytes: null,
+    tables: [carrinhos, eventos].map(clone),
+  }));
 }
 
 function clone(table: MockTable): MockTable {

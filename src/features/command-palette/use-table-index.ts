@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import type { AdapterCapabilities } from '@/api/types/capabilities.types';
 import type { DatabaseStructure } from '@/api/types/structure.types';
+import { hasCatalog } from '@/queries/use-catalog';
 import { useServers } from '@/queries/use-servers';
 import { queryKeys } from '@/queries/keys';
 import { encodeNodeId } from '@/lib/node-ref';
@@ -12,6 +13,9 @@ import type { TableEntry } from './command-palette.types';
  * list of tables, cross-referenced with the registered servers. Reads the
  * cache as a snapshot when the palette opens — nothing is fetched from the
  * network, so only databases the user has already browsed appear.
+ *
+ * Só para bancos sem catálogo no backend: os Postgres a palette busca no
+ * `catalog_search` (ver use-command-palette).
  */
 export const useTableIndex = (enabled: boolean): TableEntry[] => {
   const queryClient = useQueryClient();
@@ -33,7 +37,8 @@ export const useTableIndex = (enabled: boolean): TableEntry[] => {
       const serverId = queryKey[1] as number;
       const database = queryKey[2] as string;
       const server = serversById.get(serverId);
-      if (!server) continue;
+      // Bancos com catálogo buscam no backend (catalog_search)
+      if (!server || hasCatalog(server.dbType)) continue;
 
       const caps = queryClient.getQueryData<AdapterCapabilities>(
         queryKeys.capabilities(serverId),

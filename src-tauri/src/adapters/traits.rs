@@ -119,7 +119,16 @@ pub trait DatabaseAdapter: Send + Sync {
         Ok(vec![])
     }
 
-    async fn list_schemas_with_tables(&self) -> Result<DatabaseStructure>;
+    /// Estrutura inteira (schemas + tabelas) de uma vez. Só o Redis ainda usa:
+    /// Postgres, Mongo e SQLite respondem pelo catálogo de metadados
+    /// (`catalog_*`), e a listagem em massa deles — com o tamanho de cada
+    /// tabela — levava o backend ao OOM num banco multi-tenant
+    /// (perf/catalog/BASELINE.md). Não pode voltar a rodar por engano.
+    async fn list_schemas_with_tables(&self) -> Result<DatabaseStructure> {
+        Err(Error::UnsupportedType(
+            "structure comes from the metadata catalog (catalog_* commands)".into(),
+        ))
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // Connection

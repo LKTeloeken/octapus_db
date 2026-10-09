@@ -1,11 +1,7 @@
-use chrono::Utc;
 use rusqlite::Connection;
 
 use crate::error::Result;
-use crate::models::{
-    ColumnInfo, DatabaseInfo, DatabaseStructure, IndexInfo, SchemaStructure, TableInfo,
-    TableStructure, TableType,
-};
+use crate::models::{ColumnInfo, DatabaseInfo, IndexInfo, TableInfo, TableType};
 
 use super::util::{db_err, table_columns, value_to_string};
 
@@ -151,25 +147,4 @@ pub fn list_indexes(conn: &Connection, table: &str) -> Result<Vec<IndexInfo>> {
             })
         })
         .collect()
-}
-
-/// O SQLite não tem nível de schema, então a estrutura vem com um único
-/// "schema" com o nome do banco — mesma convenção do Mongo e do Redis.
-pub fn list_schemas_with_tables(conn: &Connection, schema_name: &str) -> Result<DatabaseStructure> {
-    let tables = list_tables(conn, schema_name)?
-        .into_iter()
-        .map(|table| TableStructure {
-            name: table.name,
-            table_type: table.table_type,
-            size_bytes: table.size_bytes,
-        })
-        .collect();
-
-    Ok(DatabaseStructure {
-        schemas: vec![SchemaStructure {
-            name: schema_name.to_string(),
-            tables,
-        }],
-        fetched_at: Utc::now().timestamp_millis(),
-    })
 }

@@ -13,6 +13,9 @@ import type { ServerFormProps } from './server-form.types';
 import { useServerForm } from './use-server-form';
 import { cn } from '@/lib/utils';
 
+const SCOPE_HELP =
+  'Padrões separados por vírgula: * qualquer trecho, ? um caractere, ! na frente exclui. Vazio mostra todos.';
+
 export function ServerForm(props: ServerFormProps) {
   const { open, onClose } = props;
   const {
@@ -190,6 +193,30 @@ export function ServerForm(props: ServerFormProps) {
                     </Label>
                   </div>
                 </>
+              )}
+
+              {/* Escopo: quem tem milhares de tenants e só cuida de alguns */}
+              <Input
+                type="text"
+                label="Databases visíveis (opcional)"
+                placeholder="tenant_*, !tenant_teste*"
+                helperText={SCOPE_HELP}
+                value={form.scopeDatabases ?? ''}
+                onChange={e =>
+                  setField('scopeDatabases', e.target.value || null)
+                }
+              />
+              {form.dbType === 'postgres' && (
+                <Input
+                  type="text"
+                  label="Schemas visíveis (opcional)"
+                  placeholder="public, tenant_00*"
+                  helperText={SCOPE_HELP}
+                  value={form.scopeSchemas ?? ''}
+                  onChange={e =>
+                    setField('scopeSchemas', e.target.value || null)
+                  }
+                />
               )}
             </>
           )}

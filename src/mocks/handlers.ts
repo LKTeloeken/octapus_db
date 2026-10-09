@@ -39,6 +39,9 @@ import {
   emptyResult,
   selectFrom,
 } from './engine';
+import { mockCatalog } from './catalog';
+import { parseScope } from './scope';
+import { registerListener, unregisterListener } from './events';
 import { useMockStore } from './mock-store';
 
 type Args = Record<string, unknown>;
@@ -66,6 +69,8 @@ const serverFromInput = (
   sslEnabled: input.sslEnabled ?? false,
   connectionUri: input.connectionUri ?? null,
   createdAt,
+  scopeDatabases: input.scopeDatabases?.trim() ? input.scopeDatabases : null,
+  scopeSchemas: input.scopeSchemas?.trim() ? input.scopeSchemas : null,
 });
 
 const serverHandlers: Record<string, MockHandler> = {
@@ -108,6 +113,7 @@ const serverHandlers: Record<string, MockHandler> = {
     );
     entry.capabilities = CAPABILITIES[typed.dbType];
     if (dbTypeChanged) entry.databases = buildDatabasesFor(typed.dbType);
+    mockCatalog.forgetServer(entry.server.id);
 
     return publicServer(entry.server);
   },
@@ -180,10 +186,16 @@ const structureHandlers: Record<string, MockHandler> = {
   [RustCommand.ListDatabases]: ({ serverId }: Args): DatabaseInfo[] => {
     const entry = requireServerEntry(serverId as number);
     if (isEmptyMode()) return [];
-    return entry.databases.map(db => ({
-      name: db.name,
-      sizeBytes: db.sizeBytes,
-    }));
+    // O Mongo lista só os nomes (`nameOnly`), como o backend; o escopo salvo
+    // filtra os databases
+    const withSize = entry.server.dbType !== 'mongodb';
+    const allows = parseScope(entry.server.scopeDatabases);
+    return entry.databases
+      .filter(db => allows(db.name))
+      .map(db => ({
+        name: db.name,
+        sizeBytes: withSize ? db.sizeBytes : null,
+      }));
   },
 
   [RustCommand.ListSchemas]: ({ serverId, database }: Args): SchemaInfo[] => {
@@ -275,6 +287,24 @@ const structureHandlers: Record<string, MockHandler> = {
   },
 };
 
+// ── Catálogo de metadados ───────────────────────────────────────────────────
+
+const catalogHandlers: Record<string, MockHandler> = {
+  [RustCommand.CatalogOpen]: args => mockCatalog.open(args),
+  [RustCommand.CatalogStatus]: args => mockCatalog.status(args),
+  [RustCommand.CatalogChildren]: args => mockCatalog.children(args),
+  [RustCommand.CatalogSearch]: args => mockCatalog.search(args),
+  [RustCommand.CatalogResolve]: args => mockCatalog.resolve(args),
+  [RustCommand.CatalogComplete]: args => mockCatalog.complete(args),
+  [RustCommand.CatalogDrift]: args => mockCatalog.drift(args),
+  [RustCommand.CatalogRefresh]: args => mockCatalog.refresh(args),
+  // A sincronização simulada termina sozinha: não há o que interromper
+  [RustCommand.CatalogCancel]: () => false,
+  [RustCommand.CatalogRelationSize]: args => mockCatalog.relationSize(args),
+  [RustCommand.CatalogShapes]: args => mockCatalog.shapes(args),
+  [RustCommand.CatalogDiagnostics]: args => mockCatalog.diagnostics(args),
+};
+
 // ── Browse ──────────────────────────────────────────────────────────────────
 
 const browseHandlers: Record<string, MockHandler> = {
@@ -358,8 +388,11 @@ function resolveQueryTable(
     const found = db.tables.find(
       candidate =>
         candidate.name === table &&
-        (schema ? candidate.schema === schema :
-          defaultSchema ? candidate.schema === defaultSchema : true),
+        (schema
+          ? candidate.schema === schema
+          : defaultSchema
+            ? candidate.schema === defaultSchema
+            : true),
     );
     if (!found) {
       throw `Query error: relation "${qualify(schema ?? '', table)}" does not exist`;
@@ -634,7 +667,6 @@ function emitFinish(
 // ── Plugins ─────────────────────────────────────────────────────────────────
 
 let mockWindowMaximized = false;
-let mockEventId = 0;
 
 const pluginHandlers: Record<string, MockHandler> = {
   'plugin:updater|check': () => {
@@ -697,9 +729,12 @@ const pluginHandlers: Record<string, MockHandler> = {
   },
   'plugin:window|is_fullscreen': () => false,
   'plugin:window|set_fullscreen': () => null,
-  // `onResized` assina um evento; no mock ele nunca dispara.
-  'plugin:event|listen': () => ++mockEventId,
-  'plugin:event|unlisten': () => null,
+  // Eventos globais: o catálogo do mock emite `catalog-event` (ver events.ts);
+  // o `onResized` também assina, mas nunca dispara.
+  'plugin:event|listen': ({ event, handler }: Args) =>
+    registerListener(event as string, handler as number),
+  'plugin:event|unlisten': ({ event, eventId }: Args) =>
+    unregisterListener(event as string, eventId as number),
 
   // Fora do Tauri não há navegador do sistema: abre numa aba nova.
   'plugin:opener|open_url': ({ url }: Args) => {
@@ -711,6 +746,7 @@ export const handlers: Record<string, MockHandler> = {
   ...serverHandlers,
   ...connectionHandlers,
   ...structureHandlers,
+  ...catalogHandlers,
   ...browseHandlers,
   ...exportHandlers,
   ...sessionHandlers,

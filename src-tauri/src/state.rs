@@ -1,7 +1,7 @@
 use parking_lot::Mutex;
 use rusqlite::Connection;
 
-use crate::services::{ConnectionService, QueryService, StructureService};
+use crate::services::{CatalogService, ConnectionService, QueryService, StructureService};
 
 /// Application state managed by Tauri
 pub struct AppState {
@@ -16,6 +16,9 @@ pub struct AppState {
 
     /// Database structure service
     pub structure: StructureService,
+
+    /// Catálogo de metadados (árvore, busca, autocomplete) — ver services/catalog.rs
+    pub catalog: CatalogService,
 }
 
 impl AppState {
@@ -25,6 +28,7 @@ impl AppState {
             connections: ConnectionService::new(),
             queries: QueryService::new(),
             structure: StructureService::new(),
+            catalog: CatalogService::default(),
         }
     }
 }
