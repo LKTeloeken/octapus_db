@@ -127,3 +127,46 @@ export function flattenGroups(groups: ResultGroup[]): PaletteRow[] {
   }
   return rows;
 }
+
+/**
+ * Com um schema fixado, o item mostra só a tabela (o schema está no chip do
+ * campo) e o destaque segue o que foi digitado.
+ */
+export function pinnedTableItem(entry: TableEntry, query: string): PaletteItem {
+  return {
+    key: entry.id,
+    target: { kind: 'table', entry },
+    label: entry.table,
+    indices: highlight(query, entry.table),
+    subtitle: `${entry.schema} · ${entry.database}`,
+  };
+}
+
+/**
+ * O que o Tab fixa: o schema do item ativo, se for um schema; senão o trecho
+ * antes do ponto (`public.us` fixa `public` e segue buscando `us`); senão o
+ * texto todo. `null` quando não há o que fixar.
+ */
+export function resolvePin(
+  query: string,
+  active: PaletteItem | null,
+): { schema: string; rest: string } | null {
+  const dot = query.indexOf('.');
+  if (active?.target.kind === 'schema') {
+    return {
+      schema: active.target.schema,
+      rest: dot === -1 ? '' : query.slice(dot + 1).trim(),
+    };
+  }
+  if (dot !== -1) {
+    const schema = query.slice(0, dot).trim();
+    return schema ? { schema, rest: query.slice(dot + 1).trim() } : null;
+  }
+  const schema = query.trim();
+  return schema ? { schema, rest: '' } : null;
+}
+
+/** O schema de uma entrada é o fixado? (maiúsculas não importam, como no backend) */
+export function inPinnedSchema(entry: TableEntry, schema: string): boolean {
+  return entry.schema?.toLowerCase() === schema.toLowerCase();
+}

@@ -8,7 +8,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { useQueries, type UseQueryResult } from '@tanstack/react-query';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { getCapabilities } from '@/api/connection';
 import { listColumns, listDatabases, listSchemasWithTables } from '@/api/structure';
@@ -110,6 +110,11 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
   const requestFocus = useFocusStore(state => state.requestFocus);
   const { refreshServer, refreshDatabase, refreshSchema, refreshTable } =
     useRefreshStructure();
+  // Última janela de cada nó. O `keepPreviousData` não vale no `useQueries`:
+  // trocar o filtro troca a key, o observer é outro e a página some até a nova
+  // chegar — junto com a linha do filtro, que sai do DOM e leva o foco do
+  // campo a cada letra digitada.
+  const lastPages = useRef(new Map<string, CatalogPage<CatalogNode>>());
 
   const servers = serversQuery.data ?? [];
   const serverIds = useMemo(
@@ -488,8 +493,10 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
       return;
     }
 
-    const page = query?.data;
-    if (!page) return;
+    if (query?.data) lastPages.current.set(nodeId, query.data);
+    const page =
+      query?.data ?? (query?.isPending ? lastPages.current.get(nodeId) : undefined);
+    if (!query || !page) return;
     pushPage(nodeId, level, page, query.isFetching, placeholder, pushChild);
   };
 

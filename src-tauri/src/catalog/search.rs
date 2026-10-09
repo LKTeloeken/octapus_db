@@ -202,6 +202,51 @@ impl Catalog {
             .collect()
     }
 
+    /// Relações de um schema exato (o schema fixado na palette), com a parte
+    /// da tabela fuzzy — vazia lista todas. Diferente de `schema.tabela`, o
+    /// schema não é fuzzy: fixar `tenant_4` não traz `tenant_40`. Sem o nome
+    /// exato, vale um que só difira em maiúsculas.
+    pub fn search_in_schema(&self, schema: &str, query: &str, limit: usize) -> Vec<SearchHit> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        let found = self.schemas.get_key_value(schema).or_else(|| {
+            self.schemas
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(schema))
+        });
+        let Some((schema, shape_id)) = found.and_then(|(name, entry)| Some((name, entry.shape?))) else {
+            return Vec::new();
+        };
+
+        let mut scorer = Scorer::new(query.trim());
+        let matches: Vec<(u32, Sym, RelKind)> = self.shapes[shape_id.index()]
+            .tables
+            .iter()
+            .filter_map(|table| {
+                let score = match scorer.as_mut() {
+                    Some(scorer) => scorer.score(self.names.resolve(table.name))?,
+                    None => 0,
+                };
+                Some((score, table.name, table.kind))
+            })
+            .collect();
+
+        let best = top(matches, limit, |a, b| {
+            rank((a.0, self.names.resolve(a.1)), (b.0, self.names.resolve(b.1)))
+        });
+
+        best.into_iter()
+            .map(|(score, sym, kind)| SearchHit {
+                name: self.names.resolve(sym).to_string(),
+                kind: kind.into(),
+                score,
+                schema: Some(schema.to_string()),
+                schemas: None,
+            })
+            .collect()
+    }
+
     /// Um mesmo nome pode ser tabela num formato e view em outro: vale o tipo do
     /// formato com mais schemas.
     fn dominant_kind(&self, sym: Sym, shapes: &[ShapeId]) -> RelKind {
@@ -281,6 +326,26 @@ mod tests {
         let schema_hit = hits.iter().find(|hit| hit.name == "ordering").unwrap();
         assert_eq!(schema_hit.kind, NodeKind::Schema);
         assert!(schema_hit.schemas.is_none());
+    }
+
+    #[test]
+    fn search_in_schema_matches_the_schema_exactly() {
+        let catalog = catalog();
+
+        // `tenant_00` casaria fuzzy com todos os tenants; aqui não existe
+        assert!(catalog.search_in_schema("tenant_00", "ord", 50).is_empty());
+
+        let hits = catalog.search_in_schema("tenant_007", "ord", 50);
+        assert!(!hits.is_empty());
+        assert!(hits.iter().all(|hit| hit.schema.as_deref() == Some("tenant_007")));
+        assert!(!hits.iter().any(|hit| hit.name == "customers"));
+
+        // Busca vazia lista o schema inteiro; maiúsculas não importam
+        let all = catalog.search_in_schema("TENANT_007", "", 50);
+        assert_eq!(all.len(), 3);
+        assert!(all.iter().all(|hit| hit.schema.as_deref() == Some("tenant_007")));
+
+        assert!(catalog.search_in_schema("missing", "", 50).is_empty());
     }
 
     #[test]

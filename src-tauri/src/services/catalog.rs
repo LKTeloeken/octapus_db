@@ -24,7 +24,7 @@ use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 
 use crate::catalog::{
     stable_hash, Catalog, CatalogKey, CatalogSource, CatalogStore, LoadState, Loaded,
-    SourceCanceller, Strategy, SyncEvent, SyncReport,
+    SearchHit, SourceCanceller, Strategy, SyncEvent, SyncReport,
 };
 use crate::error::{Error, Result};
 use crate::models::{
@@ -521,13 +521,21 @@ impl CatalogService {
 
     /// Busca em todos os catálogos abertos (a palette), os melhores primeiro.
     pub fn search_all(&self, query: &str, limit: usize) -> Vec<CatalogSearchHit> {
+        self.search_each(limit, |catalog| catalog.search(query, limit))
+    }
+
+    /// Como `search_all`, mas só nas relações do schema `schema` (exato) — o
+    /// schema fixado na palette.
+    pub fn search_all_in_schema(&self, schema: &str, query: &str, limit: usize) -> Vec<CatalogSearchHit> {
+        self.search_each(limit, |catalog| catalog.search_in_schema(schema, query, limit))
+    }
+
+    fn search_each(&self, limit: usize, search: impl Fn(&Catalog) -> Vec<SearchHit>) -> Vec<CatalogSearchHit> {
         let entries: Vec<Arc<CatalogEntry>> = self.entries.lock().values().cloned().collect();
         let mut hits: Vec<CatalogSearchHit> = entries
             .iter()
             .flat_map(|entry| {
-                entry
-                    .read()
-                    .search(query, limit)
+                search(&entry.read())
                     .into_iter()
                     .map(|hit| CatalogSearchHit {
                         server_id: entry.key.server_id,

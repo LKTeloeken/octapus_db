@@ -24,6 +24,8 @@ concurrency: nix-release
 
 jobs:
   update:
+    # Pre-release (canal beta) não chega ao flake; à mão, via dispatch, pode.
+    if: github.event_name != 'release' || !github.event.release.prerelease
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

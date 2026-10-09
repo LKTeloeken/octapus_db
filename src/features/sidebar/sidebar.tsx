@@ -1,9 +1,8 @@
 import {
   Add01Icon,
   GithubIcon,
-  Moon02Icon,
   Search01Icon,
-  Sun03Icon,
+  Settings01Icon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { memo } from 'react';
@@ -13,6 +12,7 @@ import { Kbd } from '@/components/ui/kbd';
 import { Tooltip } from '@/components/ui/tooltip/tooltip';
 import { ConnectionTree } from '@/features/connection-tree/connection-tree';
 import { ServerForm } from '@/features/server-form/server-form';
+import { SettingsDialog } from '@/features/settings/settings-dialog';
 import { TrafficLights } from '@/features/window-controls/window-controls';
 import { customTitlebar, shortcut } from '@/lib/platform';
 import { useSidebar } from './use-sidebar';
@@ -22,13 +22,13 @@ export const Sidebar = memo(() => {
     isFormOpen,
     editingServer,
     serverCount,
-    theme,
+    isSettingsOpen,
+    setSettingsOpen,
     openCreateForm,
     openEditForm,
     closeForm,
     openPalette,
     openRepository,
-    toggleTheme,
   } = useSidebar();
 
   return (
@@ -105,19 +105,14 @@ export const Sidebar = memo(() => {
           </Button>
         </Tooltip>
         <span className="flex-1" />
-        <Tooltip
-          content={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}
-          position="top"
-        >
+        <Tooltip content="Configurações" position="top">
           <Button
             variant="ghost"
             size="icon"
-            aria-label={
-              theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'
-            }
-            onClick={toggleTheme}
+            aria-label="Abrir as configurações"
+            onClick={() => setSettingsOpen(true)}
           >
-            <HugeiconsIcon icon={theme === 'dark' ? Sun03Icon : Moon02Icon} />
+            <HugeiconsIcon icon={Settings01Icon} />
           </Button>
         </Tooltip>
       </div>
@@ -127,6 +122,8 @@ export const Sidebar = memo(() => {
         onClose={closeForm}
         server={editingServer}
       />
+
+      <SettingsDialog open={isSettingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 });

@@ -108,7 +108,8 @@ pub async fn catalog_children(
 }
 
 /// Busca fuzzy num database ou, sem `serverId`/`database`, em todos os
-/// catálogos abertos (a palette).
+/// catálogos abertos (a palette). Com `schema`, só as relações desse schema
+/// (nome exato — o schema fixado na palette).
 #[tauri::command]
 pub async fn catalog_search(
     state: State<'_, AppState>,
@@ -116,12 +117,17 @@ pub async fn catalog_search(
     limit: usize,
     server_id: Option<i64>,
     database: Option<String>,
+    schema: Option<String>,
 ) -> Result<Vec<CatalogSearchHit>, String> {
     let limit = limit.min(MAX_PAGE);
     match (server_id, database) {
         (Some(server_id), Some(database)) => {
             let entry = entry_for(&state, server_id, &database).await?;
-            let hits = entry.read().search(&query, limit);
+            let catalog = entry.read();
+            let hits = match &schema {
+                Some(schema) => catalog.search_in_schema(schema, &query, limit),
+                None => catalog.search(&query, limit),
+            };
             Ok(hits
                 .into_iter()
                 .map(|hit| CatalogSearchHit {
@@ -131,7 +137,10 @@ pub async fn catalog_search(
                 })
                 .collect())
         }
-        _ => Ok(state.catalog.search_all(&query, limit)),
+        _ => Ok(match &schema {
+            Some(schema) => state.catalog.search_all_in_schema(schema, &query, limit),
+            None => state.catalog.search_all(&query, limit),
+        }),
     }
 }
 

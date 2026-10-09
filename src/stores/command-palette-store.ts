@@ -7,12 +7,20 @@ import { create } from 'zustand';
  */
 interface CommandPaletteState {
   isOpen: boolean;
+  /**
+   * Schema fixado com Tab: a busca fica só nas relações dele. Sobrevive ao
+   * fechar a paleta — sai com Backspace no campo vazio ou Shift+Tab.
+   */
+  pinnedSchema: string | null;
   setOpen: (open: boolean) => void;
   toggle: () => void;
+  setPinnedSchema: (schema: string | null) => void;
 }
 
 export const useCommandPaletteStore = create<CommandPaletteState>(set => ({
   isOpen: false,
+  pinnedSchema: null,
   setOpen: open => set({ isOpen: open }),
   toggle: () => set(state => ({ isOpen: !state.isOpen })),
+  setPinnedSchema: pinnedSchema => set({ pinnedSchema }),
 }));

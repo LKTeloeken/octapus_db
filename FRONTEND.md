@@ -91,7 +91,7 @@ Só estado de **UI**, nada que o backend possa fornecer:
 | `connection-store` | registro best-effort de quais `(server, db)` já conectaram na sessão |
 | `focus-store` | pedido de foco do teclado entre a árvore e a grade |
 | `ui-store` | tema e flags de UI |
-| `command-palette-store` | paleta de comandos aberta/fechada — aberta pelo `Cmd/Ctrl+K`, pela busca da sidebar e pelo botão Comandos |
+| `command-palette-store` | paleta de comandos aberta/fechada — aberta pelo `Cmd/Ctrl+K`, pela busca da sidebar e pelo botão Comandos — e o schema fixado nela (em memória, sobrevive ao fechar) |
 | `value-panel-store` | painel de valor da aba de tabela: aberto/fechado e preferências de formatação (global, persistido) |
 
 **Sessão das abas** ([stores/tabs-session.ts](src/stores/tabs-session.ts)): as abas
@@ -150,6 +150,13 @@ palette, dentro do `QueryProvider`.
   edição o campo começa vazio e deve ser redigitado. **Escopo** opcional: "Databases
   visíveis" e, no Postgres, "Schemas visíveis" (padrões com `*`, `?` e `!` para excluir —
   aplicados no backend).
+- **`settings`** — diálogo de configurações (engrenagem no rodapé da sidebar): menu de
+  seções à esquerda, a ativa à direita. Seções num registro
+  ([settings-sections.ts](src/features/settings/settings-sections.ts)); cada configuração
+  é uma `SettingRow`. Os valores vêm de `useSettings`/`useUpdateSettings` (SQLite do
+  backend, `get_settings`/`update_settings`) — menos o tema, que segue no `ui-store`.
+  A preferência **versões beta** muda o canal do `update-notifier` (`checkForUpdate` em
+  `src/api/updater.ts`); ligá-la checa na hora.
 - **`query-tabs`** — gerencia abas; cada aba é um editor livre (`query-editor`) ou um
   browse (`table-browser`).
 - **`query-editor`** — editor CodeMirror + execução; `use-query-runner` roda a query,
@@ -172,7 +179,10 @@ palette, dentro do `QueryProvider`.
   `command-palette-store`). Nos bancos com catálogo a busca é do backend
   (`catalog_search`, 50 resultados, nos catálogos abertos) e a mesma tabela em vários
   schemas vira **um grupo** ("orders em 5.000 schemas"): Enter reescreve a busca para
-  `.orders` com o cursor antes do ponto, para escolher o schema. Abrir a paleta abre os
+  `.orders` com o cursor antes do ponto, para escolher o schema. **Tab fixa um schema**
+  (o do item ativo, se for um schema; senão o trecho antes do ponto ou o texto todo —
+  ver `resolvePin`) e a busca passa a ser só nas relações dele (`catalog_search` com
+  `schema`, nome exato); Shift+Tab ou Backspace no campo vazio solta. Abrir a paleta abre os
   catálogos dos databases das abas e dos recentes. O Redis segue no fuzzy local
   (`use-table-index`). Montagem dos itens em
   [palette-items.ts](src/features/command-palette/palette-items.ts).

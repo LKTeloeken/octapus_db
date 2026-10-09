@@ -5,7 +5,11 @@ mod servers;
 mod connections;
 mod queries;
 mod session;
+mod settings;
 mod structure;
+// O updater só existe em desktop (ver lib.rs)
+#[cfg(desktop)]
+mod updater;
 
 pub use browse::*;
 pub use catalog::*;
@@ -14,7 +18,10 @@ pub use servers::*;
 pub use connections::*;
 pub use queries::*;
 pub use session::*;
+pub use settings::*;
 pub use structure::*;
+#[cfg(desktop)]
+pub use updater::*;
 
 use std::sync::Arc;
 use std::time::Duration;

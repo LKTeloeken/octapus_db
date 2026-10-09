@@ -114,13 +114,17 @@ export function useCatalogDiagnostics() {
 
 export function useCatalogSearch(
   query: string,
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; schema?: string | null },
 ) {
   const trimmed = query.trim();
+  const schema = options?.schema ?? null;
   return useQuery({
-    queryKey: queryKeys.catalogSearch(trimmed, CATALOG_SEARCH_LIMIT),
-    queryFn: () => catalogSearch(trimmed, CATALOG_SEARCH_LIMIT),
-    enabled: trimmed.length > 0 && (options?.enabled ?? true),
+    queryKey: queryKeys.catalogSearch(trimmed, CATALOG_SEARCH_LIMIT, schema),
+    queryFn: () =>
+      catalogSearch(trimmed, CATALOG_SEARCH_LIMIT, undefined, schema),
+    // Com schema fixado, a busca vazia lista as relações dele
+    enabled:
+      (trimmed.length > 0 || schema !== null) && (options?.enabled ?? true),
     placeholderData: keepPreviousData,
     ...fromEvents,
   });

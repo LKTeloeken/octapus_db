@@ -33,6 +33,13 @@ pub fn init_storage<P: AsRef<Path>>(db_path: P) -> Result<Connection> {
             snapshot    TEXT NOT NULL,
             updated_at  INTEGER NOT NULL
         );
+
+        -- Preferências do app (models/settings.rs): uma linha por campo, com
+        -- o valor em JSON. Campo novo não pede migração.
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key     TEXT PRIMARY KEY,
+            value   TEXT NOT NULL
+        );
         "#,
     )?;
 

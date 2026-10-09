@@ -44,17 +44,23 @@ export function catalogChildren(
   });
 }
 
-/** Sem `serverId`/`database`: busca em todos os catálogos abertos (palette) */
+/**
+ * Sem `serverId`/`database`: busca em todos os catálogos abertos (palette).
+ * Com `schema`: só as relações desse schema (nome exato), e a busca vazia
+ * lista todas — o schema fixado na palette.
+ */
 export function catalogSearch(
   query: string,
   limit: number,
   scope?: { serverId: number; database: string },
+  schema?: string | null,
 ): Promise<CatalogSearchHit[]> {
   return call<CatalogSearchHit[]>(RustCommand.CatalogSearch, {
     query,
     limit,
     serverId: scope?.serverId ?? null,
     database: scope?.database ?? null,
+    schema: schema ?? null,
   });
 }
 
