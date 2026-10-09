@@ -53,6 +53,13 @@ pub struct Server {
     /// present it takes precedence over host/port/username for connecting.
     pub connection_uri: Option<String>,
     pub created_at: i64,
+    /// Escopo salvo: que databases o app enxerga neste servidor (padrões com
+    /// `*`, `?` e `!` para excluir — ver `catalog::NameScope`)
+    #[serde(default)]
+    pub scope_databases: Option<String>,
+    /// Escopo salvo: que schemas o catálogo lê (Postgres)
+    #[serde(default)]
+    pub scope_schemas: Option<String>,
 }
 
 /// For creating/updating servers (receives password)
@@ -68,6 +75,10 @@ pub struct ServerInput {
     pub default_database: Option<String>,
     pub ssl_enabled: Option<bool>,
     pub connection_uri: Option<String>,
+    #[serde(default)]
+    pub scope_databases: Option<String>,
+    #[serde(default)]
+    pub scope_schemas: Option<String>,
 }
 
 /// Connection identifier

@@ -1,4 +1,5 @@
 mod adapters;
+mod catalog;
 mod commands;
 mod error;
 mod models;
@@ -7,9 +8,21 @@ mod state;
 mod storage;
 mod window_chrome;
 
+#[cfg(test)]
+mod perf;
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use models::CATALOG_EVENT;
 use state::AppState;
 use storage::init_storage;
-use tauri::{Builder, Manager, WindowEvent};
+use tauri::{Builder, Emitter, Manager, WindowEvent};
+
+const MAINTENANCE_EVERY: Duration = Duration::from_secs(60);
+/// Pools sem uso há mais que isto fecham (navegar por dezenas de databases de
+/// tenant não pode acumular conexões no servidor do cliente)
+const ADAPTER_IDLE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,7 +41,30 @@ pub fn run() {
             let storage_conn =
                 init_storage(app_data_dir.join("app.db")).expect("Failed to initialize storage");
 
-            app.manage(AppState::new(storage_conn));
+            let state = AppState::new(storage_conn);
+            let events = app.handle().clone();
+            state.catalog.init(
+                app_data_dir.join("catalog"),
+                Arc::new(move |event| {
+                    let _ = events.emit(CATALOG_EVENT, event);
+                }),
+            );
+            app.manage(state);
+
+            // Manutenção: catálogos vencidos saem do disco na partida; a cada
+            // minuto, conexões ociosas fecham e o teto de memória é respeitado.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = handle.state::<AppState>();
+                let _ = state.catalog.purge_expired();
+                let mut tick = tokio::time::interval(MAINTENANCE_EVERY);
+                tick.tick().await;
+                loop {
+                    tick.tick().await;
+                    state.catalog.maintenance().await;
+                    state.connections.evict_idle(ADAPTER_IDLE_TIMEOUT);
+                }
+            });
 
             if let Some(window) = app.get_webview_window("main") {
                 window_chrome::hide_traffic_lights(&window.as_ref().window());
@@ -73,6 +109,19 @@ pub fn run() {
             commands::list_columns,
             commands::list_indexes,
             commands::list_schemas_with_tables,
+            // Catálogo de metadados (árvore, busca, autocomplete em escala)
+            commands::catalog_open,
+            commands::catalog_status,
+            commands::catalog_children,
+            commands::catalog_search,
+            commands::catalog_resolve,
+            commands::catalog_complete,
+            commands::catalog_drift,
+            commands::catalog_refresh,
+            commands::catalog_cancel,
+            commands::catalog_relation_size,
+            commands::catalog_shapes,
+            commands::catalog_diagnostics,
             // Sessão do workspace (abas abertas)
             commands::load_session,
             commands::save_session,

@@ -708,6 +708,8 @@ mod tests {
             default_database: None,
             ssl_enabled: false,
             connection_uri: None,
+            scope_databases: None,
+            scope_schemas: None,
             created_at: 0,
         };
 
@@ -775,6 +777,8 @@ mod tests {
             default_database: None,
             ssl_enabled: false,
             connection_uri: None,
+            scope_databases: None,
+            scope_schemas: None,
             created_at: 0,
         };
 

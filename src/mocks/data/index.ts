@@ -5,6 +5,7 @@ import { buildMongoDatabases } from './mongo';
 import { buildPostgresDatabases } from './postgres';
 import { buildRedisDatabases } from './redis';
 import { buildSqliteDatabases } from './sqlite';
+import { tenantTable } from './tenants';
 import type { MockDatabase, MockServerEntry, MockTable } from './types';
 
 export * from './types';
@@ -78,6 +79,8 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     sslEnabled: false,
     connectionUri: null,
     createdAt: 1_735_689_600,
+    scopeDatabases: null,
+    scopeSchemas: null,
   },
   {
     name: 'Catálogo (Atlas)',
@@ -89,6 +92,8 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     sslEnabled: true,
     connectionUri: 'mongodb+srv://cluster0.exemplo.mongodb.net',
     createdAt: 1_743_465_600,
+    scopeDatabases: null,
+    scopeSchemas: null,
   },
   {
     name: 'Notas (arquivo)',
@@ -101,6 +106,8 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     // No SQLite a "URI" é o caminho do arquivo do banco
     connectionUri: '/Users/voce/dados/notas.db',
     createdAt: 1_755_000_000,
+    scopeDatabases: null,
+    scopeSchemas: null,
   },
   {
     name: 'Cache (dev)',
@@ -112,6 +119,8 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     sslEnabled: false,
     connectionUri: null,
     createdAt: 1_751_328_000,
+    scopeDatabases: null,
+    scopeSchemas: null,
   },
 ];
 
@@ -171,9 +180,12 @@ export function requireTable(
 ): MockTable {
   const db = requireDatabase(entry, database);
   const wanted = entry.capabilities.hasSchemas ? schema || 'public' : '';
-  const found = db.tables.find(
-    candidate => candidate.name === table && candidate.schema === wanted,
-  );
+  const found =
+    db.generated === 'tenants'
+      ? tenantTable(wanted, table)
+      : db.tables.find(
+          candidate => candidate.name === table && candidate.schema === wanted,
+        );
   if (!found)
     throw `Query error: relation "${qualify(wanted, table)}" does not exist`;
   return found;

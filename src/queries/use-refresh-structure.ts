@@ -1,10 +1,14 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
+import { catalogRefresh } from '@/api/catalog';
 import { listTables } from '@/api/structure';
+import type { CatalogStatus } from '@/api/types/catalog.types';
+import type { Server } from '@/api/types/server.types';
 import type { DatabaseStructure } from '@/api/types/structure.types';
 import { decodeNodeId, nodeKind } from '@/lib/node-ref';
 import { useTreeStore } from '@/stores/tree-store';
 import { queryKeys } from './keys';
+import { hasCatalog } from './use-catalog';
 
 /**
  * Refresh manual do cache de estrutura (o cache mora todo aqui no front, com
@@ -15,9 +19,41 @@ import { queryKeys } from './keys';
  * schema **colapsam** as tabelas do escopo e marcam as colunas como stale com
  * `refetchType: 'none'` — nunca disparam `list_columns` sozinhos. `removeQueries`
  * não serve: numa query montada ela refetcharia na hora.
+ *
+ * Bancos com catálogo no backend (Postgres, Mongo, SQLite) não têm estrutura
+ * no front: o refresh pede ao backend para revalidar (o database, em segundo
+ * plano) ou recarregar (um schema, na hora), e os eventos `catalog-event`
+ * invalidam as fatias.
  */
 export function useRefreshStructure() {
   const queryClient = useQueryClient();
+
+  const usesCatalog = useCallback(
+    (serverId: number) =>
+      hasCatalog(
+        queryClient
+          .getQueryData<Server[]>(queryKeys.servers)
+          ?.find(server => server.id === serverId)?.dbType,
+      ),
+    [queryClient],
+  );
+
+  /** Revalida no backend; o novo estado entra na hora, o conteúdo pelos eventos */
+  const refreshCatalog = useCallback(
+    async (serverId: number, database: string, schema?: string) => {
+      const status = await catalogRefresh(serverId, database, schema);
+      queryClient.setQueryData<CatalogStatus>(
+        queryKeys.catalogStatus(serverId, database),
+        status,
+      );
+      if (schema) {
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.catalogScope(serverId, database),
+        });
+      }
+    },
+    [queryClient],
+  );
 
   /** Colapsa as tabelas expandidas dentro do escopo informado */
   const collapseTablesIn = useCallback(
@@ -54,7 +90,21 @@ export function useRefreshStructure() {
     async (serverId: number) => {
       collapseTablesIn({ serverId });
 
+      // Catálogos abertos deste servidor revalidam no backend
+      const openCatalogs = usesCatalog(serverId)
+        ? Array.from(
+            new Set(
+              queryClient
+                .getQueriesData<CatalogStatus>({
+                  queryKey: ['catalog', serverId],
+                })
+                .map(([key]) => key[2] as string),
+            ),
+          )
+        : [];
+
       await Promise.all([
+        ...openCatalogs.map(database => refreshCatalog(serverId, database)),
         queryClient.invalidateQueries({
           queryKey: queryKeys.capabilities(serverId),
         }),
@@ -67,13 +117,27 @@ export function useRefreshStructure() {
         staleColumnsIn(serverId),
       ]);
     },
-    [collapseTablesIn, queryClient, staleColumnsIn],
+    [
+      collapseTablesIn,
+      queryClient,
+      staleColumnsIn,
+      usesCatalog,
+      refreshCatalog,
+    ],
   );
 
   /** Estrutura completa de um database (schemas + tabelas) */
   const refreshDatabase = useCallback(
     async (serverId: number, database: string) => {
       collapseTablesIn({ serverId, database });
+
+      if (usesCatalog(serverId)) {
+        await Promise.all([
+          refreshCatalog(serverId, database),
+          staleColumnsIn(serverId, database),
+        ]);
+        return;
+      }
 
       await Promise.all([
         queryClient.invalidateQueries({
@@ -82,17 +146,29 @@ export function useRefreshStructure() {
         staleColumnsIn(serverId, database),
       ]);
     },
-    [collapseTablesIn, queryClient, staleColumnsIn],
+    [
+      collapseTablesIn,
+      queryClient,
+      staleColumnsIn,
+      usesCatalog,
+      refreshCatalog,
+    ],
   );
 
   /**
    * Só as tabelas de um schema: busca `list_tables` e costura o resultado dentro
-   * do `DatabaseStructure` já cacheado, sem tocar nos outros schemas.
+   * do `DatabaseStructure` já cacheado, sem tocar nos outros schemas. Com
+   * catálogo, o backend recarrega só aquele schema.
    */
   const refreshSchema = useCallback(
     async (serverId: number, database: string, schema: string) => {
       collapseTablesIn({ serverId, database, schema });
       await staleColumnsIn(serverId, database, schema);
+
+      if (usesCatalog(serverId)) {
+        await refreshCatalog(serverId, database, schema);
+        return;
+      }
 
       const structureKey = queryKeys.structure(serverId, database);
       const cached = queryClient.getQueryData<DatabaseStructure>(structureKey);
@@ -127,7 +203,13 @@ export function useRefreshStructure() {
           },
       );
     },
-    [collapseTablesIn, queryClient, staleColumnsIn],
+    [
+      collapseTablesIn,
+      queryClient,
+      staleColumnsIn,
+      usesCatalog,
+      refreshCatalog,
+    ],
   );
 
   /** Colunas (e índices) de uma tabela — único caso em que buscar coluna é o pedido */

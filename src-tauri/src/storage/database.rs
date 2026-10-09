@@ -52,6 +52,8 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         ("db_type", "ALTER TABLE servers ADD COLUMN db_type TEXT NOT NULL DEFAULT 'postgres'"),
         ("ssl_enabled", "ALTER TABLE servers ADD COLUMN ssl_enabled INTEGER NOT NULL DEFAULT 0"),
         ("connection_uri", "ALTER TABLE servers ADD COLUMN connection_uri TEXT"),
+        ("scope_databases", "ALTER TABLE servers ADD COLUMN scope_databases TEXT"),
+        ("scope_schemas", "ALTER TABLE servers ADD COLUMN scope_schemas TEXT"),
     ];
 
     for (col_name, alter_sql) in migrations {

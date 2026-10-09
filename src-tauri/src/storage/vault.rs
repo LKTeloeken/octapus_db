@@ -75,39 +75,48 @@ fn cipher() -> Result<Aes256Gcm> {
     Ok(Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key)))
 }
 
-/// Encrypt a secret into a self-describing envelope (`v1:<hex(nonce||ct)>`).
-pub fn encrypt(plaintext: &str) -> Result<String> {
+/// Encrypt raw bytes with the device key: `nonce || ciphertext` (no text
+/// envelope). Used for binary blobs such as the cached metadata catalog.
+pub fn seal(plaintext: &[u8]) -> Result<Vec<u8>> {
     let cipher = cipher()?;
 
     let mut nonce_bytes = [0u8; NONCE_LEN];
     rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
 
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext.as_bytes())
+        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
         .map_err(|_| Error::Storage("Failed to encrypt secret".into()))?;
 
     let mut blob = Vec::with_capacity(NONCE_LEN + ciphertext.len());
     blob.extend_from_slice(&nonce_bytes);
     blob.extend_from_slice(&ciphertext);
+    Ok(blob)
+}
 
-    Ok(format!("{PREFIX}{}", hex::encode(blob)))
+/// Decrypt bytes produced by [`seal`]. Returns `None` if the key or the
+/// ciphertext doesn't match (GCM authenticates, so tampering is detected).
+pub fn open(blob: &[u8]) -> Option<Vec<u8>> {
+    if blob.len() <= NONCE_LEN {
+        return None;
+    }
+
+    let (nonce_bytes, ciphertext) = blob.split_at(NONCE_LEN);
+    cipher()
+        .ok()?
+        .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
+        .ok()
+}
+
+/// Encrypt a secret into a self-describing envelope (`v1:<hex(nonce||ct)>`).
+pub fn encrypt(plaintext: &str) -> Result<String> {
+    Ok(format!("{PREFIX}{}", hex::encode(seal(plaintext.as_bytes())?)))
 }
 
 /// Decrypt an envelope produced by [`encrypt`]. Returns `None` if the input is
 /// not an envelope or the key/ciphertext doesn't match.
 pub fn decrypt(envelope: &str) -> Option<String> {
     let blob = hex::decode(envelope.strip_prefix(PREFIX)?).ok()?;
-    if blob.len() <= NONCE_LEN {
-        return None;
-    }
-
-    let (nonce_bytes, ciphertext) = blob.split_at(NONCE_LEN);
-    let plaintext = cipher()
-        .ok()?
-        .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
-        .ok()?;
-
-    String::from_utf8(plaintext).ok()
+    String::from_utf8(open(&blob)?).ok()
 }
 
 /// Whether a stored value is a vault envelope (vs. legacy plaintext).
@@ -119,4 +128,33 @@ pub fn is_envelope(value: &str) -> bool {
 #[cfg(test)]
 pub(crate) fn init_for_tests() {
     let _ = KEY.set([7u8; 32]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn envelope_and_raw_blobs_round_trip() {
+        init_for_tests();
+
+        let envelope = encrypt("s3cret").unwrap();
+        assert!(is_envelope(&envelope));
+        assert_eq!(decrypt(&envelope).as_deref(), Some("s3cret"));
+
+        let blob = seal(&[1, 2, 3, 0, 255]).unwrap();
+        assert_eq!(open(&blob).unwrap(), [1, 2, 3, 0, 255]);
+    }
+
+    #[test]
+    fn tampered_or_short_blobs_do_not_open() {
+        init_for_tests();
+
+        let mut blob = seal(b"catalog").unwrap();
+        let last = blob.len() - 1;
+        blob[last] ^= 0x01;
+        assert!(open(&blob).is_none());
+        assert!(open(&[0u8; NONCE_LEN]).is_none());
+        assert!(decrypt("plaintext").is_none());
+    }
 }

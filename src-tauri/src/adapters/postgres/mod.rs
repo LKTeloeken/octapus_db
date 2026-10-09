@@ -1,4 +1,5 @@
 mod browse;
+pub mod introspect;
 mod pool;
 mod executor;
 mod metadata;
@@ -133,13 +134,10 @@ impl DatabaseAdapter for PostgresAdapter {
         metadata::list_indexes(&self.pool, schema, table).await
     }
 
-    async fn list_schemas_with_tables(&self) -> Result<DatabaseStructure> {
-        metadata::list_schemas_with_tables(&self.pool).await
-    }
-
     async fn test_connection(&self) -> Result<()> {
         let client = self.pool.get().await?;
-        client.query_one("SELECT 1", &[]).await?;
+        // Protocolo simples: uma ida e volta (query_one gastava duas, com o prepare)
+        client.simple_query("SELECT 1").await?;
         Ok(())
     }
 

@@ -12,10 +12,34 @@ interface Options {
   containerRef: RefObject<HTMLDivElement | null>;
 }
 
-/** Primeira linha de nó (pulando erros) andando em `dir` a partir de `from`. */
+/** Linhas que o cursor do teclado visita: nós e o "carregar mais". */
+const isNavigable = (row: FlatRow) =>
+  row.variant === 'node' || row.variant === 'more';
+
+const rowLevel = (row: FlatRow) =>
+  row.variant === 'node' ? row.props.level : 'level' in row ? row.level : 0;
+
+/** Primeira linha navegável (pulando erros e filtros) andando em `dir` a partir de `from`. */
 const findNode = (rows: FlatRow[], from: number, dir: 1 | -1): number => {
   for (let i = from; i >= 0 && i < rows.length; i += dir) {
-    if (rows[i].variant === 'node') return i;
+    if (isNavigable(rows[i])) return i;
+  }
+  return -1;
+};
+
+/**
+ * O filtro que vale para a linha `index`: o do próprio nó (logo abaixo dele,
+ * se expandido com filtro) ou o da lista em que ela está — que fica no topo
+ * da lista, no mesmo nível, antes de chegar ao nó pai.
+ */
+const findFilter = (rows: FlatRow[], index: number): number => {
+  const next = rows[index + 1];
+  if (next?.variant === 'filter' && next.nodeId === rows[index].id) return index + 1;
+  const level = rowLevel(rows[index]);
+  for (let i = index; i >= 0; i--) {
+    const row = rows[i];
+    if (row.variant === 'filter' && row.level === level) return i;
+    if (row.variant === 'node' && row.props.level < level) return -1;
   }
   return -1;
 };
@@ -41,17 +65,47 @@ export const useTreeNavigation = ({ rows, virtualizer, containerRef }: Options) 
   const activeIndex = useMemo(() => {
     if (focusedNodeId === null) return -1;
     const index = rows.findIndex(row => row.id === focusedNodeId);
-    return index !== -1 && rows[index].variant === 'node' ? index : -1;
+    return index !== -1 && isNavigable(rows[index]) ? index : -1;
   }, [rows, focusedNodeId]);
 
   const focusIndex = useCallback(
     (index: number) => {
       const row = rows[index];
-      if (!row || row.variant !== 'node') return;
+      if (!row || !isNavigable(row)) return;
       setFocusedNode(row.id);
       virtualizer.scrollToIndex(index, { align: 'auto' });
     },
     [rows, setFocusedNode, virtualizer],
+  );
+
+  /** Leva o foco ao campo de filtro da linha `index` (montando-o se preciso). */
+  const focusFilter = useCallback(
+    (index: number) => {
+      const row = rows[index];
+      if (row?.variant !== 'filter') return;
+      virtualizer.scrollToIndex(index, { align: 'auto' });
+      requestAnimationFrame(() => {
+        containerRef.current
+          ?.querySelector<HTMLInputElement>(
+            `[data-tree-filter="${CSS.escape(row.nodeId)}"]`,
+          )
+          ?.focus();
+      });
+    },
+    [rows, virtualizer, containerRef],
+  );
+
+  /** Sai do filtro de volta para a árvore, no primeiro filho filtrado. */
+  const leaveFilter = useCallback(
+    (nodeId: string) => {
+      const filterIndex = rows.findIndex(
+        row => row.variant === 'filter' && row.nodeId === nodeId,
+      );
+      containerRef.current?.focus();
+      const first = filterIndex === -1 ? -1 : findNode(rows, filterIndex + 1, 1);
+      if (first !== -1) focusIndex(first);
+    },
+    [rows, containerRef, focusIndex],
   );
 
   const move = useCallback(
@@ -136,7 +190,39 @@ export const useTreeNavigation = ({ rows, virtualizer, containerRef }: Options) 
         return;
       }
 
-      const row = rows[activeIndex] as NodeRow;
+      if (event.key === '/') {
+        const filterIndex = findFilter(rows, activeIndex);
+        if (filterIndex !== -1) {
+          event.preventDefault();
+          focusFilter(filterIndex);
+        }
+        return;
+      }
+
+      const current = rows[activeIndex];
+
+      // "Carregar mais": setas passam, Enter pede a próxima janela, ← sobe
+      if (current.variant === 'more') {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          move(event.key === 'ArrowDown' ? 1 : -1);
+        } else if (event.key === 'Enter') {
+          event.preventDefault();
+          current.onMore();
+        } else if (event.key === 'ArrowLeft') {
+          event.preventDefault();
+          for (let i = activeIndex - 1; i >= 0; i--) {
+            const candidate = rows[i];
+            if (candidate.variant === 'node' && candidate.props.level < current.level) {
+              focusIndex(i);
+              return;
+            }
+          }
+        }
+        return;
+      }
+
+      const row = current as NodeRow;
 
       switch (event.key) {
         case 'ArrowDown':
@@ -195,6 +281,7 @@ export const useTreeNavigation = ({ rows, virtualizer, containerRef }: Options) 
       rows,
       move,
       focusIndex,
+      focusFilter,
       expandNode,
       collapseNode,
       toggleNode,
@@ -202,5 +289,5 @@ export const useTreeNavigation = ({ rows, virtualizer, containerRef }: Options) 
     ],
   );
 
-  return { focusedNodeId, setFocusedNode, onKeyDown, onFocus };
+  return { focusedNodeId, setFocusedNode, onKeyDown, onFocus, leaveFilter };
 };

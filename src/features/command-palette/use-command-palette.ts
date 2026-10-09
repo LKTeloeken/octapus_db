@@ -1,6 +1,9 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { connect } from '@/api/connection';
+import type { Server } from '@/api/types/server.types';
+import { catalogStatusQuery, hasCatalog, useCatalogSearch } from '@/queries/use-catalog';
 import { useServers } from '@/queries/use-servers';
 import { useCommandPaletteStore } from '@/stores/command-palette-store';
 import { useConnectionStore } from '@/stores/connection-store';
@@ -12,8 +15,15 @@ import type {
   PaletteItem,
   PaletteRow,
   ResultGroup,
+  QueryCaret,
   TableEntry,
 } from './command-palette.types';
+import {
+  catalogHitToItem,
+  flattenGroups,
+  groupByServer,
+  tableEntry,
+} from './palette-items';
 import { useTableIndex } from './use-table-index';
 
 const RECENT_BOOST = 50;
@@ -23,12 +33,20 @@ export const useCommandPalette = () => {
   const setOpen = useCommandPaletteStore(state => state.setOpen);
   const togglePalette = useCommandPaletteStore(state => state.toggle);
   const [query, setQuery] = useState('');
+  const [caret, setCaret] = useState<QueryCaret | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const liveEntries = useTableIndex(open);
   const recents = useRecentTablesStore(state => state.recents);
   const addRecent = useRecentTablesStore(state => state.addRecent);
   const { data: servers } = useServers();
+  const catalogSearch = useCatalogSearch(query, { enabled: open });
+
+  const serversById = useMemo(
+    () => new Map((servers ?? []).map(server => [server.id, server])),
+    [servers],
+  );
 
   // Toggle with Cmd/Ctrl+K
   useEffect(() => {
@@ -43,6 +61,28 @@ export const useCommandPalette = () => {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [togglePalette]);
+
+  // A busca do catálogo enxerga os catálogos abertos no backend: ao abrir a
+  // paleta, os dos databases em uso (abas e recentes) entram — do disco, na
+  // hora, e revalidam em segundo plano.
+  useEffect(() => {
+    if (!open || !servers) return;
+    const withCatalog = new Set(
+      servers.filter(server => hasCatalog(server.dbType)).map(server => server.id),
+    );
+    const targets = new Map<string, { serverId: number; database: string }>();
+    const add = (serverId: number, database: string) => {
+      if (withCatalog.has(serverId)) {
+        targets.set(`${serverId}|${database}`, { serverId, database });
+      }
+    };
+    useTabsStore.getState().tabs.forEach(tab => add(tab.serverId, tab.database));
+    recents.forEach(ref => add(ref.serverId, ref.database));
+
+    targets.forEach(({ serverId, database }) => {
+      void queryClient.prefetchQuery(catalogStatusQuery(serverId, database));
+    });
+  }, [open, servers, recents, queryClient]);
 
   // A paleta continua visível durante a animação de saída, então nada muda ao
   // fechar: o campo é zerado ao ABRIR (ainda no render, antes de pintar) e,
@@ -85,9 +125,11 @@ export const useCommandPalette = () => {
           schema: ref.schema ?? undefined,
           table: ref.table,
         });
-        const entry = entriesById.get(id) ?? synthesizeEntry(ref, servers);
+        const entry = entriesById.get(id) ?? synthesizeEntry(ref, serversById);
         return {
-          entry,
+          key: entry.id,
+          target: { kind: 'table', entry },
+          label: entry.label,
           indices: [],
           subtitle: `${entry.serverName} · ${entry.database}`,
         };
@@ -98,8 +140,13 @@ export const useCommandPalette = () => {
         : [];
     }
 
-    // Active search → fuzzy filter over all cached tables, grouped by server.
-    const scored = entries
+    // Bancos com catálogo: o backend já devolve os melhores, agrupados por nome
+    const catalogItems = (catalogSearch.data ?? [])
+      .map(hit => catalogHitToItem(hit, trimmed, serversById.get(hit.serverId)))
+      .filter((item): item is PaletteItem => item !== null);
+
+    // Demais bancos: fuzzy local sobre a estrutura em cache
+    const localItems = entries
       .map(entry => {
         const match = fuzzyMatch(trimmed, entry.label);
         const score = recentEntryIds.has(entry.id)
@@ -108,45 +155,27 @@ export const useCommandPalette = () => {
         return { entry, match, score };
       })
       .filter(item => item.match.matched)
-      .sort((a, b) => b.score - a.score);
+      .sort((a, b) => b.score - a.score)
+      .map(
+        ({ entry, match }): PaletteItem => ({
+          key: entry.id,
+          target: { kind: 'table', entry },
+          label: entry.label,
+          indices: match.indices,
+          subtitle: entry.database,
+        }),
+      );
 
-    const byServer = new Map<number, ResultGroup>();
-    for (const { entry, match } of scored) {
-      let group = byServer.get(entry.serverId);
-      if (!group) {
-        group = {
-          key: `server-${entry.serverId}`,
-          heading: entry.serverName,
-          items: [],
-        };
-        byServer.set(entry.serverId, group);
-      }
-      group.items.push({
-        entry,
-        indices: match.indices,
-        subtitle: entry.database,
-      });
-    }
-
-    return Array.from(byServer.values());
-  }, [query, entries, recents, recentEntryIds, servers]);
+    return groupByServer([...catalogItems, ...localItems]);
+  }, [query, entries, recents, recentEntryIds, serversById, catalogSearch.data]);
 
   // Flatten groups into a single row list so one virtualizer can scroll the
   // whole palette (headings interleaved with their items).
-  const rows = useMemo<PaletteRow[]>(() => {
-    const flat: PaletteRow[] = [];
-    for (const group of groups) {
-      flat.push({ kind: 'header', key: group.key, heading: group.heading });
-      for (const item of group.items) {
-        flat.push({ kind: 'item', key: item.entry.id, item });
-      }
-    }
-    return flat;
-  }, [groups]);
+  const rows = useMemo<PaletteRow[]>(() => flattenGroups(groups), [groups]);
 
   const hasResults = rows.some(row => row.kind === 'item');
 
-  const selectEntry = useCallback(
+  const openEntry = useCallback(
     async (entry: TableEntry) => {
       const ref: TableRef = {
         serverId: entry.serverId,
@@ -184,42 +213,71 @@ export const useCommandPalette = () => {
         setConnectingId(null);
       }
     },
-    [addRecent],
+    [addRecent, setOpen],
   );
 
-  const isEmptyCache = entries.length === 0 && recents.length === 0;
+  /** Reescreve a busca e diz onde o cursor fica (o campo obedece). */
+  const refine = useCallback((text: string, position: number) => {
+    setQuery(text);
+    setCaret({ position, nonce: Date.now() });
+  }, []);
+
+  const selectItem = useCallback(
+    (item: PaletteItem) => {
+      const { target } = item;
+      switch (target.kind) {
+        case 'table':
+          void openEntry(target.entry);
+          return;
+        case 'group':
+          // Em vários schemas: `.orders` com o cursor antes do ponto, para
+          // digitar o schema
+          if (target.schemas.total === 1) {
+            const server = serversById.get(target.serverId);
+            if (server) {
+              void openEntry(
+                tableEntry(server, target.database, target.schemas.sample[0], target.name),
+              );
+            }
+            return;
+          }
+          refine(`.${target.name}`, 0);
+          return;
+        case 'schema':
+          refine(`${target.schema}.`, target.schema.length + 1);
+          return;
+      }
+    },
+    [openEntry, refine, serversById],
+  );
+
+  const isEmptyCache =
+    entries.length === 0 &&
+    recents.length === 0 &&
+    !(servers ?? []).some(server => hasCatalog(server.dbType));
 
   return {
     open,
     setOpen,
     query,
     setQuery,
+    caret,
     rows,
     hasResults,
     connectingId,
-    selectEntry,
+    selectItem,
     isEmptyCache,
   };
 };
 
 function synthesizeEntry(
   ref: TableRef,
-  servers: { id: number; name: string; dbType: TableEntry['dbType'] }[] | undefined,
+  serversById: Map<number, Server>,
 ): TableEntry {
-  const server = servers?.find(s => s.id === ref.serverId);
-  return {
-    id: encodeNodeId({
-      serverId: ref.serverId,
-      database: ref.database,
-      schema: ref.schema ?? undefined,
-      table: ref.table,
-    }),
-    serverId: ref.serverId,
-    serverName: server?.name ?? `Servidor ${ref.serverId}`,
-    dbType: server?.dbType ?? 'postgres',
-    database: ref.database,
-    schema: ref.schema,
-    table: ref.table,
-    label: ref.schema ? `${ref.schema}.${ref.table}` : ref.table,
+  const server = serversById.get(ref.serverId) ?? {
+    id: ref.serverId,
+    name: `Servidor ${ref.serverId}`,
+    dbType: 'postgres' as const,
   };
+  return tableEntry(server, ref.database, ref.schema, ref.table);
 }

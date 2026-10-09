@@ -8,8 +8,9 @@ import { PaletteContent } from './palette-content';
 import { useCommandPalette } from './use-command-palette';
 
 /**
- * Global Cmd/Ctrl+K table search across every registered server, sourced from
- * the structure cache. Mounted once at the app shell. The list is virtualized
+ * Global Cmd/Ctrl+K table search across every registered server: Postgres from
+ * the backend catalog (grouped across tenants), the others from the structure
+ * cache. Mounted once at the app shell. The list is virtualized
  * and keyboard navigation is self-managed (see use-palette-navigation) so it
  * stays smooth with thousands of cached tables.
  *
@@ -22,10 +23,11 @@ export function CommandPalette() {
     setOpen,
     query,
     setQuery,
+    caret,
     rows,
     hasResults,
     connectingId,
-    selectEntry,
+    selectItem,
     isEmptyCache,
   } = useCommandPalette();
 
@@ -45,10 +47,11 @@ export function CommandPalette() {
         <PaletteContent
           query={query}
           setQuery={setQuery}
+          caret={caret}
           rows={rows}
           hasResults={hasResults}
           connectingId={connectingId}
-          selectEntry={selectEntry}
+          selectItem={selectItem}
           isEmptyCache={isEmptyCache}
         />
       </DialogContent>

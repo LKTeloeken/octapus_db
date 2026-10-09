@@ -6,14 +6,29 @@
 export interface NodeRef {
   serverId: number;
   database?: string;
+  /** Grupo de formato na árvore agrupada (só no nó do grupo: os schemas de
+   *  dentro mantêm o id de sempre, que é o das abas) */
+  shape?: string;
   schema?: string;
   table?: string;
   column?: string;
 }
 
-export type NodeKind = 'server' | 'database' | 'schema' | 'table' | 'column';
+export type NodeKind =
+  | 'server'
+  | 'database'
+  | 'shape'
+  | 'schema'
+  | 'table'
+  | 'column';
 
-const SEGMENT_KEYS = ['database', 'schema', 'table', 'column'] as const;
+const SEGMENT_KEYS = [
+  'database',
+  'shape',
+  'schema',
+  'table',
+  'column',
+] as const;
 
 const SERVER_PREFIX = 'sv';
 
@@ -21,6 +36,7 @@ const SERVER_PREFIX = 'sv';
 // scheme made `schema` ('s') clash with `serverId` ('s') and corrupted the ref.
 const SEGMENT_PREFIX: Record<(typeof SEGMENT_KEYS)[number], string> = {
   database: 'db',
+  shape: 'fm',
   schema: 'sc',
   table: 'tb',
   column: 'co',
@@ -30,6 +46,7 @@ export function nodeKind(ref: NodeRef): NodeKind {
   if (ref.column != null) return 'column';
   if (ref.table != null) return 'table';
   if (ref.schema != null) return 'schema';
+  if (ref.shape != null) return 'shape';
   if (ref.database != null) return 'database';
   return 'server';
 }

@@ -1,14 +1,38 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 
 use crate::adapters::{create_adapter, DatabaseAdapter, PoolStats};
 use crate::error::{Error, Result};
 use crate::models::{ConnectionId, Server};
 
+/// Um adapter aberto e quando foi usado pela última vez.
+struct Cached {
+    adapter: Arc<dyn DatabaseAdapter>,
+    last_used: Mutex<Instant>,
+}
+
+impl Cached {
+    fn new(adapter: Arc<dyn DatabaseAdapter>) -> Arc<Self> {
+        Arc::new(Self {
+            adapter,
+            last_used: Mutex::new(Instant::now()),
+        })
+    }
+
+    /// Marca o uso e devolve há quanto tempo estava parado.
+    fn touch(&self) -> Duration {
+        let mut last_used = self.last_used.lock();
+        let idle = last_used.elapsed();
+        *last_used = Instant::now();
+        idle
+    }
+}
+
 pub struct ConnectionService {
-    adapters: RwLock<HashMap<ConnectionId, Arc<dyn DatabaseAdapter>>>,
+    adapters: RwLock<HashMap<ConnectionId, Arc<Cached>>>,
 }
 
 impl ConnectionService {
@@ -19,16 +43,37 @@ impl ConnectionService {
     }
 
     /// Return an already-open adapter, or `None` if the connection isn't
-    /// established yet. Never creates a pool, so it never needs the password
-    /// (and thus never touches the OS keychain).
+    /// established yet, together with how long it sat unused (callers decide
+    /// whether a liveness ping is worth it). Never creates a pool, so it never
+    /// needs the password.
     pub fn get_cached(
         &self,
         server_id: i64,
         database: &str,
-    ) -> Option<Arc<dyn DatabaseAdapter>> {
+    ) -> Option<(Arc<dyn DatabaseAdapter>, Duration)> {
         let conn_id = ConnectionId::new(server_id, database);
         let adapters = self.adapters.read();
-        adapters.get(&conn_id).map(Arc::clone)
+        let cached = adapters.get(&conn_id)?;
+        let idle = cached.touch();
+        Some((Arc::clone(&cached.adapter), idle))
+    }
+
+    /// O adapter em cache, se está vivo: usado há pouco volta direto; parado
+    /// há mais que `ping_after` leva um ping antes — e sai do cache se falhar
+    /// (quem chama reconecta). O ping incondicional custava três idas e voltas
+    /// em todo comando (perf/catalog/BASELINE.md, H6).
+    pub async fn get_live(
+        &self,
+        server_id: i64,
+        database: &str,
+        ping_after: Duration,
+    ) -> Option<Arc<dyn DatabaseAdapter>> {
+        let (adapter, idle) = self.get_cached(server_id, database)?;
+        if idle < ping_after || adapter.test_connection().await.is_ok() {
+            return Some(adapter);
+        }
+        self.disconnect(server_id, database);
+        None
     }
 
     /// Get or create an adapter for the given connection
@@ -43,8 +88,9 @@ impl ConnectionService {
         // Fast path: adapter exists (lock is not held across the await below)
         {
             let adapters = self.adapters.read();
-            if let Some(adapter) = adapters.get(&conn_id) {
-                return Ok(Arc::clone(adapter));
+            if let Some(cached) = adapters.get(&conn_id) {
+                cached.touch();
+                return Ok(Arc::clone(&cached.adapter));
             }
         }
 
@@ -54,8 +100,17 @@ impl ConnectionService {
 
         let mut adapters = self.adapters.write();
         Ok(Arc::clone(
-            adapters.entry(conn_id).or_insert(adapter),
+            &adapters.entry(conn_id).or_insert_with(|| Cached::new(adapter)).adapter,
         ))
+    }
+
+    /// Fecha os adapters sem uso há mais que `max_idle` (o pool fecha as
+    /// conexões quando o último comando em andamento solta o adapter).
+    pub fn evict_idle(&self, max_idle: Duration) -> usize {
+        let mut adapters = self.adapters.write();
+        let before = adapters.len();
+        adapters.retain(|_, cached| cached.last_used.lock().elapsed() <= max_idle);
+        before - adapters.len()
     }
 
     /// Disconnect from a specific database
@@ -75,6 +130,6 @@ impl ConnectionService {
     pub fn pool_stats(&self, server_id: i64, database: &str) -> Option<PoolStats> {
         let conn_id = ConnectionId::new(server_id, database);
         let adapters = self.adapters.read();
-        adapters.get(&conn_id).and_then(|adapter| adapter.pool_stats())
+        adapters.get(&conn_id).and_then(|cached| cached.adapter.pool_stats())
     }
 }

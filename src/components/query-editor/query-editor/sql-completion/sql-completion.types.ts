@@ -71,4 +71,23 @@ export interface SqlCompletionPorts {
   ) => Promise<ColumnInfo[] | undefined>;
   /** Sobe a cada conjunto de colunas que entra no cache — chave de memoização. */
   getColumnsVersion: () => number;
+  /**
+   * Bancos com catálogo no backend: a estrutura de `getStructure` é só a "quente"
+   * (o schema da aba, o `public` e o que o statement cita). Antes de completar, a
+   * source pede aqui os schemas citados (`tenant_42.`, `FROM tenant_42.orders`) e
+   * as tabelas escritas sem schema (resolvidas pelo search_path). Ausente quando a
+   * estrutura já é inteira.
+   */
+  warm?: (needs: { schemas: string[]; tables: string[] }) => Promise<void>;
+  /** Schemas que começam com `prefix` — o namespace só tem os quentes. */
+  completeSchemas?: (prefix: string) => Promise<string[]>;
+  /**
+   * Colunas provisórias: as da mesma tabela num outro schema (outro tenant do
+   * mesmo formato) já em cache. A sugestão sai na hora, marcada como prévia, e
+   * as colunas de verdade chegam em segundo plano.
+   */
+  peekSimilarColumns?: (
+    schema: string,
+    table: string,
+  ) => { columns: ColumnInfo[]; from: string } | undefined;
 }

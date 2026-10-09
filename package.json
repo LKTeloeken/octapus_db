@@ -10,7 +10,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "perf:front": "OCTAPUS_PERF=1 vitest run"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.1",
@@ -72,6 +74,7 @@
     "@vitejs/plugin-react": "^4.4.1",
     "prettier": "^3.8.1",
     "typescript": "~5.6.2",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "vitest": "^3.2"
   }
 }

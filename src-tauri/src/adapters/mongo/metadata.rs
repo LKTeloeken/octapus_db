@@ -1,14 +1,10 @@
 use std::collections::BTreeMap;
 
-use chrono::Utc;
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::{Client, Database};
 
 use crate::error::Result;
-use crate::models::{
-    ColumnInfo, DatabaseInfo, DatabaseStructure, IndexInfo, SchemaStructure, TableInfo,
-    TableStructure, TableType,
-};
+use crate::models::{ColumnInfo, DatabaseInfo, IndexInfo, TableInfo, TableType};
 
 use super::executor::collect_cursor;
 use super::types::bson_type_name;
@@ -16,14 +12,18 @@ use super::types::bson_type_name;
 /// Number of documents sampled to infer a collection's "columns".
 const COLUMN_SAMPLE_SIZE: i64 = 100;
 
+/// Só os nomes (`nameOnly`): com o tamanho, o servidor abre as estatísticas de
+/// cada database (288 ms para 300 bancos na baseline; 0,6 ms sem). Com
+/// `authorizedDatabases`, um usuário sem `listDatabases` vê os bancos em que
+/// tem permissão em vez de um erro.
 pub async fn list_databases(client: &Client) -> Result<Vec<DatabaseInfo>> {
-    let specs = client.list_databases().await?;
+    let names = client.list_database_names().authorized_databases(true).await?;
 
-    Ok(specs
+    Ok(names
         .into_iter()
-        .map(|spec| DatabaseInfo {
-            name: spec.name,
-            size_bytes: Some(spec.size_on_disk as i64),
+        .map(|name| DatabaseInfo {
+            name,
+            size_bytes: None,
         })
         .collect())
 }
@@ -161,55 +161,12 @@ pub async fn list_indexes(db: &Database, collection: &str) -> Result<Vec<IndexIn
     Ok(indexes)
 }
 
-pub async fn list_schemas_with_tables(
-    db: &Database,
-    schema_name: &str,
-) -> Result<DatabaseStructure> {
-    let names: Vec<String> = list_tables(db, schema_name)
-        .await?
-        .into_iter()
-        .map(|t| t.name)
-        .collect();
-
-    // Um `$collStats` por coleção, em paralelo — o pool do driver limita
-    // quantos rodam de fato ao mesmo tempo.
-    let mut tasks = tokio::task::JoinSet::new();
-    for (i, name) in names.iter().enumerate() {
-        let db = db.clone();
-        let name = name.clone();
-        tasks.spawn(async move { (i, collection_size(&db, &name).await) });
-    }
-    let mut sizes = vec![None; names.len()];
-    while let Some(joined) = tasks.join_next().await {
-        if let Ok((i, size)) = joined {
-            sizes[i] = size;
-        }
-    }
-
-    let tables = names
-        .into_iter()
-        .zip(sizes)
-        .map(|(name, size_bytes)| TableStructure {
-            name,
-            table_type: TableType::Table,
-            size_bytes,
-        })
-        .collect();
-
-    Ok(DatabaseStructure {
-        schemas: vec![SchemaStructure {
-            name: schema_name.to_string(),
-            tables,
-        }],
-        fetched_at: Utc::now().timestamp_millis(),
-    })
-}
-
-/// Tamanho em disco da coleção (armazenamento + índices) via `$collStats`.
-/// Em cluster shardeado vem um documento por shard, então somamos. Views,
-/// coleções sem permissão de `collStats` ou qualquer erro viram `None` — a
-/// árvore só deixa de mostrar o tamanho, sem falhar a listagem.
-async fn collection_size(db: &Database, collection: &str) -> Option<i64> {
+/// Tamanho em disco da coleção (armazenamento + índices) via `$collStats` —
+/// só da coleção aberta: em massa é um aggregate por coleção (49 s para 5.000
+/// coleções em rede remota, na baseline). Em cluster shardeado vem um
+/// documento por shard, então somamos. Views, coleções sem permissão de
+/// `collStats` ou qualquer erro viram `None`.
+pub(super) async fn collection_size(db: &Database, collection: &str) -> Option<i64> {
     let pipeline = vec![doc! { "$collStats": { "storageStats": {} } }];
     let cursor = db
         .collection::<Document>(collection)

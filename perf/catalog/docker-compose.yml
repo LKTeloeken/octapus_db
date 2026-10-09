@@ -1,0 +1,78 @@
+# Bancos descartáveis para medir o catálogo em escala (Fase 0 do refactor).
+#
+# Projeto e volumes próprios (`octapus-perf`) e portas fora do padrão para não
+# encostar em nenhum banco já cadastrado no app. Ao terminar:
+#   docker compose -p octapus-perf -f perf/catalog/docker-compose.yml down -v
+name: octapus-perf
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: octapus-perf-pg
+    ports:
+      - "55432:5432"
+    environment:
+      POSTGRES_PASSWORD: perf
+    # Durabilidade desligada só para o seed de centenas de milhares de tabelas
+    # caber em minutos; não afeta o custo das leituras de catálogo medidas.
+    command:
+      - postgres
+      - -c
+      - fsync=off
+      - -c
+      - synchronous_commit=off
+      - -c
+      - full_page_writes=off
+      - -c
+      - wal_level=minimal
+      - -c
+      - max_wal_senders=0
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - checkpoint_timeout=30min
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - max_locks_per_transaction=1024
+      - -c
+      - max_connections=200
+    shm_size: 1gb
+    # Teto de memória: a listagem atual (pg_total_relation_size em 3 mi de
+    # relações) faz o backend inchar até o OOM killer. Com o teto, o estrago fica
+    # dentro deste container e não pressiona os outros da VM do Docker.
+    mem_limit: 3g
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./seed:/seed:ro
+
+  # Compatibilidade de versão (Fase 2): só sobe com `--profile compat`
+  postgres14:
+    image: postgres:14
+    container_name: octapus-perf-pg14
+    profiles: ["compat"]
+    ports:
+      - "55433:5432"
+    environment:
+      POSTGRES_PASSWORD: perf
+    command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off"]
+    mem_limit: 1g
+    volumes:
+      - pg14data:/var/lib/postgresql/data
+      - ./seed:/seed:ro
+
+  mongo:
+    image: mongo:7
+    container_name: octapus-perf-mongo
+    ports:
+      - "57017:27017"
+    command: ["--wiredTigerCacheSizeGB", "1"]
+    mem_limit: 2g
+    volumes:
+      - mongodata:/data/db
+      - ./seed:/seed:ro
+
+volumes:
+  pgdata:
+  pg14data:
+  mongodata:

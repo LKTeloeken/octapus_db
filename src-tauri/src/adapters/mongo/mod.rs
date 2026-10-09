@@ -1,6 +1,7 @@
 mod browse;
 mod command;
 mod executor;
+pub(crate) mod introspect;
 mod metadata;
 mod types;
 
@@ -22,44 +23,51 @@ pub struct MongoAdapter {
     database: String,
 }
 
-impl MongoAdapter {
-    pub async fn new(server: &Server, database: &str) -> Result<Self> {
-        let mut options = if let Some(uri) = server.connection_uri.as_deref() {
-            // URI carries hosts/credentials/TLS (e.g. mongodb+srv:// for Atlas)
-            ClientOptions::parse(uri)
-                .await
-                .map_err(|e| Error::Connection(format!("Invalid MongoDB URI: {e}")))?
-        } else {
-            let address = ServerAddress::Tcp {
-                host: server.host.clone(),
-                port: Some(server.port),
-            };
-
-            let mut options = ClientOptions::default();
-            options.hosts = vec![address];
-
-            if !server.username.is_empty() {
-                options.credential = Some(
-                    Credential::builder()
-                        .username(server.username.clone())
-                        .password(server.password.clone())
-                        .build(),
-                );
-            }
-
-            if server.ssl_enabled {
-                options.tls = Some(Tls::Enabled(
-                    TlsOptions::builder()
-                        .allow_invalid_certificates(true)
-                        .build(),
-                ));
-            }
-
-            options
+/// Opções de conexão a partir do servidor cadastrado (a URI, quando houver,
+/// manda em tudo). Quem chama completa `app_name` e o tamanho do pool.
+pub(crate) async fn client_options(server: &Server) -> Result<ClientOptions> {
+    let mut options = if let Some(uri) = server.connection_uri.as_deref() {
+        // URI carries hosts/credentials/TLS (e.g. mongodb+srv:// for Atlas)
+        ClientOptions::parse(uri)
+            .await
+            .map_err(|e| Error::Connection(format!("Invalid MongoDB URI: {e}")))?
+    } else {
+        let address = ServerAddress::Tcp {
+            host: server.host.clone(),
+            port: Some(server.port),
         };
 
-        options.connect_timeout = Some(CONNECT_TIMEOUT);
-        options.server_selection_timeout = Some(CONNECT_TIMEOUT);
+        let mut options = ClientOptions::default();
+        options.hosts = vec![address];
+
+        if !server.username.is_empty() {
+            options.credential = Some(
+                Credential::builder()
+                    .username(server.username.clone())
+                    .password(server.password.clone())
+                    .build(),
+            );
+        }
+
+        if server.ssl_enabled {
+            options.tls = Some(Tls::Enabled(
+                TlsOptions::builder()
+                    .allow_invalid_certificates(true)
+                    .build(),
+            ));
+        }
+
+        options
+    };
+
+    options.connect_timeout = Some(CONNECT_TIMEOUT);
+    options.server_selection_timeout = Some(CONNECT_TIMEOUT);
+    Ok(options)
+}
+
+impl MongoAdapter {
+    pub async fn new(server: &Server, database: &str) -> Result<Self> {
+        let mut options = client_options(server).await?;
         options.app_name = Some("octapus_db".to_string());
 
         let client = Client::with_options(options)
@@ -136,10 +144,6 @@ impl DatabaseAdapter for MongoAdapter {
 
     async fn list_indexes(&self, _schema: &str, table: &str) -> Result<Vec<IndexInfo>> {
         metadata::list_indexes(&self.db(), table).await
-    }
-
-    async fn list_schemas_with_tables(&self) -> Result<DatabaseStructure> {
-        metadata::list_schemas_with_tables(&self.db(), &self.database).await
     }
 
     async fn test_connection(&self) -> Result<()> {
