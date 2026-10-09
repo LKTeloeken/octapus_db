@@ -54,4 +54,11 @@ export enum RustCommand {
   // Sessão do workspace (abas abertas)
   LoadSession = 'load_session',
   SaveSession = 'save_session',
+
+  // Preferências do app
+  GetSettings = 'get_settings',
+  UpdateSettings = 'update_settings',
+
+  // Auto-update pelo canal beta (o estável usa o `check` do plugin)
+  CheckBetaUpdate = 'check_beta_update',
 }

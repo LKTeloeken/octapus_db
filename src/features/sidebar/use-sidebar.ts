@@ -3,16 +3,14 @@ import { useCallback, useState } from 'react';
 import type { Server } from '@/api/types/server.types';
 import { useServers } from '@/queries/use-servers';
 import { useCommandPaletteStore } from '@/stores/command-palette-store';
-import { useUiStore } from '@/stores/ui-store';
 
 const REPOSITORY_URL = 'https://github.com/LKTeloeken/octapus_db';
 
 export const useSidebar = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<Server | null>(null);
+  const [isSettingsOpen, setSettingsOpen] = useState(false);
   const { data: servers } = useServers();
-  const theme = useUiStore(state => state.theme);
-  const setTheme = useUiStore(state => state.setTheme);
   const setPaletteOpen = useCommandPaletteStore(state => state.setOpen);
 
   const openCreateForm = useCallback(() => {
@@ -41,21 +39,16 @@ export const useSidebar = () => {
     void openUrl(REPOSITORY_URL);
   }, []);
 
-  const toggleTheme = useCallback(
-    () => setTheme(theme === 'dark' ? 'light' : 'dark'),
-    [theme, setTheme],
-  );
-
   return {
     isFormOpen,
     editingServer,
     serverCount: servers?.length ?? 0,
-    theme,
+    isSettingsOpen,
+    setSettingsOpen,
     openCreateForm,
     openEditForm,
     closeForm,
     openPalette,
     openRepository,
-    toggleTheme,
   };
 };

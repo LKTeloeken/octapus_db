@@ -11,6 +11,7 @@ import type {
   StatementResult,
 } from '@/api/types/query.types';
 import type { Server, ServerInput } from '@/api/types/server.types';
+import type { AppSettings } from '@/api/types/settings.types';
 import type {
   ColumnInfo,
   DatabaseInfo,
@@ -366,6 +367,30 @@ const sessionHandlers: Record<string, MockHandler> = {
   },
 };
 
+// ── Preferências do app ─────────────────────────────────────────────────────
+
+const SETTINGS_STORAGE_KEY = 'octapus-mock-settings';
+const DEFAULT_SETTINGS: AppSettings = { betaUpdates: false };
+
+const settingsHandlers: Record<string, MockHandler> = {
+  // Mesma regra do Rust: o que nunca foi salvo volta com o padrão
+  [RustCommand.GetSettings]: (): AppSettings => {
+    try {
+      const saved = JSON.parse(
+        localStorage.getItem(SETTINGS_STORAGE_KEY) ?? '{}',
+      );
+      return { ...DEFAULT_SETTINGS, ...saved };
+    } catch {
+      return DEFAULT_SETTINGS;
+    }
+  },
+
+  [RustCommand.UpdateSettings]: ({ settings }: Args): AppSettings => {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    return settings as AppSettings;
+  },
+};
+
 // ── Editor livre ────────────────────────────────────────────────────────────
 
 /**
@@ -682,6 +707,18 @@ const pluginHandlers: Record<string, MockHandler> = {
     };
   },
 
+  // Canal beta: o mesmo update fake, numa pre-release
+  [RustCommand.CheckBetaUpdate]: () => {
+    if (!useMockStore.getState().updateAvailable) return null;
+    return {
+      rid: 1,
+      currentVersion: '0.1.0-beta.16',
+      version: '0.2.0-beta.1',
+      body: 'Pre-release simulada pelo modo mock.',
+      rawJson: {},
+    };
+  },
+
   'plugin:updater|download_and_install': async ({ onEvent }: Args) => {
     const channel = onEvent as Channel<unknown> | undefined;
     if (!channel) return;
@@ -750,6 +787,7 @@ export const handlers: Record<string, MockHandler> = {
   ...browseHandlers,
   ...exportHandlers,
   ...sessionHandlers,
+  ...settingsHandlers,
   ...queryHandlers,
   ...pluginHandlers,
 };

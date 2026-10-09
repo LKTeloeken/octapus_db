@@ -125,6 +125,12 @@ pub fn run() {
             // Sessão do workspace (abas abertas)
             commands::load_session,
             commands::save_session,
+            // Preferências do app
+            commands::get_settings,
+            commands::update_settings,
+            // Auto-update pelo canal beta (o estável usa o `check` do plugin)
+            #[cfg(desktop)]
+            commands::check_beta_update,
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

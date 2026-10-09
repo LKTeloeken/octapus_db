@@ -428,7 +428,7 @@ por chamada.
 | `catalog_open` | `{ serverId, database }` | `CatalogStatus` | abre (do disco, se houver) e revalida em 2º plano se a última for > 60 s |
 | `catalog_status` | `{ serverId, database }` | `CatalogStatus \| null` | não (null = não está aberto) |
 | `catalog_children` | `{ serverId, database, path, filter?, offset, limit }` | `CatalogPage<CatalogNode>` | só se o schema ainda não carregou |
-| `catalog_search` | `{ query, limit, serverId?, database? }` | `CatalogSearchHit[]` | não — sem `serverId`/`database`, busca em todos os catálogos abertos |
+| `catalog_search` | `{ query, limit, serverId?, database?, schema? }` | `CatalogSearchHit[]` | não — sem `serverId`/`database`, busca em todos os catálogos abertos; com `schema`, só as relações desse schema (nome exato; busca vazia lista todas) |
 | `catalog_resolve` | `{ serverId, database, table, searchPath }` | `CatalogResolution` | não |
 | `catalog_complete` | `{ serverId, database, schema?, prefix, limit }` | `CatalogNode[]` | só para carregar o schema |
 | `catalog_shapes` | `{ serverId, database }` | `ShapeGroup[]` | não (vazio = sem formato repetido) |
@@ -492,6 +492,35 @@ Guarda as abas abertas para reabri-las depois de fechar/atualizar o app. O snaps
 um JSON **opaco** para o backend — formato e versão são do front
 (`src/stores/tabs-session.ts`); o backend só grava numa linha única da tabela
 `workspace_session` do `app.db`. `save_session` só responde depois de gravar em disco.
+
+### Preferências do app (SQLite local)
+
+| Comando | Args | Retorno |
+|---|---|---|
+| `get_settings` | — | `AppSettings` |
+| `update_settings` | `{ settings }` | `AppSettings` (o que ficou gravado) |
+
+`AppSettings` (`models/settings.rs`) vira uma linha chave/valor (JSON) por campo na
+tabela `app_settings` do `app.db`. Configuração nova = campo no struct, com o padrão no
+`Default`, e o tipo espelho em `src/api/types/settings.types.ts` — sem migração: o que
+nunca foi salvo (ou ficou ilegível) volta com o padrão. O tema **não** mora aqui: fica
+no `ui-store` (localStorage), lido antes da primeira pintura.
+
+### Auto-update — canal beta (só desktop)
+
+| Comando | Args | Retorno |
+|---|---|---|
+| `check_beta_update` | — | metadados do `Update` do plugin, ou `null` |
+
+O canal estável usa o `check()` do `@tauri-apps/plugin-updater` com o endpoint fixo do
+`tauri.conf.json` (`releases/latest/download/latest.json` — o GitHub nunca marca uma
+pre-release como "latest"). Com `betaUpdates` ligado, o front chama `check_beta_update`:
+ele lista as releases na API do GitHub, pega a de **maior semver** (releases e
+pre-releases publicadas, tag `app-v<versão>`, com `latest.json`) e roda o updater com
+esse manifesto. A assinatura segue verificada pela chave pública da config, e o update
+volta registrado na tabela de recursos do webview — o front monta um `Update` do plugin
+e baixa pelo `downloadAndInstall` de sempre. O `release.yml` publica como pre-release
+toda versão com sufixo (`1.1.0-beta.2`), e o `nix-release.yml` as ignora.
 
 ---
 

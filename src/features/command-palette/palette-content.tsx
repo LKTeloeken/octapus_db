@@ -6,7 +6,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type KeyboardEvent } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Kbd } from '@/components/ui/kbd';
 import { Spinner } from '@/components/ui/spinner';
@@ -39,6 +39,13 @@ interface PaletteContentProps {
   connectingId: string | null;
   selectItem: (item: PaletteItem) => void;
   isEmptyCache: boolean;
+  /** Schema fixado com Tab — a busca fica só nas relações dele */
+  pinnedSchema: string | null;
+  /** Tab: fixa o schema do item ativo ou do texto digitado */
+  pinSchema: (active: PaletteItem | null) => void;
+  unpinSchema: () => void;
+  /** A busca do catálogo está em andamento */
+  isSearching: boolean;
 }
 
 const dbTypeOf = (target: PaletteTarget) =>
@@ -75,6 +82,10 @@ export function PaletteContent({
   connectingId,
   selectItem,
   isEmptyCache,
+  pinnedSchema,
+  pinSchema,
+  unpinSchema,
+  isSearching,
 }: PaletteContentProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -104,6 +115,28 @@ export function PaletteContent({
 
   const resultCount = rows.filter(row => row.kind === 'item').length;
 
+  // Tab fixa um schema; Shift+Tab, ou Backspace no campo vazio, solta. O Tab
+  // nunca sai do campo — a paleta não tem outro controle focável.
+  const onInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      if (event.shiftKey) {
+        unpinSchema();
+      } else {
+        const row = rows[activeIndex];
+        pinSchema(row?.kind === 'item' ? row.item : null);
+      }
+    } else if (
+      event.key === 'Backspace' &&
+      pinnedSchema !== null &&
+      event.currentTarget.selectionStart === 0 &&
+      event.currentTarget.selectionEnd === 0
+    ) {
+      event.preventDefault();
+      unpinSchema();
+    }
+  };
+
   return (
     <div onKeyDown={onKeyDown}>
       <div className="flex h-14 items-center gap-3 border-b border-line-subtle pr-3.5 pl-[18px]">
@@ -111,14 +144,35 @@ export function PaletteContent({
           icon={Search01Icon}
           className="size-[18px] shrink-0 text-fg-subtle"
         />
+        {pinnedSchema !== null && (
+          <span
+            title="Shift+Tab ou Backspace no campo vazio para soltar"
+            className="inline-flex h-6 max-w-[40%] shrink-0 items-center gap-1.5 rounded-[7px] bg-active px-2 text-body text-fg shadow-[inset_0_0_0_1px_var(--line-subtle)]"
+          >
+            <HugeiconsIcon
+              icon={Folder01Icon}
+              className="size-3.5 shrink-0 text-fg-muted"
+            />
+            <span className="truncate">{pinnedSchema}</span>
+          </span>
+        )}
         <input
           ref={inputRef}
           autoFocus
-          aria-label="Buscar tabela"
-          placeholder="Buscar tabela… (ex.: public.users)"
+          aria-label={
+            pinnedSchema === null
+              ? 'Buscar tabela'
+              : `Buscar tabela no schema ${pinnedSchema}`
+          }
+          placeholder={
+            pinnedSchema === null
+              ? 'Buscar tabela… (ex.: public.users)'
+              : 'Buscar tabela no schema…'
+          }
           value={query}
           onChange={event => setQuery(event.target.value)}
-          className="h-full w-full bg-transparent text-[16px] text-fg outline-hidden placeholder:text-fg-subtle"
+          onKeyDown={onInputKeyDown}
+          className="h-full w-full min-w-0 bg-transparent text-[16px] text-fg outline-hidden placeholder:text-fg-subtle"
         />
         <Kbd>esc</Kbd>
       </div>
@@ -129,11 +183,17 @@ export function PaletteContent({
       >
         {!hasResults ? (
           <div className="py-8 text-center text-body text-fg-subtle">
-            {isEmptyCache
-              ? 'Nenhuma tabela indexada ainda — abra um banco na árvore.'
-              : query.trim()
-                ? 'Nenhum resultado.'
-                : 'Nenhuma tabela acessada recentemente.'}
+            {pinnedSchema !== null
+              ? isSearching
+                ? 'Buscando…'
+                : query.trim()
+                  ? 'Nenhuma tabela com esse nome no schema.'
+                  : 'Nenhuma tabela neste schema — ou o banco dele ainda não foi aberto na árvore.'
+              : isEmptyCache
+                ? 'Nenhuma tabela indexada ainda — abra um banco na árvore.'
+                : query.trim()
+                  ? 'Nenhum resultado.'
+                  : 'Nenhuma tabela acessada recentemente.'}
           </div>
         ) : (
           <div
@@ -240,6 +300,19 @@ export function PaletteContent({
         <span className="inline-flex items-center gap-1.5">
           <Kbd>↵</Kbd>
           abrir
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          {pinnedSchema === null ? (
+            <>
+              <Kbd>tab</Kbd>
+              fixar schema
+            </>
+          ) : (
+            <>
+              <Kbd>⇧ tab</Kbd>
+              soltar schema
+            </>
+          )}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <Kbd>esc</Kbd>

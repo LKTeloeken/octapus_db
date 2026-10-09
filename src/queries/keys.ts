@@ -24,6 +24,8 @@ export function catalogPathKey(path: CatalogPath): string {
 export const queryKeys = {
   servers: ['servers'] as const,
 
+  settings: ['settings'] as const,
+
   capabilities: (serverId: number) => ['capabilities', serverId] as const,
 
   databases: (serverId: number) => ['databases', serverId] as const,
@@ -93,8 +95,8 @@ export const queryKeys = {
   /** Busca da palette em todos os catálogos abertos */
   catalogSearchScope: ['catalog-search'] as const,
 
-  catalogSearch: (query: string, limit: number) =>
-    ['catalog-search', query, limit] as const,
+  catalogSearch: (query: string, limit: number, schema: string | null = null) =>
+    ['catalog-search', query, limit, schema] as const,
 
   columns: (
     serverId: number,

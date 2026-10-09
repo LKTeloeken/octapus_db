@@ -5,6 +5,10 @@ import {
   catalogHitToItem,
   flattenGroups,
   groupByServer,
+  inPinnedSchema,
+  pinnedTableItem,
+  resolvePin,
+  tableEntry,
 } from './palette-items';
 
 const server = { id: 1, name: 'SaaS', dbType: 'postgres' as const };
@@ -121,5 +125,59 @@ describe('groupByServer + flattenGroups', () => {
       'header',
       'item',
     ]);
+  });
+});
+
+describe('schema fixado', () => {
+  const schemaItem = catalogHitToItem(
+    hit({ name: 'tenant_00042', kind: 'schema' }),
+    'tnt42',
+    server,
+  );
+  const tableItem = catalogHitToItem(hit({ schema: 'public' }), 'ord', server);
+
+  it('o Tab fixa o schema do item ativo, se ele for um schema', () => {
+    expect(resolvePin('tnt42', schemaItem)).toEqual({
+      schema: 'tenant_00042',
+      rest: '',
+    });
+  });
+
+  it('senão, o trecho antes do ponto — e o resto segue na busca', () => {
+    expect(resolvePin('public.us', tableItem)).toEqual({
+      schema: 'public',
+      rest: 'us',
+    });
+    expect(resolvePin(' public ', tableItem)).toEqual({
+      schema: 'public',
+      rest: '',
+    });
+  });
+
+  it('sem texto (ou só `.tabela`) não há o que fixar', () => {
+    expect(resolvePin('', null)).toBeNull();
+    expect(resolvePin('   ', tableItem)).toBeNull();
+    expect(resolvePin('.orders', null)).toBeNull();
+  });
+
+  it('o item mostra só a tabela, com o schema na legenda', () => {
+    const entry = tableEntry(server, 'saas', 'tenant_00042', 'orders');
+    const item = pinnedTableItem(entry, 'ord');
+    expect(item.label).toBe('orders');
+    expect(item.indices).toEqual([0, 1, 2]);
+    expect(item.subtitle).toBe('tenant_00042 · saas');
+    expect(item.key).toBe(entry.id);
+  });
+
+  it('o filtro local ignora maiúsculas e entradas sem schema', () => {
+    expect(
+      inPinnedSchema(tableEntry(server, 'saas', 'Public', 'a'), 'public'),
+    ).toBe(true);
+    expect(
+      inPinnedSchema(tableEntry(server, 'saas', 'other', 'a'), 'public'),
+    ).toBe(false);
+    expect(
+      inPinnedSchema(tableEntry(server, 'saas', null, 'a'), 'public'),
+    ).toBe(false);
   });
 });

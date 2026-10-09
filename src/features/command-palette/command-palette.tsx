@@ -29,6 +29,10 @@ export function CommandPalette() {
     connectingId,
     selectItem,
     isEmptyCache,
+    pinnedSchema,
+    pinSchema,
+    unpinSchema,
+    isSearching,
   } = useCommandPalette();
 
   return (
@@ -53,6 +57,10 @@ export function CommandPalette() {
           connectingId={connectingId}
           selectItem={selectItem}
           isEmptyCache={isEmptyCache}
+          pinnedSchema={pinnedSchema}
+          pinSchema={pinSchema}
+          unpinSchema={unpinSchema}
+          isSearching={isSearching}
         />
       </DialogContent>
     </Dialog>

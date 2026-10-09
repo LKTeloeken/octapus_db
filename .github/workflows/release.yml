@@ -85,6 +85,21 @@ jobs:
       - name: Instalar dependências do frontend
         run: pnpm install --frozen-lockfile
 
+      # Versão com sufixo (`1.1.0-beta.2`) sai como pre-release: o endpoint
+      # estável do updater (`releases/latest`) não a enxerga, só quem ligou o
+      # canal beta nas configurações do app (commands/updater.rs).
+      - name: Canal da versão
+        id: channel
+        shell: bash
+        run: |
+          version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [[ "$version" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "$version -> prerelease=$([[ "$version" == *-* ]] && echo true || echo false)"
+
       - name: Build e publicação da release
         id: tauri
         uses: tauri-apps/tauri-action@v0
@@ -103,10 +118,11 @@ jobs:
             > abertura — libere em **Ajustes do Sistema → Privacidade e
             > Segurança → Abrir Mesmo Assim**. (No Sequoia o antigo atalho de
             > clique-direito → Abrir não funciona mais.)
-          # Sai como rascunho para revisão; ao publicar, vira a release "latest"
-          # que o endpoint do updater consulta.
+          # Sai como rascunho para revisão; ao publicar, uma versão estável vira
+          # a release "latest" que o endpoint do updater consulta, e uma beta
+          # fica como pre-release (só o canal beta a vê).
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ steps.channel.outputs.prerelease }}
           includeUpdaterJson: true
           args: ${{ matrix.args }}
 

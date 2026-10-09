@@ -22,6 +22,9 @@ import {
   catalogHitToItem,
   flattenGroups,
   groupByServer,
+  inPinnedSchema,
+  pinnedTableItem,
+  resolvePin,
   tableEntry,
 } from './palette-items';
 import { useTableIndex } from './use-table-index';
@@ -32,6 +35,8 @@ export const useCommandPalette = () => {
   const open = useCommandPaletteStore(state => state.isOpen);
   const setOpen = useCommandPaletteStore(state => state.setOpen);
   const togglePalette = useCommandPaletteStore(state => state.toggle);
+  const pinnedSchema = useCommandPaletteStore(state => state.pinnedSchema);
+  const setPinnedSchema = useCommandPaletteStore(state => state.setPinnedSchema);
   const [query, setQuery] = useState('');
   const [caret, setCaret] = useState<QueryCaret | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
@@ -41,7 +46,10 @@ export const useCommandPalette = () => {
   const recents = useRecentTablesStore(state => state.recents);
   const addRecent = useRecentTablesStore(state => state.addRecent);
   const { data: servers } = useServers();
-  const catalogSearch = useCatalogSearch(query, { enabled: open });
+  const catalogSearch = useCatalogSearch(query, {
+    enabled: open,
+    schema: pinnedSchema,
+  });
 
   const serversById = useMemo(
     () => new Map((servers ?? []).map(server => [server.id, server])),
@@ -114,6 +122,31 @@ export const useCommandPalette = () => {
   const groups = useMemo<ResultGroup[]>(() => {
     const trimmed = query.trim();
 
+    // Schema fixado: só as relações dele (a busca vazia lista todas)
+    if (pinnedSchema !== null) {
+      const catalogItems = (catalogSearch.data ?? [])
+        .map(hit => {
+          const server = serversById.get(hit.serverId);
+          // Até a busca nova chegar, a anterior segue na tela (placeholder):
+          // dela, só o que é do schema fixado
+          const inSchema =
+            hit.schema?.toLowerCase() === pinnedSchema.toLowerCase();
+          if (!server || !inSchema) return null;
+          const entry = tableEntry(server, hit.database, hit.schema, hit.name);
+          return pinnedTableItem(entry, trimmed);
+        })
+        .filter((item): item is PaletteItem => item !== null);
+
+      const localItems = entries
+        .filter(entry => inPinnedSchema(entry, pinnedSchema))
+        .map(entry => ({ entry, match: fuzzyMatch(trimmed, entry.table) }))
+        .filter(item => item.match.matched)
+        .sort((a, b) => b.match.score - a.match.score)
+        .map(({ entry }) => pinnedTableItem(entry, trimmed));
+
+      return groupByServer([...catalogItems, ...localItems]);
+    }
+
     // Empty search → recents only (newest first).
     if (trimmed.length === 0) {
       const entriesById = new Map(entries.map(entry => [entry.id, entry]));
@@ -167,7 +200,15 @@ export const useCommandPalette = () => {
       );
 
     return groupByServer([...catalogItems, ...localItems]);
-  }, [query, entries, recents, recentEntryIds, serversById, catalogSearch.data]);
+  }, [
+    query,
+    pinnedSchema,
+    entries,
+    recents,
+    recentEntryIds,
+    serversById,
+    catalogSearch.data,
+  ]);
 
   // Flatten groups into a single row list so one virtualizer can scroll the
   // whole palette (headings interleaved with their items).
@@ -244,12 +285,27 @@ export const useCommandPalette = () => {
           refine(`.${target.name}`, 0);
           return;
         case 'schema':
-          refine(`${target.schema}.`, target.schema.length + 1);
+          // Escolher um schema fixa ele, como o Tab
+          setPinnedSchema(target.schema);
+          refine('', 0);
           return;
       }
     },
-    [openEntry, refine, serversById],
+    [openEntry, refine, serversById, setPinnedSchema],
   );
+
+  /** Tab: fixa um schema (ver `resolvePin`); o resto do texto segue na busca */
+  const pinSchema = useCallback(
+    (active: PaletteItem | null) => {
+      const pin = resolvePin(query, active);
+      if (!pin) return;
+      setPinnedSchema(pin.schema);
+      refine(pin.rest, pin.rest.length);
+    },
+    [query, refine, setPinnedSchema],
+  );
+
+  const unpinSchema = useCallback(() => setPinnedSchema(null), [setPinnedSchema]);
 
   const isEmptyCache =
     entries.length === 0 &&
@@ -267,6 +323,10 @@ export const useCommandPalette = () => {
     connectingId,
     selectItem,
     isEmptyCache,
+    pinnedSchema,
+    pinSchema,
+    unpinSchema,
+    isSearching: catalogSearch.isFetching,
   };
 };
 

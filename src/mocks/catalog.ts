@@ -469,12 +469,54 @@ function searchTargets(scope?: { serverId: number; database: string }) {
     });
 }
 
-function search(
+/** Relações de um schema exato (o fixado na palette), como `search_in_schema` */
+function searchInSchema(
+  schemaName: string,
   query: string,
   limit: number,
   scope?: { serverId: number; database: string },
 ): CatalogSearchHit[] {
+  const hits: CatalogSearchHit[] = [];
+  for (const { serverId, database } of searchTargets(scope)) {
+    const { shape } = context(serverId, database);
+    const schema =
+      shape.schemas.find(name => name === schemaName) ??
+      shape.schemas.find(
+        name => name.toLowerCase() === schemaName.toLowerCase(),
+      );
+    if (schema === undefined) continue;
+    for (const relation of shape.relations(schema) ?? []) {
+      const match = query ? fuzzyMatch(query, relation.name) : null;
+      if (match && !match.matched) continue;
+      hits.push({
+        serverId,
+        database,
+        name: relation.name,
+        kind: relation.kind,
+        score: match?.score ?? 0,
+        schema,
+        schemas: null,
+      });
+    }
+  }
+  return hits
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.name.length - b.name.length ||
+        byteOrder(a.name, b.name),
+    )
+    .slice(0, limit);
+}
+
+function search(
+  query: string,
+  limit: number,
+  scope?: { serverId: number; database: string },
+  schema?: string | null,
+): CatalogSearchHit[] {
   const trimmed = query.trim();
+  if (schema != null) return searchInSchema(schema, trimmed, limit, scope);
   if (!trimmed) return [];
   const hits: CatalogSearchHit[] = [];
 
@@ -686,12 +728,23 @@ export const mockCatalog = {
     );
   },
 
-  search({ query, limit, serverId, database }: Args): CatalogSearchHit[] {
+  search({
+    query,
+    limit,
+    serverId,
+    database,
+    schema,
+  }: Args): CatalogSearchHit[] {
     const scope =
       serverId != null && database != null
         ? { serverId: serverId as number, database: database as string }
         : undefined;
-    return search(query as string, limit as number, scope);
+    return search(
+      query as string,
+      limit as number,
+      scope,
+      schema as string | null,
+    );
   },
 
   resolve({ serverId, database, table, searchPath }: Args): CatalogResolution {
