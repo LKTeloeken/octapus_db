@@ -176,6 +176,7 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
           totalCount={totalCount}
           rowCount={rowCount}
           exportFileName={tab.table}
+          searchScopeId={tab.id}
           onSort={setSort}
           onLoadMore={fetchNextPage}
           onSave={save}

@@ -85,3 +85,13 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 # Testes de propriedade do núcleo do catálogo (1.7: as mais novas sobem o
 # bitflags do app inteiro no lockfile)
 proptest = "1.7"
+
+# Reduz o tamanho de target/debug (chegava a 40 GB): só tabelas de linhas no
+# código do app (backtraces seguem úteis) e nenhum símbolo de debug nas dependências.
+# Mudar isso invalida o cache: a próxima compilação recompila tudo uma vez.
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = false

@@ -1,5 +1,6 @@
 import type { VirtualItem } from '@tanstack/react-virtual';
 import type { QueryColumnInfo } from '@/api/types/query.types';
+import type { GridMatcher } from '@/lib/grid-search';
 import type {
   ActivateCellFn,
   DataTableRow,
@@ -44,6 +45,10 @@ export interface ResultsTableRowCellProps {
   /** Column name do cursor de teclado NESTA linha, ou null — row-scoped pelo
    *  mesmo motivo do `activeColumnName`. */
   focusedColumnName: string | null;
+  /** Matcher da busca (Cmd/Ctrl+F) por coluna; null fora do escopo/sem busca */
+  getColumnMatcher: (columnName: string) => GridMatcher | null;
+  /** Coluna do resultado atual da busca NESTA linha, ou null (row-scoped) */
+  currentMatchColumnName: string | null;
   onActivateCell: ActivateCellFn;
   onCloseCell: () => void;
   /** Clique numa célula → move o cursor de teclado para ela */

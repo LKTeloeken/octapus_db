@@ -122,6 +122,19 @@ A seleção nunca apaga o estado pendente: numa linha pendente e selecionada, o 
 estado e a seleção aparece no gutter. Depois do `ok` do backend a tinta some em 600 ms
 (`--duration-settle`, §6).
 
+**Busca na grade (Cmd/Ctrl+F)** — destaca o trecho casado dentro do texto, nunca a célula
+inteira (a célula inteira é do `--warning-soft`). Matiz amarelo 100, longe do âmbar da
+edição e fora do Iris (que é seleção).
+
+| Token            | Escuro                        | Claro                        | Uso                                       |
+| ---------------- | ----------------------------- | ---------------------------- | ----------------------------------------- |
+| `--match`        | `oklch(0.85 0.17 100)`        | `oklch(0.6 0.15 90)`         | Contorno de 1 px do resultado atual       |
+| `--match-soft`   | `oklch(0.85 0.17 100 / 28%)`  | `oklch(0.9 0.17 100 / 70%)`  | Fundo de cada trecho casado               |
+| `--match-strong` | `oklch(0.85 0.17 100 / 38%)`  | `oklch(0.85 0.17 95)`        | Fundo do trecho no resultado atual        |
+
+O texto do trecho vira `--fg` (a cor do tipo cai abaixo de 4,5:1 sobre o amarelo):
+≥ 5,3:1 no escuro e ≥ 10:1 no claro, também sobre linha selecionada.
+
 ### 2.5 Identidade dos bancos
 
 | Token           | Escuro                 | Claro                  | Banco      |

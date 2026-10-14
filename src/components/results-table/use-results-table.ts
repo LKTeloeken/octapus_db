@@ -20,6 +20,7 @@ import type {
   IsRowFlagFn,
   RowSelectionMode,
   SaveRowChanges,
+  SelectAllRowsFn,
   ToggleRowSelectionFn,
   UpdateCellFn,
   UseResultsTableReturn,
@@ -314,6 +315,37 @@ const useResultsTable = (
     [rowId],
   );
 
+  // Ids de todas as linhas selecionáveis da grade — sem PK não há identidade
+  // estável, então essas linhas ficam fora da seleção (como no clique).
+  const allRowIds = useMemo(() => {
+    const ids: string[] = [];
+    for (let i = 0; i < displayRows.length; i++) {
+      const id = rowId(i);
+      if (id) ids.push(id);
+    }
+    return ids;
+  }, [displayRows.length, rowId]);
+
+  const allRowsSelected =
+    allRowIds.length > 0 &&
+    selectedRowIds.size === allRowIds.length &&
+    allRowIds.every(id => selectedRowIds.has(id));
+
+  const selectAllRows = useCallback<SelectAllRowsFn>(() => {
+    if (allRowIds.length === 0) return;
+    setSelectedRowIds(new Set(allRowIds));
+    selectionAnchor.current = null;
+  }, [allRowIds]);
+
+  const toggleAllRowsSelection = useCallback<SelectAllRowsFn>(() => {
+    if (allRowsSelected) {
+      setSelectedRowIds(new Set());
+      selectionAnchor.current = null;
+      return;
+    }
+    selectAllRows();
+  }, [allRowsSelected, selectAllRows]);
+
   const toggleColumnSelection = useCallback((columnName: string) => {
     setSelectedColumns(prev => {
       const next = new Set(prev);
@@ -472,7 +504,11 @@ const useResultsTable = (
       // Um diálogo aberto por cima da grade (exportação) recebe as mesmas
       // teclas: sem isso, o Esc que fecha o modal limparia a seleção junto e o
       // Backspace marcaria as linhas selecionadas para exclusão.
-      if (target?.closest('[data-slot="dialog-content"]')) return;
+      // O painel da busca (Cmd/Ctrl+F) também: Backspace num checkbox dele não
+      // pode remover linhas.
+      if (target?.closest('[data-slot="dialog-content"], [data-grid-search]')) {
+        return;
+      }
 
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
@@ -488,6 +524,13 @@ const useResultsTable = (
           target.tagName === 'TEXTAREA' ||
           target.isContentEditable);
       if (isTyping) return;
+
+      // Cmd/Ctrl+A seleciona todas as linhas da grade.
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        selectAllRows();
+        return;
+      }
 
       // Cmd/Ctrl+Z descarta todas as alterações pendentes.
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
@@ -519,6 +562,7 @@ const useResultsTable = (
     selectedRowIds,
     removeSelected,
     clearSelection,
+    selectAllRows,
   ]);
 
   return {
@@ -542,6 +586,9 @@ const useResultsTable = (
     focusCell,
     setFocusedCell,
     toggleRowSelection,
+    selectAllRows,
+    toggleAllRowsSelection,
+    allRowsSelected,
     toggleColumnSelection,
     clearSelection,
     addRow,

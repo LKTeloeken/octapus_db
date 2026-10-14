@@ -30,6 +30,8 @@ export const ResultsTableVertical = memo(
     updateCell,
     activeCell,
     focusedCell,
+    getColumnMatcher,
+    currentMatch,
     onActivateCell,
     onCloseCell,
     onFocusCell,
@@ -61,6 +63,17 @@ export const ResultsTableVertical = memo(
     const virtualFields = fieldVirtualizer.getVirtualItems();
     const virtualRecords = recordVirtualizer.getVirtualItems();
     const contentWidth = LABEL_WIDTH + recordVirtualizer.getTotalSize();
+
+    // Navegação da busca: aqui campos são linhas e registros são colunas.
+    useEffect(() => {
+      if (!currentMatch) return;
+      const fieldIndex = columns.findIndex(
+        column => column.name === currentMatch.columnName,
+      );
+      if (fieldIndex < 0) return;
+      fieldVirtualizer.scrollToIndex(fieldIndex, { align: 'auto' });
+      recordVirtualizer.scrollToIndex(currentMatch.rowIndex, { align: 'auto' });
+    }, [currentMatch, columns, fieldVirtualizer, recordVirtualizer]);
 
     // Records grow to the right — load more near the right edge.
     const handleScroll = useCallback(() => {
@@ -230,6 +243,11 @@ export const ResultsTableVertical = memo(
                         onActivate={onActivateCell}
                         onClose={onCloseCell}
                         updateCell={updateCell}
+                        searchMatcher={getColumnMatcher(column.name)}
+                        isCurrentMatch={
+                          currentMatch?.rowIndex === virtualRecord.index &&
+                          currentMatch.columnName === column.name
+                        }
                       />
                     </div>
                   );

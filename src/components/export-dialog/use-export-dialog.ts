@@ -18,9 +18,6 @@ export const DELIMITERS = [
   { value: '\t', label: 'Tabulação' },
 ];
 
-/** Formatos que se colam em outro lugar: uma migration, um script, um ticket */
-const CLIPBOARD_FORMATS: ExportFormat[] = ['json', 'sql'];
-
 /** Acima disso a área de transferência deixa de ser um destino razoável */
 const CLIPBOARD_ROW_LIMIT = 5000;
 
@@ -83,8 +80,6 @@ export const useExportDialog = ({
     rows.length,
     totalCount,
   ]);
-
-  const canCopy = CLIPBOARD_FORMATS.includes(format);
 
   // Não-nulo = o botão de copiar fica desabilitado, com este texto no title.
   const copyBlockedReason = useMemo(() => {
@@ -167,7 +162,6 @@ export const useExportDialog = ({
     onlySelected,
     setOnlySelected: setOnlySelectedPref,
     summary,
-    canCopy,
     copyBlockedReason,
     isExporting: busy === 'export',
     isCopying: busy === 'copy',

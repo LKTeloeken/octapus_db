@@ -27,6 +27,8 @@ import { ResultsTablePendingBar } from './results-table-pending-bar/results-tabl
 import { ResultsTableRowCell } from './results-table-row-cell/results-table-row-cell';
 import { ResultsTableVertical } from './results-table-vertical/results-table-vertical';
 import { ResultsTableValuePanel } from './results-table-value-panel/results-table-value-panel';
+import { ResultsTableSearch } from './results-table-search/results-table-search';
+import { useGridSearch } from './use-grid-search';
 import type { ValuePanelTarget } from './results-table-value-panel/results-table-value-panel.types';
 
 // Densidade compacta do Ink (DESIGN.md §4): linha de 28, header de 40.
@@ -78,6 +80,7 @@ export const ResultsTable = memo(
     emptyMessage,
     showValuePanel,
     onCloseValuePanel,
+    searchScopeId,
     className,
   }: ResultsTableProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -117,6 +120,8 @@ export const ResultsTable = memo(
       focusCell,
       setFocusedCell,
       toggleRowSelection,
+      toggleAllRowsSelection,
+      allRowsSelected,
       toggleColumnSelection,
       addRow,
       discardChanges,
@@ -228,6 +233,63 @@ export const ResultsTable = memo(
       getItemKey: getColumnKey,
       overscan: OVERSCAN_X,
     });
+
+    // Ir a um resultado da busca: move o cursor de célula (o painel de valor
+    // acompanha) e rola até ele. Na visão vertical quem rola é ela mesma, a
+    // partir do `currentMatch`.
+    const handleSearchNavigate = useCallback(
+      (rowIndex: number, visibleColumnIndex: number) => {
+        const column = visibleColumns[visibleColumnIndex];
+        if (!column) return;
+        setFocusedCell({ rowIndex, columnName: column.name });
+        if (viewMode !== 'table') return;
+        // Fora da vista → centraliza: com 'auto' a célula pararia na borda,
+        // e a do canto superior direito ficaria embaixo do painel da busca.
+        // Já visível → não rola (navegar não deve sacudir a grade).
+        const el = containerRef.current;
+        if (!el) return;
+        const scrollIntoCenter = (
+          virtualizer: typeof rowVirtualizer,
+          index: number,
+          offset: number,
+          size: number,
+          leading: number,
+        ) => {
+          const item = virtualizer.measurementsCache[index];
+          if (!item) return;
+          const visible =
+            item.start >= offset && item.end <= offset + size - leading;
+          if (!visible) virtualizer.scrollToIndex(index, { align: 'center' });
+        };
+        scrollIntoCenter(
+          rowVirtualizer,
+          rowIndex,
+          el.scrollTop,
+          el.clientHeight,
+          HEADER_HEIGHT,
+        );
+        scrollIntoCenter(
+          columnVirtualizer,
+          visibleColumnIndex,
+          el.scrollLeft,
+          el.clientWidth,
+          GUTTER_WIDTH,
+        );
+      },
+      [visibleColumns, setFocusedCell, viewMode, rowVirtualizer, columnVirtualizer],
+    );
+
+    const search = useGridSearch({
+      scopeId: searchScopeId,
+      rows: displayRows,
+      columns: visibleColumns,
+      columnIndices: visibleColumnIndices,
+      getCellDisplayValue,
+      origin: focusedCell,
+      onNavigate: handleSearchNavigate,
+      onClosed: focusGrid,
+    });
+    const { getColumnMatcher, currentMatch } = search;
 
     const virtualRows = rowVirtualizer.getVirtualItems();
     const virtualColumns = columnVirtualizer.getVirtualItems();
@@ -433,7 +495,15 @@ export const ResultsTable = memo(
             direction="horizontal"
             autoSaveId="results-table-value-panel"
           >
-            <ResizablePanel id="results-grid" order={1} minSize={25}>
+            <ResizablePanel
+              id="results-grid"
+              order={1}
+              minSize={25}
+              className="relative"
+            >
+              {search.isOpen && (
+                <ResultsTableSearch search={search} columns={visibleColumns} />
+              )}
               {viewMode === 'vertical' ? (
                 <ResultsTableVertical
                   columns={visibleColumns}
@@ -451,6 +521,8 @@ export const ResultsTable = memo(
                   updateCell={updateCell}
                   activeCell={activeCell}
                   focusedCell={focusedCell}
+                  getColumnMatcher={getColumnMatcher}
+                  currentMatch={currentMatch}
                   onActivateCell={activateCell}
                   onCloseCell={deactivateCell}
                   onFocusCell={focusCell}
@@ -475,15 +547,38 @@ export const ResultsTable = memo(
                       height: `${HEADER_HEIGHT}px`,
                     }}
                   >
-                    <div
-                      className="sticky left-0 z-30 flex items-center justify-end border-r border-line-subtle bg-surface-2 px-2 font-mono text-[11px] text-fg-subtle"
+                    {/* Canto do gutter: seleciona/limpa todas as linhas */}
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-label={
+                        allRowsSelected
+                          ? 'Limpar seleção'
+                          : 'Selecionar todas as linhas'
+                      }
+                      title={
+                        allRowsSelected
+                          ? 'Limpar seleção'
+                          : 'Selecionar todas as linhas (Ctrl+A)'
+                      }
+                      onClick={toggleAllRowsSelection}
+                      className={cn(
+                        'sticky left-0 z-30 flex cursor-pointer select-none items-center justify-end overflow-hidden border-r border-line-subtle bg-surface-2 px-2 font-mono text-[11px] outline-none transition-colors hover:text-fg',
+                        allRowsSelected ? 'text-iris-text' : 'text-fg-subtle',
+                      )}
                       style={{
                         width: `${GUTTER_WIDTH}px`,
                         height: `${HEADER_HEIGHT}px`,
                       }}
                     >
-                      #
-                    </div>
+                      {allRowsSelected && (
+                        <span
+                          aria-hidden
+                          className="absolute inset-0 pointer-events-none bg-iris-soft"
+                        />
+                      )}
+                      <span className="relative">#</span>
+                    </button>
                     {virtualColumns.map(virtualColumn => {
                       const column = visibleColumns[virtualColumn.index];
                       if (!column) return null;
@@ -567,6 +662,12 @@ export const ResultsTable = memo(
                           focusedColumnName={
                             focusedCell?.rowIndex === virtualRow.index
                               ? focusedCell.columnName
+                              : null
+                          }
+                          getColumnMatcher={getColumnMatcher}
+                          currentMatchColumnName={
+                            currentMatch?.rowIndex === virtualRow.index
+                              ? currentMatch.columnName
                               : null
                           }
                           onActivateCell={handleActivateCell}

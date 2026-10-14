@@ -1,7 +1,9 @@
 import type { QueryColumnInfo } from '@/api/types/query.types';
+import type { GridMatcher } from '@/lib/grid-search';
 import type {
   ActivateCellFn,
   ActiveCell,
+  CellPosition,
   DataTableRow,
   FocusCellFn,
   FocusedCell,
@@ -33,6 +35,10 @@ export interface ResultsTableVerticalProps {
   activeCell: ActiveCell;
   /** Célula do cursor — aqui só marca qual célula o painel de valor mostra */
   focusedCell?: FocusedCell;
+  /** Matcher da busca (Cmd/Ctrl+F) por coluna; null fora do escopo/sem busca */
+  getColumnMatcher: (columnName: string) => GridMatcher | null;
+  /** Resultado atual da busca — a visão rola até ele */
+  currentMatch: CellPosition | null;
   onActivateCell: ActivateCellFn;
   onCloseCell: () => void;
   /** Clique numa célula → move o cursor para ela */

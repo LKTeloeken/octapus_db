@@ -11,6 +11,7 @@ import {
 } from '@/api/servers';
 import type { ServerInput } from '@/api/types/server.types';
 import { useConnectionStore } from '@/stores/connection-store';
+import { useGridSearchStore } from '@/stores/grid-search-store';
 import { useQueryResultsStore } from '@/stores/query-results-store';
 import { useTabsStore } from '@/stores/tabs-store';
 import { invalidateServerScope, queryKeys, removeServerScope } from './keys';
@@ -63,7 +64,11 @@ export function useDeleteServer() {
       // sessão persistida, voltariam a cada restart mostrando erro.
       const closedTabs = useTabsStore.getState().closeServerTabs(id);
       const { clearRun } = useQueryResultsStore.getState();
-      for (const tabId of closedTabs) clearRun(tabId);
+      const { clear: clearGridSearch } = useGridSearchStore.getState();
+      for (const tabId of closedTabs) {
+        clearRun(tabId);
+        clearGridSearch(tabId);
+      }
     },
   });
 }
