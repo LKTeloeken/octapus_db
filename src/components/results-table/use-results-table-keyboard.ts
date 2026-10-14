@@ -208,7 +208,6 @@ export const useResultsTableKeyboard = ({
         case 'Enter':
         case 'Space':
         case ' ':
-          console.log('Space');
           event.preventDefault();
           activateCell(rowIndex, visibleColumns[columnIndex].name);
           return;

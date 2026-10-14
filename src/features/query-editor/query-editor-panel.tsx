@@ -174,6 +174,7 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
                   : 'Execute uma query para ver resultados'
               }
               exportFileName={tab.title}
+              searchScopeId={tab.id}
               onSort={() => {}}
               onLoadMore={loadMore}
               onSave={save}

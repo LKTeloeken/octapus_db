@@ -74,6 +74,8 @@ export interface ResultsTableProps {
   showValuePanel?: boolean;
   /** Botão de fechar do painel; sem ele o painel não mostra o X */
   onCloseValuePanel?: () => void;
+  /** Id da aba dona da grade: a busca (Cmd/Ctrl+F) guarda o estado por ele */
+  searchScopeId: string;
   className?: string;
 }
 
@@ -112,6 +114,7 @@ export type ToggleRowSelectionFn = (
   mode: RowSelectionMode,
 ) => void;
 export type ToggleColumnSelectionFn = (columnName: string) => void;
+export type SelectAllRowsFn = () => void;
 
 export interface UseResultsTableParams {
   rows: DataTableRow[];
@@ -144,6 +147,12 @@ export interface UseResultsTableReturn {
   focusCell: FocusCellFn;
   setFocusedCell: (cell: FocusedCell) => void;
   toggleRowSelection: ToggleRowSelectionFn;
+  /** Seleciona todas as linhas da grade (carregadas + adicionadas) */
+  selectAllRows: SelectAllRowsFn;
+  /** Clique no "#" do header: seleciona tudo, ou limpa se já estava tudo */
+  toggleAllRowsSelection: SelectAllRowsFn;
+  /** true quando toda linha selecionável da grade está selecionada */
+  allRowsSelected: boolean;
   toggleColumnSelection: ToggleColumnSelectionFn;
   clearSelection: ClearSelectionFn;
   addRow: AddRowFn;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import type { DatabaseType } from '@/api/types/server.types';
 import { useServers } from '@/queries/use-servers';
 import { useCommandPaletteStore } from '@/stores/command-palette-store';
+import { useGridSearchStore } from '@/stores/grid-search-store';
 import { useQueryResultsStore } from '@/stores/query-results-store';
 import { useActiveTab, useTabsStore } from '@/stores/tabs-store';
 
@@ -12,6 +13,7 @@ export const useQueryTabs = () => {
   const closeTabInStore = useTabsStore(state => state.closeTab);
   const openQueryTab = useTabsStore(state => state.openQueryTab);
   const clearRun = useQueryResultsStore(state => state.clearRun);
+  const clearGridSearch = useGridSearchStore(state => state.clear);
   const setPaletteOpen = useCommandPaletteStore(state => state.setOpen);
   const { data: servers } = useServers();
 
@@ -31,8 +33,9 @@ export const useQueryTabs = () => {
     (id: string) => {
       closeTabInStore(id);
       clearRun(id); // drop the ephemeral editor result of the closed tab
+      clearGridSearch(id);
     },
-    [closeTabInStore, clearRun],
+    [closeTabInStore, clearRun, clearGridSearch],
   );
 
   // "+" da barra: nova consulta no mesmo servidor/banco da aba ativa.

@@ -33,6 +33,8 @@ export const ResultsTableRowCell = memo(
     updateCell,
     activeColumnName,
     focusedColumnName,
+    getColumnMatcher,
+    currentMatchColumnName,
     onActivateCell,
     onCloseCell,
     onFocusCell,
@@ -170,6 +172,8 @@ export const ResultsTableRowCell = memo(
                 onActivate={onActivateCell}
                 onClose={onCloseCell}
                 updateCell={updateCell}
+                searchMatcher={getColumnMatcher(column.name)}
+                isCurrentMatch={currentMatchColumnName === column.name}
               />
             </div>
           );

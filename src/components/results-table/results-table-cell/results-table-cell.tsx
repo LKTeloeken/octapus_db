@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 
 import type { DataTableCellProps } from './results-table-cell.types';
 import { CELL_TYPE_COLOR } from './cell-type-style';
+import { HighlightedText } from './highlighted-text';
 import {
   isBooleanTrue,
   nextBooleanValue,
@@ -36,6 +37,8 @@ export const DataTableCell = memo(
     onActivate,
     onClose,
     updateCell,
+    searchMatcher = null,
+    isCurrentMatch = false,
   }: DataTableCellProps) => {
     const editorType = resolveCellEditor(columnType);
 
@@ -44,6 +47,18 @@ export const DataTableCell = memo(
     const isNull = displayValue === null;
     const text = displayValue ?? 'NULL';
     const editText = displayValue ?? '';
+
+    // NULL nunca casa com a busca; o resto destaca o trecho no texto exibido.
+    const renderText = (label: string) =>
+      searchMatcher && !isNull ? (
+        <HighlightedText
+          text={label}
+          matcher={searchMatcher}
+          isCurrent={isCurrentMatch}
+        />
+      ) : (
+        label
+      );
 
     const handleSave = (newValue: string | null) => {
       updateCell(rowIndex, columnName, value, newValue);
@@ -84,7 +99,7 @@ export const DataTableCell = memo(
               isRemoved && 'text-fg-subtle line-through',
             )}
           >
-            {isNull ? 'NULL' : isTrue ? 'true' : 'false'}
+            {isNull ? 'NULL' : renderText(isTrue ? 'true' : 'false')}
           </span>
           {isEditable && !isNull && (
             <button
@@ -126,9 +141,8 @@ export const DataTableCell = memo(
           tabIndex={-1}
           className={triggerClassName}
           onDoubleClick={() => onActivate(rowIndex, columnName)}
-          onFocus={() => console.log('focus')}
         >
-          {text}
+          {renderText(text)}
         </button>
       );
     }

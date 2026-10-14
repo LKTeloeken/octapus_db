@@ -1,3 +1,5 @@
+import type { GridMatcher } from '@/lib/grid-search';
+
 export type CellEditorType =
   | 'text'
   | 'number'
@@ -26,6 +28,10 @@ export interface DataTableCellProps {
   isActive: boolean;
   /** Open this cell's editor/viewer (stable) */
   onActivate: (rowIndex: number, columnName: string) => void;
+  /** Busca da grade (Cmd/Ctrl+F) nesta coluna; null = sem destaque */
+  searchMatcher?: GridMatcher | null;
+  /** Esta célula é o resultado atual da navegação da busca */
+  isCurrentMatch?: boolean;
   /** Close the active cell (stable) */
   onClose: () => void;
   /** Persist a cell change (stable); newValue null grava NULL */

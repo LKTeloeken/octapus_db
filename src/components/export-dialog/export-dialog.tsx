@@ -34,7 +34,6 @@ export const ExportDialog = memo((props: ExportDialogProps) => {
     onlySelected,
     setOnlySelected,
     summary,
-    canCopy,
     copyBlockedReason,
     isExporting,
     isCopying,
@@ -59,18 +58,16 @@ export const ExportDialog = memo((props: ExportDialogProps) => {
           >
             Cancelar
           </Button>
-          {canCopy && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isBusy || copyBlockedReason != null}
-              title={copyBlockedReason ?? undefined}
-              onClick={copyNow}
-            >
-              {isCopying && <Spinner className="h-3 w-3" />}
-              {isCopying ? 'Copiando...' : 'Copiar'}
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isBusy || copyBlockedReason != null}
+            title={copyBlockedReason ?? undefined}
+            onClick={copyNow}
+          >
+            {isCopying && <Spinner className="h-3 w-3" />}
+            {isCopying ? 'Copiando...' : 'Copiar'}
+          </Button>
           <Button size="sm" disabled={isBusy} onClick={exportNow}>
             {isExporting && <Spinner className="h-3 w-3" />}
             {isExporting ? 'Exportando...' : 'Exportar'}
