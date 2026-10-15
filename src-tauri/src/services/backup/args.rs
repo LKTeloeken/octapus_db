@@ -572,6 +572,7 @@ mod tests {
             created_at: 0,
             scope_databases: None,
             scope_schemas: None,
+            group_id: None,
         }
     }
 

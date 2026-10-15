@@ -10,6 +10,14 @@ pub fn init_storage<P: AsRef<Path>>(db_path: P) -> Result<Connection> {
         PRAGMA journal_mode = WAL;
         PRAGMA foreign_keys = ON;
 
+        -- Grupos da sidebar (pastas de um nível). `servers.group_id` aponta
+        -- para cá; excluir o grupo devolve os servidores para fora de grupo.
+        CREATE TABLE IF NOT EXISTS server_groups (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+        );
+
         CREATE TABLE IF NOT EXISTS servers (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             name            TEXT NOT NULL,
@@ -61,6 +69,11 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         ("connection_uri", "ALTER TABLE servers ADD COLUMN connection_uri TEXT"),
         ("scope_databases", "ALTER TABLE servers ADD COLUMN scope_databases TEXT"),
         ("scope_schemas", "ALTER TABLE servers ADD COLUMN scope_schemas TEXT"),
+        (
+            "group_id",
+            "ALTER TABLE servers ADD COLUMN group_id INTEGER \
+             REFERENCES server_groups(id) ON DELETE SET NULL",
+        ),
     ];
 
     for (col_name, alter_sql) in migrations {

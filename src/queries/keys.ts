@@ -29,6 +29,11 @@ export function catalogPathKey(path: CatalogPath): string {
 export const queryKeys = {
   servers: ['servers'] as const,
 
+  serverGroups: ['server-groups'] as const,
+
+  /** Apps desta máquina com conexões para importar */
+  importSources: ['import-sources'] as const,
+
   settings: ['settings'] as const,
 
   /** Ferramentas do Postgres — prefixo, invalidado ao trocar a pasta */

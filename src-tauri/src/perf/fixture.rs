@@ -79,6 +79,7 @@ pub fn pg_server(port: u16) -> Server {
         connection_uri: None,
         scope_databases: None,
         scope_schemas: None,
+        group_id: None,
         created_at: 0,
     }
 }
@@ -97,6 +98,7 @@ pub fn mongo_server(port: u16) -> Server {
         connection_uri: None,
         scope_databases: None,
         scope_schemas: None,
+        group_id: None,
         created_at: 0,
     }
 }

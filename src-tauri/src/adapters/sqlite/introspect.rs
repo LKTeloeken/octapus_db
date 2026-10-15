@@ -185,6 +185,7 @@ mod tests {
             connection_uri: Some(path.into()),
             scope_databases: None,
             scope_schemas: None,
+            group_id: None,
             created_at: 0,
         }
     }

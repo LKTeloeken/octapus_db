@@ -10,7 +10,11 @@ import type {
   RowInsert,
   StatementResult,
 } from '@/api/types/query.types';
-import type { Server, ServerInput } from '@/api/types/server.types';
+import type {
+  Server,
+  ServerGroup,
+  ServerInput,
+} from '@/api/types/server.types';
 import {
   BACKUP_EVENT,
   type BackupEvent,
@@ -21,6 +25,13 @@ import {
   type RestoreInspection,
   type RestoreRequest,
 } from '@/api/types/backup.types';
+import type {
+  ImportCandidate,
+  ImportCommitRequest,
+  ImportPreview,
+  ImportResult,
+  ImportSource,
+} from '@/api/types/import.types';
 import type { AppSettings } from '@/api/types/settings.types';
 import type {
   ColumnInfo,
@@ -56,6 +67,7 @@ import { applyStructure, structureSql } from './structure';
 import { parseScope } from './scope';
 import { mockEmit, registerListener, unregisterListener } from './events';
 import { useMockStore } from './mock-store';
+import { MOCK_IMPORT_SOURCES, mockImportFixtures } from './data/imports';
 
 type Args = Record<string, unknown>;
 export type MockHandler = (args: Args) => unknown | Promise<unknown>;
@@ -84,7 +96,26 @@ const serverFromInput = (
   createdAt,
   scopeDatabases: input.scopeDatabases?.trim() ? input.scopeDatabases : null,
   scopeSchemas: input.scopeSchemas?.trim() ? input.scopeSchemas : null,
+  groupId: input.groupId ?? null,
 });
+
+/** Nome aparado, não vazio e único (sem diferenciar maiúsculas), como no Rust */
+const validGroupName = (name: string, except?: number): string => {
+  const trimmed = name.trim();
+  if (!trimmed) throw 'Invalid state: O nome do grupo não pode ficar vazio';
+  const taken = getDataset().groups.some(
+    group =>
+      group.id !== except && group.name.toLowerCase() === trimmed.toLowerCase(),
+  );
+  if (taken) throw `Already exists: Já existe um grupo chamado "${trimmed}"`;
+  return trimmed;
+};
+
+const requireGroup = (id: number): ServerGroup => {
+  const group = getDataset().groups.find(entry => entry.id === id);
+  if (!group) throw `Not found: Group with id ${String(id)} not found`;
+  return group;
+};
 
 const serverHandlers: Record<string, MockHandler> = {
   [RustCommand.GetAllServers]: (): Server[] =>
@@ -136,6 +167,145 @@ const serverHandlers: Record<string, MockHandler> = {
     const index = dataset.servers.findIndex(entry => entry.server.id === id);
     if (index < 0) throw `Not found: Server with id ${String(id)} not found`;
     dataset.servers.splice(index, 1);
+  },
+
+  [RustCommand.SetServerGroup]: ({ id, groupId }: Args): void => {
+    const entry = requireServerEntry(id as number);
+    if (groupId != null) requireGroup(groupId as number);
+    entry.server = { ...entry.server, groupId: (groupId as number | null) ?? null };
+  },
+
+  [RustCommand.GetAllServerGroups]: (): ServerGroup[] =>
+    isEmptyMode()
+      ? []
+      : [...getDataset().groups].sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+        ),
+
+  [RustCommand.CreateServerGroup]: ({ name }: Args): ServerGroup => {
+    const dataset = getDataset();
+    const group: ServerGroup = {
+      id: dataset.nextGroupId++,
+      name: validGroupName(name as string),
+      createdAt: Math.floor(Date.now() / 1000),
+    };
+    dataset.groups.push(group);
+    return group;
+  },
+
+  [RustCommand.RenameServerGroup]: ({ id, name }: Args): ServerGroup => {
+    const group = requireGroup(id as number);
+    group.name = validGroupName(name as string, group.id);
+    return { ...group };
+  },
+
+  [RustCommand.DeleteServerGroup]: ({ id }: Args): void => {
+    const dataset = getDataset();
+    requireGroup(id as number);
+    dataset.groups = dataset.groups.filter(group => group.id !== id);
+    for (const entry of dataset.servers) {
+      if (entry.server.groupId === id) entry.server = { ...entry.server, groupId: null };
+    }
+  },
+};
+
+// ── Importar conexões ───────────────────────────────────────────────────────
+
+/** A prévia aberta (no Rust ela guarda as senhas; aqui só os candidatos) */
+let mockImportPreview: ImportPreview | null = null;
+
+const importHandlers: Record<string, MockHandler> = {
+  [RustCommand.ImportDetectSources]: () => MOCK_IMPORT_SOURCES,
+
+  [RustCommand.ImportPreview]: ({ source, path, text }: Args): ImportPreview => {
+    const servers = getDataset().servers.map(entry => entry.server);
+    const candidates: ImportCandidate[] = mockImportFixtures(
+      source as ImportSource,
+      (text as string | null) ?? null,
+    ).map((fixture, key) => ({
+      ...fixture,
+      key,
+      duplicateOf:
+        servers.find(
+          server =>
+            server.dbType === fixture.dbType &&
+            server.host === fixture.host &&
+            server.port === fixture.port &&
+            server.username === fixture.username &&
+            server.defaultDatabase === fixture.defaultDatabase,
+        )?.id ?? null,
+    }));
+    const groups = Array.from(new Set(candidates.flatMap(c => (c.group ? [c.group] : []))));
+    const info = MOCK_IMPORT_SOURCES.find(entry => entry.source === source);
+    mockImportPreview = {
+      token: Math.floor(Math.random() * 1e9),
+      source: source as ImportSource,
+      path: (path as string | null) ?? info?.path ?? null,
+      candidates,
+      groups,
+    };
+    return mockImportPreview;
+  },
+
+  [RustCommand.ImportCommit]: ({ request }: Args): ImportResult => {
+    const typed = request as ImportCommitRequest;
+    const preview = mockImportPreview;
+    if (!preview || preview.token !== typed.token) {
+      throw 'Invalid state: A prévia da importação expirou — leia as conexões de novo';
+    }
+    mockImportPreview = null;
+
+    const dataset = getDataset();
+    const groupsBefore = dataset.groups.length;
+    const groupIdOf = (name: string) => {
+      const existing = dataset.groups.find(
+        group => group.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (existing) return existing.id;
+      return (
+        serverHandlers[RustCommand.CreateServerGroup]({ name }) as ServerGroup
+      ).id;
+    };
+
+    let imported = 0;
+    let withoutPassword = 0;
+    for (const candidate of preview.candidates) {
+      if (!typed.keys.includes(candidate.key) || !candidate.dbType) continue;
+      const groupId =
+        typed.keepGroups && candidate.group
+          ? groupIdOf(candidate.group)
+          : typed.targetGroupId;
+      const hasPassword =
+        typed.includePasswords && (candidate.hasPassword || candidate.passwordInKeychain);
+      serverHandlers[RustCommand.CreateServer]({
+        input: {
+          name: candidate.name,
+          dbType: candidate.dbType,
+          host: candidate.host,
+          port: candidate.port,
+          username: candidate.username,
+          password: hasPassword ? 'mock' : '',
+          defaultDatabase: candidate.defaultDatabase,
+          sslEnabled: candidate.sslEnabled,
+          connectionUri: candidate.connectionUri,
+          groupId,
+        } satisfies ServerInput,
+      });
+      imported++;
+      const needsPassword =
+        candidate.dbType !== 'sqlite' && !candidate.connectionUri && !!candidate.username;
+      if (needsPassword && !hasPassword) withoutPassword++;
+    }
+    return {
+      imported,
+      withoutPassword,
+      keychainDenied: false,
+      groupsCreated: dataset.groups.length - groupsBefore,
+    };
+  },
+
+  [RustCommand.ImportDiscard]: (): void => {
+    mockImportPreview = null;
   },
 };
 
@@ -1090,10 +1260,19 @@ const pluginHandlers: Record<string, MockHandler> = {
   },
   // Escolha de pasta (ferramentas do Postgres): a do Homebrew; de arquivo
   // (restauração): um .dump de exemplo
-  'plugin:dialog|open': ({ options }: Args) =>
-    (options as { directory?: boolean } | undefined)?.directory
-      ? '/opt/homebrew/opt/postgresql@16/bin'
-      : '/Users/voce/Downloads/loja_20261015_1432.dump',
+  'plugin:dialog|open': ({ options }: Args) => {
+    const { directory, filters } = (options ?? {}) as {
+      directory?: boolean;
+      filters?: { extensions: string[] }[];
+    };
+    if (directory) return '/opt/homebrew/opt/postgresql@16/bin';
+    // Importar conexões: o arquivo de export do app, pela extensão do filtro
+    const extension = filters?.[0]?.extensions[0];
+    if (extension && extension !== 'dump') {
+      return `/Users/voce/Downloads/conexoes.${extension}`;
+    }
+    return '/Users/voce/Downloads/loja_20261015_1432.dump';
+  },
 
   // Fora do Tauri quem escreve é o navegador, que pode recusar sem gesto do
   // usuário — no mock isso não é erro, o que importa é o fluxo ter chegado aqui.
@@ -1135,6 +1314,7 @@ const pluginHandlers: Record<string, MockHandler> = {
 
 export const handlers: Record<string, MockHandler> = {
   ...serverHandlers,
+  ...importHandlers,
   ...connectionHandlers,
   ...structureHandlers,
   ...ddlHandlers,

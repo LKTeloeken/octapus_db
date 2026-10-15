@@ -1,6 +1,14 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { SimpleAlertDialog } from '@/components/ui/simple-alert-dialog';
 import { SimpleDialog } from '@/components/ui/simple-dialog';
 import { Switch } from '@/components/ui/switch';
@@ -11,6 +19,7 @@ import {
 } from '@/lib/db-defaults';
 import type { ServerFormProps } from './server-form.types';
 import { useServerForm } from './use-server-form';
+import { NO_GROUP } from '@/features/server-groups/server-groups.types';
 import { cn } from '@/lib/utils';
 
 const SCOPE_HELP =
@@ -20,6 +29,7 @@ export function ServerForm(props: ServerFormProps) {
   const { open, onClose } = props;
   const {
     form,
+    groups,
     isEditMode,
     disableSave,
     openRemoveDialog,
@@ -108,6 +118,31 @@ export function ServerForm(props: ServerFormProps) {
             value={form.name}
             onChange={e => setField('name', e.target.value)}
           />
+
+          {groups.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="server-group">Grupo</Label>
+              <Select
+                value={form.groupId == null ? NO_GROUP : String(form.groupId)}
+                onValueChange={value =>
+                  setField('groupId', value === NO_GROUP ? null : Number(value))
+                }
+              >
+                <SelectTrigger id="server-group" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_GROUP}>Sem grupo</SelectItem>
+                  <SelectSeparator />
+                  {groups.map(group => (
+                    <SelectItem key={group.id} value={String(group.id)}>
+                      {group.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {isFileBased ? (
             /* Banco de arquivo: não há host, porta nem credencial — o caminho

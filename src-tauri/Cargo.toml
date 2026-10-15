@@ -48,6 +48,18 @@ native-tls = "0.2"
 aes-gcm = "0.10"
 rand = "0.8"
 
+# Importar conexões de outros apps (services/connection_import): plist do
+# TablePlus, XML do DataGrip, AES-CBC do DBeaver/Beekeeper e as pastas de cada
+# SO. Todas já vinham no lockfile como transitivas (o `aes` é o do `aes-gcm`),
+# menos o `cbc`, do mesmo projeto RustCrypto.
+plist = "1.7"
+quick-xml = "0.41"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+sha2 = "0.10"
+base64 = "0.22"
+dirs = "6"
+
 # Utils
 parking_lot = "0.12"
 chrono = { version = "0.4", features = ["serde"] }

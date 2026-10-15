@@ -1,5 +1,8 @@
+import { FileImportIcon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { memo, useRef } from 'react';
+import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { ErrorRow } from './error-row';
 import { FilterRow } from './filter-row';
@@ -23,12 +26,9 @@ const OVERSCAN = 12;
  * uma ordem natural de Tab seria caótica. A navegação vem do teclado
  * (useTreeNavigation) e do clique, que convergem no mesmo cursor.
  */
-export const ConnectionTree = memo(({ onEditServer }: ConnectionTreeProps) => {
-  const { rows, isLoading, isError, error, retry, isEmpty } = useConnectionTree(
-    {
-      onEditServer,
-    },
-  );
+export const ConnectionTree = memo((props: ConnectionTreeProps) => {
+  const { rows, isLoading, isError, error, retry, isEmpty } =
+    useConnectionTree(props);
   const parentRef = useRef<HTMLDivElement>(null);
   const { getEnterDelay } = useTreeEnterAnimation(rows);
 
@@ -67,9 +67,18 @@ export const ConnectionTree = memo(({ onEditServer }: ConnectionTreeProps) => {
 
   if (isEmpty) {
     return (
-      <p className="px-2 py-1 text-small text-fg-subtle">
-        Nenhum servidor ainda — use o + para adicionar.
-      </p>
+      <div className="flex flex-col items-start gap-2 px-2 py-1">
+        <p className="text-small text-fg-subtle">
+          Nenhum servidor ainda — use o + para adicionar.
+        </p>
+        {/* Quem vem de outro app não precisa recadastrar tudo */}
+        {props.onImport && (
+          <Button variant="secondary" size="sm" onClick={props.onImport}>
+            <HugeiconsIcon icon={FileImportIcon} />
+            Importar de outro app
+          </Button>
+        )}
+      </div>
     );
   }
 
