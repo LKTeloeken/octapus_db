@@ -1,6 +1,8 @@
 import {
   Add01Icon,
   ColumnInsertIcon,
+  DatabaseExportIcon,
+  DatabaseImportIcon,
   Delete02Icon,
   Edit01Icon,
   GitCompareIcon,
@@ -17,6 +19,7 @@ import { useMemo, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { getCapabilities } from '@/api/connection';
 import { listColumns, listDatabases, listSchemasWithTables } from '@/api/structure';
+import type { BackupTarget } from '@/api/types/backup.types';
 import type { AdapterCapabilities } from '@/api/types/capabilities.types';
 import {
   FLAT_SCHEMA,
@@ -47,6 +50,7 @@ import {
 import { useCatalogEvents } from '@/queries/use-catalog-events';
 import { queryKeys } from '@/queries/keys';
 import { STRUCTURE_STALE_TIME_MS } from '@/providers/query-provider';
+import { useBackupDialogStore } from '@/stores/backup-dialog-store';
 import { useFocusStore } from '@/stores/focus-store';
 import {
   useStructureEditorStore,
@@ -133,6 +137,7 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
   const activeTabId = useTabsStore(state => state.activeTabId);
   const requestFocus = useFocusStore(state => state.requestFocus);
   const openStructureDialog = useStructureEditorStore(state => state.open);
+  const openBackupDialog = useBackupDialogStore(state => state.open);
   const { refreshServer, refreshDatabase, refreshSchema, refreshTable } =
     useRefreshStructure();
   // Última janela de cada nó. O `keepPreviousData` não vale no `useQueries`:
@@ -587,6 +592,24 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
     ];
   };
 
+  /** Backup pelo pg_dump do nó (database, schema ou tabela) — só Postgres */
+  const backupAction = (
+    serverId: number,
+    database: string,
+    target: BackupTarget,
+  ): NodeRowAction[] =>
+    dbTypes.get(serverId) === 'postgres'
+      ? [
+          {
+            label: 'Fazer backup…',
+            icon: DatabaseExportIcon,
+            separated: true,
+            onSelect: () =>
+              openBackupDialog({ kind: 'backup', serverId, database, target }),
+          },
+        ]
+      : [];
+
   /** Comparar dois schemas (aberto num schema, ele já é a base) */
   const compareAction = (
     serverId: number,
@@ -656,6 +679,9 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
                 title: table,
               }),
           },
+          ...(schema
+            ? backupAction(serverId, database, { kind: 'table', schema, table })
+            : []),
           ...tableStructureActions(target, table, relationKind),
         ],
       },
@@ -772,6 +798,7 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
       ...(dbTypes.get(serverId) === 'postgres'
         ? [compareAction(serverId, database, schema)]
         : []),
+      ...backupAction(serverId, database, { kind: 'schema', schema }),
     ];
   };
 
@@ -976,6 +1003,17 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
           ]
         : []),
       ...(dbType === 'postgres' ? [compareAction(serverId, database, null)] : []),
+      ...backupAction(serverId, database, { kind: 'database' }),
+      ...(dbType === 'postgres'
+        ? [
+            {
+              label: 'Restaurar backup…',
+              icon: DatabaseImportIcon,
+              onSelect: () =>
+                openBackupDialog({ kind: 'restore', serverId, database }),
+            },
+          ]
+        : []),
       ...(flatTarget
         ? [
             {

@@ -5,6 +5,8 @@ import {
   ResizablePanelGroup,
 } from '@/components/ui/resizable';
 import { TooltipProvider } from '@/components/ui/tooltip/tooltip';
+import { BackupDialogs } from '@/features/backup/backup-dialogs';
+import { BackupJobs } from '@/features/backup/backup-jobs';
 import { CommandPalette } from '@/features/command-palette/command-palette';
 import { QueryTabs } from '@/features/query-tabs/query-tabs';
 import { Sidebar } from '@/features/sidebar/sidebar';
@@ -50,7 +52,9 @@ const App = () => {
         </ResizablePanelGroup>
 
         <CommandPalette />
+        <BackupDialogs />
         <CustomToaster />
+        <BackupJobs />
         <UpdateNotifier />
       </TooltipProvider>
     </QueryProvider>

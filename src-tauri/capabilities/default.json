@@ -12,7 +12,9 @@
     "core:window:allow-close",
     "core:window:allow-set-fullscreen",
     "opener:default",
+    "opener:allow-reveal-item-in-dir",
     "dialog:allow-save",
+    "dialog:allow-open",
     "clipboard-manager:allow-write-text"
   ]
 }

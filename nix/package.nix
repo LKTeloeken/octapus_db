@@ -20,6 +20,7 @@
   gtk3,
   libsoup_3,
   openssl,
+  postgresql,
   webkitgtk_4_1,
 }:
 
@@ -94,8 +95,13 @@ stdenv.mkDerivation {
 
   # Sem isso o WebKit costuma abrir uma janela em branco em boa parte das
   # GPUs/compositores; `--set-default` deixa quem quiser reativar o dmabuf.
+  #
+  # O backup/restauração chama o pg_dump/pg_restore/psql do PATH: os do
+  # nixpkgs vão no fim (`--suffix`), então um PostgreSQL do próprio usuário
+  # continua na frente — e o app escolhe a maior versão entre os achados.
   preFixup = ''
     gappsWrapperArgs+=(--set-default WEBKIT_DISABLE_DMABUF_RENDERER 1)
+    gappsWrapperArgs+=(--suffix PATH : ${lib.makeBinPath [ postgresql ]})
   '';
 
   # Alias com hífen (o nome do produto), já apontando para o binário embrulhado.

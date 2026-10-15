@@ -162,6 +162,18 @@ palette, dentro do `QueryProvider`.
   filtradas pelo que se digita), e o modal lista as tabelas que só um tem e, nas comuns,
   as colunas que diferem — só na base, só no outro ou com tipo, nulo ou default
   diferente. Rótulos em [change-labels.ts](src/features/schema-compare/change-labels.ts).
+- **`backup`** — backup e restauração do Postgres pelas ferramentas nativas. Menu da
+  árvore: "Fazer backup…" em database, schema e tabela; "Restaurar backup…" no database
+  (`backup-dialog-store`, montado no shell por `BackupDialogs`). O diálogo de backup
+  escolhe formato (`.dump`/`.sql`), conteúdo e opções — `normalizeBackupOptions` desliga
+  o que não combina — e mostra a linha de comando do backend (`CommandPreview`). O de
+  restauração lê o arquivo (`restore_inspect`: formato e resumo do `.dump`), oferece
+  "Ignorar dono", "Apagar objetos existentes" (pede confirmação) e "Tudo ou nada". Os
+  dois checam as ferramentas (`usePgToolsStatus`). Ao iniciar, o diálogo fecha e o job
+  vira um card no canto (`BackupJobs` → um `toast.custom` por job, lendo o
+  `backup-jobs-store`, alimentado pelo `backup-event` em `useBackupEvents`): log,
+  cancelar, "Mostrar na pasta", erros ignorados. Fim de restauração invalida o cache do
+  database (`invalidateDatabaseScope`).
 - **`server-form`** — criar/editar servidor. A senha **nunca** volta do backend: no modo
   edição o campo começa vazio e deve ser redigitado. **Escopo** opcional: "Databases
   visíveis" e, no Postgres, "Schemas visíveis" (padrões com `*`, `?` e `!` para excluir —
@@ -172,7 +184,9 @@ palette, dentro do `QueryProvider`.
   é uma `SettingRow`. Os valores vêm de `useSettings`/`useUpdateSettings` (SQLite do
   backend, `get_settings`/`update_settings`) — menos o tema, que segue no `ui-store`.
   A preferência **versões beta** muda o canal do `update-notifier` (`checkForUpdate` em
-  `src/api/updater.ts`); ligá-la checa na hora.
+  `src/api/updater.ts`); ligá-la checa na hora. A seção **PostgreSQL** mostra o
+  `pg_dump` em uso (`usePgToolsDetection`) e deixa escolher a pasta ou voltar à detecção
+  automática (`useSetPgToolsDir`, que refaz a busca).
 - **`query-tabs`** — gerencia abas; cada aba é um editor livre (`query-editor`) ou um
   browse (`table-browser`).
 - **`query-editor`** — editor CodeMirror + execução; `use-query-runner` roda a query,

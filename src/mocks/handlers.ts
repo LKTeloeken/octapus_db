@@ -11,6 +11,16 @@ import type {
   StatementResult,
 } from '@/api/types/query.types';
 import type { Server, ServerInput } from '@/api/types/server.types';
+import {
+  BACKUP_EVENT,
+  type BackupEvent,
+  type BackupRequest,
+  type PgToolsDetection,
+  type PgToolsInstall,
+  type PgToolsStatus,
+  type RestoreInspection,
+  type RestoreRequest,
+} from '@/api/types/backup.types';
 import type { AppSettings } from '@/api/types/settings.types';
 import type {
   ColumnInfo,
@@ -44,7 +54,7 @@ import {
 import { mockCatalog } from './catalog';
 import { applyStructure, structureSql } from './structure';
 import { parseScope } from './scope';
-import { registerListener, unregisterListener } from './events';
+import { mockEmit, registerListener, unregisterListener } from './events';
 import { useMockStore } from './mock-store';
 
 type Args = Record<string, unknown>;
@@ -403,7 +413,7 @@ const sessionHandlers: Record<string, MockHandler> = {
 // ── Preferências do app ─────────────────────────────────────────────────────
 
 const SETTINGS_STORAGE_KEY = 'octapus-mock-settings';
-const DEFAULT_SETTINGS: AppSettings = { betaUpdates: false };
+const DEFAULT_SETTINGS: AppSettings = { betaUpdates: false, pgToolsDir: null };
 
 const settingsHandlers: Record<string, MockHandler> = {
   // Mesma regra do Rust: o que nunca foi salvo volta com o padrão
@@ -421,6 +431,307 @@ const settingsHandlers: Record<string, MockHandler> = {
   [RustCommand.UpdateSettings]: ({ settings }: Args): AppSettings => {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
     return settings as AppSettings;
+  },
+};
+
+// ── Ferramentas do Postgres (backup/restore) ────────────────────────────────
+
+/** Uma instalação falsa do Homebrew, como o backend acharia */
+const mockPgInstall = (
+  dir: string,
+  version: string,
+  versionNum: number,
+  source: PgToolsInstall['source'],
+): PgToolsInstall => ({
+  dir,
+  source,
+  version,
+  versionNum,
+  pgDump: `${dir}/pg_dump`,
+  pgRestore: `${dir}/pg_restore`,
+  psql: `${dir}/psql`,
+});
+
+const MOCK_PG_CANDIDATES: PgToolsInstall[] = [
+  mockPgInstall('/opt/homebrew/opt/postgresql@17/bin', '17.2', 170_002, 'knownLocation'),
+  mockPgInstall('/opt/homebrew/opt/postgresql@15/bin', '15.10', 150_010, 'knownLocation'),
+];
+
+/**
+ * Mesma regra do Rust: a pasta configurada vale sozinha (uma com "invalida"
+ * no caminho simula a pasta sem pg_dump); sem ela, a mais nova achada.
+ */
+function mockPgDetection(): PgToolsDetection {
+  const { pgToolsDir } = settingsHandlers[RustCommand.GetSettings]({}) as AppSettings;
+  if (!pgToolsDir) {
+    return {
+      selected: MOCK_PG_CANDIDATES[0],
+      candidates: MOCK_PG_CANDIDATES,
+      configuredError: null,
+    };
+  }
+  if (pgToolsDir.includes('invalida')) {
+    return {
+      selected: null,
+      candidates: MOCK_PG_CANDIDATES,
+      configuredError: `Não há pg_dump em ${pgToolsDir}.`,
+    };
+  }
+  return {
+    selected: mockPgInstall(pgToolsDir, '16.4', 160_004, 'configured'),
+    candidates: MOCK_PG_CANDIDATES,
+    configuredError: null,
+  };
+}
+
+const pgToolsHandlers: Record<string, MockHandler> = {
+  [RustCommand.PgToolsDetect]: (): PgToolsDetection => mockPgDetection(),
+
+  [RustCommand.PgToolsStatus]: ({ serverId }: Args): PgToolsStatus => {
+    const entry = requireServerEntry(serverId as number);
+    if (entry.server.dbType !== 'postgres') {
+      throw 'Backup e restauração só existem para PostgreSQL.';
+    }
+    const detection = mockPgDetection();
+    const serverVersion = '16.4';
+    const serverVersionNum = 160_004;
+    const major = (num: number) =>
+      num >= 100_000 ? Math.floor(num / 10_000) : Math.floor(num / 100);
+    const problem: PgToolsStatus['problem'] = detection.configuredError
+      ? { kind: 'invalidConfigured', message: detection.configuredError }
+      : !detection.selected
+        ? { kind: 'notFound' }
+        : major(detection.selected.versionNum) < major(serverVersionNum)
+          ? {
+              kind: 'clientTooOld',
+              client: detection.selected.version,
+              server: serverVersion,
+            }
+          : null;
+    return { ...detection, serverVersion, serverVersionNum, problem };
+  },
+};
+
+// ── Backup (pg_dump) ────────────────────────────────────────────────────────
+
+/** Jobs falsos em andamento → cancelar */
+const mockBackupJobs = new Map<string, () => void>();
+let mockBackupSeq = 0;
+
+const emitBackup = (event: BackupEvent) => mockEmit(BACKUP_EVENT, event);
+
+/** A linha de comando como o Rust monta (args.rs), sem a senha */
+function mockDumpCommand(request: BackupRequest, file: string): string {
+  const { target, options } = request;
+  const entry = requireServerEntry(request.serverId);
+  const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
+  const args = [
+    '--verbose',
+    '--no-password',
+    `--format=${options.format}`,
+    `--file=${file}`,
+    ...(options.content === 'schemaOnly' ? ['--schema-only'] : []),
+    ...(options.content === 'dataOnly' ? ['--data-only'] : []),
+    ...(options.noOwner ? ['--no-owner', '--no-privileges'] : []),
+    ...(options.clean ? ['--clean', '--if-exists'] : []),
+    ...(options.columnInserts ? ['--column-inserts'] : []),
+    ...(target.kind === 'schema' ? [`--schema=${quote(target.schema)}`] : []),
+    ...(target.kind === 'table'
+      ? [`--table=${quote(target.schema)}.${quote(target.table)}`]
+      : []),
+    `--host=${entry.server.host}`,
+    `--port=${entry.server.port}`,
+    `--username=${entry.server.username}`,
+    `--dbname=${request.database}`,
+  ];
+  const shell = (arg: string) =>
+    /^[\w=./:,@%+-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
+  return ['pg_dump', ...args.map(shell)].join(' ');
+}
+
+const backupHandlers: Record<string, MockHandler> = {
+  [RustCommand.BackupPreview]: ({ request }: Args) => {
+    const backup = request as BackupRequest;
+    const { target, options } = backup;
+    // Hora local, como o `chrono::Local` do backend
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+    const parts = [
+      backup.database,
+      ...(target.kind === 'database' ? [] : [target.schema]),
+      ...(target.kind === 'table' ? [target.table] : []),
+    ].map(part => part.replace(/[^\w\u00C0-\u024F-]/g, '_'));
+    const fileName = `${parts.join('_')}_${stamp}.${options.format === 'custom' ? 'dump' : 'sql'}`;
+    return { command: mockDumpCommand(backup, fileName), fileName };
+  },
+
+  /**
+   * Um pg_dump de mentira: algumas linhas de log por meio segundo e o fim.
+   * Um caminho com "erro" simula a falha de autenticação.
+   */
+  [RustCommand.BackupStart]: ({ request, path }: Args) => {
+    const backup = request as BackupRequest;
+    const file = path as string;
+    const jobId = `job-${++mockBackupSeq}`;
+    const subject =
+      backup.target.kind === 'table'
+        ? `${backup.target.schema}.${backup.target.table}`
+        : backup.target.kind === 'schema'
+          ? backup.target.schema
+          : backup.database;
+    const steps = [
+      'pg_dump: last built-in OID is 16383',
+      'pg_dump: reading extensions',
+      'pg_dump: reading schemas',
+      'pg_dump: reading user-defined tables',
+      `pg_dump: dumping contents of ${subject}`,
+      'pg_dump: saving encoding = UTF8',
+    ];
+    const timers: number[] = [];
+    let step = 0;
+    const tick = () => {
+      if (step < steps.length) {
+        emitBackup({ jobId, type: 'log', lines: [steps[step++]] });
+        timers.push(window.setTimeout(tick, 500));
+        return;
+      }
+      mockBackupJobs.delete(jobId);
+      emitBackup(
+        file.includes('erro')
+          ? {
+              jobId,
+              type: 'error',
+              message:
+                'pg_dump: error: connection to server failed: FATAL:  password authentication failed for user "app"',
+            }
+          : {
+              jobId,
+              type: 'done',
+              path: file,
+              sizeBytes: 3_456_789,
+              elapsedMs: steps.length * 500,
+              warnings: [],
+            },
+      );
+    };
+    timers.push(window.setTimeout(tick, 300));
+    mockBackupJobs.set(jobId, () => {
+      timers.forEach(timer => window.clearTimeout(timer));
+      emitBackup({ jobId, type: 'cancelled' });
+    });
+    return jobId;
+  },
+
+  /**
+   * `.sql` é script; com "invalido" no caminho, um arquivo que não é backup;
+   * o resto é um .dump com o resumo de sempre.
+   */
+  [RustCommand.RestoreInspect]: ({ path }: Args): RestoreInspection => {
+    const file = path as string;
+    if (file.includes('invalido')) {
+      throw 'Não parece um backup do PostgreSQL (.dump) nem um script SQL.';
+    }
+    if (file.endsWith('.sql')) {
+      return { path: file, format: 'plain', sizeBytes: 812_345, summary: null, summaryError: null };
+    }
+    return {
+      path: file,
+      format: 'custom',
+      sizeBytes: 3_456_789,
+      summary: {
+        database: 'loja',
+        serverVersion: '16.4 (Debian 16.4-1.pgdg120+1)',
+        pgDumpVersion: '17.2',
+        schemas: ['public', 'vendas'],
+        schemaCount: 2,
+        tableCount: 7,
+        viewCount: 1,
+        hasData: true,
+      },
+      summaryError: null,
+    };
+  },
+
+  [RustCommand.RestorePreview]: ({ request, path }: Args) => {
+    const restore = request as RestoreRequest;
+    const entry = requireServerEntry(restore.serverId);
+    const { options } = restore;
+    const connection = [
+      `--host=${entry.server.host}`,
+      `--port=${entry.server.port}`,
+      `--username=${entry.server.username}`,
+      `--dbname=${restore.database}`,
+    ];
+    if (restore.format === 'plain') {
+      return [
+        'psql --no-psqlrc --no-password',
+        ...(options.singleTransaction ? ['--set=ON_ERROR_STOP=1 --single-transaction'] : []),
+        `--file=${path as string}`,
+        ...connection,
+      ].join(' ');
+    }
+    return [
+      'pg_restore --verbose --no-password',
+      ...(options.noOwner ? ['--no-owner --no-privileges'] : []),
+      ...(options.clean ? ['--clean --if-exists'] : []),
+      ...(options.singleTransaction ? ['--single-transaction --exit-on-error'] : []),
+      ...connection,
+      path as string,
+    ].join(' ');
+  },
+
+  /** Restauração de mentira: sem "tudo ou nada", termina com um erro ignorado */
+  [RustCommand.RestoreStart]: ({ request, path }: Args) => {
+    const restore = request as RestoreRequest;
+    const jobId = `job-${++mockBackupSeq}`;
+    const steps = [
+      'pg_restore: connecting to database for restore',
+      'pg_restore: creating SCHEMA "vendas"',
+      'pg_restore: creating TABLE "public.pedidos"',
+      'pg_restore: processing data for table "public.pedidos"',
+      'pg_restore: creating CONSTRAINT "public.pedidos pedidos_pkey"',
+    ];
+    const timers: number[] = [];
+    let step = 0;
+    const tick = () => {
+      if (step < steps.length) {
+        emitBackup({ jobId, type: 'log', lines: [steps[step++]] });
+        timers.push(window.setTimeout(tick, 500));
+        return;
+      }
+      mockBackupJobs.delete(jobId);
+      emitBackup(
+        (path as string).includes('erro')
+          ? {
+              jobId,
+              type: 'error',
+              message: 'pg_restore: error: could not execute query: ERROR:  schema "vendas" already exists',
+            }
+          : {
+              jobId,
+              type: 'done',
+              path: '',
+              sizeBytes: 0,
+              elapsedMs: steps.length * 500,
+              warnings: restore.options.singleTransaction
+                ? []
+                : ['pg_restore: error: could not execute query: ERROR:  role "app" does not exist'],
+            },
+      );
+    };
+    timers.push(window.setTimeout(tick, 300));
+    mockBackupJobs.set(jobId, () => {
+      timers.forEach(timer => window.clearTimeout(timer));
+      emitBackup({ jobId, type: 'cancelled' });
+    });
+    return jobId;
+  },
+
+  [RustCommand.BackupCancel]: ({ jobId }: Args) => {
+    const cancel = mockBackupJobs.get(jobId as string);
+    mockBackupJobs.delete(jobId as string);
+    cancel?.();
   },
 };
 
@@ -777,6 +1088,12 @@ const pluginHandlers: Record<string, MockHandler> = {
     const { defaultPath } = (options ?? {}) as { defaultPath?: string };
     return `/tmp/${defaultPath ?? 'export'}`;
   },
+  // Escolha de pasta (ferramentas do Postgres): a do Homebrew; de arquivo
+  // (restauração): um .dump de exemplo
+  'plugin:dialog|open': ({ options }: Args) =>
+    (options as { directory?: boolean } | undefined)?.directory
+      ? '/opt/homebrew/opt/postgresql@16/bin'
+      : '/Users/voce/Downloads/loja_20261015_1432.dump',
 
   // Fora do Tauri quem escreve é o navegador, que pode recusar sem gesto do
   // usuário — no mock isso não é erro, o que importa é o fluxo ter chegado aqui.
@@ -810,6 +1127,10 @@ const pluginHandlers: Record<string, MockHandler> = {
   'plugin:opener|open_url': ({ url }: Args) => {
     window.open(url as string, '_blank', 'noopener');
   },
+  // Sem gerenciador de arquivos: só registra o pedido
+  'plugin:opener|reveal_item_in_dir': ({ path }: Args) => {
+    console.info('[octapus-mock] mostrar na pasta', path);
+  },
 };
 
 export const handlers: Record<string, MockHandler> = {
@@ -822,6 +1143,8 @@ export const handlers: Record<string, MockHandler> = {
   ...exportHandlers,
   ...sessionHandlers,
   ...settingsHandlers,
+  ...pgToolsHandlers,
+  ...backupHandlers,
   ...queryHandlers,
   ...pluginHandlers,
 };

@@ -26,6 +26,7 @@ Front (invoke) ──▶ commands/   handlers #[tauri::command], validam e deleg
                                 + fontes do catálogo (`introspect.rs` de cada banco)
                    storage/     SQLite local (servers, sessão) + vault (senhas criptografadas)
 Front (listen) ◀── evento `catalog-event` (progresso dos catálogos)
+                   evento `backup-event` (andamento de backup/restauração)
 ```
 
 - **`adapters/`** — toda conexão e execução de query vive aqui. Cada banco
@@ -511,6 +512,58 @@ só grava. JSON e SQL também podem ir para a área de transferência
 página carregada, reenvie `fetch_table_data` (ou `execute_query`) com
 `unlimited: true`.
 
+### Backup e restauração (Postgres — ferramentas nativas)
+
+| Comando | Args | Retorno |
+|---|---|---|
+| `pg_tools_detect` | — | `PgToolsDetection` (instalação em uso + todas as achadas) |
+| `pg_tools_status` | `{ serverId, database }` | `PgToolsStatus` (+ versão do servidor e `problem`) |
+| `backup_preview` | `{ request: BackupRequest }` | `{ command, fileName }` |
+| `backup_start` | `{ request, path }` | `jobId` |
+| `restore_inspect` | `{ path }` | `RestoreInspection` (formato + resumo do `.dump`) |
+| `restore_preview` | `{ request: RestoreRequest, path }` | linha de comando |
+| `restore_start` | `{ request, path }` | `jobId` |
+| `backup_cancel` | `{ jobId }` | `void` |
+
+Tudo em `services/backup/` + `commands/backup.rs`. Não passa pela trait
+`DatabaseAdapter`: o trabalho é de um processo externo (`pg_dump`, `pg_restore`, `psql`),
+não do pool. Só Postgres.
+
+- **Ferramentas** (`tools.rs`): a pasta das Preferências (`AppSettings.pgToolsDir`), se
+  houver, é a única que vale — inválida vira `configuredError`, sem cair em outra. Sem
+  ela: `PATH` e locais conhecidos (Homebrew, Postgres.app, EDB, MacPorts, PGDG, NixOS,
+  `Program Files`) — um app aberto pelo Finder não tem o Homebrew no `PATH`. Escolhe a
+  maior versão. O backup é bloqueado (`clientTooOld`) quando o `pg_dump` é de major
+  anterior à do servidor; a restauração não.
+- **Linha de comando** (`args.rs`, puro e testado): a **senha nunca vai no argv** (`ps`
+  mostra) — sai por `PGPASSWORD`; com `connectionUri`, a URI vai sem a senha e com o
+  database trocado. `PGSSLMODE` segue o `ssl_enabled` (`require`/`disable`, como o pool);
+  `PG*` herdadas do app são limpas. Nomes vão entre aspas no `-n`/`-t` (`"Vendas"."pedidos"`).
+  Combinações que o `pg_dump` recusaria ou ignoraria em silêncio viram erro.
+- **Jobs** (`runner.rs`): um processo por job; stdout e stderr viram log em lotes (200 ms
+  ou 200 linhas) no evento `backup-event` (`{ jobId, type: log | done | error | cancelled }`).
+  O backup grava em `arquivo.partial` e renomeia só no sucesso (erro/cancelamento apagam).
+  Sem "tudo ou nada", o `pg_restore` pula erros e sai com 1 — vira `done` com `warnings`.
+  No fim de uma restauração o catálogo do database é revalidado (`ensure_fresh`).
+- **Formato do arquivo** (`inspect.rs`): pelo conteúdo (`PGDMP` = custom), não pela
+  extensão; `.gz`, tar e pasta recebem mensagem própria. O resumo vem do
+  `pg_restore --list` (sem tocar em banco).
+- **`SET transaction_timeout`**: o `pg_dump`/`pg_restore` 17+ escrevem essa linha sempre,
+  e um servidor anterior ao 17 a recusa — no "tudo ou nada", a restauração inteira cai.
+  Com ferramentas 17+ e servidor < 17 (`needs_timeout_filter`), a restauração passa pelo
+  `psql --file=-` e o app filtra a linha: o `.sql` é lido pelo app; o `.dump` vem de
+  `pg_restore --file=-` (só gera o SQL). Se a fonte falhar no meio, o `psql` é morto
+  **antes** de ver o fim da entrada — um EOF faria ele confirmar o que chegou.
+- **Limitações conhecidas**: `pg_dump -t` não leva o schema da tabela (nem tipos, funções
+  e extensões) — o destino precisa tê-los; scripts do `pg_dump` 17.6+ trazem `\restrict`
+  (comando do `psql`, outros clientes SQL não entendem). Formatos tar/diretório, jobs
+  paralelos e dump global (roles) ficam de fora.
+
+Testes: unidade sem nada (`cargo test --lib backup`, com `pg_dump` falso em shell para o
+runner); ponta a ponta com o Postgres dos e2e e as ferramentas reais —
+`cargo test --lib backup::e2e -- --ignored` (pasta por `OCTAPUS_PG_TOOLS_DIR` ou a
+detecção normal; no macOS, `brew install libpq`).
+
 ### Sessão do workspace (abas abertas — SQLite local)
 
 | Comando | Args | Retorno |
@@ -534,7 +587,8 @@ um JSON **opaco** para o backend — formato e versão são do front
 tabela `app_settings` do `app.db`. Configuração nova = campo no struct, com o padrão no
 `Default`, e o tipo espelho em `src/api/types/settings.types.ts` — sem migração: o que
 nunca foi salvo (ou ficou ilegível) volta com o padrão. O tema **não** mora aqui: fica
-no `ui-store` (localStorage), lido antes da primeira pintura.
+no `ui-store` (localStorage), lido antes da primeira pintura. `pgToolsDir` é a pasta das
+ferramentas do Postgres (`null` = detectar sozinho — ver Backup e restauração).
 
 ### Auto-update — canal beta (só desktop)
 

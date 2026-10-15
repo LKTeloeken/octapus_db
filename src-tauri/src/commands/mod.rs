@@ -1,3 +1,4 @@
+mod backup;
 mod browse;
 mod catalog;
 mod export;
@@ -11,6 +12,7 @@ mod structure;
 #[cfg(desktop)]
 mod updater;
 
+pub use backup::*;
 pub use browse::*;
 pub use catalog::*;
 pub use export::*;

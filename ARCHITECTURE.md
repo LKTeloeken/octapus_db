@@ -11,7 +11,8 @@ veja [BACKEND.md](BACKEND.md) e [FRONTEND.md](FRONTEND.md).
 │        ↑ stores/ (Zustand: abas, árvore, tema)                                │
 └───────────────────────────────────┬──────────────────────────────────────────┘
                                      │  invoke('comando', { ...camelCase })
-                                     │  ▲ evento 'catalog-event' (progresso do catálogo)
+                                     │  ▲ eventos 'catalog-event' (progresso do catálogo)
+                                     │    e 'backup-event' (andamento de backup/restore)
                                      ▼
 ┌──────────────────────────── Backend (Rust / Tauri 2) ───────────────────────┐
 │  commands/   handlers #[tauri::command] — validam e delegam                   │
@@ -85,6 +86,15 @@ Os números estão em [perf/catalog/BASELINE.md](perf/catalog/BASELINE.md).
   databases/schemas visíveis) e "Copiar diagnóstico".
 
 O roteiro e as medições de cada fase estão em [perf/catalog/](perf/catalog/README.md).
+
+### Backup e restauração pelas ferramentas nativas
+Como pgAdmin, DBeaver e TablePlus, o app chama o `pg_dump`/`pg_restore`/`psql` instalados
+em vez de reescrever o dump: o backend acha as ferramentas (Preferências, `PATH`, locais
+conhecidos), monta a linha de comando (senha só por variável de ambiente), roda o
+processo como um job cancelável e manda o andamento pelo `backup-event`. O arquivo de
+backup só aparece no lugar quando termina bem (`.partial`). Ferramentas 17+ restaurando
+num servidor anterior ao 17 passam pelo `psql` com o `SET transaction_timeout` filtrado.
+Só Postgres. Detalhes em [BACKEND.md](BACKEND.md) (§4, Backup e restauração).
 
 ### Segredos / senhas
 As senhas são criptografadas por um **cofre próprio do app**

@@ -70,12 +70,15 @@ mod tests {
     #[test]
     fn save_then_load_round_trips() {
         let storage = memory_storage();
-        let settings = AppSettings { beta_updates: true };
+        let settings = AppSettings {
+            beta_updates: true,
+            pg_tools_dir: Some("/opt/homebrew/bin".into()),
+        };
 
         save(&storage, &settings).unwrap();
         assert_eq!(load(&storage).unwrap(), settings);
 
-        save(&storage, &AppSettings { beta_updates: false }).unwrap();
+        save(&storage, &AppSettings::default()).unwrap();
         assert!(!load(&storage).unwrap().beta_updates);
     }
 

@@ -1,4 +1,8 @@
 import type { QueryClient } from '@tanstack/react-query';
+import type {
+  BackupRequest,
+  RestoreRequest,
+} from '@/api/types/backup.types';
 import type { SortSpec } from '@/api/types/browse.types';
 import type { CatalogPath } from '@/api/types/catalog.types';
 import type { StructureChange } from '@/api/types/structure.types';
@@ -26,6 +30,23 @@ export const queryKeys = {
   servers: ['servers'] as const,
 
   settings: ['settings'] as const,
+
+  /** Ferramentas do Postgres — prefixo, invalidado ao trocar a pasta */
+  pgTools: ['pgTools'] as const,
+
+  pgToolsDetection: ['pgTools', 'detection'] as const,
+
+  pgToolsStatus: (serverId: number, database: string) =>
+    ['pgTools', 'status', serverId, database] as const,
+
+  backupPreview: (request: BackupRequest | null) =>
+    ['backupPreview', request] as const,
+
+  restoreInspection: (path: string | null) =>
+    ['restoreInspection', path] as const,
+
+  restorePreview: (request: RestoreRequest | null, path: string | null) =>
+    ['restorePreview', request, path] as const,
 
   capabilities: (serverId: number) => ['capabilities', serverId] as const,
 
@@ -173,6 +194,21 @@ export function invalidateServerScope(
 ) {
   return queryClient.invalidateQueries({
     predicate: query => query.queryKey[1] === serverId,
+  });
+}
+
+/**
+ * Tudo em cache de um database (key `[domínio, serverId, database, ...]`):
+ * depois de uma restauração, colunas, dados e catálogo podem ter mudado.
+ */
+export function invalidateDatabaseScope(
+  queryClient: QueryClient,
+  serverId: number,
+  database: string,
+) {
+  return queryClient.invalidateQueries({
+    predicate: query =>
+      query.queryKey[1] === serverId && query.queryKey[2] === database,
   });
 }
 

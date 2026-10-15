@@ -64,6 +64,16 @@ export enum RustCommand {
   GetSettings = 'get_settings',
   UpdateSettings = 'update_settings',
 
+  // Backup e restauração (ferramentas nativas do Postgres)
+  PgToolsDetect = 'pg_tools_detect',
+  PgToolsStatus = 'pg_tools_status',
+  BackupPreview = 'backup_preview',
+  BackupStart = 'backup_start',
+  BackupCancel = 'backup_cancel',
+  RestoreInspect = 'restore_inspect',
+  RestorePreview = 'restore_preview',
+  RestoreStart = 'restore_start',
+
   // Auto-update pelo canal beta (o estável usa o `check` do plugin)
   CheckBetaUpdate = 'check_beta_update',
 }
