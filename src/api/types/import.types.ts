@@ -63,7 +63,10 @@ export interface ImportCandidate {
 }
 
 export interface ImportPreview {
-  /** Identifica a prévia no commit (as senhas ficaram presas a ele) */
+  /**
+   * Identifica a prévia no commit (as senhas ficaram presas a ele). É um u32
+   * no Rust: precisa voltar exato, e um Number só é exato até 2^53
+   */
   token: number;
   source: ImportSource;
   path: string | null;

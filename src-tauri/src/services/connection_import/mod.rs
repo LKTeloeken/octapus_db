@@ -49,7 +49,7 @@ pub struct ConnectionImportService {
 }
 
 struct Pending {
-    token: u64,
+    token: u32,
     raws: Vec<RawConnection>,
 }
 
@@ -82,7 +82,7 @@ impl ConnectionImportService {
             }
         }
 
-        let token = rand::random::<u64>();
+        let token = rand::random::<u32>();
         *self.pending.lock() = Some(Pending { token, raws });
         Ok(ImportPreview {
             token,
@@ -95,7 +95,7 @@ impl ConnectionImportService {
 
     /// As conexões escolhidas da prévia (a prévia é consumida). Banco sem
     /// suporte fica de fora mesmo que venha na lista.
-    pub fn take(&self, token: u64, keys: &[usize]) -> Result<Vec<RawConnection>> {
+    pub fn take(&self, token: u32, keys: &[usize]) -> Result<Vec<RawConnection>> {
         let mut pending = self.pending.lock();
         match pending.as_ref() {
             Some(p) if p.token == token => {}
@@ -417,6 +417,29 @@ mod tests {
             .preview(&storage, ImportSource::Urls, None, again)
             .unwrap();
         assert_eq!(preview.candidates[0].duplicate_of, loja.id);
+    }
+
+    /// O token vai para o front e volta: tem de passar por um `Number` do
+    /// JavaScript (`f64`) sem mudar — o que um `u64` aleatório não fazia.
+    #[test]
+    fn token_survives_a_javascript_number() {
+        let storage = storage();
+        let service = ConnectionImportService::default();
+        for _ in 0..200 {
+            let preview = service
+                .preview(&storage, ImportSource::Urls, None, Vec::new())
+                .unwrap();
+            let json = serde_json::to_value(&preview).unwrap();
+            let as_js_number = json["token"].as_f64().unwrap();
+            assert_eq!(as_js_number as u64, u64::from(preview.token));
+            // O front devolve o número como recebeu; o `JSON.stringify` escreve
+            // o `Number` assim (o Display do f64 faz o mesmo para inteiros)
+            let body = format!(
+                r#"{{"token": {as_js_number}, "keys": [], "includePasswords": false, "keepGroups": false, "targetGroupId": null}}"#
+            );
+            let request: ImportCommitRequest = serde_json::from_str(&body).unwrap();
+            assert!(service.take(request.token, &request.keys).is_ok());
+        }
     }
 
     #[test]
