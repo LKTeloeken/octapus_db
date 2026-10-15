@@ -64,7 +64,7 @@ export function ReviewStep({
   const folderCount = result.groups.length;
 
   return (
-    <div className="flex min-h-0 flex-col gap-4">
+    <div className="flex min-h-0 min-w-0 flex-col gap-4">
       <div className="flex items-center gap-2.5 px-2.5">
         <Checkbox
           id="import-all"
@@ -72,17 +72,25 @@ export function ReviewStep({
           onCheckedChange={toggleAll}
           aria-label="Marcar todas"
         />
-        <Label htmlFor="import-all" className="flex-1 text-small text-fg-muted">
+        <Label
+          htmlFor="import-all"
+          className="shrink-0 text-small text-fg-muted"
+        >
           {candidates.length === 1
             ? `1 conexão de ${SOURCE_LABELS[result.source]}`
             : `${candidates.length} conexões de ${SOURCE_LABELS[result.source]}`}
         </Label>
         {result.path && (
+          // Sem largura em porcentagem: o WebKit a ignora ao medir o mínimo e
+          // o caminho inteiro empurrava o diálogo para fora. `rtl` corta o
+          // começo do caminho (o nome do arquivo é o que importa); a marca LRM
+          // mantém a barra inicial no lugar
           <span
-            className="max-w-[45%] truncate font-mono text-[11px] text-fg-subtle"
+            dir="rtl"
+            className="min-w-0 flex-1 truncate text-right font-mono text-[11px] text-fg-subtle"
             title={result.path}
           >
-            {result.path}
+            {`\u200E${result.path}`}
           </span>
         )}
       </div>

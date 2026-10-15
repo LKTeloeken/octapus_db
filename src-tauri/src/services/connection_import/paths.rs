@@ -13,21 +13,33 @@ pub fn dbeaver_root() -> Option<PathBuf> {
     }
 }
 
-/// Pastas `Data` do TablePlus (versão normal e a do Setapp). No Windows o app
-/// usa o `%LOCALAPPDATA%`.
-pub fn tableplus_data_dirs() -> Vec<PathBuf> {
-    let base = if cfg!(target_os = "windows") {
-        dirs::data_local_dir()
-    } else if cfg!(target_os = "macos") {
-        dirs::data_dir()
-    } else {
-        None // TablePlus para Linux não guarda em plist
+/// Onde o TablePlus guarda as conexões, em ordem de preferência:
+/// - macOS: `Connections.plist` na pasta `Data` (versão normal e a do Setapp);
+/// - Windows: o mesmo plist, no `%LOCALAPPDATA%`;
+/// - Linux: `~/.tableplus/settings/connections.json` (e onde ficaria se o app
+///   seguir o XDG, como pedem nas issues dele).
+pub fn tableplus_files() -> Vec<PathBuf> {
+    let plist_in = |base: Option<PathBuf>| -> Vec<PathBuf> {
+        let Some(base) = base else { return Vec::new() };
+        ["com.tinyapp.TablePlus", "com.tinyapp.TablePlus-setapp"]
+            .iter()
+            .map(|bundle| base.join(bundle).join("Data/Connections.plist"))
+            .collect()
     };
-    let Some(base) = base else { return Vec::new() };
-    ["com.tinyapp.TablePlus", "com.tinyapp.TablePlus-setapp"]
-        .iter()
-        .map(|bundle| base.join(bundle).join("Data"))
+    if cfg!(target_os = "macos") {
+        plist_in(dirs::data_dir())
+    } else if cfg!(target_os = "windows") {
+        plist_in(dirs::data_local_dir())
+    } else {
+        [
+            dirs::home_dir().map(|home| home.join(".tableplus/settings/connections.json")),
+            dirs::data_dir().map(|dir| dir.join("tableplus/connections.json")),
+            dirs::config_dir().map(|dir| dir.join("tableplus/connections.json")),
+        ]
+        .into_iter()
+        .flatten()
         .collect()
+    }
 }
 
 /// Banco de configuração do pgAdmin 4 (modo desktop).

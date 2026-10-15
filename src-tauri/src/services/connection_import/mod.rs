@@ -164,8 +164,13 @@ pub fn detect() -> Vec<ImportSourceInfo> {
             ImportSource::Tableplus,
             tableplus.into_iter().collect(),
             tableplus_count,
-            PasswordStorage::Keychain,
-            &["plist"],
+            // Só no macOS há Keychain; no Linux a senha vem se estiver no JSON
+            if cfg!(target_os = "macos") {
+                PasswordStorage::Keychain
+            } else {
+                PasswordStorage::None
+            },
+            &["plist", "json"],
         ),
         info(
             ImportSource::Pgadmin,

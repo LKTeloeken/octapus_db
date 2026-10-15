@@ -61,7 +61,10 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           // Sólido: superfície 3, raio 16 e sombra modal (DESIGN.md §8).
-          'fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border border-line bg-surface-3 p-6 text-fg shadow-modal sm:max-w-lg',
+          // Coluna `minmax(0, 1fr)`: com `auto`, um texto longo sem quebra (um
+          // caminho de arquivo truncado) alargava a coluna além do diálogo no
+          // WebKit, e o conteúdo e o rodapé vazavam para fora.
+          'fixed top-[50%] left-[50%] z-50 grid w-full grid-cols-[minmax(0,1fr)] max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border border-line bg-surface-3 p-6 text-fg shadow-modal sm:max-w-lg',
           DIALOG_MOTION,
           className,
         )}
