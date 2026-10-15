@@ -116,3 +116,13 @@ throw 'Connection error: connection refused';
 ```
 
 Para um erro pontual sem mexer em código, use o painel (`falhar: próximo`).
+
+## Edição de estrutura e colunas entre tenants
+
+[`structure.ts`](structure.ts) simula a DDL da árvore: a prévia imita o SQL do backend
+(a recriação de tabela do SQLite sai resumida) e o aplicar mexe nas tabelas do dataset,
+avisando a árvore com um `catalog-event`. O `saas` é gerado e não se edita. A comparação
+de dois schemas (`catalog_compare_schemas`) funciona em qualquer database Postgres do
+dataset; no `saas` há diferenças de propósito: `orders.discount` a mais nos múltiplos de
+250, `customers.status` varchar nos de 333 e 3 tabelas a menos nos de 100
+([`data/tenants.ts`](data/tenants.ts)).

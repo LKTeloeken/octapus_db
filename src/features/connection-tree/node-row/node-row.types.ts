@@ -7,6 +7,10 @@ export interface NodeRowAction {
   label: string;
   icon: IconSvgElement;
   onSelect: () => void;
+  /** Ação destrutiva (excluir): texto e ícone em `--danger` */
+  danger?: boolean;
+  /** Divisória antes da ação (separa grupos: navegar, estrutura, excluir) */
+  separated?: boolean;
 }
 
 export interface NodeRowProps {

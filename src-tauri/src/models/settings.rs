@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 pub struct AppSettings {
     /// Recebe também as pre-releases do GitHub no auto-update (canal beta).
     pub beta_updates: bool,
+    /// Pasta do `pg_dump`/`pg_restore`/`psql` escolhida pelo usuário; `None`
+    /// = detectar sozinho (ver `services/backup/tools.rs`).
+    pub pg_tools_dir: Option<String>,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -18,6 +21,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             beta_updates: false,
+            pg_tools_dir: None,
         }
     }
 }

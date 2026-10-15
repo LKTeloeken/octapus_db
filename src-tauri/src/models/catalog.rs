@@ -6,7 +6,8 @@
 use serde::{Deserialize, Serialize};
 
 pub use crate::catalog::{
-    CatalogNode, CatalogStats, DriftReport, NodeKind, Page, Resolution, SearchHit, ShapeGroup,
+    CatalogNode, CatalogStats, DriftReport, NodeKind, Page, Resolution, SchemaComparison,
+    SearchHit, ShapeGroup,
 };
 use crate::catalog::CatalogPath;
 

@@ -14,7 +14,7 @@ mod perf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use models::CATALOG_EVENT;
+use models::{BACKUP_EVENT, CATALOG_EVENT};
 use state::AppState;
 use storage::init_storage;
 use tauri::{Builder, Emitter, Manager, WindowEvent};
@@ -49,6 +49,10 @@ pub fn run() {
                     let _ = events.emit(CATALOG_EVENT, event);
                 }),
             );
+            let events = app.handle().clone();
+            state.backups.init(Arc::new(move |event| {
+                let _ = events.emit(BACKUP_EVENT, event);
+            }));
             app.manage(state);
 
             // Manutenção: catálogos vencidos saem do disco na partida; a cada
@@ -109,6 +113,8 @@ pub fn run() {
             commands::list_columns,
             commands::list_indexes,
             commands::list_schemas_with_tables,
+            commands::preview_structure_change,
+            commands::apply_structure_change,
             // Catálogo de metadados (árvore, busca, autocomplete em escala)
             commands::catalog_open,
             commands::catalog_status,
@@ -117,6 +123,7 @@ pub fn run() {
             commands::catalog_resolve,
             commands::catalog_complete,
             commands::catalog_drift,
+            commands::catalog_compare_schemas,
             commands::catalog_refresh,
             commands::catalog_cancel,
             commands::catalog_relation_size,
@@ -128,6 +135,15 @@ pub fn run() {
             // Preferências do app
             commands::get_settings,
             commands::update_settings,
+            // Backup e restauração (ferramentas nativas do Postgres)
+            commands::pg_tools_detect,
+            commands::pg_tools_status,
+            commands::backup_preview,
+            commands::backup_start,
+            commands::backup_cancel,
+            commands::restore_inspect,
+            commands::restore_preview,
+            commands::restore_start,
             // Auto-update pelo canal beta (o estável usa o `check` do plugin)
             #[cfg(desktop)]
             commands::check_beta_update,

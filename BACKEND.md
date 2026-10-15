@@ -26,6 +26,7 @@ Front (invoke) ──▶ commands/   handlers #[tauri::command], validam e deleg
                                 + fontes do catálogo (`introspect.rs` de cada banco)
                    storage/     SQLite local (servers, sessão) + vault (senhas criptografadas)
 Front (listen) ◀── evento `catalog-event` (progresso dos catálogos)
+                   evento `backup-event` (andamento de backup/restauração)
 ```
 
 - **`adapters/`** — toda conexão e execução de query vive aqui. Cada banco
@@ -93,6 +94,12 @@ listagem inteira (com o tamanho de cada tabela) levava o backend ao OOM.
   - A senha só é decifrada ao criar a entrada do catálogo (cache-miss).
 - **Eventos** `catalog-event` (`models/catalog.rs`): `syncing`, `schemas` (camada 0),
   `relations`, `ready` (com `added`/`removed`/`changed`), `error`, `cancelled`.
+
+- **Comparação entre dois schemas** (`catalog/columns.rs` + `CatalogSource::relation_columns`):
+  as relações de cada schema vêm do catálogo (carregadas se preciso); só as colunas das
+  tabelas em comum vão ao banco, numa consulta pelos pares (schema, tabela), com o próprio
+  schema tirado de tipos e defaults (a sequência de cada tenant não é diferença). Fontes
+  sem schema respondem `UnsupportedType`.
 
 **Para mexer:** consulta nova → método em `Catalog` (`catalog/query.rs`) + comando em
 `commands/catalog.rs`; banco novo → implementar `CatalogSource` e incluir em
@@ -344,6 +351,16 @@ interface CatalogDriftReport {
   divergent: { schemas: SchemaGroup; missing: string[]; extra: string[] }[];
 }
 
+// Dois schemas comparados (`catalog_compare_schemas`); `base` é a referência.
+interface ColumnSpec { dataType: string; nullable: boolean; defaultValue: string | null } // sem o próprio schema
+interface SchemaComparison {
+  base: string; other: string;
+  onlyInBase: string[]; onlyInOther: string[];   // tabelas (sem partições)
+  common: number;                                // tabelas nos dois
+  different: { table: string;                    // das comuns, as com colunas diferentes
+               changes: { column: string; expected: ColumnSpec | null; actual: ColumnSpec | null }[] }[];
+}
+
 // "Copiar diagnóstico": só contagens e tempos, nenhum nome
 interface CatalogDiagnostics {
   appVersion: string;
@@ -411,7 +428,20 @@ interface AdapterCapabilities {
 | `list_columns` | `{ serverId, database, schema, table }` | `ColumnInfo[]` |
 | `list_indexes` | `{ serverId, database, schema, table }` | `IndexInfo[]` |
 | `list_schemas_with_tables` | `{ serverId, database }` | `DatabaseStructure` *(só Redis)* |
+| `preview_structure_change` | `{ serverId, database, change: StructureChange }` | `string[]` — o SQL, sem aplicar *(Postgres e SQLite)* |
+| `apply_structure_change` | `{ serverId, database, change: StructureChange }` | `StatementResult` — numa transação; recarrega o schema no catálogo aberto *(Postgres e SQLite)* |
 
+> **Edição da estrutura (DDL) pela árvore:** `StructureChange` (`models/structure.rs`) é
+> `createTable`, `renameTable`, `dropTable` (`kind` + `cascade`), `addColumn`,
+> `alterColumn` (`original` → `updated`: só o que mudou vira statement) ou `dropColumn`.
+> Os statements são montados no backend (`adapters/postgres/ddl.rs`,
+> `adapters/sqlite/ddl.rs`, peças comuns em `adapters/ddl.rs`): identificadores citados,
+> tipo validado (sem `;`, aspas ou comentário) e default parseado como **uma** expressão.
+> No SQLite, mudar tipo/nulo/default de uma coluna **recria a tabela** (lang_altertable
+> §7): a `CREATE TABLE` original é alterada só na coluna, os dados são copiados e índices e
+> triggers voltam; foreign keys desligadas durante e conferidas antes do commit. A prévia
+> roda numa transação desfeita (o rename que antecede a recriação precisa existir para ela).
+>
 > `list_databases` devolve **só os nomes** em Postgres e Mongo (`sizeBytes: null` — o
 > tamanho de cada database custava de segundos a minutos) e já aplica o escopo
 > `scopeDatabases`; `list_schemas` aplica o `scopeSchemas`. `list_columns`/`list_indexes`
@@ -433,6 +463,7 @@ por chamada.
 | `catalog_complete` | `{ serverId, database, schema?, prefix, limit }` | `CatalogNode[]` | só para carregar o schema |
 | `catalog_shapes` | `{ serverId, database }` | `ShapeGroup[]` | não (vazio = sem formato repetido) |
 | `catalog_drift` | `{ serverId, database }` | `CatalogDriftReport` | não |
+| `catalog_compare_schemas` | `{ serverId, database, base, other }` | `SchemaComparison` | sim: só as colunas das tabelas comuns, pela faixa de prioridade (só Postgres) |
 | `catalog_refresh` | `{ serverId, database, schema? }` | `CatalogStatus` | sim: um schema na hora, ou o database em 2º plano |
 | `catalog_cancel` | `{ serverId, database }` | `boolean` | interrompe a sincronização em andamento |
 | `catalog_relation_size` | `{ serverId, database, schema, table }` | `number \| null` | sim (só da tabela aberta) |
@@ -481,6 +512,58 @@ só grava. JSON e SQL também podem ir para a área de transferência
 página carregada, reenvie `fetch_table_data` (ou `execute_query`) com
 `unlimited: true`.
 
+### Backup e restauração (Postgres — ferramentas nativas)
+
+| Comando | Args | Retorno |
+|---|---|---|
+| `pg_tools_detect` | — | `PgToolsDetection` (instalação em uso + todas as achadas) |
+| `pg_tools_status` | `{ serverId, database }` | `PgToolsStatus` (+ versão do servidor e `problem`) |
+| `backup_preview` | `{ request: BackupRequest }` | `{ command, fileName }` |
+| `backup_start` | `{ request, path }` | `jobId` |
+| `restore_inspect` | `{ path }` | `RestoreInspection` (formato + resumo do `.dump`) |
+| `restore_preview` | `{ request: RestoreRequest, path }` | linha de comando |
+| `restore_start` | `{ request, path }` | `jobId` |
+| `backup_cancel` | `{ jobId }` | `void` |
+
+Tudo em `services/backup/` + `commands/backup.rs`. Não passa pela trait
+`DatabaseAdapter`: o trabalho é de um processo externo (`pg_dump`, `pg_restore`, `psql`),
+não do pool. Só Postgres.
+
+- **Ferramentas** (`tools.rs`): a pasta das Preferências (`AppSettings.pgToolsDir`), se
+  houver, é a única que vale — inválida vira `configuredError`, sem cair em outra. Sem
+  ela: `PATH` e locais conhecidos (Homebrew, Postgres.app, EDB, MacPorts, PGDG, NixOS,
+  `Program Files`) — um app aberto pelo Finder não tem o Homebrew no `PATH`. Escolhe a
+  maior versão. O backup é bloqueado (`clientTooOld`) quando o `pg_dump` é de major
+  anterior à do servidor; a restauração não.
+- **Linha de comando** (`args.rs`, puro e testado): a **senha nunca vai no argv** (`ps`
+  mostra) — sai por `PGPASSWORD`; com `connectionUri`, a URI vai sem a senha e com o
+  database trocado. `PGSSLMODE` segue o `ssl_enabled` (`require`/`disable`, como o pool);
+  `PG*` herdadas do app são limpas. Nomes vão entre aspas no `-n`/`-t` (`"Vendas"."pedidos"`).
+  Combinações que o `pg_dump` recusaria ou ignoraria em silêncio viram erro.
+- **Jobs** (`runner.rs`): um processo por job; stdout e stderr viram log em lotes (200 ms
+  ou 200 linhas) no evento `backup-event` (`{ jobId, type: log | done | error | cancelled }`).
+  O backup grava em `arquivo.partial` e renomeia só no sucesso (erro/cancelamento apagam).
+  Sem "tudo ou nada", o `pg_restore` pula erros e sai com 1 — vira `done` com `warnings`.
+  No fim de uma restauração o catálogo do database é revalidado (`ensure_fresh`).
+- **Formato do arquivo** (`inspect.rs`): pelo conteúdo (`PGDMP` = custom), não pela
+  extensão; `.gz`, tar e pasta recebem mensagem própria. O resumo vem do
+  `pg_restore --list` (sem tocar em banco).
+- **`SET transaction_timeout`**: o `pg_dump`/`pg_restore` 17+ escrevem essa linha sempre,
+  e um servidor anterior ao 17 a recusa — no "tudo ou nada", a restauração inteira cai.
+  Com ferramentas 17+ e servidor < 17 (`needs_timeout_filter`), a restauração passa pelo
+  `psql --file=-` e o app filtra a linha: o `.sql` é lido pelo app; o `.dump` vem de
+  `pg_restore --file=-` (só gera o SQL). Se a fonte falhar no meio, o `psql` é morto
+  **antes** de ver o fim da entrada — um EOF faria ele confirmar o que chegou.
+- **Limitações conhecidas**: `pg_dump -t` não leva o schema da tabela (nem tipos, funções
+  e extensões) — o destino precisa tê-los; scripts do `pg_dump` 17.6+ trazem `\restrict`
+  (comando do `psql`, outros clientes SQL não entendem). Formatos tar/diretório, jobs
+  paralelos e dump global (roles) ficam de fora.
+
+Testes: unidade sem nada (`cargo test --lib backup`, com `pg_dump` falso em shell para o
+runner); ponta a ponta com o Postgres dos e2e e as ferramentas reais —
+`cargo test --lib backup::e2e -- --ignored` (pasta por `OCTAPUS_PG_TOOLS_DIR` ou a
+detecção normal; no macOS, `brew install libpq`).
+
 ### Sessão do workspace (abas abertas — SQLite local)
 
 | Comando | Args | Retorno |
@@ -504,7 +587,8 @@ um JSON **opaco** para o backend — formato e versão são do front
 tabela `app_settings` do `app.db`. Configuração nova = campo no struct, com o padrão no
 `Default`, e o tipo espelho em `src/api/types/settings.types.ts` — sem migração: o que
 nunca foi salvo (ou ficou ilegível) volta com o padrão. O tema **não** mora aqui: fica
-no `ui-store` (localStorage), lido antes da primeira pintura.
+no `ui-store` (localStorage), lido antes da primeira pintura. `pgToolsDir` é a pasta das
+ferramentas do Postgres (`null` = detectar sozinho — ver Backup e restauração).
 
 ### Auto-update — canal beta (só desktop)
 

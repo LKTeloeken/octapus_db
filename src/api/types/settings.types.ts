@@ -6,4 +6,9 @@
 export interface AppSettings {
   /** Recebe também as pre-releases do GitHub no auto-update (canal beta) */
   betaUpdates: boolean;
+  /**
+   * Pasta do `pg_dump`/`pg_restore`/`psql` escolhida pelo usuário; `null` =
+   * detectar sozinho
+   */
+  pgToolsDir: string | null;
 }

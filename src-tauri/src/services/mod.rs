@@ -1,3 +1,4 @@
+pub mod backup;
 mod catalog;
 mod connection;
 mod query;

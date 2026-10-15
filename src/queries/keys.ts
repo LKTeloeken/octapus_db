@@ -1,6 +1,11 @@
 import type { QueryClient } from '@tanstack/react-query';
+import type {
+  BackupRequest,
+  RestoreRequest,
+} from '@/api/types/backup.types';
 import type { SortSpec } from '@/api/types/browse.types';
 import type { CatalogPath } from '@/api/types/catalog.types';
+import type { StructureChange } from '@/api/types/structure.types';
 
 /** Identidade de um nó do catálogo dentro da key (`\u0000` não aparece em nomes) */
 export function catalogPathKey(path: CatalogPath): string {
@@ -25,6 +30,23 @@ export const queryKeys = {
   servers: ['servers'] as const,
 
   settings: ['settings'] as const,
+
+  /** Ferramentas do Postgres — prefixo, invalidado ao trocar a pasta */
+  pgTools: ['pgTools'] as const,
+
+  pgToolsDetection: ['pgTools', 'detection'] as const,
+
+  pgToolsStatus: (serverId: number, database: string) =>
+    ['pgTools', 'status', serverId, database] as const,
+
+  backupPreview: (request: BackupRequest | null) =>
+    ['backupPreview', request] as const,
+
+  restoreInspection: (path: string | null) =>
+    ['restoreInspection', path] as const,
+
+  restorePreview: (request: RestoreRequest | null, path: string | null) =>
+    ['restorePreview', request, path] as const,
 
   capabilities: (serverId: number) => ['capabilities', serverId] as const,
 
@@ -98,6 +120,27 @@ export const queryKeys = {
   catalogSearch: (query: string, limit: number, schema: string | null = null) =>
     ['catalog-search', query, limit, schema] as const,
 
+  /**
+   * Comparação entre dois schemas. Fora do prefixo `catalog`: um evento de
+   * sincronização não refaz a consulta (que vai ao banco).
+   */
+  schemaComparisonScope: (serverId: number, database: string) =>
+    ['schema-comparison', serverId, database] as const,
+
+  schemaComparison: (
+    serverId: number,
+    database: string,
+    base: string,
+    other: string,
+  ) => ['schema-comparison', serverId, database, base, other] as const,
+
+  /** SQL de uma mudança de estrutura, antes de aplicar (a key é a mudança) */
+  structurePreview: (
+    serverId: number,
+    database: string,
+    change: StructureChange | null,
+  ) => ['structure-preview', serverId, database, change] as const,
+
   columns: (
     serverId: number,
     database: string,
@@ -151,6 +194,21 @@ export function invalidateServerScope(
 ) {
   return queryClient.invalidateQueries({
     predicate: query => query.queryKey[1] === serverId,
+  });
+}
+
+/**
+ * Tudo em cache de um database (key `[domínio, serverId, database, ...]`):
+ * depois de uma restauração, colunas, dados e catálogo podem ter mudado.
+ */
+export function invalidateDatabaseScope(
+  queryClient: QueryClient,
+  serverId: number,
+  database: string,
+) {
+  return queryClient.invalidateQueries({
+    predicate: query =>
+      query.queryKey[1] === serverId && query.queryKey[2] === database,
   });
 }
 

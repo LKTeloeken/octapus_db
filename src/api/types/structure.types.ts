@@ -50,3 +50,61 @@ export interface DatabaseStructure {
   /** Epoch in ms */
   fetchedAt: number;
 }
+
+// ── Edição da estrutura pela árvore (Postgres e SQLite) ─────────────────────
+
+/** Uma coluna como o diálogo descreve; tipo e default são SQL do próprio banco */
+export interface ColumnDefinition {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  defaultValue: string | null;
+  /** Só na criação (tabela ou coluna nova) */
+  primaryKey: boolean;
+}
+
+export type RelationKind = 'table' | 'view' | 'materializedView' | 'foreign';
+
+/** `schema` é null nos bancos sem schema (SQLite) */
+export type StructureChange =
+  | {
+      type: 'createTable';
+      schema: string | null;
+      table: string;
+      columns: ColumnDefinition[];
+    }
+  | {
+      type: 'renameTable';
+      schema: string | null;
+      table: string;
+      newName: string;
+    }
+  | {
+      type: 'dropTable';
+      schema: string | null;
+      table: string;
+      kind: RelationKind;
+      /** Postgres: leva junto o que depende dela */
+      cascade: boolean;
+    }
+  | {
+      type: 'addColumn';
+      schema: string | null;
+      table: string;
+      column: ColumnDefinition;
+    }
+  | {
+      type: 'alterColumn';
+      schema: string | null;
+      table: string;
+      /** Como a coluna estava: só o que mudou vira statement */
+      original: ColumnDefinition;
+      updated: ColumnDefinition;
+    }
+  | {
+      type: 'dropColumn';
+      schema: string | null;
+      table: string;
+      column: string;
+      cascade: boolean;
+    };

@@ -22,6 +22,10 @@ export enum RustCommand {
   ListIndexes = 'list_indexes',
   ListSchemasWithTables = 'list_schemas_with_tables',
 
+  // Edição da estrutura (tabelas e colunas) pela árvore
+  PreviewStructureChange = 'preview_structure_change',
+  ApplyStructureChange = 'apply_structure_change',
+
   // Catálogo de metadados (árvore, busca, autocomplete em escala)
   CatalogOpen = 'catalog_open',
   CatalogStatus = 'catalog_status',
@@ -30,6 +34,7 @@ export enum RustCommand {
   CatalogResolve = 'catalog_resolve',
   CatalogComplete = 'catalog_complete',
   CatalogDrift = 'catalog_drift',
+  CatalogCompareSchemas = 'catalog_compare_schemas',
   CatalogRefresh = 'catalog_refresh',
   CatalogCancel = 'catalog_cancel',
   CatalogRelationSize = 'catalog_relation_size',
@@ -58,6 +63,16 @@ export enum RustCommand {
   // Preferências do app
   GetSettings = 'get_settings',
   UpdateSettings = 'update_settings',
+
+  // Backup e restauração (ferramentas nativas do Postgres)
+  PgToolsDetect = 'pg_tools_detect',
+  PgToolsStatus = 'pg_tools_status',
+  BackupPreview = 'backup_preview',
+  BackupStart = 'backup_start',
+  BackupCancel = 'backup_cancel',
+  RestoreInspect = 'restore_inspect',
+  RestorePreview = 'restore_preview',
+  RestoreStart = 'restore_start',
 
   // Auto-update pelo canal beta (o estável usa o `check` do plugin)
   CheckBetaUpdate = 'check_beta_update',

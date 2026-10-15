@@ -1,10 +1,17 @@
 import {
   Add01Icon,
+  ColumnInsertIcon,
+  DatabaseExportIcon,
+  DatabaseImportIcon,
+  Delete02Icon,
   Edit01Icon,
+  GitCompareIcon,
   LayoutGridIcon,
   ListViewIcon,
+  PencilEdit02Icon,
   RefreshIcon,
   Stethoscope02Icon,
+  Table01Icon,
 } from '@hugeicons/core-free-icons';
 import { useQueries, type UseQueryResult } from '@tanstack/react-query';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
@@ -12,6 +19,7 @@ import { useMemo, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { getCapabilities } from '@/api/connection';
 import { listColumns, listDatabases, listSchemasWithTables } from '@/api/structure';
+import type { BackupTarget } from '@/api/types/backup.types';
 import type { AdapterCapabilities } from '@/api/types/capabilities.types';
 import {
   FLAT_SCHEMA,
@@ -42,7 +50,12 @@ import {
 import { useCatalogEvents } from '@/queries/use-catalog-events';
 import { queryKeys } from '@/queries/keys';
 import { STRUCTURE_STALE_TIME_MS } from '@/providers/query-provider';
+import { useBackupDialogStore } from '@/stores/backup-dialog-store';
 import { useFocusStore } from '@/stores/focus-store';
+import {
+  useStructureEditorStore,
+  type StructureTarget,
+} from '@/stores/structure-editor-store';
 import { useTabsStore } from '@/stores/tabs-store';
 import { useTreeStore } from '@/stores/tree-store';
 import { formatCatalogDiagnostics } from '@/lib/catalog-diagnostics';
@@ -50,6 +63,7 @@ import { DEFAULT_DATABASES } from '@/lib/db-defaults';
 import { formatCount } from '@/lib/format-count';
 import { decodeNodeId, encodeNodeId, nodeKind, type NodeRef } from '@/lib/node-ref';
 import type { ConnectionTreeProps, FlatRow } from './connection-tree.types';
+import type { NodeRowAction } from './node-row/node-row.types';
 import { driftBadge, shapeGroupRow } from './shape-labels';
 
 const structureQueryOptions = {
@@ -68,6 +82,20 @@ const columnsKey = (
 ) => `${serverId}|${database}|${schema ?? ''}|${table}`;
 
 const dbKey = (ref: NodeRef) => `${ref.serverId}|${ref.database}`;
+
+/** Bancos cuja estrutura (tabelas e colunas) se edita pela árvore */
+const canEditStructure = (dbType: DatabaseType | undefined) =>
+  dbType === 'postgres' || dbType === 'sqlite';
+
+/** Relações que têm colunas próprias para editar (views e externas não) */
+const hasEditableColumns = (kind: CatalogNodeKind | undefined) =>
+  kind === undefined || kind === 'table' || kind === 'partitioned';
+
+/** Há formato repetido entre os schemas (algum molde de tenant): só aí vale agrupar */
+const hasRepeatedShapes = (status: CatalogStatus | undefined) => {
+  const stats = status?.stats;
+  return !!stats && stats.loaded + stats.stale > stats.shapes && stats.shapes > 0;
+};
 const schemaKey = (ref: NodeRef) => `${ref.serverId}|${ref.database}|${ref.schema}`;
 
 /**
@@ -108,6 +136,8 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
   // A aba de tabela tem o mesmo id do nó da árvore: basta comparar.
   const activeTabId = useTabsStore(state => state.activeTabId);
   const requestFocus = useFocusStore(state => state.requestFocus);
+  const openStructureDialog = useStructureEditorStore(state => state.open);
+  const openBackupDialog = useBackupDialogStore(state => state.open);
   const { refreshServer, refreshDatabase, refreshSchema, refreshTable } =
     useRefreshStructure();
   // Última janela de cada nó. O `keepPreviousData` não vale no `useQueries`:
@@ -126,6 +156,10 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
       new Set(
         servers.filter(server => hasCatalog(server.dbType)).map(server => server.id),
       ),
+    [servers],
+  );
+  const dbTypes = useMemo(
+    () => new Map(servers.map(server => [server.id, server.dbType])),
     [servers],
   );
   const flatServerIds = useMemo(
@@ -510,6 +544,84 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
     return { total: matching.length, offset: 0, items: matching.slice(0, limit) };
   };
 
+  /** Onde a árvore edita a estrutura; null nos bancos sem edição */
+  const structureTarget = (
+    serverId: number,
+    database: string,
+    schema: string | null,
+  ): StructureTarget | null => {
+    const dbType = dbTypes.get(serverId);
+    return canEditStructure(dbType)
+      ? { serverId, database, dbType: dbType!, schema }
+      : null;
+  };
+
+  /** Nova coluna, renomear e excluir, no menu de uma tabela */
+  const tableStructureActions = (
+    target: StructureTarget | null,
+    table: string,
+    relationKind: CatalogNodeKind | undefined,
+  ): NodeRowAction[] => {
+    if (!target) return [];
+    const isTable = hasEditableColumns(relationKind);
+    const isView = relationKind === 'view' || relationKind === 'materializedView';
+    return [
+      ...(isTable
+        ? [
+            {
+              label: 'Nova coluna',
+              icon: ColumnInsertIcon,
+              separated: true,
+              onSelect: () => openStructureDialog({ kind: 'addColumn', target, table }),
+            },
+            {
+              label: 'Renomear',
+              icon: PencilEdit02Icon,
+              onSelect: () => openStructureDialog({ kind: 'renameTable', target, table }),
+            },
+          ]
+        : []),
+      {
+        label: isView ? 'Excluir view' : 'Excluir tabela',
+        icon: Delete02Icon,
+        danger: true,
+        separated: true,
+        onSelect: () =>
+          openStructureDialog({ kind: 'dropTable', target, table, relationKind }),
+      },
+    ];
+  };
+
+  /** Backup pelo pg_dump do nó (database, schema ou tabela) — só Postgres */
+  const backupAction = (
+    serverId: number,
+    database: string,
+    target: BackupTarget,
+  ): NodeRowAction[] =>
+    dbTypes.get(serverId) === 'postgres'
+      ? [
+          {
+            label: 'Fazer backup…',
+            icon: DatabaseExportIcon,
+            separated: true,
+            onSelect: () =>
+              openBackupDialog({ kind: 'backup', serverId, database, target }),
+          },
+        ]
+      : [];
+
+  /** Comparar dois schemas (aberto num schema, ele já é a base) */
+  const compareAction = (
+    serverId: number,
+    database: string,
+    base: string | null,
+  ): NodeRowAction => ({
+    label: 'Comparar schemas',
+    icon: GitCompareIcon,
+    onSelect: () =>
+      openStructureDialog({ kind: 'compareSchemas', serverId, database, base }),
+  });
+
   const pushTable = (
     serverId: number,
     database: string,
@@ -529,6 +641,8 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
     const key = columnsKey(serverId, database, schema, table);
     const partitioned = relationKind === 'partitioned';
     const childQuery = partitioned ? partitionsByKey.get(key) : columnsByKey.get(key);
+    const target = structureTarget(serverId, database, schema);
+    const columnsEditable = !!target && hasEditableColumns(relationKind);
 
     rows.push({
       variant: 'node',
@@ -565,6 +679,10 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
                 title: table,
               }),
           },
+          ...(schema
+            ? backupAction(serverId, database, { kind: 'table', schema, table })
+            : []),
+          ...tableStructureActions(target, table, relationKind),
         ],
       },
       // Pelo teclado o Enter só abre a tabela: expandir/colapsar as colunas já
@@ -616,24 +734,73 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
           name: column.name,
           subLabel: `${column.dataType}${column.isPrimaryKey ? ' (PK)' : ''}`,
           hasChildren: false,
+          actions: columnsEditable
+            ? [
+                {
+                  label: 'Editar coluna',
+                  icon: PencilEdit02Icon,
+                  onSelect: () =>
+                    openStructureDialog({
+                      kind: 'editColumn',
+                      target: target!,
+                      table,
+                      column,
+                    }),
+                },
+                {
+                  label: 'Excluir coluna',
+                  icon: Delete02Icon,
+                  danger: true,
+                  separated: true,
+                  onSelect: () =>
+                    openStructureDialog({
+                      kind: 'dropColumn',
+                      target: target!,
+                      table,
+                      column: column.name,
+                    }),
+                },
+              ]
+            : undefined,
         },
       });
     }
   };
 
-  const schemaActions = (serverId: number, database: string, schema: string) => [
-    {
-      label: 'Atualizar',
-      icon: RefreshIcon,
-      onSelect: () => void refreshSchema(serverId, database, schema),
-    },
-    {
-      label: 'Nova aba',
-      icon: Add01Icon,
-      onSelect: () =>
-        openQueryTab({ serverId, database, schema, title: schema }),
-    },
-  ];
+  const schemaActions = (
+    serverId: number,
+    database: string,
+    schema: string,
+  ): NodeRowAction[] => {
+    const target = structureTarget(serverId, database, schema);
+    return [
+      {
+        label: 'Atualizar',
+        icon: RefreshIcon,
+        onSelect: () => void refreshSchema(serverId, database, schema),
+      },
+      {
+        label: 'Nova aba',
+        icon: Add01Icon,
+        onSelect: () =>
+          openQueryTab({ serverId, database, schema, title: schema }),
+      },
+      ...(target
+        ? [
+            {
+              label: 'Nova tabela',
+              icon: Table01Icon,
+              separated: true,
+              onSelect: () => openStructureDialog({ kind: 'createTable', target }),
+            },
+          ]
+        : []),
+      ...(dbTypes.get(serverId) === 'postgres'
+        ? [compareAction(serverId, database, schema)]
+        : []),
+      ...backupAction(serverId, database, { kind: 'schema', schema }),
+    ];
+  };
 
   const openSizeFor = (serverId: number, database: string, schema: string, table: string) =>
     openRef?.serverId === serverId &&
@@ -819,10 +986,12 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
   ) => {
     const dbNodeId = encodeNodeId({ serverId, database });
     // Só vale agrupar quando há formato repetido (algum molde de tenant)
-    const stats = status?.stats;
-    const repeats =
-      !!stats && stats.loaded + stats.stale > stats.shapes && stats.shapes > 0;
+    const repeats = hasRepeatedShapes(status);
     const grouped = shapeGrouped.has(dbNodeId);
+    // Sem schema (SQLite), a tabela nova nasce direto no database
+    const flatTarget = isFlatCatalog(dbType)
+      ? structureTarget(serverId, database, null)
+      : null;
     return [
       ...(!isFlatCatalog(dbType) && (repeats || grouped)
         ? [
@@ -830,6 +999,28 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
               label: grouped ? 'Lista simples' : 'Agrupar por formato',
               icon: grouped ? ListViewIcon : LayoutGridIcon,
               onSelect: () => toggleShapeGrouping(dbNodeId),
+            },
+          ]
+        : []),
+      ...(dbType === 'postgres' ? [compareAction(serverId, database, null)] : []),
+      ...backupAction(serverId, database, { kind: 'database' }),
+      ...(dbType === 'postgres'
+        ? [
+            {
+              label: 'Restaurar backup…',
+              icon: DatabaseImportIcon,
+              onSelect: () =>
+                openBackupDialog({ kind: 'restore', serverId, database }),
+            },
+          ]
+        : []),
+      ...(flatTarget
+        ? [
+            {
+              label: 'Nova tabela',
+              icon: Table01Icon,
+              onSelect: () =>
+                openStructureDialog({ kind: 'createTable', target: flatTarget }),
             },
           ]
         : []),

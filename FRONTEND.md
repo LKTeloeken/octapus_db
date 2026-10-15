@@ -61,7 +61,7 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
 | `use-servers` | CRUD de servidores |
 | `use-capabilities` | `get_capabilities` |
 | `use-databases` / `use-columns` / `use-indexes` | databases, colunas e índices (sob demanda) |
-| `use-catalog` | catálogo do backend: `catalogStatusQuery` (abre com `catalog_open`), `catalogChildrenQuery`, `catalogShapesQuery`, `useCatalogSearch`, `useCatalogRelationSize`, `useCatalogRefresh`, `useCatalogDiagnostics`; `hasCatalog`/`isFlatCatalog` dizem quem usa |
+| `use-catalog` | catálogo do backend: `catalogStatusQuery` (abre com `catalog_open`), `catalogChildrenQuery`, `catalogShapesQuery`, `useCatalogSearch`, `useCatalogRelationSize`, `useCatalogRefresh`, `useCatalogDiagnostics`, `useSchemaComparison` (dois schemas, key `schema-comparison` fora do prefixo do catálogo); `hasCatalog`/`isFlatCatalog` dizem quem usa |
 | `use-catalog-events` | liga o `catalog-event` às invalidações (montado pela árvore) |
 | `use-refresh-structure` | "Atualizar" da árvore (servidor, database, schema, tabela) |
 | `use-structure` | estrutura inteira — só Redis (os demais usam o catálogo) |
@@ -69,6 +69,7 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
 | `use-execute-query` | editor livre |
 | `use-apply-row-edits` | `apply_row_edits` / `insert_rows` / `delete_rows` |
 | `use-write-export-file` | `write_export_file` (exportação da grade) |
+| `use-structure-change` | `preview_structure_change` (prévia do SQL) e `apply_structure_change` (DDL da árvore) |
 
 - **Query keys** centralizadas em [queries/keys.ts](src/queries/keys.ts). Mutações
   invalidam a key da tabela afetada → refetch automático.
@@ -92,6 +93,7 @@ Só estado de **UI**, nada que o backend possa fornecer:
 | `focus-store` | pedido de foco do teclado entre a árvore e a grade |
 | `ui-store` | tema e flags de UI |
 | `command-palette-store` | paleta de comandos aberta/fechada — aberta pelo `Cmd/Ctrl+K`, pela busca da sidebar e pelo botão Comandos — e o schema fixado nela (em memória, sobrevive ao fechar) |
+| `structure-editor-store` | diálogo de estrutura aberto pelo menu da árvore (criar/renomear/excluir tabela, nova/editar/excluir coluna, comparar dois schemas) |
 | `value-panel-store` | painel de valor da aba de tabela: aberto/fechado e preferências de formatação (global, persistido) |
 
 **Sessão das abas** ([stores/tabs-session.ts](src/stores/tabs-session.ts)): as abas
@@ -146,6 +148,32 @@ palette, dentro do `QueryProvider`.
   Tamanho só da tabela aberta (`catalog_relation_size`). Rótulos dos grupos e do aviso em
   [shape-labels.ts](src/features/connection-tree/shape-labels.ts). O Redis segue com a
   estrutura inteira (`use-structure`).
+- **`structure-editor`** — DDL pela árvore (Postgres e SQLite), aberto pelo menu dos nós
+  (`structure-editor-store`, montado na sidebar): **schema** (ou o database, no SQLite) →
+  "Nova tabela"; **tabela** → "Nova coluna", "Renomear", "Excluir tabela/view" (CASCADE
+  opcional no Postgres); **coluna** (clique direito) → "Editar coluna", "Excluir coluna".
+  Todo diálogo mostra o SQL que o backend vai rodar (`SqlPreview`, prévia com debounce de
+  250 ms — erro de validação aparece ali) e só aplica com a prévia em dia. Depois de
+  aplicar, o backend recarrega o schema no catálogo (o `catalog-event` atualiza a árvore);
+  renomear/excluir fecha a aba da tabela. No SQLite, mudar tipo/nulo/default avisa que a
+  tabela é recriada.
+- **`schema-compare`** — "Comparar schemas" no menu de um database ou schema Postgres
+  (num schema, ele já vem como base): escolhe a base e o outro (sugestões do catálogo,
+  filtradas pelo que se digita), e o modal lista as tabelas que só um tem e, nas comuns,
+  as colunas que diferem — só na base, só no outro ou com tipo, nulo ou default
+  diferente. Rótulos em [change-labels.ts](src/features/schema-compare/change-labels.ts).
+- **`backup`** — backup e restauração do Postgres pelas ferramentas nativas. Menu da
+  árvore: "Fazer backup…" em database, schema e tabela; "Restaurar backup…" no database
+  (`backup-dialog-store`, montado no shell por `BackupDialogs`). O diálogo de backup
+  escolhe formato (`.dump`/`.sql`), conteúdo e opções — `normalizeBackupOptions` desliga
+  o que não combina — e mostra a linha de comando do backend (`CommandPreview`). O de
+  restauração lê o arquivo (`restore_inspect`: formato e resumo do `.dump`), oferece
+  "Ignorar dono", "Apagar objetos existentes" (pede confirmação) e "Tudo ou nada". Os
+  dois checam as ferramentas (`usePgToolsStatus`). Ao iniciar, o diálogo fecha e o job
+  vira um card no canto (`BackupJobs` → um `toast.custom` por job, lendo o
+  `backup-jobs-store`, alimentado pelo `backup-event` em `useBackupEvents`): log,
+  cancelar, "Mostrar na pasta", erros ignorados. Fim de restauração invalida o cache do
+  database (`invalidateDatabaseScope`).
 - **`server-form`** — criar/editar servidor. A senha **nunca** volta do backend: no modo
   edição o campo começa vazio e deve ser redigitado. **Escopo** opcional: "Databases
   visíveis" e, no Postgres, "Schemas visíveis" (padrões com `*`, `?` e `!` para excluir —
@@ -156,7 +184,9 @@ palette, dentro do `QueryProvider`.
   é uma `SettingRow`. Os valores vêm de `useSettings`/`useUpdateSettings` (SQLite do
   backend, `get_settings`/`update_settings`) — menos o tema, que segue no `ui-store`.
   A preferência **versões beta** muda o canal do `update-notifier` (`checkForUpdate` em
-  `src/api/updater.ts`); ligá-la checa na hora.
+  `src/api/updater.ts`); ligá-la checa na hora. A seção **PostgreSQL** mostra o
+  `pg_dump` em uso (`usePgToolsDetection`) e deixa escolher a pasta ou voltar à detecção
+  automática (`useSetPgToolsDir`, que refaz a busca).
 - **`query-tabs`** — gerencia abas; cada aba é um editor livre (`query-editor`) ou um
   browse (`table-browser`).
 - **`query-editor`** — editor CodeMirror + execução; `use-query-runner` roda a query,

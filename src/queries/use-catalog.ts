@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 import {
   catalogChildren,
+  catalogCompareSchemas,
   catalogDiagnostics,
   catalogOpen,
   catalogRefresh,
@@ -187,5 +188,38 @@ export function useCatalogRefresh() {
         });
       }
     },
+  });
+}
+
+/**
+ * `other` comparado com `base` (sem par, não vai ao backend). Refaz a cada
+ * abertura do diálogo; fora do prefixo do catálogo e sem retry.
+ */
+export function useSchemaComparison(
+  target: {
+    serverId: number;
+    database: string;
+    base: string;
+    other: string;
+  } | null,
+) {
+  return useQuery({
+    queryKey: queryKeys.schemaComparison(
+      target?.serverId ?? -1,
+      target?.database ?? '',
+      target?.base ?? '',
+      target?.other ?? '',
+    ),
+    queryFn: () =>
+      catalogCompareSchemas(
+        target!.serverId,
+        target!.database,
+        target!.base,
+        target!.other,
+      ),
+    enabled: target !== null,
+    staleTime: 0,
+    gcTime: 60_000,
+    retry: false,
   });
 }

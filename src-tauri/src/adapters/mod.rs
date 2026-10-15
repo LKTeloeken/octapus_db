@@ -1,3 +1,4 @@
+pub mod ddl;
 mod message_sink;
 mod traits;
 pub mod mongo;

@@ -1,4 +1,5 @@
 mod browse;
+mod ddl;
 mod executor;
 pub(crate) mod introspect;
 mod metadata;
@@ -176,6 +177,14 @@ impl DatabaseAdapter for SqliteAdapter {
     ) -> Result<Vec<StatementResult>> {
         self.with_conn(move |conn| executor::execute_transaction(conn, statements))
             .await
+    }
+
+    async fn structure_change_sql(&self, change: StructureChange) -> Result<Vec<String>> {
+        self.with_conn(move |conn| ddl::preview(conn, &change)).await
+    }
+
+    async fn apply_structure_change(&self, change: StructureChange) -> Result<StatementResult> {
+        self.with_conn(move |conn| ddl::apply(conn, &change)).await
     }
 
     async fn list_databases(&self) -> Result<Vec<DatabaseInfo>> {

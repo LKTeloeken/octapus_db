@@ -23,8 +23,9 @@ use futures_util::future::BoxFuture;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 
 use crate::catalog::{
-    stable_hash, Catalog, CatalogKey, CatalogSource, CatalogStore, LoadState, Loaded,
-    SearchHit, SourceCanceller, Strategy, SyncEvent, SyncReport,
+    common_relations, compare_schemas, stable_hash, Catalog, CatalogKey, CatalogSource,
+    CatalogStore, LoadState, Loaded, SchemaComparison, SearchHit, SourceCanceller, Strategy,
+    SyncEvent, SyncReport,
 };
 use crate::error::{Error, Result};
 use crate::models::{
@@ -438,6 +439,36 @@ impl CatalogService {
             *lane = None;
         }
         result
+    }
+
+    /// `other` comparado com `base`: tabelas que só um tem e, nas comuns, as
+    /// colunas que diferem. Carrega os dois schemas se preciso e lê as colunas
+    /// das tabelas comuns pela faixa de prioridade (uma consulta indexada).
+    pub async fn compare_schemas(
+        &self,
+        entry: &Arc<CatalogEntry>,
+        base: &str,
+        other: &str,
+    ) -> Result<SchemaComparison> {
+        self.ensure_schemas(entry, &[base.to_string(), other.to_string()]).await?;
+        let (base_tables, other_tables) = {
+            let catalog = entry.read();
+            let names = |schema: &str| {
+                catalog
+                    .relation_names(schema)
+                    .ok_or_else(|| Error::NotFound(format!("Schema {schema} not found")))
+            };
+            (names(base)?, names(other)?)
+        };
+
+        let wanted = common_relations(base, &base_tables, other, &other_tables);
+        let mut lane = entry.priority_lane.lock().await;
+        let source = open_lane(entry, &mut lane).await?;
+        let result = source.relation_columns(&wanted).await;
+        if result.is_err() && source.is_closed() {
+            *lane = None;
+        }
+        Ok(compare_schemas(base, &base_tables, other, &other_tables, &result?))
     }
 
     /// Recarrega um schema (refresh manual): continua visível com o conteúdo

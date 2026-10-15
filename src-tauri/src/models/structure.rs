@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -79,4 +79,94 @@ pub struct TableStructure {
     /// Tamanho total em disco (dados + índices), quando o banco informa.
     /// `None` para views e bancos sem suporte (Redis, SQLite).
     pub size_bytes: Option<i64>,
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// Edição da estrutura (DDL) pela árvore
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Uma coluna como o diálogo da árvore descreve. Tipo e default são trechos de
+/// SQL do próprio banco (`varchar(80)`, `now()`): o backend valida que são um
+/// tipo e uma expressão, não monta nem traduz.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnDefinition {
+    pub name: String,
+    pub data_type: String,
+    pub nullable: bool,
+    #[serde(default)]
+    pub default_value: Option<String>,
+    /// Só vale na criação (tabela ou coluna nova)
+    #[serde(default)]
+    pub primary_key: bool,
+}
+
+/// O que se remove: a árvore lista tabelas e views juntas.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RelationKind {
+    #[default]
+    Table,
+    View,
+    MaterializedView,
+    Foreign,
+}
+
+/// Uma mudança de estrutura pedida pela árvore. `schema` é `null` nos bancos
+/// sem schema (SQLite). Cada uma vira um ou mais statements, aplicados numa
+/// transação — e mostrados antes, no diálogo.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum StructureChange {
+    CreateTable {
+        schema: Option<String>,
+        table: String,
+        columns: Vec<ColumnDefinition>,
+    },
+    RenameTable {
+        schema: Option<String>,
+        table: String,
+        new_name: String,
+    },
+    DropTable {
+        schema: Option<String>,
+        table: String,
+        #[serde(default)]
+        kind: RelationKind,
+        /// Postgres: leva junto o que depende dela (views, FKs)
+        #[serde(default)]
+        cascade: bool,
+    },
+    AddColumn {
+        schema: Option<String>,
+        table: String,
+        column: ColumnDefinition,
+    },
+    /// `original` é como a coluna estava quando o diálogo abriu: só o que
+    /// mudou vira statement
+    AlterColumn {
+        schema: Option<String>,
+        table: String,
+        original: ColumnDefinition,
+        updated: ColumnDefinition,
+    },
+    DropColumn {
+        schema: Option<String>,
+        table: String,
+        column: String,
+        #[serde(default)]
+        cascade: bool,
+    },
+}
+
+impl StructureChange {
+    pub fn schema(&self) -> Option<&str> {
+        match self {
+            Self::CreateTable { schema, .. }
+            | Self::RenameTable { schema, .. }
+            | Self::DropTable { schema, .. }
+            | Self::AddColumn { schema, .. }
+            | Self::AlterColumn { schema, .. }
+            | Self::DropColumn { schema, .. } => schema.as_deref(),
+        }
+    }
 }

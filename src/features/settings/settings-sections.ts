@@ -1,5 +1,10 @@
-import { Download04Icon, PaintBoardIcon } from '@hugeicons/core-free-icons';
+import {
+  DatabaseIcon,
+  Download04Icon,
+  PaintBoardIcon,
+} from '@hugeicons/core-free-icons';
 import { AppearanceSection } from './sections/appearance-section';
+import { PgToolsSection } from './sections/pg-tools-section';
 import { UpdatesSection } from './sections/updates-section';
 import type { SettingsSection } from './settings-dialog.types';
 
@@ -16,6 +21,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: 'Tema e visual do app.',
     icon: PaintBoardIcon,
     Component: AppearanceSection,
+  },
+  {
+    id: 'pg-tools',
+    label: 'PostgreSQL',
+    description: 'Programas do PostgreSQL usados no backup e na restauração.',
+    icon: DatabaseIcon,
+    Component: PgToolsSection,
   },
   {
     id: 'updates',

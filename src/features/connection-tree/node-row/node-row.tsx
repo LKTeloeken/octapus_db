@@ -11,7 +11,7 @@ import {
   ViewIcon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { memo, useState } from 'react';
+import { Fragment, memo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -71,6 +71,9 @@ export const NodeRow = memo(
     const hasActions = !!actions?.length;
     const hasSize = sizeBytes != null;
     const isServer = kind === 'server';
+    // Sem botão: o tamanho ocupa o lugar dele, e numa coluna o nome e o tipo
+    // precisam da largura toda — o menu abre pelo clique direito
+    const contextMenuOnly = hasSize || kind === 'column';
 
     return (
       <div
@@ -80,7 +83,7 @@ export const NodeRow = memo(
           isOpen ? 'bg-active text-fg' : 'hover:bg-hover hover:text-fg',
           isFocused && 'ring-[1.5px] ring-inset ring-ring',
           // Espaço reservado para o botão absoluto de ações
-          hasActions && !hasSize && 'pr-8',
+          hasActions && !contextMenuOnly && 'pr-8',
         )}
         style={{ paddingLeft: `${6 + level * 14}px` }}
         onClick={onClick}
@@ -151,8 +154,8 @@ export const NodeRow = memo(
 
         {hasActions && (
           <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-            {hasSize ? (
-              // Sem botão: o menu do clique direito abre ancorado no tamanho
+            {contextMenuOnly ? (
+              // Sem botão: o menu do clique direito abre ancorado à direita
               <PopoverAnchor className="absolute right-2 h-6" />
             ) : (
               <div
@@ -177,23 +180,35 @@ export const NodeRow = memo(
             )}
             <PopoverContent className="w-48 p-1.5" align="end">
               {actions.map(action => (
-                <Button
-                  key={action.label}
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-start gap-2 px-2 font-normal text-fg hover:bg-active"
-                  onClick={event => {
-                    event.stopPropagation();
-                    action.onSelect();
-                    setIsMenuOpen(false);
-                  }}
-                >
-                  <HugeiconsIcon
-                    icon={action.icon}
-                    className="size-4 text-fg-muted"
-                  />
-                  {action.label}
-                </Button>
+                <Fragment key={action.label}>
+                  {action.separated && (
+                    <div role="separator" className="-mx-1.5 my-1 h-px bg-line-subtle" />
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      'w-full justify-start gap-2 px-2 font-normal',
+                      action.danger
+                        ? 'text-danger hover:bg-danger-soft hover:text-danger'
+                        : 'text-fg hover:bg-active',
+                    )}
+                    onClick={event => {
+                      event.stopPropagation();
+                      action.onSelect();
+                      setIsMenuOpen(false);
+                    }}
+                  >
+                    <HugeiconsIcon
+                      icon={action.icon}
+                      className={cn(
+                        'size-4',
+                        action.danger ? 'text-danger' : 'text-fg-muted',
+                      )}
+                    />
+                    {action.label}
+                  </Button>
+                </Fragment>
               ))}
             </PopoverContent>
           </Popover>

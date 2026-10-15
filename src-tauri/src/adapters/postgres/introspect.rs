@@ -29,8 +29,8 @@ use tokio_postgres::types::{ToSql, Type};
 use tokio_postgres::{Client, Row};
 
 use crate::catalog::{
-    Catalog, CatalogSource, LoadState, NameScope, RelKind, SchemaDiff, SchemaHeader,
-    SourceCanceller, Strategy, SyncEvent, SyncReport, TableRecord,
+    Catalog, CatalogSource, ColumnSpec, LoadState, NameScope, RelKind, RelationColumns,
+    SchemaDiff, SchemaHeader, SourceCanceller, Strategy, SyncEvent, SyncReport, TableRecord,
 };
 use crate::error::{Error, Result};
 use crate::models::Server;
@@ -203,6 +203,32 @@ impl Sql {
             tables_all: tables(""),
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comparação entre schemas
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Tira o próprio schema de um tipo ou default: cada tenant aponta para a sua
+/// sequência (`nextval('tenant_1.orders_id_seq'::regclass)`) e os seus tipos
+/// (`tenant_1.status`), e isso não é diferença.
+fn unqualified(expr: &str, schema: &str) -> String {
+    format!("replace(replace({expr}, quote_ident({schema}) || '.', ''), {schema} || '.', '')")
+}
+
+/// Colunas de pares (schema, tabela) — `$1` e `$2`, na mesma posição.
+fn relation_columns_sql() -> String {
+    let data_type = unqualified("format_type(a.atttypid, a.atttypmod)", "n.nspname");
+    let default = unqualified("pg_get_expr(d.adbin, d.adrelid)", "n.nspname");
+    format!(
+        "SELECT p.s, p.t, a.attname::text, {data_type}, NOT a.attnotnull, {default}
+         FROM unnest($1::text[], $2::text[]) AS p(s, t)
+         JOIN pg_namespace n ON n.nspname = p.s
+         JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = p.t
+         JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+         LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+         ORDER BY p.s, p.t, a.attnum"
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -741,6 +767,61 @@ impl Introspector {
         .await
     }
 
+    /// Colunas de pares (schema, tabela) — os dois lados da comparação.
+    pub async fn relation_columns(&mut self, relations: &[(String, String)]) -> Result<RelationColumns> {
+        let mut columns = RelationColumns::new();
+        if relations.is_empty() {
+            return Ok(columns);
+        }
+        let schemas: Vec<&str> = relations.iter().map(|(schema, _)| schema.as_str()).collect();
+        let tables: Vec<&str> = relations.iter().map(|(_, table)| table.as_str()).collect();
+        let rows = self
+            .read_rows(
+                &relation_columns_sql(),
+                &[
+                    (&schemas as &(dyn ToSql + Sync), Type::TEXT_ARRAY),
+                    (&tables as &(dyn ToSql + Sync), Type::TEXT_ARRAY),
+                ],
+            )
+            .await?;
+
+        for row in &rows {
+            let key: (String, String) = (row.try_get(0)?, row.try_get(1)?);
+            let column = (
+                row.try_get::<_, String>(2)?,
+                ColumnSpec {
+                    data_type: row.try_get(3)?,
+                    nullable: row.try_get(4)?,
+                    default_value: row.try_get(5)?,
+                },
+            );
+            columns.entry(key).or_default().push(column);
+        }
+        Ok(columns)
+    }
+
+    /// Linhas de uma consulta ao catálogo, na transação só-leitura de sempre.
+    async fn read_rows(&mut self, sql: &str, params: &[(&(dyn ToSql + Sync), Type)]) -> Result<Vec<Row>> {
+        self.cancelled.store(false, Ordering::SeqCst);
+        let begin = self.begin_sql();
+        let result: std::result::Result<Vec<Row>, Failure> = async {
+            let (begun, rows, _) = tokio::join!(
+                self.client.batch_execute(&begin),
+                self.client.query_typed(sql, params),
+                self.client.batch_execute("ROLLBACK"),
+            );
+            begun?;
+            Ok(rows?)
+        }
+        .await;
+
+        match self.finish(result, true).await {
+            Ok(rows) => Ok(rows),
+            Err(Failure::Other(error)) => Err(error),
+            Err(Failure::Unsupported) => Err(Error::UnsupportedDatabase(self.info.version.clone())),
+        }
+    }
+
     async fn single_value(&mut self, sql: &str, params: &[(&(dyn ToSql + Sync), Type)]) -> Result<Option<i64>> {
         self.cancelled.store(false, Ordering::SeqCst);
         let begin = self.begin_sql();
@@ -789,6 +870,10 @@ impl CatalogSource for Introspector {
 
     async fn relation_size(&mut self, schema: &str, table: &str) -> Result<Option<i64>> {
         Introspector::relation_size(self, schema, table).await
+    }
+
+    async fn relation_columns(&mut self, relations: &[(String, String)]) -> Result<RelationColumns> {
+        Introspector::relation_columns(self, relations).await
     }
 
     fn canceller(&self) -> Box<dyn SourceCanceller> {
@@ -871,6 +956,14 @@ mod tests {
         assert!(!pg10.contains("jit"));
         let redshift = begin_sql(&ServerInfo::from_version("PostgreSQL 8.0.2, Redshift 1.0"), &options);
         assert!(!redshift.contains("jit"));
+    }
+
+    #[test]
+    fn schema_comparison_only_reads_the_catalog() {
+        let sql = relation_columns_sql();
+        // O schema de cada lado sai do tipo e do default
+        assert!(sql.contains("replace(replace(pg_get_expr(d.adbin, d.adrelid), quote_ident(n.nspname)"));
+        assert!(!sql.contains("relation_size") && !sql.contains("pg_stat"));
     }
 
     #[test]
