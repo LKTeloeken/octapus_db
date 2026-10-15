@@ -20,10 +20,10 @@ export const MOCK_IMPORT_SOURCES: ImportSourceInfo[] = [
   },
   {
     source: 'tableplus',
-    path: '/Users/voce/Library/Application Support/com.tinyapp.TablePlus/Data/Connections.plist',
-    count: 3,
+    path: '/Users/fulano-de-tal/Library/Application Support/com.tinyapp.TablePlus/Data/Connections.plist',
+    count: 4,
     passwords: 'keychain',
-    fileExtensions: ['plist'],
+    fileExtensions: ['plist', 'json'],
   },
   {
     source: 'pgadmin',
@@ -124,6 +124,13 @@ const FIXTURES: Record<Exclude<ImportSource, 'urls'>, Fixture[]> = {
       username: 'app',
       connectionUri:
         'mongodb+srv://app:•••@cluster0.exemplo.mongodb.net/eventos',
+      hasPassword: false,
+    }),
+    // Banco sem suporte: nem a senha do Keychain é lida
+    base('Engenharia de dados', null, 'MySQL', {
+      port: 3306,
+      username: 'lucas',
+      defaultDatabase: 'exercicio1',
       hasPassword: false,
     }),
   ],

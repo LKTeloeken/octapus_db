@@ -1,3 +1,4 @@
+import { Cancel as AlertDialogCancelPrimitive } from '@radix-ui/react-alert-dialog';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -33,9 +34,12 @@ export function DeleteGroupDialog({
         </AlertDialogHeader>
 
         <AlertDialogFooter>
-          <Button variant="ghost" size="sm" onClick={close}>
-            Cancelar
-          </Button>
+          {/* O Cancel do Radix recebe o foco ao abrir: Enter não exclui por engano */}
+          <AlertDialogCancelPrimitive asChild>
+            <Button variant="ghost" size="sm">
+              Cancelar
+            </Button>
+          </AlertDialogCancelPrimitive>
           <Button
             variant="destructive"
             size="sm"

@@ -1,5 +1,5 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { Server } from '@/api/types/server.types';
 import { useServers } from '@/queries/use-servers';
 import { useCommandPaletteStore } from '@/stores/command-palette-store';
@@ -17,6 +17,8 @@ export const useSidebar = () => {
   const { data: servers } = useServers();
   const setPaletteOpen = useCommandPaletteStore(state => state.setOpen);
   const openGroupDialog = useServerGroupDialogStore(state => state.open);
+  /** Ação escolhida no menu "+", à espera de o menu terminar de fechar */
+  const pendingMenuAction = useRef<(() => void) | null>(null);
   const openImport = useImportDialogStore(state => state.open);
 
   const openCreateForm = useCallback((groupId: number | null) => {
@@ -43,6 +45,29 @@ export const useSidebar = () => {
     setIsFormOpen(false);
   }, []);
 
+  /**
+   * Os itens do menu "+" abrem diálogos modais, e abrir o diálogo enquanto o
+   * menu ainda fecha deixava as duas camadas do Radix brigando: o foco caía no
+   * body (Esc parava de funcionar) e o `pointer-events: none` do body podia
+   * sobrar depois de fechar o diálogo, travando o app. O item só marca a
+   * ação; ela roda quando o menu terminou de fechar (`onCloseAutoFocus`).
+   */
+  const fromMenu = useCallback(
+    (action: () => void) => () => {
+      pendingMenuAction.current = action;
+    },
+    [],
+  );
+
+  const onMenuCloseAutoFocus = useCallback((event: Event) => {
+    const action = pendingMenuAction.current;
+    pendingMenuAction.current = null;
+    if (!action) return;
+    // O foco vai para o diálogo, não de volta ao "+"
+    event.preventDefault();
+    action();
+  }, []);
+
   const openPalette = useCallback(() => setPaletteOpen(true), [setPaletteOpen]);
 
   // Abre no navegador do sistema: um <a target="_blank"> no webview do Tauri
@@ -61,6 +86,8 @@ export const useSidebar = () => {
     openCreateForm,
     openCreateGroup,
     openImport,
+    fromMenu,
+    onMenuCloseAutoFocus,
     openEditForm,
     closeForm,
     openPalette,

@@ -177,7 +177,8 @@ pub fn to_candidate(key: usize, raw: &RawConnection, existing: &[Server]) -> Imp
     let mapped = map(raw);
     let mut warnings = mapped.warnings;
     let has_password = matches!(raw.secret, Secret::Plain(_));
-    let in_keychain = matches!(raw.secret, Secret::Keychain { .. });
+    // Banco sem suporte não é importado: a senha dele nunca é lida
+    let in_keychain = matches!(raw.secret, Secret::Keychain { .. }) && mapped.db_type.is_some();
     // URI com credencial não precisa de senha à parte; SQLite não tem senha
     let needs_password = mapped.db_type.is_some()
         && mapped.db_type != Some(DatabaseType::Sqlite)
@@ -392,9 +393,16 @@ mod tests {
             ]
         );
 
-        let mysql = RawConnection::new("Legado", "MySQL");
+        let mysql = RawConnection {
+            secret: Secret::Keychain {
+                service: "s",
+                account: "a".into(),
+            },
+            ..RawConnection::new("Legado", "MySQL")
+        };
         let candidate = to_candidate(1, &mysql, &[]);
         assert_eq!(candidate.db_type, None);
+        assert!(!candidate.password_in_keychain);
         assert!(candidate
             .warnings
             .contains(&ImportWarning::UnsupportedType {

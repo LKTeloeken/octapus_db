@@ -41,7 +41,7 @@ export function SourceStep({
   readUrls,
 }: SourceStepProps) {
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex min-w-0 flex-col gap-5">
       <div className="flex flex-col gap-1">
         {isDetecting && (
           <div className="flex items-center gap-2 px-2 py-3 text-small text-fg-subtle">

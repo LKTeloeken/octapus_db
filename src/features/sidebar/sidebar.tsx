@@ -41,6 +41,8 @@ export const Sidebar = memo(() => {
     openCreateForm,
     openCreateGroup,
     openImport,
+    fromMenu,
+    onMenuCloseAutoFocus,
     openEditForm,
     closeForm,
     openPalette,
@@ -67,7 +69,9 @@ export const Sidebar = memo(() => {
           </>
         )}
         <span className="flex-1" />
-        <DropdownMenu>
+        {/* Cada item abre um diálogo modal, só depois de o menu fechar (ver
+            `fromMenu`). Sem modal, o menu nem mexe no `pointer-events` do body. */}
+        <DropdownMenu modal={false}>
           <Tooltip content="Adicionar" position="bottom">
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" aria-label="Adicionar">
@@ -75,17 +79,21 @@ export const Sidebar = memo(() => {
               </Button>
             </DropdownMenuTrigger>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem onSelect={() => openCreateForm(null)}>
+          <DropdownMenuContent
+            align="end"
+            className="w-48"
+            onCloseAutoFocus={onMenuCloseAutoFocus}
+          >
+            <DropdownMenuItem onSelect={fromMenu(() => openCreateForm(null))}>
               <HugeiconsIcon icon={ServerStack01Icon} />
               Novo servidor
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={openCreateGroup}>
+            <DropdownMenuItem onSelect={fromMenu(openCreateGroup)}>
               <HugeiconsIcon icon={FolderAddIcon} />
               Novo grupo
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={openImport}>
+            <DropdownMenuItem onSelect={fromMenu(openImport)}>
               <HugeiconsIcon icon={FileImportIcon} />
               Importar conexões…
             </DropdownMenuItem>
