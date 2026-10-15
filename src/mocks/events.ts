@@ -27,9 +27,19 @@ export function unregisterListener(event: string, eventId: number): void {
   listeners.get(event)?.delete(eventId);
 }
 
+/** O `@tauri-apps/api` 2.11 guarda os callbacks num mapa e roda por id */
+type TauriInternals = {
+  runCallback?: (id: number, data: unknown) => void;
+};
+
 export function mockEmit(event: string, payload: unknown): void {
   const target = window as unknown as CallbackWindow;
+  const internals = (window as unknown as { __TAURI_INTERNALS__?: TauriInternals })
+    .__TAURI_INTERNALS__;
   listeners.get(event)?.forEach((handler, id) => {
-    target[`_${handler}`]?.({ event, id, payload });
+    const message = { event, id, payload };
+    // Antes do 2.11 o callback ficava em `window._<id>`
+    if (internals?.runCallback) internals.runCallback(handler, message);
+    else target[`_${handler}`]?.(message);
   });
 }

@@ -11,17 +11,26 @@ import {
   type CatalogSearchHit,
   type CatalogStatus,
   type CatalogDiagnostics,
+  type ColumnChange,
+  type ColumnSpec,
+  type SchemaComparison,
   type SchemaDrift,
   type ShapeGroup,
 } from '@/api/types/catalog.types';
 import type { TableType } from '@/api/types/structure.types';
 import { fuzzyMatch } from '@/lib/fuzzy';
-import { requireDatabase, requireServerEntry, type MockDatabase } from './data';
+import {
+  requireDatabase,
+  requireServerEntry,
+  type MockColumn,
+  type MockDatabase,
+} from './data';
 import {
   SAAS_PUBLIC_TABLES,
   TENANT_COUNT,
   tenantIndex,
   tenantSchema,
+  tenantTable,
   tenantTables,
 } from './data/tenants';
 import { mockEmit } from './events';
@@ -698,6 +707,80 @@ function drift(serverId: number, database: string): CatalogDriftReport {
   };
 }
 
+const columnSpec = (column: MockColumn): ColumnSpec => ({
+  dataType: column.dataType,
+  nullable: column.isNullable,
+  defaultValue: column.defaultValue,
+});
+
+/** Colunas de uma tabela de um schema do dataset (o `saas` gera na hora) */
+function columnsOf(db: MockDatabase, schema: string, table: string): MockColumn[] {
+  const found =
+    db.generated === 'tenants'
+      ? tenantTable(schema, table)
+      : db.tables.find(t => t.schema === schema && t.name === table);
+  return found?.columns ?? [];
+}
+
+/** As mesmas regras do `catalog/columns.rs`: pelo nome, base → outro */
+function columnChanges(base: MockColumn[], other: MockColumn[]): ColumnChange[] {
+  const otherByName = new Map(other.map(column => [column.name, column]));
+  const baseNames = new Set(base.map(column => column.name));
+  const changes: ColumnChange[] = [];
+  for (const column of base) {
+    const found = otherByName.get(column.name);
+    const expected = columnSpec(column);
+    const actual = found ? columnSpec(found) : null;
+    if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+      changes.push({ column: column.name, expected, actual });
+    }
+  }
+  for (const column of other) {
+    if (!baseNames.has(column.name)) {
+      changes.push({ column: column.name, expected: null, actual: columnSpec(column) });
+    }
+  }
+  return changes;
+}
+
+/**
+ * Dois schemas comparados. No `saas` há diferenças de propósito
+ * (`data/tenants.ts`): `orders.discount` nos múltiplos de 250, `customers.status`
+ * varchar nos de 333 e 3 tabelas a menos nos de 100.
+ */
+async function compareSchemas(
+  serverId: number,
+  database: string,
+  base: string,
+  other: string,
+): Promise<SchemaComparison> {
+  const { shape } = context(serverId, database);
+  const db = requireDatabase(requireServerEntry(serverId), database);
+  const tablesOf = (schema: string) => {
+    const relations = shape.relations(schema);
+    if (!relations) throw `Not found: Schema ${schema} not found`;
+    return relations.filter(r => r.parent === null).map(r => r.name);
+  };
+  const baseTables = tablesOf(base);
+  const otherTables = tablesOf(other);
+  await sleep(200);
+
+  const common = baseTables.filter(name => otherTables.includes(name));
+  return {
+    base,
+    other,
+    onlyInBase: baseTables.filter(name => !otherTables.includes(name)),
+    onlyInOther: otherTables.filter(name => !baseTables.includes(name)),
+    common: common.length,
+    different: common
+      .map(table => ({
+        table,
+        changes: columnChanges(columnsOf(db, base, table), columnsOf(db, other, table)),
+      }))
+      .filter(diff => diff.changes.length > 0),
+  };
+}
+
 // ── API do mock (chamada pelos handlers) ────────────────────────────────────
 
 type Args = Record<string, unknown>;
@@ -829,6 +912,24 @@ export const mockCatalog = {
         ),
       },
     };
+  },
+
+  compareSchemas({ serverId, database, base, other }: Args) {
+    return compareSchemas(
+      serverId as number,
+      database as string,
+      base as string,
+      other as string,
+    );
+  },
+
+  /**
+   * A estrutura de um database mudou (DDL pela árvore): a forma é remontada e,
+   * como o backend depois de recarregar o schema, avisa a árvore.
+   */
+  structureChanged(serverId: number, database: string, db: MockDatabase): void {
+    shapes.delete(db);
+    emit(serverId, database, { type: 'relations', schemas: 1 });
   },
 
   /** Servidor editado ou removido: os catálogos dele somem (como no backend) */

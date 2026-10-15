@@ -1,4 +1,5 @@
 mod browse;
+mod ddl;
 pub mod introspect;
 mod pool;
 mod executor;
@@ -112,6 +113,14 @@ impl DatabaseAdapter for PostgresAdapter {
         statements: Vec<String>,
     ) -> Result<Vec<StatementResult>> {
         executor::execute_transaction(&self.pool, statements).await
+    }
+
+    async fn structure_change_sql(&self, change: StructureChange) -> Result<Vec<String>> {
+        ddl::statements(&change)
+    }
+
+    async fn apply_structure_change(&self, change: StructureChange) -> Result<StatementResult> {
+        ddl::apply(&self.pool, &change).await
     }
 
     async fn list_databases(&self) -> Result<Vec<DatabaseInfo>> {

@@ -140,6 +140,35 @@ export interface CatalogDriftReport {
   divergent: DriftGroup[];
 }
 
+/**
+ * Definição de uma coluna na comparação entre schemas. Tipo e default vêm sem o
+ * nome do próprio schema (cada tenant aponta para a sua sequência e seus tipos).
+ */
+export interface ColumnSpec {
+  dataType: string;
+  nullable: boolean;
+  defaultValue: string | null;
+}
+
+/** `expected` (base) null = só no outro; `actual` (outro) null = só na base */
+export interface ColumnChange {
+  column: string;
+  expected: ColumnSpec | null;
+  actual: ColumnSpec | null;
+}
+
+/** O schema `other` comparado com o `base` (`catalog_compare_schemas`) */
+export interface SchemaComparison {
+  base: string;
+  other: string;
+  onlyInBase: string[];
+  onlyInOther: string[];
+  /** Tabelas nos dois (as que tiveram as colunas comparadas) */
+  common: number;
+  /** Das comuns, as com colunas diferentes */
+  different: { table: string; changes: ColumnChange[] }[];
+}
+
 /** Progresso emitido como `CATALOG_EVENT`; o front invalida as fatias daquele database */
 export type CatalogEvent = { serverId: number; database: string } & (
   | { type: 'syncing' }

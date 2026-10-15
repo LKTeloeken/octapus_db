@@ -109,6 +109,8 @@ pub fn run() {
             commands::list_columns,
             commands::list_indexes,
             commands::list_schemas_with_tables,
+            commands::preview_structure_change,
+            commands::apply_structure_change,
             // Catálogo de metadados (árvore, busca, autocomplete em escala)
             commands::catalog_open,
             commands::catalog_status,
@@ -117,6 +119,7 @@ pub fn run() {
             commands::catalog_resolve,
             commands::catalog_complete,
             commands::catalog_drift,
+            commands::catalog_compare_schemas,
             commands::catalog_refresh,
             commands::catalog_cancel,
             commands::catalog_relation_size,

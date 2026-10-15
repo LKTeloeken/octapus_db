@@ -10,6 +10,7 @@
 //! (`catalog::proptests` e `perf::catalog_core`).
 
 mod base;
+mod columns;
 mod drift;
 mod interner;
 mod model;
@@ -24,9 +25,11 @@ mod source;
 mod proptests;
 
 pub use base::Catalog;
+pub use columns::{common_relations, compare_schemas, RelationColumns};
 pub use model::{
-    CatalogNode, CatalogPath, CatalogStats, DriftReport, LoadState, NodeKind, Page, RelKind,
-    Resolution, SchemaDiff, SchemaHeader, SearchHit, ShapeGroup, TableRecord,
+    CatalogNode, CatalogPath, CatalogStats, ColumnSpec, DriftReport, LoadState, NodeKind, Page,
+    RelKind, Resolution, SchemaComparison, SchemaDiff, SchemaHeader, SearchHit, ShapeGroup,
+    TableRecord,
 };
 #[cfg(test)]
 pub use model::SchemaDrift;

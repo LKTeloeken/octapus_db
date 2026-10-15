@@ -8,8 +8,9 @@ use async_trait::async_trait;
 use parking_lot::RwLock;
 
 use super::base::Catalog;
+use super::columns::RelationColumns;
 use super::model::{LoadState, SchemaDiff, SchemaHeader, TableRecord};
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 /// Bancos sem nível de schema (Mongo, SQLite) guardam as relações num schema
 /// só, sem nome. O front pede `{ kind: "schema", schema: "" }` e trata o `""`
@@ -71,6 +72,14 @@ pub trait CatalogSource: Send {
 
     /// Tamanho exato de uma relação, sob demanda.
     async fn relation_size(&mut self, schema: &str, table: &str) -> Result<Option<i64>>;
+
+    /// Colunas de alguns `(schema, tabela)` — a comparação entre dois schemas.
+    /// Só bancos com schemas (Postgres) implementam.
+    async fn relation_columns(&mut self, _relations: &[(String, String)]) -> Result<RelationColumns> {
+        Err(Error::UnsupportedType(
+            "comparing schemas is only available for PostgreSQL".into(),
+        ))
+    }
 
     fn canceller(&self) -> Box<dyn SourceCanceller>;
 

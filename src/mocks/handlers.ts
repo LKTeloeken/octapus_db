@@ -18,6 +18,7 @@ import type {
   DatabaseStructure,
   IndexInfo,
   SchemaInfo,
+  StructureChange,
   TableInfo,
 } from '@/api/types/structure.types';
 import {
@@ -41,6 +42,7 @@ import {
   selectFrom,
 } from './engine';
 import { mockCatalog } from './catalog';
+import { applyStructure, structureSql } from './structure';
 import { parseScope } from './scope';
 import { registerListener, unregisterListener } from './events';
 import { useMockStore } from './mock-store';
@@ -288,6 +290,36 @@ const structureHandlers: Record<string, MockHandler> = {
   },
 };
 
+// ── Edição da estrutura (DDL) ───────────────────────────────────────────────
+
+/** Como no backend: só Postgres e SQLite editam a estrutura pela árvore */
+const requireStructureEditing = (serverId: unknown) => {
+  const entry = requireServerEntry(serverId as number);
+  const { dbType } = entry.server;
+  if (dbType !== 'postgres' && dbType !== 'sqlite') {
+    throw 'Unsupported type: Editing the structure is not supported for this database';
+  }
+  return entry;
+};
+
+const ddlHandlers: Record<string, MockHandler> = {
+  [RustCommand.PreviewStructureChange]: ({ serverId, change }: Args) =>
+    structureSql(
+      requireStructureEditing(serverId).server.dbType,
+      change as StructureChange,
+    ),
+
+  [RustCommand.ApplyStructureChange]: ({
+    serverId,
+    database,
+    change,
+  }: Args): StatementResult => {
+    requireStructureEditing(serverId);
+    applyStructure(serverId as number, database as string, change as StructureChange);
+    return { affectedRows: 0, executionTimeMs: 12 };
+  },
+};
+
 // ── Catálogo de metadados ───────────────────────────────────────────────────
 
 const catalogHandlers: Record<string, MockHandler> = {
@@ -298,6 +330,7 @@ const catalogHandlers: Record<string, MockHandler> = {
   [RustCommand.CatalogResolve]: args => mockCatalog.resolve(args),
   [RustCommand.CatalogComplete]: args => mockCatalog.complete(args),
   [RustCommand.CatalogDrift]: args => mockCatalog.drift(args),
+  [RustCommand.CatalogCompareSchemas]: args => mockCatalog.compareSchemas(args),
   [RustCommand.CatalogRefresh]: args => mockCatalog.refresh(args),
   // A sincronização simulada termina sozinha: não há o que interromper
   [RustCommand.CatalogCancel]: () => false,
@@ -783,6 +816,7 @@ export const handlers: Record<string, MockHandler> = {
   ...serverHandlers,
   ...connectionHandlers,
   ...structureHandlers,
+  ...ddlHandlers,
   ...catalogHandlers,
   ...browseHandlers,
   ...exportHandlers,

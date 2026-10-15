@@ -1,8 +1,11 @@
 use tauri::State;
 
-use crate::catalog::NameScope;
+use crate::catalog::{NameScope, FLAT_SCHEMA};
 
-use crate::models::{ColumnInfo, DatabaseInfo, DatabaseStructure, IndexInfo, SchemaInfo, TableInfo};
+use crate::models::{
+    ColumnInfo, DatabaseInfo, DatabaseStructure, IndexInfo, SchemaInfo, StatementResult,
+    StructureChange, TableInfo,
+};
 use crate::state::AppState;
 use crate::storage::repositories::servers;
 
@@ -120,4 +123,46 @@ pub async fn list_schemas_with_tables(
         .list_schemas_with_tables()
         .await
         .map_err(|e| e.to_string())
+}
+/// O SQL de uma mudança de estrutura (tabela ou coluna), sem aplicar: o
+/// diálogo da árvore mostra antes de confirmar.
+#[tauri::command]
+pub async fn preview_structure_change(
+    state: State<'_, AppState>,
+    server_id: i64,
+    database: String,
+    change: StructureChange,
+) -> Result<Vec<String>, String> {
+    let adapter = connect_adapter(&state, server_id, &database).await?;
+
+    adapter
+        .structure_change_sql(change)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Cria, renomeia ou remove uma tabela ou coluna, numa transação. O catálogo
+/// aberto do database recarrega o schema afetado (o evento `catalog-event`
+/// atualiza a árvore).
+#[tauri::command]
+pub async fn apply_structure_change(
+    state: State<'_, AppState>,
+    server_id: i64,
+    database: String,
+    change: StructureChange,
+) -> Result<StatementResult, String> {
+    let adapter = connect_adapter(&state, server_id, &database).await?;
+    let schema = change.schema().unwrap_or(FLAT_SCHEMA).to_string();
+
+    let result = adapter
+        .apply_structure_change(change)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // A mudança já foi aplicada: falhar em recarregar o catálogo não a desfaz
+    // (o refresh manual da árvore resolve)
+    if let Some(entry) = state.catalog.get(server_id, &database) {
+        let _ = state.catalog.refresh_schema(&entry, &schema).await;
+    }
+    Ok(result)
 }

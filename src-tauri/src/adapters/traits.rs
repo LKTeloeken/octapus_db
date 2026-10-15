@@ -6,8 +6,8 @@ use crate::adapters::MessageSink;
 use crate::error::{Error, Result};
 use crate::models::{
     AdapterCapabilities, ColumnInfo, DatabaseInfo, DatabaseStructure, EditableInfo, IndexInfo,
-    QueryOptions, QueryResult, RowEdit, RowInsert, SchemaInfo, StatementResult, TableDataRequest,
-    TableInfo,
+    QueryOptions, QueryResult, RowEdit, RowInsert, SchemaInfo, StatementResult, StructureChange,
+    TableDataRequest, TableInfo,
 };
 
 /// Core trait that all database adapters must implement.
@@ -127,6 +127,25 @@ pub trait DatabaseAdapter: Send + Sync {
     async fn list_schemas_with_tables(&self) -> Result<DatabaseStructure> {
         Err(Error::UnsupportedType(
             "structure comes from the metadata catalog (catalog_* commands)".into(),
+        ))
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Edição de estrutura (DDL) pela árvore
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Os statements que [`DatabaseAdapter::apply_structure_change`] vai
+    /// rodar, sem mudar nada — o diálogo mostra antes de aplicar.
+    async fn structure_change_sql(&self, _change: StructureChange) -> Result<Vec<String>> {
+        Err(Error::UnsupportedType(
+            "Editing the structure is not supported for this database".into(),
+        ))
+    }
+
+    /// Cria, renomeia ou remove uma tabela ou coluna, numa transação.
+    async fn apply_structure_change(&self, _change: StructureChange) -> Result<StatementResult> {
+        Err(Error::UnsupportedType(
+            "Editing the structure is not supported for this database".into(),
         ))
     }
 

@@ -22,6 +22,10 @@ export enum RustCommand {
   ListIndexes = 'list_indexes',
   ListSchemasWithTables = 'list_schemas_with_tables',
 
+  // Edição da estrutura (tabelas e colunas) pela árvore
+  PreviewStructureChange = 'preview_structure_change',
+  ApplyStructureChange = 'apply_structure_change',
+
   // Catálogo de metadados (árvore, busca, autocomplete em escala)
   CatalogOpen = 'catalog_open',
   CatalogStatus = 'catalog_status',
@@ -30,6 +34,7 @@ export enum RustCommand {
   CatalogResolve = 'catalog_resolve',
   CatalogComplete = 'catalog_complete',
   CatalogDrift = 'catalog_drift',
+  CatalogCompareSchemas = 'catalog_compare_schemas',
   CatalogRefresh = 'catalog_refresh',
   CatalogCancel = 'catalog_cancel',
   CatalogRelationSize = 'catalog_relation_size',

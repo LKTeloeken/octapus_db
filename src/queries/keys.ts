@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { SortSpec } from '@/api/types/browse.types';
 import type { CatalogPath } from '@/api/types/catalog.types';
+import type { StructureChange } from '@/api/types/structure.types';
 
 /** Identidade de um nó do catálogo dentro da key (`\u0000` não aparece em nomes) */
 export function catalogPathKey(path: CatalogPath): string {
@@ -97,6 +98,27 @@ export const queryKeys = {
 
   catalogSearch: (query: string, limit: number, schema: string | null = null) =>
     ['catalog-search', query, limit, schema] as const,
+
+  /**
+   * Comparação entre dois schemas. Fora do prefixo `catalog`: um evento de
+   * sincronização não refaz a consulta (que vai ao banco).
+   */
+  schemaComparisonScope: (serverId: number, database: string) =>
+    ['schema-comparison', serverId, database] as const,
+
+  schemaComparison: (
+    serverId: number,
+    database: string,
+    base: string,
+    other: string,
+  ) => ['schema-comparison', serverId, database, base, other] as const,
+
+  /** SQL de uma mudança de estrutura, antes de aplicar (a key é a mudança) */
+  structurePreview: (
+    serverId: number,
+    database: string,
+    change: StructureChange | null,
+  ) => ['structure-preview', serverId, database, change] as const,
 
   columns: (
     serverId: number,

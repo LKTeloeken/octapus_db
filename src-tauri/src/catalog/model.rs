@@ -295,3 +295,53 @@ pub struct CatalogStats {
     pub relations: usize,
     pub approx_heap_bytes: usize,
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comparação entre dois schemas — tabelas e colunas
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Definição de uma coluna como entra na comparação. Tipo e default vêm sem o
+/// nome do próprio schema (`tenant_1.status` vira `status`): cada tenant aponta
+/// para a sua sequência e os seus tipos, e isso não é diferença.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnSpec {
+    pub data_type: String,
+    pub nullable: bool,
+    pub default_value: Option<String>,
+}
+
+/// Uma coluna que difere entre os dois schemas. `expected` (base) vazio =
+/// coluna só no outro; `actual` (outro) vazio = coluna só na base; os dois =
+/// definição diferente.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnChange {
+    pub column: String,
+    pub expected: Option<ColumnSpec>,
+    pub actual: Option<ColumnSpec>,
+}
+
+/// Uma tabela que existe nos dois schemas com colunas diferentes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TableColumnsDiff {
+    pub table: String,
+    pub changes: Vec<ColumnChange>,
+}
+
+/// O schema `other` comparado com o `base`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaComparison {
+    pub base: String,
+    pub other: String,
+    /// Tabelas só na base
+    pub only_in_base: Vec<String>,
+    /// Tabelas só no outro
+    pub only_in_other: Vec<String>,
+    /// Tabelas presentes nos dois (as que tiveram as colunas comparadas)
+    pub common: usize,
+    /// Das comuns, as com colunas diferentes
+    pub different: Vec<TableColumnsDiff>,
+}

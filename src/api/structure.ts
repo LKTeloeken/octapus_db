@@ -1,11 +1,13 @@
 import { call } from './client';
 import { RustCommand } from './commands';
+import type { StatementResult } from './types/query.types';
 import type {
   ColumnInfo,
   DatabaseInfo,
   DatabaseStructure,
   IndexInfo,
   SchemaInfo,
+  StructureChange,
   TableInfo,
 } from './types/structure.types';
 
@@ -68,5 +70,31 @@ export function listSchemasWithTables(
   return call<DatabaseStructure>(RustCommand.ListSchemasWithTables, {
     serverId,
     database,
+  });
+}
+
+/** O SQL que a mudança vai rodar, sem aplicar (o diálogo mostra antes) */
+export function previewStructureChange(
+  serverId: number,
+  database: string,
+  change: StructureChange,
+): Promise<string[]> {
+  return call<string[]>(RustCommand.PreviewStructureChange, {
+    serverId,
+    database,
+    change,
+  });
+}
+
+/** Cria, renomeia ou remove uma tabela ou coluna, numa transação */
+export function applyStructureChange(
+  serverId: number,
+  database: string,
+  change: StructureChange,
+): Promise<StatementResult> {
+  return call<StatementResult>(RustCommand.ApplyStructureChange, {
+    serverId,
+    database,
+    change,
   });
 }

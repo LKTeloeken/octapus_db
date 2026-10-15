@@ -11,8 +11,8 @@ use crate::adapters::{create_catalog_source, has_catalog};
 use crate::catalog::CatalogPath;
 use crate::error::Error;
 use crate::models::{
-    CatalogDiagnostics, CatalogNode, CatalogPathInput, CatalogSearchHit, CatalogStatus, DriftReport,
-    NodeKind, Page, Resolution, ShapeGroup,
+    CatalogDiagnostics, CatalogNode, CatalogPathInput, CatalogSearchHit, CatalogStatus,
+    DriftReport, NodeKind, Page, Resolution, SchemaComparison, ShapeGroup,
 };
 use crate::services::{connection_identity, CatalogEntry, SourceOpener};
 use crate::state::AppState;
@@ -210,6 +210,25 @@ pub async fn catalog_drift(
     let entry = entry_for(&state, server_id, &database).await?;
     let report = entry.read().drift();
     Ok(report)
+}
+
+/// Compara dois schemas do database: tabelas que só um tem e, nas comuns, as
+/// colunas que diferem (`base` é a referência). Lê só as colunas das tabelas
+/// comuns, pela faixa de prioridade.
+#[tauri::command]
+pub async fn catalog_compare_schemas(
+    state: State<'_, AppState>,
+    server_id: i64,
+    database: String,
+    base: String,
+    other: String,
+) -> Result<SchemaComparison, String> {
+    let entry = entry_for(&state, server_id, &database).await?;
+    state
+        .catalog
+        .compare_schemas(&entry, &base, &other)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Grupos por formato para a árvore agrupada: o molde dos tenants, as

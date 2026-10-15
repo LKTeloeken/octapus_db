@@ -106,6 +106,30 @@ const TENANT_COLUMNS: MockColumn[] = [
   column('status', 'text', 25, gen.pick(['ativo', 'pendente', 'arquivado'])),
 ];
 
+/**
+ * Diferença de colunas, para a comparação entre schemas: nos múltiplos de 250
+ * o `orders` ganhou `discount` (migração que só rodou neles) e nos de 333 o
+ * `customers.status` virou `varchar(20)` (um ALTER feito à mão).
+ */
+const DISCOUNT_EVERY = 250;
+const VARCHAR_STATUS_EVERY = 333;
+
+const DISCOUNT_COLUMN = column('discount', 'numeric', 1700, gen.decimal(0, 50));
+const VARCHAR_STATUS_COLUMNS = TENANT_COLUMNS.map(col =>
+  col.name === 'status' ? { ...col, dataType: 'character varying(20)', typeOid: 1043 } : col,
+);
+
+/** As colunas de uma tabela de tenant (com a diferença acima) */
+function tenantColumns(index: number | null, name: string): MockColumn[] {
+  if (index !== null && name === 'orders' && index % DISCOUNT_EVERY === 0) {
+    return [...TENANT_COLUMNS, DISCOUNT_COLUMN];
+  }
+  if (index !== null && name === 'customers' && index % VARCHAR_STATUS_EVERY === 0) {
+    return VARCHAR_STATUS_COLUMNS;
+  }
+  return TENANT_COLUMNS;
+}
+
 const materialized = new Map<string, MockTable>();
 
 /** A tabela de um tenant, criada no primeiro acesso; `undefined` se não existe */
@@ -129,7 +153,7 @@ export function tenantTable(
       name,
       schema,
       tableType: 'table',
-      columns: TENANT_COLUMNS,
+      columns: tenantColumns(tenantIndex(schema), name),
       indexes: [],
       rowEstimate: 40,
     };

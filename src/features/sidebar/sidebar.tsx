@@ -13,6 +13,7 @@ import { Tooltip } from '@/components/ui/tooltip/tooltip';
 import { ConnectionTree } from '@/features/connection-tree/connection-tree';
 import { ServerForm } from '@/features/server-form/server-form';
 import { SettingsDialog } from '@/features/settings/settings-dialog';
+import { StructureEditor } from '@/features/structure-editor/structure-editor';
 import { TrafficLights } from '@/features/window-controls/window-controls';
 import { customTitlebar, shortcut } from '@/lib/platform';
 import { useSidebar } from './use-sidebar';
@@ -124,6 +125,9 @@ export const Sidebar = memo(() => {
       />
 
       <SettingsDialog open={isSettingsOpen} onOpenChange={setSettingsOpen} />
+
+      {/* Criar/renomear/excluir tabelas e colunas, comparar tenants (menu da árvore) */}
+      <StructureEditor />
     </div>
   );
 });

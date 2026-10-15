@@ -94,6 +94,12 @@ listagem inteira (com o tamanho de cada tabela) levava o backend ao OOM.
 - **Eventos** `catalog-event` (`models/catalog.rs`): `syncing`, `schemas` (camada 0),
   `relations`, `ready` (com `added`/`removed`/`changed`), `error`, `cancelled`.
 
+- **Comparação entre dois schemas** (`catalog/columns.rs` + `CatalogSource::relation_columns`):
+  as relações de cada schema vêm do catálogo (carregadas se preciso); só as colunas das
+  tabelas em comum vão ao banco, numa consulta pelos pares (schema, tabela), com o próprio
+  schema tirado de tipos e defaults (a sequência de cada tenant não é diferença). Fontes
+  sem schema respondem `UnsupportedType`.
+
 **Para mexer:** consulta nova → método em `Catalog` (`catalog/query.rs`) + comando em
 `commands/catalog.rs`; banco novo → implementar `CatalogSource` e incluir em
 `adapters::has_catalog`/`create_catalog_source`. Nada de voltar a listar a estrutura
@@ -344,6 +350,16 @@ interface CatalogDriftReport {
   divergent: { schemas: SchemaGroup; missing: string[]; extra: string[] }[];
 }
 
+// Dois schemas comparados (`catalog_compare_schemas`); `base` é a referência.
+interface ColumnSpec { dataType: string; nullable: boolean; defaultValue: string | null } // sem o próprio schema
+interface SchemaComparison {
+  base: string; other: string;
+  onlyInBase: string[]; onlyInOther: string[];   // tabelas (sem partições)
+  common: number;                                // tabelas nos dois
+  different: { table: string;                    // das comuns, as com colunas diferentes
+               changes: { column: string; expected: ColumnSpec | null; actual: ColumnSpec | null }[] }[];
+}
+
 // "Copiar diagnóstico": só contagens e tempos, nenhum nome
 interface CatalogDiagnostics {
   appVersion: string;
@@ -411,7 +427,20 @@ interface AdapterCapabilities {
 | `list_columns` | `{ serverId, database, schema, table }` | `ColumnInfo[]` |
 | `list_indexes` | `{ serverId, database, schema, table }` | `IndexInfo[]` |
 | `list_schemas_with_tables` | `{ serverId, database }` | `DatabaseStructure` *(só Redis)* |
+| `preview_structure_change` | `{ serverId, database, change: StructureChange }` | `string[]` — o SQL, sem aplicar *(Postgres e SQLite)* |
+| `apply_structure_change` | `{ serverId, database, change: StructureChange }` | `StatementResult` — numa transação; recarrega o schema no catálogo aberto *(Postgres e SQLite)* |
 
+> **Edição da estrutura (DDL) pela árvore:** `StructureChange` (`models/structure.rs`) é
+> `createTable`, `renameTable`, `dropTable` (`kind` + `cascade`), `addColumn`,
+> `alterColumn` (`original` → `updated`: só o que mudou vira statement) ou `dropColumn`.
+> Os statements são montados no backend (`adapters/postgres/ddl.rs`,
+> `adapters/sqlite/ddl.rs`, peças comuns em `adapters/ddl.rs`): identificadores citados,
+> tipo validado (sem `;`, aspas ou comentário) e default parseado como **uma** expressão.
+> No SQLite, mudar tipo/nulo/default de uma coluna **recria a tabela** (lang_altertable
+> §7): a `CREATE TABLE` original é alterada só na coluna, os dados são copiados e índices e
+> triggers voltam; foreign keys desligadas durante e conferidas antes do commit. A prévia
+> roda numa transação desfeita (o rename que antecede a recriação precisa existir para ela).
+>
 > `list_databases` devolve **só os nomes** em Postgres e Mongo (`sizeBytes: null` — o
 > tamanho de cada database custava de segundos a minutos) e já aplica o escopo
 > `scopeDatabases`; `list_schemas` aplica o `scopeSchemas`. `list_columns`/`list_indexes`
@@ -433,6 +462,7 @@ por chamada.
 | `catalog_complete` | `{ serverId, database, schema?, prefix, limit }` | `CatalogNode[]` | só para carregar o schema |
 | `catalog_shapes` | `{ serverId, database }` | `ShapeGroup[]` | não (vazio = sem formato repetido) |
 | `catalog_drift` | `{ serverId, database }` | `CatalogDriftReport` | não |
+| `catalog_compare_schemas` | `{ serverId, database, base, other }` | `SchemaComparison` | sim: só as colunas das tabelas comuns, pela faixa de prioridade (só Postgres) |
 | `catalog_refresh` | `{ serverId, database, schema? }` | `CatalogStatus` | sim: um schema na hora, ou o database em 2º plano |
 | `catalog_cancel` | `{ serverId, database }` | `boolean` | interrompe a sincronização em andamento |
 | `catalog_relation_size` | `{ serverId, database, schema, table }` | `number \| null` | sim (só da tabela aberta) |

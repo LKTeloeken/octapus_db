@@ -12,6 +12,7 @@ import {
   type CatalogResolution,
   type CatalogSearchHit,
   type CatalogStatus,
+  type SchemaComparison,
   type ShapeGroup,
 } from './types/catalog.types';
 
@@ -102,6 +103,24 @@ export function catalogDrift(
   return call<CatalogDriftReport>(RustCommand.CatalogDrift, {
     serverId,
     database,
+  });
+}
+
+/**
+ * `other` comparado com `base`: tabelas que só um tem e, nas comuns, as colunas
+ * que diferem. Vai ao banco só pelas colunas das tabelas comuns.
+ */
+export function catalogCompareSchemas(
+  serverId: number,
+  database: string,
+  base: string,
+  other: string,
+): Promise<SchemaComparison> {
+  return call<SchemaComparison>(RustCommand.CatalogCompareSchemas, {
+    serverId,
+    database,
+    base,
+    other,
   });
 }
 
