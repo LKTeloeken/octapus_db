@@ -238,7 +238,8 @@ const importHandlers: Record<string, MockHandler> = {
     const groups = Array.from(new Set(candidates.flatMap(c => (c.group ? [c.group] : []))));
     const info = MOCK_IMPORT_SOURCES.find(entry => entry.source === source);
     mockImportPreview = {
-      token: Math.floor(Math.random() * 1e9),
+      // Mesma faixa do Rust (u32): cabe exato num Number
+      token: Math.floor(Math.random() * 2 ** 32),
       source: source as ImportSource,
       path: (path as string | null) ?? info?.path ?? null,
       candidates,

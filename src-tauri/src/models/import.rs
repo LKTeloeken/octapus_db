@@ -96,7 +96,10 @@ pub struct ImportCandidate {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportPreview {
-    pub token: u64,
+    /// `u32`, não `u64`: o front guarda o token num `Number`, que só é exato
+    /// até 2^53. Um `u64` aleatório voltava arredondado e o commit nunca
+    /// achava a prévia ("A prévia da importação expirou").
+    pub token: u32,
     pub source: ImportSource,
     pub path: Option<String>,
     pub candidates: Vec<ImportCandidate>,
@@ -108,7 +111,7 @@ pub struct ImportPreview {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportCommitRequest {
-    pub token: u64,
+    pub token: u32,
     /// `key` dos candidatos escolhidos
     pub keys: Vec<usize>,
     /// Ler as senhas (no TablePlus, do Keychain — o macOS pede permissão)
