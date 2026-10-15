@@ -1,6 +1,7 @@
 pub mod backup;
 mod catalog;
 mod connection;
+pub mod connection_import;
 mod query;
 mod structure;
 

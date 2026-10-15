@@ -88,6 +88,17 @@ pub fn run() {
             commands::get_server,
             commands::update_server,
             commands::delete_server,
+            commands::set_server_group,
+            // Grupos de servidores
+            commands::get_all_server_groups,
+            commands::create_server_group,
+            commands::rename_server_group,
+            commands::delete_server_group,
+            // Importar conexões de outros apps
+            commands::import_detect_sources,
+            commands::import_preview,
+            commands::import_commit,
+            commands::import_discard,
             // Connections
             commands::connect,
             commands::disconnect,

@@ -1,5 +1,9 @@
 import type { AdapterCapabilities } from '@/api/types/capabilities.types';
-import type { DatabaseType, Server } from '@/api/types/server.types';
+import type {
+  DatabaseType,
+  Server,
+  ServerGroup,
+} from '@/api/types/server.types';
 import { generateRows, seedFrom } from './rows';
 import { buildMongoDatabases } from './mongo';
 import { buildPostgresDatabases } from './postgres';
@@ -66,7 +70,16 @@ export function buildDatabasesFor(dbType: DatabaseType): MockDatabase[] {
 export interface MockDataset {
   servers: MockServerEntry[];
   nextServerId: number;
+  /** Grupos da sidebar; `server.groupId` aponta para cá */
+  groups: ServerGroup[];
+  nextGroupId: number;
 }
+
+/** Dois grupos de exemplo: um com servidores e um vazio */
+const SEED_GROUPS: ServerGroup[] = [
+  { id: 1, name: 'Desenvolvimento', createdAt: 1_735_689_600 },
+  { id: 2, name: 'Produção', createdAt: 1_735_689_600 },
+];
 
 const SEED_SERVERS: Omit<Server, 'id'>[] = [
   {
@@ -81,6 +94,7 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     createdAt: 1_735_689_600,
     scopeDatabases: null,
     scopeSchemas: null,
+    groupId: 1,
   },
   {
     name: 'Catálogo (Atlas)',
@@ -94,6 +108,7 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     createdAt: 1_743_465_600,
     scopeDatabases: null,
     scopeSchemas: null,
+    groupId: null,
   },
   {
     name: 'Notas (arquivo)',
@@ -108,6 +123,7 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     createdAt: 1_755_000_000,
     scopeDatabases: null,
     scopeSchemas: null,
+    groupId: null,
   },
   {
     name: 'Cache (dev)',
@@ -121,6 +137,7 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     createdAt: 1_751_328_000,
     scopeDatabases: null,
     scopeSchemas: null,
+    groupId: 1,
   },
 ];
 
@@ -131,7 +148,12 @@ function buildDataset(): MockDataset {
     databases: buildDatabasesFor(seed.dbType),
   }));
 
-  return { servers, nextServerId: servers.length + 1 };
+  return {
+    servers,
+    nextServerId: servers.length + 1,
+    groups: SEED_GROUPS.map(group => ({ ...group })),
+    nextGroupId: SEED_GROUPS.length + 1,
+  };
 }
 
 let dataset: MockDataset | null = null;

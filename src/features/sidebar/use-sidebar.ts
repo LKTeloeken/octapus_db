@@ -3,20 +3,32 @@ import { useCallback, useState } from 'react';
 import type { Server } from '@/api/types/server.types';
 import { useServers } from '@/queries/use-servers';
 import { useCommandPaletteStore } from '@/stores/command-palette-store';
+import { useImportDialogStore } from '@/stores/import-dialog-store';
+import { useServerGroupDialogStore } from '@/stores/server-group-dialog-store';
 
 const REPOSITORY_URL = 'https://github.com/LKTeloeken/octapus_db';
 
 export const useSidebar = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<Server | null>(null);
+  /** Grupo do servidor novo ("Novo servidor aqui" no menu do grupo) */
+  const [createInGroupId, setCreateInGroupId] = useState<number | null>(null);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const { data: servers } = useServers();
   const setPaletteOpen = useCommandPaletteStore(state => state.setOpen);
+  const openGroupDialog = useServerGroupDialogStore(state => state.open);
+  const openImport = useImportDialogStore(state => state.open);
 
-  const openCreateForm = useCallback(() => {
+  const openCreateForm = useCallback((groupId: number | null) => {
     setEditingServer(null);
+    setCreateInGroupId(groupId);
     setIsFormOpen(true);
   }, []);
+
+  const openCreateGroup = useCallback(
+    () => openGroupDialog({ kind: 'create' }),
+    [openGroupDialog],
+  );
 
   const openEditForm = useCallback((server: Server) => {
     setEditingServer(server);
@@ -42,10 +54,13 @@ export const useSidebar = () => {
   return {
     isFormOpen,
     editingServer,
+    createInGroupId,
     serverCount: servers?.length ?? 0,
     isSettingsOpen,
     setSettingsOpen,
     openCreateForm,
+    openCreateGroup,
+    openImport,
     openEditForm,
     closeForm,
     openPalette,

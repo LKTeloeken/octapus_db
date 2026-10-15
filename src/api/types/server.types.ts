@@ -19,6 +19,8 @@ export interface Server {
   scopeDatabases: string | null;
   /** Escopo salvo: que schemas o catálogo lê (Postgres). null = todos */
   scopeSchemas: string | null;
+  /** Grupo da sidebar; null = fora de qualquer grupo */
+  groupId: number | null;
 }
 
 export interface ServerInput {
@@ -34,6 +36,15 @@ export interface ServerInput {
   connectionUri?: string | null;
   scopeDatabases?: string | null;
   scopeSchemas?: string | null;
+  groupId?: number | null;
+}
+
+/** Grupo de servidores na sidebar (pasta de um nível) */
+export interface ServerGroup {
+  id: number;
+  name: string;
+  /** Epoch in seconds */
+  createdAt: number;
 }
 
 export interface PoolStats {

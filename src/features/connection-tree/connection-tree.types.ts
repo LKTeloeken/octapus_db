@@ -4,6 +4,10 @@ import type { NodeRowProps } from './node-row/node-row.types';
 export interface ConnectionTreeProps {
   /** Opens the server form in edit mode (owned by the sidebar) */
   onEditServer: (server: Server) => void;
+  /** Abre o formulário de servidor novo, já no grupo (`null` = fora de grupo) */
+  onCreateServer: (groupId: number | null) => void;
+  /** Abre a importação de conexões (atalho da árvore vazia) */
+  onImport?: () => void;
 }
 
 /**

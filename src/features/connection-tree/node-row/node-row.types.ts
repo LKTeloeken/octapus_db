@@ -13,9 +13,12 @@ export interface NodeRowAction {
   separated?: boolean;
 }
 
+/** Os nós do catálogo mais o grupo de servidores (que fica acima do servidor) */
+export type NodeRowKind = NodeKind | 'group';
+
 export interface NodeRowProps {
   level: number;
-  kind: NodeKind;
+  kind: NodeRowKind;
   name: string;
   /** Secondary text (column type, table count...) */
   subLabel?: string;

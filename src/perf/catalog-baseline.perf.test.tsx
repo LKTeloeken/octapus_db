@@ -62,6 +62,7 @@ const SERVER: Server = {
   createdAt: 0,
   scopeDatabases: null,
   scopeSchemas: null,
+  groupId: null,
 };
 
 const CAPABILITIES: AdapterCapabilities = {
@@ -255,10 +256,12 @@ describe('catálogo — baseline do front', () => {
 
       setExpandedForRender([serverNode, databaseNode]);
       const treeMs = median(3, () =>
-        renderHookOnce(client, () => useConnectionTree({ onEditServer })),
+        renderHookOnce(client, () =>
+          useConnectionTree({ onEditServer, onCreateServer: onEditServer }),
+        ),
       );
       const tree = renderHookOnce(client, () =>
-        useConnectionTree({ onEditServer }),
+        useConnectionTree({ onEditServer, onCreateServer: onEditServer }),
       );
       record(tier, 'árvore: render com o database aberto', treeMs, {
         rows: tree.rows.length,
@@ -273,11 +276,14 @@ describe('catálogo — baseline do front', () => {
       );
       setExpandedForRender([serverNode, databaseNode, ...expandedSchemas]);
       const treeExpandedMs = median(3, () =>
-        renderHookOnce(client, () => useConnectionTree({ onEditServer })),
+        renderHookOnce(client, () =>
+          useConnectionTree({ onEditServer, onCreateServer: onEditServer }),
+        ),
       );
       record(tier, 'árvore: render com 20 schemas abertos', treeExpandedMs, {
-        rows: renderHookOnce(client, () => useConnectionTree({ onEditServer }))
-          .rows.length,
+        rows: renderHookOnce(client, () =>
+          useConnectionTree({ onEditServer, onCreateServer: onEditServer }),
+        ).rows.length,
       });
 
       // ── Autocomplete: as mesmas portas do useSqlCompletion ──

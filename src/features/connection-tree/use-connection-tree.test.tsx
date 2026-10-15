@@ -8,7 +8,7 @@ import {
   type CatalogStatus,
 } from '@/api/types/catalog.types';
 import type { Server } from '@/api/types/server.types';
-import { encodeNodeId } from '@/lib/node-ref';
+import { encodeNodeId, groupNodeId } from '@/lib/node-ref';
 import { queryKeys } from '@/queries/keys';
 import { CATALOG_PAGE_SIZE } from '@/queries/use-catalog';
 import { useTreeStore } from '@/stores/tree-store';
@@ -33,6 +33,7 @@ const server = (id: number, dbType: Server['dbType']): Server => ({
   createdAt: 0,
   scopeDatabases: null,
   scopeSchemas: null,
+  groupId: null,
 });
 
 const status = (overrides: Partial<CatalogStatus> = {}): CatalogStatus => ({
@@ -122,12 +123,16 @@ function treeState(
   initial.limits.clear();
   initial.shapeGrouped.clear();
   grouped.forEach(id => initial.shapeGrouped.add(id));
+  initial.collapsedGroups.clear();
 }
 
 function rows(queryClient: QueryClient): FlatRow[] {
   let result: FlatRow[] = [];
   function Probe() {
-    result = useConnectionTree({ onEditServer: () => {} }).rows;
+    result = useConnectionTree({
+      onEditServer: () => {},
+      onCreateServer: () => {},
+    }).rows;
     return null;
   }
   renderToString(
@@ -602,5 +607,85 @@ describe('useConnectionTree com catálogo', () => {
       page([schemaNode('public')]),
     );
     expect(rows(queryClient).map(describeRow)).toContain('schema:public');
+  });
+});
+
+describe('useConnectionTree com grupos', () => {
+  const rowLevel = (row: FlatRow) =>
+    row.variant === 'node' ? row.props.level : row.level;
+
+  /** O Postgres e o SQLite no grupo 10; o grupo 20 fica vazio */
+  function groupedClient() {
+    const queryClient = client();
+    queryClient.setQueryData(queryKeys.serverGroups, [
+      { id: 10, name: 'Produção', createdAt: 0 },
+      { id: 20, name: 'Vazio', createdAt: 0 },
+    ]);
+    queryClient.setQueryData(queryKeys.servers, [
+      { ...server(PG, 'postgres'), groupId: 10 },
+      { ...server(SQLITE, 'sqlite'), groupId: 10 },
+      server(MONGO, 'mongodb'),
+      // Grupo que não existe mais (cache defasado): fica fora de grupo
+      { ...server(REDIS, 'redis'), groupId: 99 },
+    ]);
+    return queryClient;
+  }
+
+  it('grupos primeiro, servidores do grupo um nível abaixo, subárvore inclusive', () => {
+    treeState([serverNode, dbNode]);
+    const queryClient = groupedClient();
+    queryClient.setQueryData(
+      queryKeys.catalogChildren(
+        PG,
+        'saas',
+        { kind: 'schemas' },
+        '',
+        CATALOG_PAGE_SIZE,
+      ),
+      page([schemaNode('public')]),
+    );
+
+    const tree = rows(queryClient);
+    expect(tree.map(row => `${describeRow(row)}@${rowLevel(row)}`)).toEqual([
+      'group:Produção@0',
+      'server:SaaS@1',
+      'database:saas@2',
+      'schema:public@3',
+      'server:Notas@1',
+      'group:Vazio@0',
+      'server:Notas@0',
+      'server:Notas@0',
+    ]);
+    const empty = tree.find(row => row.id === groupNodeId(20));
+    expect(empty?.variant === 'node' && empty.props.hasChildren).toBe(false);
+  });
+
+  it('grupo fechado esconde os servidores dele', () => {
+    treeState([]);
+    useTreeStore.getInitialState().collapsedGroups.add(10);
+    const tree = rows(groupedClient());
+    expect(tree.map(describeRow)).toEqual([
+      'group:Produção',
+      'group:Vazio',
+      'server:Notas',
+      'server:Notas',
+    ]);
+    const group = tree[0];
+    expect(group.variant === 'node' && group.props.isExpanded).toBe(false);
+  });
+});
+
+describe('tree-store com grupos', () => {
+  it('grupo nasce aberto e expandir/colapsar usam o conjunto de fechados', () => {
+    const store = useTreeStore.getState();
+    const id = groupNodeId(7);
+    store.collapseNode(id);
+    expect(useTreeStore.getState().collapsedGroups.has(7)).toBe(true);
+    expect(useTreeStore.getState().expanded.has(id)).toBe(false);
+    store.toggleNode(id);
+    expect(useTreeStore.getState().collapsedGroups.has(7)).toBe(false);
+    store.toggleNode(id);
+    store.expandNode(id);
+    expect(useTreeStore.getState().collapsedGroups.has(7)).toBe(false);
   });
 });

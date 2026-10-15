@@ -9,7 +9,7 @@ use crate::storage::{secrets, vault};
 
 const SELECT_COLUMNS: &str = "id, name, db_type, host, port, username, password, \
                               default_database, ssl_enabled, connection_uri, created_at, \
-                              scope_databases, scope_schemas";
+                              scope_databases, scope_schemas, group_id";
 
 /// Get all servers (metadata only). The UI never displays passwords, so the
 /// stored ciphertext is never decrypted nor returned here.
@@ -81,8 +81,8 @@ pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server>
     let mut stmt = conn.prepare(&format!(
         "INSERT INTO servers (name, db_type, host, port, username, password, \
                               default_database, ssl_enabled, connection_uri, created_at, \
-                              scope_databases, scope_schemas) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
+                              scope_databases, scope_schemas, group_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) \
          RETURNING {SELECT_COLUMNS}"
     ))?;
 
@@ -101,6 +101,7 @@ pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server>
                 created_at,
                 blank_to_none(input.scope_databases),
                 blank_to_none(input.scope_schemas),
+                input.group_id,
             ],
             map_row,
         )
@@ -125,7 +126,7 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
         "UPDATE servers \
          SET name = ?1, db_type = ?2, host = ?3, port = ?4, username = ?5, \
              password = ?6, default_database = ?7, ssl_enabled = ?8, connection_uri = ?9, \
-             scope_databases = ?11, scope_schemas = ?12 \
+             scope_databases = ?11, scope_schemas = ?12, group_id = ?13 \
          WHERE id = ?10 \
          RETURNING {SELECT_COLUMNS}"
     ))?;
@@ -145,6 +146,7 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
                 id,
                 blank_to_none(input.scope_databases),
                 blank_to_none(input.scope_schemas),
+                input.group_id,
             ],
             map_row,
         )
@@ -158,6 +160,32 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
     server.password = input.password;
 
     Ok(server)
+}
+
+/// Move o servidor para um grupo (`None` = fora de grupo). Só toca a coluna do
+/// grupo: a senha não é decifrada nem regravada.
+pub fn set_group(storage: &Mutex<Connection>, id: i64, group_id: Option<i64>) -> Result<()> {
+    let conn = storage.lock();
+
+    let affected = conn
+        .execute(
+            "UPDATE servers SET group_id = ?1 WHERE id = ?2",
+            params![group_id, id],
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::SqliteFailure(err, _)
+                if err.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                Error::NotFound(format!("Group with id {} not found", group_id.unwrap_or_default()))
+            }
+            _ => Error::Storage(e.to_string()),
+        })?;
+
+    if affected == 0 {
+        return Err(Error::NotFound(format!("Server with id {} not found", id)));
+    }
+
+    Ok(())
 }
 
 /// Delete a server. The encrypted secret lives in the row, so it goes away with
@@ -195,6 +223,7 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<Server> {
         created_at: row.get(10)?,
         scope_databases: row.get(11)?,
         scope_schemas: row.get(12)?,
+        group_id: row.get(13)?,
     })
 }
 
@@ -279,6 +308,7 @@ mod tests {
             connection_uri: None,
             scope_databases: None,
             scope_schemas: None,
+            group_id: None,
         }
     }
 

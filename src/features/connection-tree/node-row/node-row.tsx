@@ -2,6 +2,7 @@ import {
   ArrowRight01Icon,
   DatabaseIcon,
   Folder01Icon,
+  Folder02Icon,
   FolderLibraryIcon,
   HashtagIcon,
   Layers01Icon,
@@ -25,10 +26,10 @@ import { DB_TYPE_TEXT_COLOR } from '@/lib/db-defaults';
 import { formatBytes } from '@/lib/format-bytes';
 import { cn } from '@/lib/utils';
 import type { CatalogNodeKind } from '@/api/types/catalog.types';
-import type { NodeKind } from '@/lib/node-ref';
-import type { NodeRowProps } from './node-row.types';
+import type { NodeRowKind, NodeRowProps } from './node-row.types';
 
-const KIND_ICONS: Record<NodeKind, typeof DatabaseIcon> = {
+const KIND_ICONS: Record<NodeRowKind, typeof DatabaseIcon> = {
+  group: Folder02Icon,
   server: ServerStack01Icon,
   database: DatabaseIcon,
   shape: FolderLibraryIcon,
@@ -71,6 +72,8 @@ export const NodeRow = memo(
     const hasActions = !!actions?.length;
     const hasSize = sizeBytes != null;
     const isServer = kind === 'server';
+    // Grupo e servidor são os nós de topo: nome em destaque
+    const isTopLevel = isServer || kind === 'group';
     // Sem botão: o tamanho ocupa o lugar dele, e numa coluna o nome e o tipo
     // precisam da largura toda — o menu abre pelo clique direito
     const contextMenuOnly = hasSize || kind === 'column';
@@ -79,7 +82,7 @@ export const NodeRow = memo(
       <div
         className={cn(
           'group relative flex h-7 cursor-pointer items-center gap-1.5 rounded-sm pr-2 text-body transition-colors',
-          isServer ? 'font-medium text-fg' : 'text-fg-muted',
+          isTopLevel ? 'font-medium text-fg' : 'text-fg-muted',
           isOpen ? 'bg-active text-fg' : 'hover:bg-hover hover:text-fg',
           isFocused && 'ring-[1.5px] ring-inset ring-ring',
           // Espaço reservado para o botão absoluto de ações

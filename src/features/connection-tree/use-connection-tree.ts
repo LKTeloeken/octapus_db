@@ -5,6 +5,7 @@ import {
   DatabaseImportIcon,
   Delete02Icon,
   Edit01Icon,
+  FolderTransferIcon,
   GitCompareIcon,
   LayoutGridIcon,
   ListViewIcon,
@@ -29,12 +30,13 @@ import {
   type CatalogStatus,
   type ShapeGroup,
 } from '@/api/types/catalog.types';
-import type { DatabaseType } from '@/api/types/server.types';
+import type { DatabaseType, Server, ServerGroup } from '@/api/types/server.types';
 import type {
   ColumnInfo,
   DatabaseInfo,
   DatabaseStructure,
 } from '@/api/types/structure.types';
+import { useServerGroups } from '@/queries/use-server-groups';
 import { useServers } from '@/queries/use-servers';
 import { useRefreshStructure } from '@/queries/use-refresh-structure';
 import {
@@ -51,6 +53,7 @@ import { useCatalogEvents } from '@/queries/use-catalog-events';
 import { queryKeys } from '@/queries/keys';
 import { STRUCTURE_STALE_TIME_MS } from '@/providers/query-provider';
 import { useBackupDialogStore } from '@/stores/backup-dialog-store';
+import { useServerGroupDialogStore } from '@/stores/server-group-dialog-store';
 import { useFocusStore } from '@/stores/focus-store';
 import {
   useStructureEditorStore,
@@ -61,7 +64,13 @@ import { useTreeStore } from '@/stores/tree-store';
 import { formatCatalogDiagnostics } from '@/lib/catalog-diagnostics';
 import { DEFAULT_DATABASES } from '@/lib/db-defaults';
 import { formatCount } from '@/lib/format-count';
-import { decodeNodeId, encodeNodeId, nodeKind, type NodeRef } from '@/lib/node-ref';
+import {
+  decodeNodeId,
+  encodeNodeId,
+  groupNodeId,
+  nodeKind,
+  type NodeRef,
+} from '@/lib/node-ref';
 import type { ConnectionTreeProps, FlatRow } from './connection-tree.types';
 import type { NodeRowAction } from './node-row/node-row.types';
 import { driftBadge, shapeGroupRow } from './shape-labels';
@@ -118,10 +127,16 @@ const schemaKey = (ref: NodeRef) => `${ref.serverId}|${ref.database}|${ref.schem
  * tenants, as variações (tenant com migração pendente) e o resto. Cada schema
  * fora do molde leva um aviso com quantas tabelas faltam ou sobram.
  */
-export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
+export const useConnectionTree = ({
+  onEditServer,
+  onCreateServer,
+}: ConnectionTreeProps) => {
   useCatalogEvents();
 
   const serversQuery = useServers();
+  const groupsQuery = useServerGroups();
+  const collapsedGroups = useTreeStore(state => state.collapsedGroups);
+  const openGroupDialog = useServerGroupDialogStore(state => state.open);
   const expanded = useTreeStore(state => state.expanded);
   const toggleNode = useTreeStore(state => state.toggleNode);
   const filters = useTreeStore(state => state.filters);
@@ -1032,7 +1047,8 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
     ];
   };
 
-  for (const server of servers) {
+  /** Um servidor e, aberto, a subárvore dele (databases, schemas…) */
+  const pushServer = (server: Server) => {
     const serverNodeId = encodeNodeId({ serverId: server.id });
     const isExpanded = expanded.has(serverNodeId);
     const dbQuery = databasesByServer.get(server.id);
@@ -1078,11 +1094,16 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
                   server.defaultDatabase ?? DEFAULT_DATABASES[server.dbType],
               }),
           },
+          {
+            label: 'Mover para grupo…',
+            icon: FolderTransferIcon,
+            onSelect: () => openGroupDialog({ kind: 'move', server }),
+          },
         ],
       },
     });
 
-    if (!isExpanded) continue;
+    if (!isExpanded) return;
 
     if (dbQuery?.isError) {
       rows.push({
@@ -1092,14 +1113,14 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
         message: dbQuery.error.message,
         onRetry: () => void dbQuery.refetch(),
       });
-      continue;
+      return;
     }
 
     // Mongo/Redis have no schema level — render tables directly (BACKEND.md §6.3)
     const hasSchemas =
       capabilitiesByServer.get(server.id)?.data?.hasSchemas ?? true;
 
-    if (!databases) continue;
+    if (!databases) return;
 
     // Um database por tenant: milhares de databases ganham filtro e janela
     const page = localPage(serverNodeId, databases, db => db.name);
@@ -1228,7 +1249,82 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
         }
       }
     });
+  };
+
+  /**
+   * Os níveis da subárvore de um servidor são fixos (servidor 0, database 1…);
+   * dentro de um grupo tudo desce um nível. Desloca as linhas já empurradas.
+   */
+  const indentFrom = (start: number) => {
+    for (let i = start; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.variant === 'node') row.props.level += 1;
+      else row.level += 1;
+    }
+  };
+
+  /** Um grupo e, aberto, os servidores dele um nível abaixo */
+  const pushGroup = (group: ServerGroup, members: Server[]) => {
+    const nodeId = groupNodeId(group.id);
+    const isOpen = !collapsedGroups.has(group.id);
+
+    rows.push({
+      variant: 'node',
+      id: nodeId,
+      props: {
+        level: 0,
+        kind: 'group',
+        name: group.name,
+        subLabel: formatCount(members.length),
+        hasChildren: members.length > 0,
+        isExpanded: isOpen,
+        onClick: () => toggleNode(nodeId),
+        actions: [
+          {
+            label: 'Novo servidor aqui',
+            icon: Add01Icon,
+            onSelect: () => onCreateServer(group.id),
+          },
+          {
+            label: 'Renomear',
+            icon: PencilEdit02Icon,
+            onSelect: () => openGroupDialog({ kind: 'rename', group }),
+          },
+          {
+            label: 'Excluir grupo',
+            icon: Delete02Icon,
+            danger: true,
+            separated: true,
+            onSelect: () =>
+              openGroupDialog({
+                kind: 'delete',
+                group,
+                serverCount: members.length,
+              }),
+          },
+        ],
+      },
+    });
+
+    if (!isOpen) return;
+    const start = rows.length;
+    for (const server of members) pushServer(server);
+    indentFrom(start);
+  };
+
+  // Grupos primeiro (em ordem alfabética, como vêm do backend), depois os
+  // servidores fora de grupo. Um `groupId` de grupo que não está na lista
+  // (cache defasado) conta como fora de grupo, para o servidor não sumir.
+  const groups = groupsQuery.data ?? [];
+  const membersByGroup = new Map<number, Server[]>(groups.map(group => [group.id, []]));
+  const ungrouped: Server[] = [];
+  for (const server of servers) {
+    const members = server.groupId == null ? undefined : membersByGroup.get(server.groupId);
+    if (members) members.push(server);
+    else ungrouped.push(server);
   }
+  for (const group of groups) pushGroup(group, membersByGroup.get(group.id)!);
+  for (const server of ungrouped) pushServer(server);
 
   return {
     rows,
@@ -1236,6 +1332,6 @@ export const useConnectionTree = ({ onEditServer }: ConnectionTreeProps) => {
     isError: serversQuery.isError,
     error: serversQuery.error,
     retry: () => void serversQuery.refetch(),
-    isEmpty: !serversQuery.data?.length,
+    isEmpty: !serversQuery.data?.length && !groupsQuery.data?.length,
   };
 };

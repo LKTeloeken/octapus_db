@@ -104,6 +104,7 @@ const SERVER: Server = {
   createdAt: 0,
   scopeDatabases: null,
   scopeSchemas: null,
+  groupId: null,
 };
 
 const schemaNode = (name: string): CatalogNode => ({
@@ -188,7 +189,10 @@ function setExpanded(nodeIds: string[]) {
 function renderTree(queryClient: QueryClient) {
   let count = 0;
   function Probe() {
-    count = useConnectionTree({ onEditServer: () => {} }).rows.length;
+    count = useConnectionTree({
+      onEditServer: () => {},
+      onCreateServer: () => {},
+    }).rows.length;
     return null;
   }
   renderToString(

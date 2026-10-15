@@ -60,6 +60,9 @@ pub struct Server {
     /// Escopo salvo: que schemas o catálogo lê (Postgres)
     #[serde(default)]
     pub scope_schemas: Option<String>,
+    /// Grupo da sidebar (`server_groups`); `None` = fora de qualquer grupo
+    #[serde(default)]
+    pub group_id: Option<i64>,
 }
 
 /// For creating/updating servers (receives password)
@@ -79,6 +82,18 @@ pub struct ServerInput {
     pub scope_databases: Option<String>,
     #[serde(default)]
     pub scope_schemas: Option<String>,
+    #[serde(default)]
+    pub group_id: Option<i64>,
+}
+
+/// Grupo de servidores na sidebar (pasta de um nível). Excluir o grupo não
+/// exclui os servidores: eles voltam para fora de qualquer grupo.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerGroup {
+    pub id: i64,
+    pub name: String,
+    pub created_at: i64,
 }
 
 /// Connection identifier

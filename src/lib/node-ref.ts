@@ -83,3 +83,18 @@ export function decodeNodeId(id: string): NodeRef {
 
   return ref;
 }
+
+// Grupo de servidores na árvore: fica fora do NodeRef (não tem servidor) e
+// usa um prefixo que nenhum segmento usa.
+const GROUP_PREFIX = 'gp=';
+
+export function groupNodeId(groupId: number): string {
+  return `${GROUP_PREFIX}${groupId}`;
+}
+
+/** Id do grupo de um nó de grupo; null em qualquer outro nó */
+export function groupIdOf(nodeId: string): number | null {
+  return nodeId.startsWith(GROUP_PREFIX)
+    ? Number(nodeId.slice(GROUP_PREFIX.length))
+    : null;
+}

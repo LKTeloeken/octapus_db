@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import type { DatabaseType, ServerInput } from '@/api/types/server.types';
+import { useServerGroups } from '@/queries/use-server-groups';
 import {
   useCreateServer,
   useDeleteServer,
@@ -21,12 +22,19 @@ const emptyForm: ServerInput = {
   connectionUri: null,
   scopeDatabases: null,
   scopeSchemas: null,
+  groupId: null,
 };
 
-export const useServerForm = ({ open, onClose, server }: ServerFormProps) => {
+export const useServerForm = ({
+  open,
+  onClose,
+  server,
+  defaultGroupId = null,
+}: ServerFormProps) => {
   const [form, setForm] = useState<ServerInput>(emptyForm);
   const [openRemoveDialog, setOpenRemoveDialog] = useState(false);
 
+  const { data: groups = [] } = useServerGroups();
   const createServer = useCreateServer();
   const updateServer = useUpdateServer();
   const deleteServer = useDeleteServer();
@@ -50,11 +58,12 @@ export const useServerForm = ({ open, onClose, server }: ServerFormProps) => {
         connectionUri: server.connectionUri,
         scopeDatabases: server.scopeDatabases,
         scopeSchemas: server.scopeSchemas,
+        groupId: server.groupId,
       });
     } else {
-      setForm(emptyForm);
+      setForm({ ...emptyForm, groupId: defaultGroupId });
     }
-  }, [open, server]);
+  }, [open, server, defaultGroupId]);
 
   const setField = <K extends keyof ServerInput>(
     key: K,
@@ -132,6 +141,7 @@ export const useServerForm = ({ open, onClose, server }: ServerFormProps) => {
 
   return {
     form,
+    groups,
     isEditMode,
     isSaving,
     disableSave,

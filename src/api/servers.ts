@@ -1,6 +1,6 @@
 import { call } from './client';
 import { RustCommand } from './commands';
-import type { Server, ServerInput } from './types/server.types';
+import type { Server, ServerGroup, ServerInput } from './types/server.types';
 
 export function getAllServers(): Promise<Server[]> {
   return call<Server[]>(RustCommand.GetAllServers);
@@ -22,4 +22,32 @@ export function updateServer(id: number, input: ServerInput): Promise<Server> {
 /** Deletes keychain password and open connections too */
 export function deleteServer(id: number): Promise<void> {
   return call<void>(RustCommand.DeleteServer, { id });
+}
+
+/** Move o servidor para um grupo (null = fora de grupo); a senha não muda */
+export function setServerGroup(
+  id: number,
+  groupId: number | null,
+): Promise<void> {
+  return call<void>(RustCommand.SetServerGroup, { id, groupId });
+}
+
+export function getAllServerGroups(): Promise<ServerGroup[]> {
+  return call<ServerGroup[]>(RustCommand.GetAllServerGroups);
+}
+
+export function createServerGroup(name: string): Promise<ServerGroup> {
+  return call<ServerGroup>(RustCommand.CreateServerGroup, { name });
+}
+
+export function renameServerGroup(
+  id: number,
+  name: string,
+): Promise<ServerGroup> {
+  return call<ServerGroup>(RustCommand.RenameServerGroup, { id, name });
+}
+
+/** Os servidores do grupo ficam fora de grupo — não são excluídos */
+export function deleteServerGroup(id: number): Promise<void> {
+  return call<void>(RustCommand.DeleteServerGroup, { id });
 }

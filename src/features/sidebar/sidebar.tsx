@@ -1,6 +1,9 @@
 import {
   Add01Icon,
+  FileImportIcon,
+  FolderAddIcon,
   GithubIcon,
+  ServerStack01Icon,
   Search01Icon,
   Settings01Icon,
 } from '@hugeicons/core-free-icons';
@@ -8,9 +11,18 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import { memo } from 'react';
 import { OctapusMark } from '@/components/octapus-mark';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Kbd } from '@/components/ui/kbd';
 import { Tooltip } from '@/components/ui/tooltip/tooltip';
 import { ConnectionTree } from '@/features/connection-tree/connection-tree';
+import { ImportDialog } from '@/features/connection-import/import-dialog';
+import { ServerGroupDialogs } from '@/features/server-groups/server-group-dialogs';
 import { ServerForm } from '@/features/server-form/server-form';
 import { SettingsDialog } from '@/features/settings/settings-dialog';
 import { StructureEditor } from '@/features/structure-editor/structure-editor';
@@ -22,10 +34,13 @@ export const Sidebar = memo(() => {
   const {
     isFormOpen,
     editingServer,
+    createInGroupId,
     serverCount,
     isSettingsOpen,
     setSettingsOpen,
     openCreateForm,
+    openCreateGroup,
+    openImport,
     openEditForm,
     closeForm,
     openPalette,
@@ -52,16 +67,30 @@ export const Sidebar = memo(() => {
           </>
         )}
         <span className="flex-1" />
-        <Tooltip content="Adicionar servidor" position="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Adicionar servidor"
-            onClick={openCreateForm}
-          >
-            <HugeiconsIcon icon={Add01Icon} />
-          </Button>
-        </Tooltip>
+        <DropdownMenu>
+          <Tooltip content="Adicionar" position="bottom">
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Adicionar">
+                <HugeiconsIcon icon={Add01Icon} />
+              </Button>
+            </DropdownMenuTrigger>
+          </Tooltip>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem onSelect={() => openCreateForm(null)}>
+              <HugeiconsIcon icon={ServerStack01Icon} />
+              Novo servidor
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={openCreateGroup}>
+              <HugeiconsIcon icon={FolderAddIcon} />
+              Novo grupo
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={openImport}>
+              <HugeiconsIcon icon={FileImportIcon} />
+              Importar conexões…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Atalho para a paleta: a busca de tabelas mora lá. */}
@@ -87,7 +116,11 @@ export const Sidebar = memo(() => {
       </div>
 
       <div className="min-h-0 flex-1 px-2">
-        <ConnectionTree onEditServer={openEditForm} />
+        <ConnectionTree
+          onEditServer={openEditForm}
+          onCreateServer={openCreateForm}
+          onImport={openImport}
+        />
       </div>
 
       <div className="flex h-11 shrink-0 items-center gap-1 border-t border-line-subtle pr-2 pl-3.5">
@@ -122,7 +155,14 @@ export const Sidebar = memo(() => {
         open={isFormOpen}
         onClose={closeForm}
         server={editingServer}
+        defaultGroupId={createInGroupId}
       />
+
+      {/* Criar/renomear/excluir grupos e mover servidores entre eles */}
+      <ServerGroupDialogs />
+
+      {/* Trazer as conexões do DBeaver, TablePlus, pgAdmin… */}
+      <ImportDialog />
 
       <SettingsDialog open={isSettingsOpen} onOpenChange={setSettingsOpen} />
 

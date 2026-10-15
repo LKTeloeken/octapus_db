@@ -256,6 +256,7 @@ mod tests {
             connection_uri: Some(path.to_string_lossy().into_owned()),
             scope_databases: None,
             scope_schemas: None,
+            group_id: None,
             created_at: 0,
         }
     }

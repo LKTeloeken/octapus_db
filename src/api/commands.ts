@@ -6,6 +6,19 @@ export enum RustCommand {
   CreateServer = 'create_server',
   UpdateServer = 'update_server',
   DeleteServer = 'delete_server',
+  SetServerGroup = 'set_server_group',
+
+  // Grupos de servidores (pastas da sidebar)
+  GetAllServerGroups = 'get_all_server_groups',
+  CreateServerGroup = 'create_server_group',
+  RenameServerGroup = 'rename_server_group',
+  DeleteServerGroup = 'delete_server_group',
+
+  // Importar conexões de outros apps (DBeaver, TablePlus, pgAdmin…)
+  ImportDetectSources = 'import_detect_sources',
+  ImportPreview = 'import_preview',
+  ImportCommit = 'import_commit',
+  ImportDiscard = 'import_discard',
 
   // Connection
   Connect = 'connect',
