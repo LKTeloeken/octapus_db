@@ -3,14 +3,16 @@
 //! - macOS (e Windows): `Connections.plist` + `ConnectionGroups.plist` na pasta
 //!   `Data`, com as senhas no Keychain (serviço `com.tableplus.TablePlus`,
 //!   conta `<ID>_database`) — lidas só no commit, ver `keychain.rs`;
-//! - Linux: `~/.tableplus/settings/connections.json`. O formato não é público:
-//!   as chaves seguem o kebab-case do app (`"ssl-mode": -1`, como aparece nas
-//!   issues do TablePlus-Linux).
+//! - Linux: `~/.tableplus/settings/connections.json`, no formato
+//!   `{"objects": [{"name", "db-driver", "db-host", "db-port", "db-user",
+//!   "db-name", "db-path", "db-url", "ssh-host", "ssl-mode", "group-id"…}]}`,
+//!   com tudo em texto (porta vazia = padrão). As senhas não ficam no arquivo
+//!   (`db-command-line-password` é um comando, não a senha).
 //!
 //! Os dois viram o mesmo `serde_json::Value` e cada campo é procurado pelo nome
 //! normalizado (sem caixa, `-` e `_`): `ConnectionName`, `connection-name` e
-//! `connection_name` são a mesma chave. Assim o JSON do Linux é lido com os
-//! nomes que o plist já usa, e um nome diferente custa só um sinônimo aqui.
+//! `connection_name` são a mesma chave; os nomes de cada formato são sinônimos
+//! na mesma lista (`DatabaseHost` do plist, `db-host` do Linux).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -18,7 +20,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value};
 
 use super::mapping::{canonical_driver, RawConnection, Secret};
-use super::paths;
+use super::{paths, url};
 use crate::error::{Error, Result};
 
 pub const KEYCHAIN_SERVICE: &str = "com.tableplus.TablePlus";
@@ -39,7 +41,7 @@ pub fn read(file: &Path) -> Result<Vec<RawConnection>> {
             file.display()
         ))
     };
-    let document = load(file).ok_or_else(invalid)?;
+    let (document, format) = load(file).ok_or_else(invalid)?;
     let connections = connection_list(&document).ok_or_else(invalid)?;
 
     let dir = file.parent();
@@ -52,29 +54,40 @@ pub fn read(file: &Path) -> Result<Vec<RawConnection>> {
             ]
             .iter()
             .find_map(|name| load(&dir?.join(name)))
-            .and_then(|doc| doc.as_array().cloned())
+            .and_then(|(doc, _)| doc.as_array().cloned())
         })
         .unwrap_or_default();
 
-    Ok(parse(&connections, &groups, cfg!(target_os = "macos")))
+    // Só o plist do app de macOS guarda a senha no Keychain; o JSON do Linux,
+    // mesmo lido num Mac, não tem senha nenhuma para buscar lá
+    let keychain = format == Format::Plist && cfg!(target_os = "macos");
+    Ok(parse(&connections, &groups, keychain))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Format {
+    Json,
+    Plist,
 }
 
 /// plist (XML ou binário) ou JSON, pelo conteúdo — não pela extensão.
-fn load(path: &Path) -> Option<Value> {
+fn load(path: &Path) -> Option<(Value, Format)> {
     let bytes = std::fs::read(path).ok()?;
-    serde_json::from_slice(&bytes).ok().or_else(|| {
-        plist::Value::from_reader(std::io::Cursor::new(&bytes))
-            .ok()
-            .and_then(|value| serde_json::to_value(value).ok())
-    })
+    if let Ok(json) = serde_json::from_slice(&bytes) {
+        return Some((json, Format::Json));
+    }
+    let plist = plist::Value::from_reader(std::io::Cursor::new(&bytes)).ok()?;
+    Some((serde_json::to_value(plist).ok()?, Format::Plist))
 }
 
-/// A lista de conexões: o próprio documento ou uma lista dentro dele
-/// (`{"connections": [...]}`).
+/// A lista de conexões: o próprio documento (plist) ou uma lista dentro dele
+/// (`{"objects": [...]}` no Linux).
 fn connection_list(document: &Value) -> Option<Vec<Value>> {
     match document {
         Value::Array(items) => Some(items.clone()),
-        Value::Object(map) => field(map, &["connections", "items"])?.as_array().cloned(),
+        Value::Object(map) => field(map, &["objects", "connections", "items"])?
+            .as_array()
+            .cloned(),
         _ => None,
     }
 }
@@ -101,18 +114,22 @@ pub fn parse(connections: &[Value], groups: &[Value], keychain: bool) -> Vec<Raw
         .filter_map(|conn| {
             let name = text(conn, &["connectionname", "name"])?;
             let driver = canonical_driver(
-                &text(conn, &["driver", "databasetype", "type"]).unwrap_or_default(),
+                &text(conn, &["driver", "dbdriver", "databasetype", "type"]).unwrap_or_default(),
             );
             let database = if driver == "SQLite" {
-                text(conn, &["databasepath", "path", "databasename"])
+                text(
+                    conn,
+                    &["databasepath", "dbpath", "path", "databasename", "dbname"],
+                )
             } else {
-                text(conn, &["databasename", "database"])
+                text(conn, &["databasename", "dbname", "database"])
             };
 
             let mut raw = RawConnection {
-                host: text(conn, &["databasehost", "host"]).unwrap_or_default(),
-                port: field(conn, &["databaseport", "port"]).and_then(port),
-                username: text(conn, &["databaseuser", "user", "username"]).unwrap_or_default(),
+                host: text(conn, &["databasehost", "dbhost", "host"]).unwrap_or_default(),
+                port: field(conn, &["databaseport", "dbport", "port"]).and_then(port),
+                username: text(conn, &["databaseuser", "dbuser", "user", "username"])
+                    .unwrap_or_default(),
                 database,
                 group: text(conn, &["groupid"])
                     .and_then(|id| group_names.get(&id).cloned())
@@ -120,8 +137,33 @@ pub fn parse(connections: &[Value], groups: &[Value], keychain: bool) -> Vec<Raw
                 ..RawConnection::new(name, driver)
             };
 
-            if field(conn, &["isoverssh", "overssh", "usessh"]).is_some_and(truthy) {
-                raw.ssh_host = Some(text(conn, &["serveraddress", "sshhost"]).unwrap_or_default());
+            // Conexão salva só como URL (`db-url`): os campos vêm dela
+            if raw.host.is_empty() && raw.driver != "SQLite" {
+                if let Some(from_url) = text(conn, &["dburl", "url"])
+                    .as_deref()
+                    .and_then(url::connection_from_url)
+                {
+                    raw.host = from_url.host;
+                    raw.port = raw.port.or(from_url.port);
+                    if raw.username.is_empty() {
+                        raw.username = from_url.username;
+                    }
+                    raw.database = raw.database.or(from_url.database);
+                    raw.uri = from_url.uri;
+                    raw.ssl_mode = from_url.ssl_mode;
+                    raw.secret = from_url.secret;
+                }
+            }
+
+            // SSH: o plist tem a flag `isOverSSH`; o JSON do Linux não tem
+            // flag, e o túnel está ligado quando `ssh-host` vem preenchido
+            let ssh_host = text(conn, &["serveraddress", "sshhost"]);
+            let over_ssh = match field(conn, &["isoverssh", "overssh", "usessh"]) {
+                Some(flag) => truthy(flag),
+                None => ssh_host.is_some(),
+            };
+            if over_ssh {
+                raw.ssh_host = Some(ssh_host.unwrap_or_default());
             }
             // tLSMode / ssl-mode: -1 (Linux) ou 0 = sem exigência, 1 require,
             // 2 verify-ca, 3 verify-full
@@ -131,15 +173,17 @@ pub fn parse(connections: &[Value], groups: &[Value], keychain: bool) -> Vec<Raw
                 Some(3) => Some("verify-full".into()),
                 _ => None,
             };
-            // TlsKeyPaths: [CA, certificado do cliente, chave do cliente]
+            // TlsKeyPaths: [CA, certificado do cliente, chave do cliente]; no
+            // Linux, `ssl-key-path-1/2/3` na mesma ordem
             raw.client_certificate = field(conn, &["tlskeypaths"])
                 .and_then(Value::as_array)
                 .and_then(|paths| paths.get(1))
                 .and_then(Value::as_str)
-                .is_some_and(|path| !path.is_empty());
+                .is_some_and(|path| !path.is_empty())
+                || text(conn, &["sslkeypath2"]).is_some();
 
             // SQLite não tem senha: ler o Keychain só faria o macOS perguntar à toa
-            if raw.driver != "SQLite" {
+            if raw.driver != "SQLite" && raw.secret == Secret::None {
                 if let Some(password) = text(conn, &["databasepassword", "password"]) {
                     raw.secret = Secret::Plain(password);
                 } else if let Some(id) = text(conn, &["id"]).filter(|_| keychain) {
@@ -256,6 +300,90 @@ mod tests {
 
         // Fora do macOS não há Keychain para ler
         assert_eq!(parse(&connections, &groups, false)[0].secret, Secret::None);
+    }
+
+    /// Formato real do TablePlus no Linux (copiado de um `connections.json` de
+    /// usuário, só com hosts, usuários e caminhos trocados)
+    const LINUX_CONNECTIONS: &str = r#"{"objects":[
+        {"id":"aaf7933c-6d4e-481f-b303-871cc2350052","name":"Loja DEV","color":"rgb(255,255,255)","tag":"development","db-driver":"PostgreSQL","db-url":"","db-host":"10.20.30.40","db-port":"","db-user":"postgres","db-name":"loja_dev","db-path":"","ssh-host":"","ssh-port":"","ssh-user":"","ssh-key-path":"","ssl-key-path-1":"","ssl-key-path-1-pass":"","ssl-key-path-2":"","ssl-key-path-3":"","selected-schema":"dev","favorites":[],"db-command-line-password":"","group-id":""},
+        {"id":"f4136603-e5ce-4042-8745-8746ad1eb69c","name":"Loja LOCAL","color":"rgb(255,255,255)","tag":"local","db-driver":"PostgreSQL","db-url":"","db-host":"127.0.0.1","db-port":"5434","db-user":"voce","db-name":"loja","db-path":"","ssh-host":"","ssh-port":"","ssh-user":"","selected-schema":"cliente","favorites":[],"db-command-line-password":"","group-id":""},
+        {"id":"c7b5b8ac-cb05-47ee-8671-ae0b688c1bde","name":"tarefas","color":"rgb(104,107,111)","tag":"","db-driver":"SQLite","db-url":"","db-host":"","db-port":"","db-user":"","db-name":"","db-path":"/home/voce/.local/share/tarefas/tarefas.db","ssh-host":"","ssh-port":"","ssh-user":"","ssl-mode":-1,"selected-schema":"tarefas.db","favorites":[],"db-command-line-password":"","group-id":"","recent-ai-chat-history":""},
+        {"id":"x1","name":"Via túnel","db-driver":"PostgreSQL","db-host":"db.interno","db-port":"5432","db-user":"app","db-name":"app","ssh-host":"bastion.exemplo.com","ssh-port":"22","ssh-user":"deploy","ssl-mode":1,"ssl-key-path-2":"/home/voce/cert.pem"},
+        {"id":"x2","name":"Só URL","db-driver":"PostgreSQL","db-url":"postgresql://app:s3cret@db.url.com:6543/vendas","db-host":"","db-port":""}
+    ]}"#;
+
+    #[test]
+    fn reads_the_real_linux_format() {
+        let dir = temp_dir("linux-real");
+        let file = dir.join("connections.json");
+        std::fs::write(&file, LINUX_CONNECTIONS).unwrap();
+
+        let raws = read(&file).unwrap();
+        assert_eq!(raws.len(), 5);
+
+        let dev = &raws[0];
+        assert_eq!(
+            (dev.name.as_str(), dev.driver.as_str()),
+            ("Loja DEV", "PostgreSQL")
+        );
+        assert_eq!(
+            (dev.host.as_str(), dev.port),
+            ("10.20.30.40", None),
+            "porta vazia = padrão"
+        );
+        assert_eq!(dev.username, "postgres");
+        assert_eq!(dev.database.as_deref(), Some("loja_dev"));
+        assert_eq!(dev.ssh_host, None, "ssh-host vazio = sem túnel");
+        assert_eq!(dev.ssl_mode, None);
+        assert!(!dev.client_certificate);
+        assert_eq!(dev.group, None);
+        assert_eq!(
+            dev.secret,
+            Secret::None,
+            "db-command-line-password não é senha"
+        );
+
+        assert_eq!(raws[1].port, Some(5434));
+
+        let sqlite = &raws[2];
+        assert_eq!(sqlite.driver, "SQLite");
+        assert_eq!(
+            sqlite.database.as_deref(),
+            Some("/home/voce/.local/share/tarefas/tarefas.db")
+        );
+
+        let tunnel = &raws[3];
+        assert_eq!(tunnel.ssh_host.as_deref(), Some("bastion.exemplo.com"));
+        assert_eq!(tunnel.ssl_mode.as_deref(), Some("require"));
+        assert!(tunnel.client_certificate);
+
+        let from_url = &raws[4];
+        assert_eq!(
+            (from_url.host.as_str(), from_url.port),
+            ("db.url.com", Some(6543))
+        );
+        assert_eq!(from_url.username, "app");
+        assert_eq!(from_url.database.as_deref(), Some("vendas"));
+        assert_eq!(from_url.secret, Secret::Plain("s3cret".into()));
+
+        // Do arquivo até o candidato da prévia: Postgres na porta padrão, sem
+        // senha (aviso), SQLite com o caminho na URI
+        let candidates: Vec<_> = raws
+            .iter()
+            .enumerate()
+            .map(|(key, raw)| {
+                crate::services::connection_import::mapping::to_candidate(key, raw, &[])
+            })
+            .collect();
+        assert_eq!(candidates[0].port, 5432);
+        assert!(candidates[0]
+            .warnings
+            .contains(&crate::models::ImportWarning::NoPassword));
+        assert_eq!(
+            candidates[2].connection_uri.as_deref(),
+            Some("/home/voce/.local/share/tarefas/tarefas.db")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
