@@ -467,7 +467,7 @@ mod tests {
             group_id: None,
         };
         assert_eq!(
-            to_candidate(0, &pg("localhost"), &[existing.clone()]).duplicate_of,
+            to_candidate(0, &pg("localhost"), std::slice::from_ref(&existing)).duplicate_of,
             Some(42)
         );
         assert_eq!(

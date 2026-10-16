@@ -24,4 +24,3 @@ export type { RestoreRequest } from './generated/RestoreRequest';
 
 /** Evento global do Tauri com o andamento dos backups/restaurações */
 export const BACKUP_EVENT = 'backup-event';
-

@@ -11,4 +11,3 @@ export type { TableInfo } from './generated/TableInfo';
 export type { TableType } from './generated/TableType';
 
 // ── Edição da estrutura pela árvore (Postgres e SQLite) ─────────────────────
-

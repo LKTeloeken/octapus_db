@@ -1,10 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { applyRowEdits, deleteRows, insertRows } from '@/api/query';
-import type {
-  EditableInfo,
-  RowEdit,
-  RowInsert,
-} from '@/api/types/query.types';
+import type { EditableInfo, RowEdit, RowInsert } from '@/api/types/query.types';
 import { queryKeys } from './keys';
 
 export interface ApplyRowEditsVariables {
@@ -33,7 +29,12 @@ export function useApplyRowEdits() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ serverId, database, editable, edits }: ApplyRowEditsVariables) =>
+    mutationFn: ({
+      serverId,
+      database,
+      editable,
+      edits,
+    }: ApplyRowEditsVariables) =>
       applyRowEdits(serverId, database, editable, edits),
     onSuccess: (_result, { serverId, database, editable }) => {
       queryClient.invalidateQueries({
@@ -73,7 +74,12 @@ export function useDeleteRows() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ serverId, database, editable, pkValues }: DeleteRowsVariables) =>
+    mutationFn: ({
+      serverId,
+      database,
+      editable,
+      pkValues,
+    }: DeleteRowsVariables) =>
       deleteRows(serverId, database, editable, pkValues),
     onSuccess: (_result, { serverId, database, editable }) => {
       queryClient.invalidateQueries({

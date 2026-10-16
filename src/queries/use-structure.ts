@@ -16,7 +16,8 @@ export function useStructure(
 ) {
   return useQuery({
     queryKey: queryKeys.structure(serverId ?? -1, database ?? ''),
-    queryFn: () => listSchemasWithTables(serverId as number, database as string),
+    queryFn: () =>
+      listSchemasWithTables(serverId as number, database as string),
     enabled: serverId != null && !!database && (options?.enabled ?? true),
     staleTime: STRUCTURE_STALE_TIME_MS,
     gcTime: STRUCTURE_STALE_TIME_MS,

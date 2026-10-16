@@ -24,7 +24,12 @@ export function OptionRow({
   danger,
 }: OptionRowProps) {
   return (
-    <div className={cn('flex items-start justify-between gap-4', disabled && 'opacity-45')}>
+    <div
+      className={cn(
+        'flex items-start justify-between gap-4',
+        disabled && 'opacity-45',
+      )}
+    >
       <div className="flex flex-col gap-0.5">
         <Label htmlFor={id} className={cn(danger && 'text-danger')}>
           {label}

@@ -11,7 +11,11 @@ interface CommandPreviewProps {
  * A linha de comando que vai rodar, montada pelo backend (a mesma que ele
  * executa, sem a senha). Uma combinação inválida aparece aqui em vermelho.
  */
-export function CommandPreview({ command, error, isLoading }: CommandPreviewProps) {
+export function CommandPreview({
+  command,
+  error,
+  isLoading,
+}: CommandPreviewProps) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex h-4 items-center gap-2 text-small font-medium text-fg-muted">

@@ -5,7 +5,10 @@ import type { BackupOptions, BackupRequest } from '@/api/types/backup.types';
 import { describePgToolsProblem } from '@/lib/pg-tools';
 import { useBackupPreview, useStartBackup } from '@/queries/use-backup';
 import { usePgToolsStatus } from '@/queries/use-pg-tools';
-import { useBackupDialogStore, type BackupDialog } from '@/stores/backup-dialog-store';
+import {
+  useBackupDialogStore,
+  type BackupDialog,
+} from '@/stores/backup-dialog-store';
 import { useBackupJobsStore } from '@/stores/backup-jobs-store';
 import {
   DEFAULT_BACKUP_OPTIONS,
@@ -30,7 +33,9 @@ export function useBackupDialog(
 
   const setOptions = useCallback(
     (patch: Partial<BackupOptions>) =>
-      setOptionsState(current => normalizeBackupOptions({ ...current, ...patch })),
+      setOptionsState(current =>
+        normalizeBackupOptions({ ...current, ...patch }),
+      ),
     [],
   );
 
@@ -61,7 +66,8 @@ export function useBackupDialog(
       defaultPath: preview.data.fileName,
       filters: [
         {
-          name: options.format === 'custom' ? 'Backup do PostgreSQL' : 'Script SQL',
+          name:
+            options.format === 'custom' ? 'Backup do PostgreSQL' : 'Script SQL',
           extensions: [extension],
         },
       ],

@@ -5,7 +5,9 @@ import { TYPE_SUGGESTIONS, typeListId } from './type-suggestions';
 export function TypeDatalist({ dbType }: { dbType: DatabaseType }) {
   return (
     <datalist id={typeListId(dbType)}>
-      {TYPE_SUGGESTIONS[dbType]?.map(type => <option key={type} value={type} />)}
+      {TYPE_SUGGESTIONS[dbType]?.map(type => (
+        <option key={type} value={type} />
+      ))}
     </datalist>
   );
 }

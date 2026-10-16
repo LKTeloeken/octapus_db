@@ -132,7 +132,10 @@ function DropdownMenuRadioItem({
     >
       <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
         <DropdownMenuPrimitive.ItemIndicator>
-          <HugeiconsIcon icon={CircleIcon} className="size-2 fill-current text-fg" />
+          <HugeiconsIcon
+            icon={CircleIcon}
+            className="size-2 fill-current text-fg"
+          />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}

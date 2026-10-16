@@ -84,7 +84,10 @@ const editorChrome = (dark: boolean) =>
         backgroundColor: 'var(--active)',
         color: 'var(--fg)',
       },
-      '.cm-completionDetail': { color: 'var(--fg-subtle)', fontStyle: 'normal' },
+      '.cm-completionDetail': {
+        color: 'var(--fg-subtle)',
+        fontStyle: 'normal',
+      },
       '.cm-completionMatchedText': {
         textDecoration: 'none',
         color: 'var(--iris-text)',
@@ -108,13 +111,33 @@ const editorChrome = (dark: boolean) =>
   );
 
 const inkHighlight = HighlightStyle.define([
-  { tag: [t.keyword, t.operatorKeyword, t.modifier, t.bool, t.null], color: 'var(--syn-keyword)' },
-  { tag: [t.function(t.variableName), t.function(t.propertyName), t.standard(t.name)], color: 'var(--syn-function)' },
-  { tag: [t.string, t.special(t.string), t.regexp], color: 'var(--syn-string)' },
+  {
+    tag: [t.keyword, t.operatorKeyword, t.modifier, t.bool, t.null],
+    color: 'var(--syn-keyword)',
+  },
+  {
+    tag: [
+      t.function(t.variableName),
+      t.function(t.propertyName),
+      t.standard(t.name),
+    ],
+    color: 'var(--syn-function)',
+  },
+  {
+    tag: [t.string, t.special(t.string), t.regexp],
+    color: 'var(--syn-string)',
+  },
   { tag: [t.number, t.integer, t.float], color: 'var(--syn-number)' },
   { tag: [t.typeName, t.className, t.namespace], color: 'var(--syn-type)' },
-  { tag: [t.comment, t.lineComment, t.blockComment], color: 'var(--fg-subtle)', fontStyle: 'italic' },
-  { tag: [t.operator, t.punctuation, t.separator, t.bracket], color: 'var(--fg-muted)' },
+  {
+    tag: [t.comment, t.lineComment, t.blockComment],
+    color: 'var(--fg-subtle)',
+    fontStyle: 'italic',
+  },
+  {
+    tag: [t.operator, t.punctuation, t.separator, t.bracket],
+    color: 'var(--fg-muted)',
+  },
   { tag: [t.propertyName, t.attributeName], color: 'var(--fg)' },
   { tag: [t.tagName], color: 'var(--syn-keyword)' },
   { tag: [t.invalid], color: 'var(--danger)' },

@@ -21,7 +21,7 @@ import { useSqlCompletion } from './use-sql-completion';
 
 const PLACEHOLDERS: Record<string, string> = {
   postgres: 'SELECT * FROM ...',
-  mongodb: "db.collection.find({ ... })",
+  mongodb: 'db.collection.find({ ... })',
   redis: 'GET user:1 · HGETALL session:abc · SCAN 0 MATCH user:*',
   sqlite: 'SELECT * FROM ...',
 };
@@ -205,7 +205,8 @@ export const useQueryRunner = (tab: QueryTab) => {
           deleteRows: pkValues =>
             deleteRowsMutation.mutateAsync({ ...base, pkValues }),
           insertRows: rows => insertRowsMutation.mutateAsync({ ...base, rows }),
-          applyEdits: edits => applyEditsMutation.mutateAsync({ ...base, edits }),
+          applyEdits: edits =>
+            applyEditsMutation.mutateAsync({ ...base, edits }),
         });
         toast.success(`${affected} linhas alteradas`);
         await executeRun(run.query);

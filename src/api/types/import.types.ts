@@ -17,4 +17,3 @@ export interface ImportPreviewRequest {
   /** URLs coladas (origem `urls`) */
   text?: string | null;
 }
-

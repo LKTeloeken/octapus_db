@@ -41,7 +41,9 @@ export const ResultsTableValuePanel = memo(
     return (
       <div className="flex h-full min-w-0 flex-col bg-surface-1">
         <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-line-subtle pr-1.5 pl-3.5">
-          <span className="shrink-0 text-body font-semibold text-fg">Valor</span>
+          <span className="shrink-0 text-body font-semibold text-fg">
+            Valor
+          </span>
           {target && (
             <Badge mono className="min-w-0" title={target.column.name}>
               <span className="truncate">
@@ -135,7 +137,10 @@ export const ResultsTableValuePanel = memo(
               </span>
             ) : target.isModified ? (
               <span className="inline-flex items-center gap-2 truncate">
-                <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning" />
+                <span
+                  aria-hidden
+                  className="size-1.5 shrink-0 rounded-full bg-warning"
+                />
                 Edição pendente · linha {target.rowIndex + 1}
               </span>
             ) : (
@@ -148,7 +153,10 @@ export const ResultsTableValuePanel = memo(
                 format === 'binary' && <span>visão binária: só leitura</span>
               )}
               <span
-                className={cn('font-mono text-[11px]', sizeLabel === null && 'italic')}
+                className={cn(
+                  'font-mono text-[11px]',
+                  sizeLabel === null && 'italic',
+                )}
               >
                 {sizeLabel ?? 'NULL'}
               </span>

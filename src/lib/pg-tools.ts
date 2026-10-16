@@ -1,7 +1,4 @@
-import type {
-  PgToolsInstall,
-  PgToolsProblem,
-} from '@/api/types/backup.types';
+import type { PgToolsInstall, PgToolsProblem } from '@/api/types/backup.types';
 import { isLinux, isMac } from './platform';
 
 /** Como instalar as ferramentas do Postgres neste sistema */

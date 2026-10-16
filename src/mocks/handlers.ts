@@ -178,7 +178,10 @@ const serverHandlers: Record<string, MockHandler> = {
   [RustCommand.SetServerGroup]: ({ id, groupId }: Args): void => {
     const entry = requireServerEntry(id as number);
     if (groupId != null) requireGroup(groupId as number);
-    entry.server = { ...entry.server, groupId: (groupId as number | null) ?? null };
+    entry.server = {
+      ...entry.server,
+      groupId: (groupId as number | null) ?? null,
+    };
   },
 
   [RustCommand.GetAllServerGroups]: (): ServerGroup[] =>
@@ -210,7 +213,8 @@ const serverHandlers: Record<string, MockHandler> = {
     requireGroup(id as number);
     dataset.groups = dataset.groups.filter(group => group.id !== id);
     for (const entry of dataset.servers) {
-      if (entry.server.groupId === id) entry.server = { ...entry.server, groupId: null };
+      if (entry.server.groupId === id)
+        entry.server = { ...entry.server, groupId: null };
     }
   },
 };
@@ -223,7 +227,11 @@ let mockImportPreview: ImportPreview | null = null;
 const importHandlers: Record<string, MockHandler> = {
   [RustCommand.ImportDetectSources]: () => MOCK_IMPORT_SOURCES,
 
-  [RustCommand.ImportPreview]: ({ source, path, text }: Args): ImportPreview => {
+  [RustCommand.ImportPreview]: ({
+    source,
+    path,
+    text,
+  }: Args): ImportPreview => {
     const servers = getDataset().servers.map(entry => entry.server);
     const candidates: ImportCandidate[] = mockImportFixtures(
       source as ImportSource,
@@ -241,7 +249,9 @@ const importHandlers: Record<string, MockHandler> = {
             server.defaultDatabase === fixture.defaultDatabase,
         )?.id ?? null,
     }));
-    const groups = Array.from(new Set(candidates.flatMap(c => (c.group ? [c.group] : []))));
+    const groups = Array.from(
+      new Set(candidates.flatMap(c => (c.group ? [c.group] : []))),
+    );
     const info = MOCK_IMPORT_SOURCES.find(entry => entry.source === source);
     mockImportPreview = {
       // Mesma faixa do Rust (u32): cabe exato num Number
@@ -283,7 +293,8 @@ const importHandlers: Record<string, MockHandler> = {
           ? groupIdOf(candidate.group)
           : typed.targetGroupId;
       const hasPassword =
-        typed.includePasswords && (candidate.hasPassword || candidate.passwordInKeychain);
+        typed.includePasswords &&
+        (candidate.hasPassword || candidate.passwordInKeychain);
       serverHandlers[RustCommand.CreateServer]({
         input: {
           name: candidate.name,
@@ -300,7 +311,9 @@ const importHandlers: Record<string, MockHandler> = {
       });
       imported++;
       const needsPassword =
-        candidate.dbType !== 'sqlite' && !candidate.connectionUri && !!candidate.username;
+        candidate.dbType !== 'sqlite' &&
+        !candidate.connectionUri &&
+        !!candidate.username;
       if (needsPassword && !hasPassword) withoutPassword++;
     }
     return {
@@ -508,7 +521,11 @@ const ddlHandlers: Record<string, MockHandler> = {
     change,
   }: Args): StatementResult => {
     requireStructureEditing(serverId);
-    applyStructure(serverId as number, database as string, change as StructureChange);
+    applyStructure(
+      serverId as number,
+      database as string,
+      change as StructureChange,
+    );
     return { affectedRows: 0, executionTimeMs: 12 };
   },
 };
@@ -639,8 +656,18 @@ const mockPgInstall = (
 });
 
 const MOCK_PG_CANDIDATES: PgToolsInstall[] = [
-  mockPgInstall('/opt/homebrew/opt/postgresql@17/bin', '17.2', 170_002, 'knownLocation'),
-  mockPgInstall('/opt/homebrew/opt/postgresql@15/bin', '15.10', 150_010, 'knownLocation'),
+  mockPgInstall(
+    '/opt/homebrew/opt/postgresql@17/bin',
+    '17.2',
+    170_002,
+    'knownLocation',
+  ),
+  mockPgInstall(
+    '/opt/homebrew/opt/postgresql@15/bin',
+    '15.10',
+    150_010,
+    'knownLocation',
+  ),
 ];
 
 /**
@@ -648,7 +675,9 @@ const MOCK_PG_CANDIDATES: PgToolsInstall[] = [
  * no caminho simula a pasta sem pg_dump); sem ela, a mais nova achada.
  */
 function mockPgDetection(): PgToolsDetection {
-  const { pgToolsDir } = settingsHandlers[RustCommand.GetSettings]({}) as AppSettings;
+  const { pgToolsDir } = settingsHandlers[RustCommand.GetSettings](
+    {},
+  ) as AppSettings;
   if (!pgToolsDir) {
     return {
       selected: MOCK_PG_CANDIDATES[0],
@@ -819,7 +848,13 @@ const backupHandlers: Record<string, MockHandler> = {
       throw 'Não parece um backup do PostgreSQL (.dump) nem um script SQL.';
     }
     if (file.endsWith('.sql')) {
-      return { path: file, format: 'plain', sizeBytes: 812_345, summary: null, summaryError: null };
+      return {
+        path: file,
+        format: 'plain',
+        sizeBytes: 812_345,
+        summary: null,
+        summaryError: null,
+      };
     }
     return {
       path: file,
@@ -852,7 +887,9 @@ const backupHandlers: Record<string, MockHandler> = {
     if (restore.format === 'plain') {
       return [
         'psql --no-psqlrc --no-password',
-        ...(options.singleTransaction ? ['--set=ON_ERROR_STOP=1 --single-transaction'] : []),
+        ...(options.singleTransaction
+          ? ['--set=ON_ERROR_STOP=1 --single-transaction']
+          : []),
         `--file=${path as string}`,
         ...connection,
       ].join(' ');
@@ -861,7 +898,9 @@ const backupHandlers: Record<string, MockHandler> = {
       'pg_restore --verbose --no-password',
       ...(options.noOwner ? ['--no-owner --no-privileges'] : []),
       ...(options.clean ? ['--clean --if-exists'] : []),
-      ...(options.singleTransaction ? ['--single-transaction --exit-on-error'] : []),
+      ...(options.singleTransaction
+        ? ['--single-transaction --exit-on-error']
+        : []),
       ...connection,
       path as string,
     ].join(' ');
@@ -892,7 +931,8 @@ const backupHandlers: Record<string, MockHandler> = {
           ? {
               jobId,
               type: 'error',
-              message: 'pg_restore: error: could not execute query: ERROR:  schema "vendas" already exists',
+              message:
+                'pg_restore: error: could not execute query: ERROR:  schema "vendas" already exists',
             }
           : {
               jobId,
@@ -902,7 +942,9 @@ const backupHandlers: Record<string, MockHandler> = {
               elapsedMs: steps.length * 500,
               warnings: restore.options.singleTransaction
                 ? []
-                : ['pg_restore: error: could not execute query: ERROR:  role "app" does not exist'],
+                : [
+                    'pg_restore: error: could not execute query: ERROR:  role "app" does not exist',
+                  ],
             },
       );
     };

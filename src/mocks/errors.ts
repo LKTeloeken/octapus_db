@@ -1,7 +1,4 @@
-import type {
-  BackendError,
-  BackendErrorCode,
-} from '@/api/types/error.types';
+import type { BackendError, BackendErrorCode } from '@/api/types/error.types';
 
 /**
  * Prefixos do `Display` de `Error` (src-tauri/src/error.rs). Os handlers lançam

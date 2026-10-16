@@ -23,7 +23,11 @@ const findItem = (rows: PaletteRow[], from: number, dir: 1 | -1): number => {
  * active row, skips group headers with the arrow keys, scrolls off-screen rows
  * into view, and selects on Enter — the role cmdk used to play via the DOM.
  */
-export const usePaletteNavigation = ({ rows, virtualizer, onSelect }: Options) => {
+export const usePaletteNavigation = ({
+  rows,
+  virtualizer,
+  onSelect,
+}: Options) => {
   const [activeIndex, setActiveIndex] = useState(-1);
 
   // New result set → highlight the first item and scroll back to the top
@@ -35,7 +39,8 @@ export const usePaletteNavigation = ({ rows, virtualizer, onSelect }: Options) =
 
   const move = useCallback(
     (dir: 1 | -1) => {
-      const start = activeIndex < 0 ? (dir === 1 ? -1 : rows.length) : activeIndex;
+      const start =
+        activeIndex < 0 ? (dir === 1 ? -1 : rows.length) : activeIndex;
       const next = findItem(rows, start + dir, dir);
       if (next === -1) return;
       setActiveIndex(next);

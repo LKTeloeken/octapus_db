@@ -13,6 +13,7 @@ export function useDebouncedValue<T>(value: T, delayMs: number): T {
     const timer = setTimeout(() => setDebounced(value), delayMs);
     return () => clearTimeout(timer);
     // `key` representa `value`: só o conteúdo importa
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, delayMs]);
 
   return debounced;

@@ -10,5 +10,7 @@ export const EmptyState = ({
   className,
   message = 'Execute uma query para ver resultados',
 }: EmptyStateProps) => {
-  return <ContentState className={className} icon={TableIcon} title={message} />;
+  return (
+    <ContentState className={className} icon={TableIcon} title={message} />
+  );
 };

@@ -34,11 +34,21 @@ export default tseslint.config(
       // Por enquanto aviso: há dependências omitidas de propósito
       'react-hooks/exhaustive-deps': 'warn',
       // Acessibilidade entra como aviso; vira erro quando o código estiver limpo
+      // (o nível vem como 'error' ou ['error', opções]: mantém as opções)
       ...Object.fromEntries(
         Object.entries(jsxA11y.flatConfigs.recommended.rules)
-          .filter(([, level]) => level !== 'off')
-          .map(([rule]) => [rule, 'warn']),
+          .map(([rule, level]) => [rule, [level].flat()])
+          .filter(([, [severity]]) => severity !== 'off')
+          .map(([rule, [, ...options]]) => [rule, ['warn', ...options]]),
       ),
+      // autoFocus só existe em campo que o próprio usuário acabou de abrir
+      // (diálogo, editor de célula, paleta) — nunca ao carregar a tela
+      'jsx-a11y/no-autofocus': 'off',
+      // Checkbox e Switch do Radix são o controle dentro do <label>
+      'jsx-a11y/label-has-associated-control': [
+        'warn',
+        { controlComponents: ['Checkbox', 'Switch'], depth: 3 },
+      ],
     },
   },
 );

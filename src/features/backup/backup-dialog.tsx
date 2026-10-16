@@ -76,7 +76,9 @@ export function BackupDialog({ open, dialog }: BackupDialogProps) {
           )}
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-small font-medium text-fg-muted">Formato</span>
+            <span className="text-small font-medium text-fg-muted">
+              Formato
+            </span>
             <SegmentedControl
               size="sm"
               aria-label="Formato"
@@ -91,7 +93,9 @@ export function BackupDialog({ open, dialog }: BackupDialogProps) {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-small font-medium text-fg-muted">Conteúdo</span>
+            <span className="text-small font-medium text-fg-muted">
+              Conteúdo
+            </span>
             <SegmentedControl
               size="sm"
               aria-label="Conteúdo"

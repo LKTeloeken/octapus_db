@@ -114,7 +114,10 @@ const foldWithMap = (
 const isWordBoundary = (text: string, index: number) =>
   index < 0 || index >= text.length || !WORD_CHAR.test(text[index]);
 
-type Finder = (folded: string, onMatch: (s: number, e: number) => boolean) => void;
+type Finder = (
+  folded: string,
+  onMatch: (s: number, e: number) => boolean,
+) => void;
 
 const buildFinder = (
   query: string,
@@ -232,7 +235,10 @@ export interface SearchColumn {
 }
 
 /** Lê o texto que a célula mostra, ou `null` (NULL nunca casa) */
-export type CellTextReader = (rowIndex: number, column: SearchColumn) => string | null;
+export type CellTextReader = (
+  rowIndex: number,
+  column: SearchColumn,
+) => string | null;
 
 /** Teto de resultados guardados; acima disso o contador mostra "10.000+" */
 export const MAX_GRID_MATCHES = 10_000;

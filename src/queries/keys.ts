@@ -1,8 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type {
-  BackupRequest,
-  RestoreRequest,
-} from '@/api/types/backup.types';
+import type { BackupRequest, RestoreRequest } from '@/api/types/backup.types';
 import type { SortSpec } from '@/api/types/browse.types';
 import type { CatalogPath } from '@/api/types/catalog.types';
 import type { StructureChange } from '@/api/types/structure.types';

@@ -67,6 +67,28 @@ padrão dele, `prefer`, caía para texto puro em silêncio). Mongo e Redis aceit
 `scripts/tls-e2e.sh up` e `cargo test --lib postgres::tls_e2e -- --ignored` (ver o
 arquivo).
 
+### Storage local e transporte (decisões medidas)
+**Comandos síncronos no storage.** No Tauri, `#[tauri::command] fn` (sem `async`) roda na
+thread principal. Os do storage (`get_all_servers`, `get_settings`, `load_session`…) foram
+medidos num SQLite em arquivo com WAL, build de debug: todos abaixo de 0,4 ms por chamada
+(`create_server` 0,33 · `get_all_servers` com 50 servidores 0,15 · `get_by_id` com
+decifragem 0,04 · `save_session` de 200 KB 0,03). Ficam síncronos: movê-los para
+`spawn_blocking` não muda nada perceptível. Reavaliar se surgir comando que segure o
+`storage` por muito tempo (ex.: importar centenas de conexões numa chamada só).
+
+**Transporte (túnel SSH, ainda não existe).** Host e porta são lidos em três pontos, todos
+a partir do `Server`: `create_adapter` (pelo `ConnectionService`), `create_catalog_source`
+(conexão dedicada do catálogo) e `backup::connection_args` (processo externo). O túnel
+entra num serviço próprio (`services/transport.rs`) que, no cache-miss, devolve uma cópia
+do `Server` apontando para `127.0.0.1:<porta local>` — os adapters continuam sem saber de
+túnel. Cuidados já conhecidos:
+- o túnel vive enquanto houver pool, conexão do catálogo ou job de backup usando-o
+  (contagem de referências); `evict_idle` e `disconnect_server` precisam soltá-lo;
+- o TLS `verify-full` confere o **host original**, não `127.0.0.1` — o nome do servidor
+  para verificação tem de vir do `Server` cadastrado;
+- `connection_identity` (catálogo) usa o host original, não o local;
+- `mongodb+srv://` resolve hosts por DNS e não passa por um túnel simples.
+
 ### Tipos do front gerados (ts-rs)
 Os modelos que cruzam o IPC levam `#[cfg_attr(test, derive(ts_rs::TS), ts(export))]` e
 viram arquivos em `src/api/types/generated/` quando os testes rodam (`pnpm gen:types`, ou

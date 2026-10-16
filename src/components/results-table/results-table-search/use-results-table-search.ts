@@ -47,11 +47,18 @@ export const useResultsTableSearch = ({
   // Quantas opções saem do padrão — vira o número no botão de opções.
   const activeOptionsCount =
     Number(options.mode !== DEFAULT_GRID_SEARCH_OPTIONS.mode) +
-    Number(options.caseSensitive !== DEFAULT_GRID_SEARCH_OPTIONS.caseSensitive) +
-    Number(options.ignoreAccents !== DEFAULT_GRID_SEARCH_OPTIONS.ignoreAccents) +
+    Number(
+      options.caseSensitive !== DEFAULT_GRID_SEARCH_OPTIONS.caseSensitive,
+    ) +
+    Number(
+      options.ignoreAccents !== DEFAULT_GRID_SEARCH_OPTIONS.ignoreAccents,
+    ) +
     Number(options.columnScope !== 'all');
 
-  const listedColumns = useMemo(() => new Set(options.columns), [options.columns]);
+  const listedColumns = useMemo(
+    () => new Set(options.columns),
+    [options.columns],
+  );
 
   const filteredColumns = useMemo(() => {
     const term = columnFilter.trim().toLowerCase();

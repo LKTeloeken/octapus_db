@@ -13,6 +13,8 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint . && node scripts/check-design-tokens.mjs",
     "lint:tokens": "node scripts/check-design-tokens.mjs",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"*.{ts,js,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"*.{ts,js,json}\"",
     "gen:types": "rm -rf src/api/types/generated && cd src-tauri && cargo test --lib export_bindings -q",
     "test": "vitest run",
     "perf:front": "OCTAPUS_PERF=1 vitest run"

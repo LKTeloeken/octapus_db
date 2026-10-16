@@ -14,7 +14,14 @@ import type { QueryEditorToolbarProps } from './query-editor-toolbar.types';
  * lado, o servidor/banco onde a consulta roda.
  */
 export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
-  ({ onRun, isLoading = false, disabled = false, serverName, database, dbType }) => {
+  ({
+    onRun,
+    isLoading = false,
+    disabled = false,
+    serverName,
+    database,
+    dbType,
+  }) => {
     return (
       <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line-subtle px-2">
         <Button size="sm" onClick={onRun} disabled={disabled || isLoading}>
@@ -24,9 +31,7 @@ export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
             <HugeiconsIcon icon={PlayIcon} />
           )}
           Executar
-          <Kbd variant="inverse">
-            {shortcut('↵')}
-          </Kbd>
+          <Kbd variant="inverse">{shortcut('↵')}</Kbd>
         </Button>
 
         <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-line" />

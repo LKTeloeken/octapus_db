@@ -69,14 +69,19 @@ export const useTableBrowser = (tab: BrowseTab) => {
     whereExpr: tab.whereExpr,
     sort: tab.sort,
   });
+  const { refetch } = data;
 
   // The sort the backend is effectively applying: an explicit single-column
   // choice, or the PK-desc default (derived so the header can show it).
-  const activeSort: SortSpec | null =
-    tab.sort[0] ??
-    (data.editableInfo?.primaryKeyColumns[0]
-      ? { column: data.editableInfo.primaryKeyColumns[0], direction: 'desc' }
-      : null);
+  const defaultSortColumn = data.editableInfo?.primaryKeyColumns[0];
+  const activeSort = useMemo<SortSpec | null>(
+    () =>
+      tab.sort[0] ??
+      (defaultSortColumn
+        ? { column: defaultSortColumn, direction: 'desc' }
+        : null),
+    [tab.sort, defaultSortColumn],
+  );
 
   // Header click: sort by a single column. Re-clicking the active column flips
   // its direction; a new column starts ascending.
@@ -101,10 +106,10 @@ export const useTableBrowser = (tab: BrowseTab) => {
       if (next !== tab.whereExpr) {
         setBrowseWhere(tab.id, next);
       } else {
-        void data.refetch();
+        void refetch();
       }
     },
-    [draftWhere, tab.id, tab.whereExpr, setBrowseWhere, data.refetch],
+    [draftWhere, tab.id, tab.whereExpr, setBrowseWhere, refetch],
   );
 
   const resetWhere = useCallback(() => {

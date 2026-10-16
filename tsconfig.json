@@ -14,5 +14,10 @@
     "noEmit": true
   },
 
-  "include": ["vite.config.ts", "vitest.config.ts", "src/**/*.ts", "src/**/*.tsx"]
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ]
 }

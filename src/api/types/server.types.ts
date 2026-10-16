@@ -5,4 +5,3 @@ export type { Server } from './generated/Server';
 export type { ServerGroup } from './generated/ServerGroup';
 export type { ServerInput } from './generated/ServerInput';
 export type { SslMode } from './generated/SslMode';
-

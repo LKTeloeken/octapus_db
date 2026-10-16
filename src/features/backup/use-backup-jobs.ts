@@ -3,7 +3,10 @@ import { createElement, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { invalidateDatabaseScope } from '@/queries/keys';
 import { useBackupEvents } from '@/queries/use-backup-events';
-import { useBackupJobsStore, type BackupJobStatus } from '@/stores/backup-jobs-store';
+import {
+  useBackupJobsStore,
+  type BackupJobStatus,
+} from '@/stores/backup-jobs-store';
 import { BackupJobCard } from './backup-job-card';
 
 /** Um job cancelado some sozinho; os outros esperam o usuário fechar */

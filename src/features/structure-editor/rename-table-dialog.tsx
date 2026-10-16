@@ -30,8 +30,11 @@ export function RenameTableDialog({ open, dialog }: RenameTableDialogProps) {
             Renomear <span className="font-mono">{table}</span>
           </DialogTitle>
           <DialogDescription>
-            Em <span className="font-mono text-fg">{target.schema ?? target.database}</span>.
-            Queries e views que citam o nome antigo não são reescritas.
+            Em{' '}
+            <span className="font-mono text-fg">
+              {target.schema ?? target.database}
+            </span>
+            . Queries e views que citam o nome antigo não são reescritas.
           </DialogDescription>
         </DialogHeader>
 

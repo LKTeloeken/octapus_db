@@ -34,11 +34,7 @@ function AlertDialogOverlay({
   return (
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
-      className={cn(
-        'fixed inset-0 z-50 bg-scrim',
-        SCRIM_MOTION,
-        className,
-      )}
+      className={cn('fixed inset-0 z-50 bg-scrim', SCRIM_MOTION, className)}
       {...props}
     />
   );

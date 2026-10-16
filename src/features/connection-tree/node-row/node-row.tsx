@@ -185,7 +185,10 @@ export const NodeRow = memo(
               {actions.map(action => (
                 <Fragment key={action.label}>
                   {action.separated && (
-                    <div role="separator" className="-mx-1.5 my-1 h-px bg-line-subtle" />
+                    <div
+                      role="separator"
+                      className="-mx-1.5 my-1 h-px bg-line-subtle"
+                    />
                   )}
                   <Button
                     variant="ghost"

@@ -89,7 +89,9 @@ export function ColumnFormDialog({ open, dialog }: ColumnFormDialogProps) {
             placeholder="sem default — ex.: 0, 'ativo', now()"
             inputClassName="font-mono"
             value={column.defaultValue ?? ''}
-            onChange={event => setField('defaultValue', event.target.value || null)}
+            onChange={event =>
+              setField('defaultValue', event.target.value || null)
+            }
           />
 
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">

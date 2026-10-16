@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useId, useState } from 'react';
 import { EditorFooter } from './editor-footer';
 
 interface TextEditorProps {
@@ -15,6 +15,7 @@ export const TextEditor = memo(function TextEditor({
   onSetNull,
 }: TextEditorProps) {
   const [editValue, setEditValue] = useState(value);
+  const fieldId = useId();
 
   useEffect(() => {
     setEditValue(value);
@@ -30,10 +31,14 @@ export const TextEditor = memo(function TextEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-micro font-medium uppercase text-fg-subtle">
+      <label
+        htmlFor={fieldId}
+        className="text-micro font-medium uppercase text-fg-subtle"
+      >
         Editar texto
       </label>
       <textarea
+        id={fieldId}
         className="w-full min-h-[80px] max-h-[200px] p-2 text-small font-mono bg-field text-fg border border-line rounded-sm resize-y outline-none focus:border-iris-text focus:ring-3 focus:ring-iris-soft"
         value={editValue}
         onChange={e => setEditValue(e.target.value)}

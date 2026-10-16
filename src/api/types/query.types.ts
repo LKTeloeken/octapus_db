@@ -8,4 +8,3 @@ export type { QueryResult } from './generated/QueryResult';
 export type { RowEdit } from './generated/RowEdit';
 export type { RowInsert } from './generated/RowInsert';
 export type { StatementResult } from './generated/StatementResult';
-

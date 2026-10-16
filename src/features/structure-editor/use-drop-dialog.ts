@@ -54,7 +54,9 @@ export function useDropDialog(dialog: DropDialog) {
             type: 'dropTable',
             schema: target.schema,
             table: dialog.table,
-            kind: (dialog.relationKind && RELATION_KIND[dialog.relationKind]) ?? 'table',
+            kind:
+              (dialog.relationKind && RELATION_KIND[dialog.relationKind]) ??
+              'table',
             cascade,
           },
     [dialog, cascade, target.schema],

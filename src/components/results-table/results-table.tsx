@@ -276,7 +276,13 @@ export const ResultsTable = memo(
           GUTTER_WIDTH,
         );
       },
-      [visibleColumns, setFocusedCell, viewMode, rowVirtualizer, columnVirtualizer],
+      [
+        visibleColumns,
+        setFocusedCell,
+        viewMode,
+        rowVirtualizer,
+        columnVirtualizer,
+      ],
     );
 
     const search = useGridSearch({
@@ -462,9 +468,7 @@ export const ResultsTable = memo(
 
     if (displayRows.length === 0) {
       return (
-        <div
-          className={cn('flex h-full flex-col overflow-hidden', className)}
-        >
+        <div className={cn('flex h-full flex-col overflow-hidden', className)}>
           <EmptyState className="flex-1 min-h-0" message={emptyMessage} />
           <DataTableStatusBar
             executionTimeMs={executionTimeMs}
@@ -478,16 +482,14 @@ export const ResultsTable = memo(
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             onAddRow={addRow}
-                        onExport={() => setIsExportOpen(true)}
+            onExport={() => setIsExportOpen(true)}
           />
         </div>
       );
     }
 
     return (
-      <div
-        className={cn('flex h-full flex-col overflow-hidden', className)}
-      >
+      <div className={cn('flex h-full flex-col overflow-hidden', className)}>
         <div className="relative flex-1 min-h-0">
           {/* O grupo existe mesmo com o painel fechado: abrir/fechar só
               acrescenta o irmão, sem remontar a grade (e perder a rolagem). */}
@@ -730,7 +732,7 @@ export const ResultsTable = memo(
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           onAddRow={addRow}
-                  onExport={() => setIsExportOpen(true)}
+          onExport={() => setIsExportOpen(true)}
         />
 
         <ExportDialog

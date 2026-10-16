@@ -100,11 +100,7 @@ export function ServerForm(props: ServerFormProps) {
                   )}
                   onClick={() => !isEditMode && setDbType(type)}
                 >
-                  <img
-                    src={DB_TYPE_ICONS[type]}
-                    alt=""
-                    className="size-8"
-                  />
+                  <img src={DB_TYPE_ICONS[type]} alt="" className="size-8" />
                   {DB_TYPE_LABELS[type]}
                 </button>
               );

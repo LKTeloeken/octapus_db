@@ -16,7 +16,10 @@ import {
 const compile = (query: string, options: Partial<GridSearchOptions> = {}) =>
   compileMatcher(query, { ...DEFAULT_GRID_SEARCH_OPTIONS, ...options });
 
-const matcherFor = (query: string, options: Partial<GridSearchOptions> = {}) => {
+const matcherFor = (
+  query: string,
+  options: Partial<GridSearchOptions> = {},
+) => {
   const { matcher, error } = compile(query, options);
   if (!matcher) throw new Error(error ?? 'sem matcher');
   return matcher;
@@ -46,7 +49,9 @@ describe('compileMatcher', () => {
   it('ignora acentos nos dois sentidos, com offsets do texto original', () => {
     expect(matcherFor('acao').test('Ação')).toBe(true);
     expect(matcherFor('ação').test('ACAO')).toBe(true);
-    expect(matcherFor('acao', { ignoreAccents: false }).test('ação')).toBe(false);
+    expect(matcherFor('acao', { ignoreAccents: false }).test('ação')).toBe(
+      false,
+    );
 
     // NFD: "é" decomposto ocupa 2 unidades no original.
     const decomposed = 'café cafe';
@@ -171,7 +176,8 @@ describe('lowerBoundMatch', () => {
       state,
       8,
       [0, 1, 2, 3, 4].map(i => ({ visibleIndex: i, name: String(i) })),
-      (row, column) => (lookup.has(`${row}:${column.visibleIndex}`) ? 'x' : null),
+      (row, column) =>
+        lookup.has(`${row}:${column.visibleIndex}`) ? 'x' : null,
       matcherFor('x'),
       Infinity,
     );

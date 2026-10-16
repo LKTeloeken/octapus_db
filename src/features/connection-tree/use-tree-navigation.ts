@@ -1,5 +1,11 @@
 import type { Virtualizer } from '@tanstack/react-virtual';
-import { useCallback, useEffect, useMemo, type KeyboardEvent, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react';
 import { useFocusStore } from '@/stores/focus-store';
 import { useTreeStore } from '@/stores/tree-store';
 import type { FlatRow } from './connection-tree.types';
@@ -34,7 +40,8 @@ const findNode = (rows: FlatRow[], from: number, dir: 1 | -1): number => {
  */
 const findFilter = (rows: FlatRow[], index: number): number => {
   const next = rows[index + 1];
-  if (next?.variant === 'filter' && next.nodeId === rows[index].id) return index + 1;
+  if (next?.variant === 'filter' && next.nodeId === rows[index].id)
+    return index + 1;
   const level = rowLevel(rows[index]);
   for (let i = index; i >= 0; i--) {
     const row = rows[i];
@@ -50,7 +57,11 @@ const findFilter = (rows: FlatRow[], index: number): number => {
  * ela. O cursor é guardado por **nodeId**, não por índice — expandir/colapsar
  * reescreve a lista inteira e um índice cru escorregaria para outro nó.
  */
-export const useTreeNavigation = ({ rows, virtualizer, containerRef }: Options) => {
+export const useTreeNavigation = ({
+  rows,
+  virtualizer,
+  containerRef,
+}: Options) => {
   const focusedNodeId = useTreeStore(state => state.focusedNodeId);
   const setFocusedNode = useTreeStore(state => state.setFocusedNode);
   const toggleNode = useTreeStore(state => state.toggleNode);
@@ -102,7 +113,8 @@ export const useTreeNavigation = ({ rows, virtualizer, containerRef }: Options) 
         row => row.variant === 'filter' && row.nodeId === nodeId,
       );
       containerRef.current?.focus();
-      const first = filterIndex === -1 ? -1 : findNode(rows, filterIndex + 1, 1);
+      const first =
+        filterIndex === -1 ? -1 : findNode(rows, filterIndex + 1, 1);
       if (first !== -1) focusIndex(first);
     },
     [rows, containerRef, focusIndex],
@@ -110,7 +122,8 @@ export const useTreeNavigation = ({ rows, virtualizer, containerRef }: Options) 
 
   const move = useCallback(
     (dir: 1 | -1) => {
-      const start = activeIndex < 0 ? (dir === 1 ? -1 : rows.length) : activeIndex;
+      const start =
+        activeIndex < 0 ? (dir === 1 ? -1 : rows.length) : activeIndex;
       const next = findNode(rows, start + dir, dir);
       if (next === -1) return;
       focusIndex(next);
@@ -213,7 +226,10 @@ export const useTreeNavigation = ({ rows, virtualizer, containerRef }: Options) 
           event.preventDefault();
           for (let i = activeIndex - 1; i >= 0; i--) {
             const candidate = rows[i];
-            if (candidate.variant === 'node' && candidate.props.level < current.level) {
+            if (
+              candidate.variant === 'node' &&
+              candidate.props.level < current.level
+            ) {
               focusIndex(i);
               return;
             }

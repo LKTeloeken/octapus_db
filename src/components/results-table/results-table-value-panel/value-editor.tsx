@@ -42,7 +42,10 @@ export const ValueEditor = memo(
     onEscape,
   }: ValueEditorProps) => {
     const theme = useUiStore(state => state.theme);
-    const editorTheme = useMemo(() => inkEditorTheme(theme === 'dark'), [theme]);
+    const editorTheme = useMemo(
+      () => inkEditorTheme(theme === 'dark'),
+      [theme],
+    );
 
     const lazyLanguage = useLazyLanguage(lazyLanguageFor(format));
 

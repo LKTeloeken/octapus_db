@@ -112,7 +112,10 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
         </div>
       </ResizablePanel>
 
-      <ResizableHandle withHandle className="bg-transparent cursor-row-resize!" />
+      <ResizableHandle
+        withHandle
+        className="bg-transparent cursor-row-resize!"
+      />
 
       <ResizablePanel
         defaultSize={60}
@@ -130,9 +133,7 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
               <TabsTrigger value="messages">
                 Mensagens
                 {unreadMessages > 0 && (
-                  <Badge className="h-[18px] px-1.5">
-                    {unreadMessages}
-                  </Badge>
+                  <Badge className="h-[18px] px-1.5">{unreadMessages}</Badge>
                 )}
               </TabsTrigger>
             </TabsList>

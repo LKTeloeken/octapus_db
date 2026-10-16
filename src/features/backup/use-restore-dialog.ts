@@ -8,7 +8,10 @@ import {
   useStartRestore,
 } from '@/queries/use-backup';
 import { usePgToolsStatus } from '@/queries/use-pg-tools';
-import { useBackupDialogStore, type BackupDialog } from '@/stores/backup-dialog-store';
+import {
+  useBackupDialogStore,
+  type BackupDialog,
+} from '@/stores/backup-dialog-store';
 import { useBackupJobsStore } from '@/stores/backup-jobs-store';
 import {
   DEFAULT_RESTORE_OPTIONS,

@@ -34,8 +34,9 @@ type TauriInternals = {
 
 export function mockEmit(event: string, payload: unknown): void {
   const target = window as unknown as CallbackWindow;
-  const internals = (window as unknown as { __TAURI_INTERNALS__?: TauriInternals })
-    .__TAURI_INTERNALS__;
+  const internals = (
+    window as unknown as { __TAURI_INTERNALS__?: TauriInternals }
+  ).__TAURI_INTERNALS__;
   listeners.get(event)?.forEach((handler, id) => {
     const message = { event, id, payload };
     // Antes do 2.11 o callback ficava em `window._<id>`

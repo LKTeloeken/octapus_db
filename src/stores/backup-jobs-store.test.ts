@@ -55,7 +55,10 @@ describe('backup-jobs-store', () => {
 
   it('guarda só o fim do log', () => {
     store().add(job('job-3', 'loja', '/tmp/x'));
-    const lines = Array.from({ length: JOB_LOG_LIMIT + 10 }, (_, i) => `linha ${i}`);
+    const lines = Array.from(
+      { length: JOB_LOG_LIMIT + 10 },
+      (_, i) => `linha ${i}`,
+    );
     store().apply({ jobId: 'job-3', type: 'log', lines });
 
     const { log } = store().jobs['job-3'];

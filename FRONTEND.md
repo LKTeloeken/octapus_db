@@ -315,7 +315,11 @@ dizendo qual comando falta. Detalhes e receitas em
 - **Erros do backend** chegam como `ApiError` (`message` + `code`) — trate com `toast`.
 - **Lint:** `pnpm lint` roda o ESLint (`eslint.config.js`: TypeScript, regras dos hooks e
   `jsx-a11y`) e o verificador dos tokens do DESIGN.md (`scripts/check-design-tokens.mjs`).
-  Erro reprova; os avisos de a11y e `exhaustive-deps` são dívida a pagar aos poucos.
+  Erro reprova; os avisos que sobram são dívida: interação por clique em `div` na grade,
+  na árvore, na paleta e nas abas (o teclado é tratado no contêiner, mas falta a
+  estrutura ARIA de grid/tree/listbox). `no-autofocus` está desligado: só há autoFocus em
+  campo que o usuário acabou de abrir. `pnpm format` / `pnpm format:check` (Prettier;
+  os tipos gerados ficam de fora pelo `.prettierignore`).
 - Rode `pnpm type-check` e `pnpm lint` antes de concluir mudanças no front, e `pnpm test` (Vitest) —
   hooks testados com `renderToString`: o zustand lê o estado **inicial** da store no SSR,
   então os testes preenchem `useTreeStore.getInitialState()`.
