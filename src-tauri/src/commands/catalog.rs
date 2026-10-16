@@ -9,7 +9,7 @@ use tauri::State;
 
 use crate::adapters::{create_catalog_source, has_catalog};
 use crate::catalog::CatalogPath;
-use crate::error::Error;
+use crate::error::{Error, Result};
 use crate::models::{
     CatalogDiagnostics, CatalogNode, CatalogPathInput, CatalogSearchHit, CatalogStatus,
     DriftReport, NodeKind, Page, Resolution, SchemaComparison, ShapeGroup,
@@ -24,21 +24,24 @@ const MAX_PAGE: usize = 1_000;
 /// Catálogo do database, aberto na primeira vez (do disco, se houver) com uma
 /// revalidação em segundo plano. A senha só é decifrada aqui, quando a
 /// entrada ainda não existe.
-async fn entry_for(state: &State<'_, AppState>, server_id: i64, database: &str) -> Result<Arc<CatalogEntry>, String> {
+async fn entry_for(
+    state: &State<'_, AppState>,
+    server_id: i64,
+    database: &str,
+) -> Result<Arc<CatalogEntry>> {
     if let Some(entry) = state.catalog.get(server_id, database) {
         return Ok(entry);
     }
 
-    let meta = servers::get_by_id_meta(&state.storage, server_id).map_err(|e| e.to_string())?;
+    let meta = servers::get_by_id_meta(&state.storage, server_id)?;
     if !has_catalog(meta.db_type) {
         return Err(Error::UnsupportedDatabase(format!(
             "metadata catalog is not available for {:?}",
             meta.db_type
-        ))
-        .to_string());
+        )));
     }
 
-    let server = servers::get_by_id(&state.storage, server_id).map_err(|e| e.to_string())?;
+    let server = servers::get_by_id(&state.storage, server_id)?;
     let target = database.to_string();
     let opener: SourceOpener = Arc::new(move || {
         let (server, database) = (server.clone(), target.clone());
@@ -60,7 +63,7 @@ pub async fn catalog_open(
     state: State<'_, AppState>,
     server_id: i64,
     database: String,
-) -> Result<CatalogStatus, String> {
+) -> Result<CatalogStatus> {
     let entry = entry_for(&state, server_id, &database).await?;
     state.catalog.ensure_fresh(&entry, false);
     Ok(state.catalog.status(&entry))
@@ -72,7 +75,7 @@ pub fn catalog_status(
     state: State<'_, AppState>,
     server_id: i64,
     database: String,
-) -> Result<Option<CatalogStatus>, String> {
+) -> Result<Option<CatalogStatus>> {
     Ok(state
         .catalog
         .get(server_id, &database)
@@ -90,21 +93,20 @@ pub async fn catalog_children(
     filter: Option<String>,
     offset: usize,
     limit: usize,
-) -> Result<Page<CatalogNode>, String> {
+) -> Result<Page<CatalogNode>> {
     let entry = entry_for(&state, server_id, &database).await?;
     if let Some(schema) = path.schema() {
         state
             .catalog
             .ensure_schemas(&entry, &[schema.to_string()])
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
     }
 
     let path = CatalogPath::from(path);
     let page = entry
         .read()
         .children(&path, filter.as_deref(), offset, limit.min(MAX_PAGE));
-    page.ok_or_else(|| Error::NotFound(format!("{path:?} in {database}")).to_string())
+    page.ok_or_else(|| Error::NotFound(format!("{path:?} in {database}")))
 }
 
 /// Busca fuzzy num database ou, sem `serverId`/`database`, em todos os
@@ -118,7 +120,7 @@ pub async fn catalog_search(
     server_id: Option<i64>,
     database: Option<String>,
     schema: Option<String>,
-) -> Result<Vec<CatalogSearchHit>, String> {
+) -> Result<Vec<CatalogSearchHit>> {
     let limit = limit.min(MAX_PAGE);
     match (server_id, database) {
         (Some(server_id), Some(database)) => {
@@ -152,7 +154,7 @@ pub async fn catalog_resolve(
     database: String,
     table: String,
     search_path: Vec<String>,
-) -> Result<Resolution, String> {
+) -> Result<Resolution> {
     let entry = entry_for(&state, server_id, &database).await?;
     let path: Vec<&str> = search_path.iter().map(String::as_str).collect();
     let resolution = entry.read().resolve(&table, &path);
@@ -169,7 +171,7 @@ pub async fn catalog_complete(
     schema: Option<String>,
     prefix: String,
     limit: usize,
-) -> Result<Vec<CatalogNode>, String> {
+) -> Result<Vec<CatalogNode>> {
     let entry = entry_for(&state, server_id, &database).await?;
     let limit = limit.min(MAX_PAGE);
 
@@ -178,8 +180,7 @@ pub async fn catalog_complete(
             state
                 .catalog
                 .ensure_schemas(&entry, std::slice::from_ref(&schema))
-                .await
-                .map_err(|e| e.to_string())?;
+                .await?;
             Ok(entry
                 .read()
                 .complete_tables(&schema, &prefix, limit)
@@ -206,7 +207,7 @@ pub async fn catalog_drift(
     state: State<'_, AppState>,
     server_id: i64,
     database: String,
-) -> Result<DriftReport, String> {
+) -> Result<DriftReport> {
     let entry = entry_for(&state, server_id, &database).await?;
     let report = entry.read().drift();
     Ok(report)
@@ -222,13 +223,9 @@ pub async fn catalog_compare_schemas(
     database: String,
     base: String,
     other: String,
-) -> Result<SchemaComparison, String> {
+) -> Result<SchemaComparison> {
     let entry = entry_for(&state, server_id, &database).await?;
-    state
-        .catalog
-        .compare_schemas(&entry, &base, &other)
-        .await
-        .map_err(|e| e.to_string())
+    state.catalog.compare_schemas(&entry, &base, &other).await
 }
 
 /// Grupos por formato para a árvore agrupada: o molde dos tenants, as
@@ -238,7 +235,7 @@ pub async fn catalog_shapes(
     state: State<'_, AppState>,
     server_id: i64,
     database: String,
-) -> Result<Vec<ShapeGroup>, String> {
+) -> Result<Vec<ShapeGroup>> {
     let entry = entry_for(&state, server_id, &database).await?;
     let groups = entry.read().shape_groups();
     Ok(groups)
@@ -251,7 +248,7 @@ pub async fn catalog_diagnostics(
     state: State<'_, AppState>,
     server_id: i64,
     database: String,
-) -> Result<CatalogDiagnostics, String> {
+) -> Result<CatalogDiagnostics> {
     let entry = entry_for(&state, server_id, &database).await?;
     Ok(state.catalog.diagnostics(&entry))
 }
@@ -264,14 +261,10 @@ pub async fn catalog_refresh(
     server_id: i64,
     database: String,
     schema: Option<String>,
-) -> Result<CatalogStatus, String> {
+) -> Result<CatalogStatus> {
     let entry = entry_for(&state, server_id, &database).await?;
     match schema {
-        Some(schema) => state
-            .catalog
-            .refresh_schema(&entry, &schema)
-            .await
-            .map_err(|e| e.to_string())?,
+        Some(schema) => state.catalog.refresh_schema(&entry, &schema).await?,
         None => {
             state.catalog.ensure_fresh(&entry, true);
         }
@@ -285,9 +278,9 @@ pub async fn catalog_cancel(
     state: State<'_, AppState>,
     server_id: i64,
     database: String,
-) -> Result<bool, String> {
+) -> Result<bool> {
     match state.catalog.get(server_id, &database) {
-        Some(entry) => state.catalog.cancel(&entry).await.map_err(|e| e.to_string()),
+        Some(entry) => state.catalog.cancel(&entry).await,
         None => Ok(false),
     }
 }
@@ -300,11 +293,7 @@ pub async fn catalog_relation_size(
     database: String,
     schema: String,
     table: String,
-) -> Result<Option<i64>, String> {
+) -> Result<Option<i64>> {
     let entry = entry_for(&state, server_id, &database).await?;
-    state
-        .catalog
-        .relation_size(&entry, &schema, &table)
-        .await
-        .map_err(|e| e.to_string())
+    state.catalog.relation_size(&entry, &schema, &table).await
 }

@@ -76,6 +76,7 @@ pub struct SchemaHeader {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Situação das tabelas de um schema no catálogo.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LoadState {
@@ -133,6 +134,7 @@ pub enum CatalogPath {
     ShapeSchemas(String),
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum NodeKind {
@@ -156,6 +158,7 @@ impl From<RelKind> for NodeKind {
     }
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogNode {
@@ -172,6 +175,7 @@ pub struct CatalogNode {
 }
 
 /// Diferença de um schema para o formato dominante, em relações.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaDrift {
@@ -181,6 +185,7 @@ pub struct SchemaDrift {
     pub extra: u32,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ShapeRole {
@@ -194,6 +199,7 @@ pub enum ShapeRole {
 }
 
 /// Um grupo da árvore agrupada por formato.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShapeGroup {
@@ -210,6 +216,7 @@ pub struct ShapeGroup {
 }
 
 /// Uma janela de uma lista; `total` já considera o filtro.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Page<T> {
@@ -219,6 +226,7 @@ pub struct Page<T> {
 }
 
 /// Em quantos schemas um resultado aparece, com alguns exemplos.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaGroup {
@@ -230,6 +238,7 @@ pub struct SchemaGroup {
 /// ("orders em 5.000 schemas", em `schemas`); numa busca `schema.tabela` cada
 /// par é um resultado, com o schema em `schema`. Um resultado que é o próprio
 /// schema não tem nenhum dos dois.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchHit {
@@ -241,6 +250,7 @@ pub struct SearchHit {
 }
 
 /// A que relação um nome sem schema se refere.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum Resolution {
@@ -258,6 +268,7 @@ pub enum Resolution {
 }
 
 /// Formato dominante (o "molde" dos tenants) e os formatos que divergem dele.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DriftReport {
@@ -265,6 +276,7 @@ pub struct DriftReport {
     pub divergent: Vec<DriftGroup>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShapeSummary {
@@ -272,6 +284,7 @@ pub struct ShapeSummary {
     pub schemas: SchemaGroup,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DriftGroup {
@@ -282,6 +295,7 @@ pub struct DriftGroup {
     pub extra: Vec<String>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogStats {
@@ -303,6 +317,7 @@ pub struct CatalogStats {
 /// Definição de uma coluna como entra na comparação. Tipo e default vêm sem o
 /// nome do próprio schema (`tenant_1.status` vira `status`): cada tenant aponta
 /// para a sua sequência e os seus tipos, e isso não é diferença.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnSpec {
@@ -314,6 +329,7 @@ pub struct ColumnSpec {
 /// Uma coluna que difere entre os dois schemas. `expected` (base) vazio =
 /// coluna só no outro; `actual` (outro) vazio = coluna só na base; os dois =
 /// definição diferente.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnChange {
@@ -323,6 +339,7 @@ pub struct ColumnChange {
 }
 
 /// Uma tabela que existe nos dois schemas com colunas diferentes.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableColumnsDiff {
@@ -331,6 +348,7 @@ pub struct TableColumnsDiff {
 }
 
 /// O schema `other` comparado com o `base`.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaComparison {

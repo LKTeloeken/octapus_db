@@ -26,6 +26,7 @@ export enum RustCommand {
   Disconnect = 'disconnect',
   GetPoolStats = 'get_pool_stats',
   GetCapabilities = 'get_capabilities',
+  GetDbCapabilities = 'get_db_capabilities',
 
   // Structure (lazy loading)
   ListDatabases = 'list_databases',
@@ -76,6 +77,9 @@ export enum RustCommand {
   // Preferências do app
   GetSettings = 'get_settings',
   UpdateSettings = 'update_settings',
+
+  // Diagnóstico
+  OpenLogDir = 'open_log_dir',
 
   // Backup e restauração (ferramentas nativas do Postgres)
   PgToolsDetect = 'pg_tools_detect',

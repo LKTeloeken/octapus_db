@@ -1,9 +1,11 @@
 import {
+  Bug01Icon,
   DatabaseIcon,
   Download04Icon,
   PaintBoardIcon,
 } from '@hugeicons/core-free-icons';
 import { AppearanceSection } from './sections/appearance-section';
+import { DiagnosticsSection } from './sections/diagnostics-section';
 import { PgToolsSection } from './sections/pg-tools-section';
 import { UpdatesSection } from './sections/updates-section';
 import type { SettingsSection } from './settings-dialog.types';
@@ -35,5 +37,12 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: 'Como o Octapus procura versões novas.',
     icon: Download04Icon,
     Component: UpdatesSection,
+  },
+  {
+    id: 'diagnostics',
+    label: 'Diagnóstico',
+    description: 'O registro do que o app fez, para investigar um problema.',
+    icon: Bug01Icon,
+    Component: DiagnosticsSection,
   },
 ];

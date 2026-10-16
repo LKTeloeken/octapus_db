@@ -1,10 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import type { AdapterCapabilities } from '@/api/types/capabilities.types';
 import type { DatabaseStructure } from '@/api/types/structure.types';
 import { hasCatalog } from '@/queries/use-catalog';
 import { useServers } from '@/queries/use-servers';
-import { queryKeys } from '@/queries/keys';
+import { useDbCapabilities } from '@/queries/use-capabilities';
 import { encodeNodeId } from '@/lib/node-ref';
 import type { TableEntry } from './command-palette.types';
 
@@ -20,6 +19,7 @@ import type { TableEntry } from './command-palette.types';
 export const useTableIndex = (enabled: boolean): TableEntry[] => {
   const queryClient = useQueryClient();
   const { data: servers } = useServers();
+  const capsByType = useDbCapabilities();
 
   return useMemo(() => {
     if (!enabled || !servers?.length) return [];
@@ -38,12 +38,9 @@ export const useTableIndex = (enabled: boolean): TableEntry[] => {
       const database = queryKey[2] as string;
       const server = serversById.get(serverId);
       // Bancos com catálogo buscam no backend (catalog_search)
-      if (!server || hasCatalog(server.dbType)) continue;
-
-      const caps = queryClient.getQueryData<AdapterCapabilities>(
-        queryKeys.capabilities(serverId),
-      );
-      const hasSchemas = caps?.hasSchemas ?? server.dbType === 'postgres';
+      const caps = capsByType[server?.dbType ?? 'postgres'];
+      if (!server || !caps || hasCatalog(caps)) continue;
+      const hasSchemas = caps.hasSchemas;
 
       for (const schema of structure.schemas) {
         for (const table of schema.tables) {
@@ -74,5 +71,5 @@ export const useTableIndex = (enabled: boolean): TableEntry[] => {
     return entries;
     // queryClient is stable; re-snapshot when the palette opens or servers change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, servers]);
+  }, [enabled, servers, capsByType]);
 };

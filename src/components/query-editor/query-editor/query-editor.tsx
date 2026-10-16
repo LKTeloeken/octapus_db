@@ -19,8 +19,8 @@ import {
   type Extension,
 } from '@codemirror/state';
 import { keywordCompletionSource, sql, PostgreSQL } from '@codemirror/lang-sql';
-import { javascript } from '@codemirror/lang-javascript';
 import { inkEditorTheme } from '@/lib/codemirror-theme';
+import { useLazyLanguage } from '@/lib/use-lazy-language';
 import { useUiStore } from '@/stores/ui-store';
 import { withClauseBoost } from './sql-completion/sql-clause-boost';
 import {
@@ -567,19 +567,18 @@ export function QueryEditor({
     context => sqlSourceRef.current?.(context) ?? null,
   ).current;
 
+  // O JavaScript do Mongo vem sob demanda (use-lazy-language); SQL fica no bundle
+  const mongoLanguage = useLazyLanguage(
+    dialect === 'mongo' ? 'javascript' : null,
+  );
   const languageExtension = useMemo(() => {
-    if (dialect === 'mongo') {
-      return javascript({
-        jsx: false,
-        typescript: false,
-      });
-    }
+    if (dialect === 'mongo') return mongoLanguage;
 
     return sql({
       dialect: PostgreSQL,
       upperCaseKeywords: true,
     });
-  }, [dialect]);
+  }, [dialect, mongoLanguage]);
 
   const completionExtension = useMemo(() => {
     // Os wrappers guardam memo por cláusula, então precisam nascer e morrer junto com a

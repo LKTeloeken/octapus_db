@@ -14,7 +14,7 @@ mod tools;
 
 pub use args::{
     connection_args, display_command, display_plan, dump_args, needs_timeout_filter, partial_path,
-    restore_plan, suggested_file_name, ConnectionArgs, PlanInput, RestorePlan,
+    restore_plan, ssl_env, suggested_file_name, ConnectionArgs, PlanInput, RestorePlan,
 };
 pub use inspect::{detect_format, summarize};
 pub use runner::{BackupService, JobInput, JobSpec};

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseInfo {
@@ -7,6 +8,7 @@ pub struct DatabaseInfo {
     pub size_bytes: Option<i64>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaInfo {
@@ -14,6 +16,7 @@ pub struct SchemaInfo {
     pub table_count: Option<i64>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableInfo {
@@ -25,6 +28,7 @@ pub struct TableInfo {
     pub size_bytes: Option<i64>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TableType {
@@ -34,6 +38,7 @@ pub enum TableType {
     Foreign,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnInfo {
@@ -46,6 +51,7 @@ pub struct ColumnInfo {
     pub is_foreign_key: bool,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexInfo {
@@ -57,6 +63,7 @@ pub struct IndexInfo {
 }
 
 /// Full structure for caching (used sparingly)
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseStructure {
@@ -64,6 +71,7 @@ pub struct DatabaseStructure {
     pub fetched_at: i64,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaStructure {
@@ -71,6 +79,7 @@ pub struct SchemaStructure {
     pub tables: Vec<TableStructure>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableStructure {
@@ -87,6 +96,7 @@ pub struct TableStructure {
 /// Uma coluna como o diálogo da árvore descreve. Tipo e default são trechos de
 /// SQL do próprio banco (`varchar(80)`, `now()`): o backend valida que são um
 /// tipo e uma expressão, não monta nem traduz.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnDefinition {
@@ -101,6 +111,7 @@ pub struct ColumnDefinition {
 }
 
 /// O que se remove: a árvore lista tabelas e views juntas.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RelationKind {
@@ -114,6 +125,7 @@ pub enum RelationKind {
 /// Uma mudança de estrutura pedida pela árvore. `schema` é `null` nos bancos
 /// sem schema (SQLite). Cada uma vira um ou mais statements, aplicados numa
 /// transação — e mostrados antes, no diálogo.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum StructureChange {

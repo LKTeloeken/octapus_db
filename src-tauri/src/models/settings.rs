@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 /// configuração nova basta um campo aqui (com o padrão no `Default`) e o tipo
 /// espelho em `src/api/types/settings.types.ts` — linhas que faltam caem no
 /// padrão e chaves que sumiram do struct são ignoradas.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {

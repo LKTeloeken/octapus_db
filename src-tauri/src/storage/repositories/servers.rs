@@ -4,12 +4,12 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection, Row};
 
 use crate::error::{Error, Result};
-use crate::models::{DatabaseType, Server, ServerInput};
+use crate::models::{DatabaseType, Server, ServerInput, SslMode};
 use crate::storage::{secrets, vault};
 
 const SELECT_COLUMNS: &str = "id, name, db_type, host, port, username, password, \
-                              default_database, ssl_enabled, connection_uri, created_at, \
-                              scope_databases, scope_schemas, group_id";
+                              default_database, ssl_mode, connection_uri, created_at, \
+                              scope_databases, scope_schemas, group_id, ssl_root_cert";
 
 /// Get all servers (metadata only). The UI never displays passwords, so the
 /// stored ciphertext is never decrypted nor returned here.
@@ -75,14 +75,14 @@ pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server>
         .as_secs() as i64;
 
     let db_type_str = db_type_to_string(&input.db_type);
-    let ssl_enabled = input.ssl_enabled.unwrap_or(false) as i32;
+    let ssl = SslColumns::from_input(&input);
     let encrypted = vault::encrypt(&input.password)?;
 
     let mut stmt = conn.prepare(&format!(
         "INSERT INTO servers (name, db_type, host, port, username, password, \
                               default_database, ssl_enabled, connection_uri, created_at, \
-                              scope_databases, scope_schemas, group_id) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) \
+                              scope_databases, scope_schemas, group_id, ssl_mode, ssl_root_cert) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) \
          RETURNING {SELECT_COLUMNS}"
     ))?;
 
@@ -96,12 +96,14 @@ pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server>
                 input.username,
                 encrypted,
                 input.default_database,
-                ssl_enabled,
+                ssl.enabled,
                 input.connection_uri,
                 created_at,
                 blank_to_none(input.scope_databases),
                 blank_to_none(input.scope_schemas),
                 input.group_id,
+                ssl.mode,
+                ssl.root_cert,
             ],
             map_row,
         )
@@ -119,14 +121,15 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
     let conn = storage.lock();
 
     let db_type_str = db_type_to_string(&input.db_type);
-    let ssl_enabled = input.ssl_enabled.unwrap_or(false) as i32;
+    let ssl = SslColumns::from_input(&input);
     let encrypted = vault::encrypt(&input.password)?;
 
     let mut stmt = conn.prepare(&format!(
         "UPDATE servers \
          SET name = ?1, db_type = ?2, host = ?3, port = ?4, username = ?5, \
              password = ?6, default_database = ?7, ssl_enabled = ?8, connection_uri = ?9, \
-             scope_databases = ?11, scope_schemas = ?12, group_id = ?13 \
+             scope_databases = ?11, scope_schemas = ?12, group_id = ?13, \
+             ssl_mode = ?14, ssl_root_cert = ?15 \
          WHERE id = ?10 \
          RETURNING {SELECT_COLUMNS}"
     ))?;
@@ -141,12 +144,14 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
                 input.username,
                 encrypted,
                 input.default_database,
-                ssl_enabled,
+                ssl.enabled,
                 input.connection_uri,
                 id,
                 blank_to_none(input.scope_databases),
                 blank_to_none(input.scope_schemas),
                 input.group_id,
+                ssl.mode,
+                ssl.root_cert,
             ],
             map_row,
         )
@@ -218,13 +223,38 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<Server> {
         username: row.get(5)?,
         password: row.get(6)?,
         default_database: row.get(7)?,
-        ssl_enabled: row.get::<_, i32>(8)? != 0,
+        ssl_mode: row
+            .get::<_, Option<String>>(8)?
+            .as_deref()
+            .and_then(SslMode::parse)
+            .unwrap_or_default(),
+        ssl_root_cert: row.get(14)?,
         connection_uri: row.get(9)?,
         created_at: row.get(10)?,
         scope_databases: row.get(11)?,
         scope_schemas: row.get(12)?,
         group_id: row.get(13)?,
     })
+}
+
+/// O TLS como vai para as colunas: o modo ajustado ao banco, a CA só quando
+/// o modo verifica, e o `ssl_enabled` em par (lido por versões anteriores).
+struct SslColumns {
+    mode: &'static str,
+    root_cert: Option<String>,
+    enabled: i32,
+}
+
+impl SslColumns {
+    fn from_input(input: &ServerInput) -> Self {
+        let mode = input.ssl_mode.unwrap_or_default().for_db_type(input.db_type);
+        let root_cert = blank_to_none(input.ssl_root_cert.clone()).filter(|_| mode.verifies());
+        Self {
+            mode: mode.as_str(),
+            root_cert,
+            enabled: i32::from(mode.uses_tls()),
+        }
+    }
 }
 
 /// Escopo só com espaços é o mesmo que nenhum.
@@ -304,7 +334,8 @@ mod tests {
             username: "user".into(),
             password: "s3cret".into(),
             default_database: None,
-            ssl_enabled: None,
+            ssl_mode: None,
+            ssl_root_cert: None,
             connection_uri: None,
             scope_databases: None,
             scope_schemas: None,
@@ -372,5 +403,84 @@ mod tests {
         .unwrap();
         assert_eq!(updated.scope_databases.as_deref(), Some("tenantdb_*"));
         assert_eq!(updated.scope_schemas, None);
+    }
+
+    #[test]
+    fn ssl_mode_is_adjusted_to_the_database_and_round_trips() {
+        vault::init_for_tests();
+        let storage = Mutex::new(init_storage(":memory:").unwrap());
+
+        let pg = create(
+            &storage,
+            ServerInput {
+                ssl_mode: Some(SslMode::VerifyCa),
+                ssl_root_cert: Some("/certs/ca.pem".into()),
+                ..sample_input()
+            },
+        )
+        .unwrap();
+        let meta = get_by_id_meta(&storage, pg.id.unwrap()).unwrap();
+        assert_eq!(meta.ssl_mode, SslMode::VerifyCa);
+        assert_eq!(meta.ssl_root_cert.as_deref(), Some("/certs/ca.pem"));
+
+        // Mongo não checa só a CA: sobe para verify-full
+        let mongo = create(
+            &storage,
+            ServerInput {
+                db_type: DatabaseType::Mongodb,
+                ssl_mode: Some(SslMode::VerifyCa),
+                ..sample_input()
+            },
+        )
+        .unwrap();
+        assert_eq!(mongo.ssl_mode, SslMode::VerifyFull);
+
+        // Sem verificar, a CA não é guardada; o ssl_enabled segue em par
+        let updated = update(
+            &storage,
+            pg.id.unwrap(),
+            ServerInput {
+                ssl_mode: Some(SslMode::Require),
+                ssl_root_cert: Some("/certs/ca.pem".into()),
+                ..sample_input()
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.ssl_mode, SslMode::Require);
+        assert_eq!(updated.ssl_root_cert, None);
+        let enabled: i32 = storage
+            .lock()
+            .query_row("SELECT ssl_enabled FROM servers WHERE id = ?", [pg.id.unwrap()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(enabled, 1);
+    }
+
+    #[test]
+    fn legacy_ssl_enabled_migrates_to_require() {
+        vault::init_for_tests();
+        let path = std::env::temp_dir().join(format!("octapus-ssl-migration-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            // Esquema de antes do ssl_mode
+            let old = Connection::open(&path).unwrap();
+            old.execute_batch(
+                "CREATE TABLE servers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                    db_type TEXT NOT NULL DEFAULT 'postgres', host TEXT NOT NULL,
+                    port INTEGER NOT NULL DEFAULT 5432, username TEXT NOT NULL,
+                    password TEXT NOT NULL, default_database TEXT,
+                    ssl_enabled INTEGER NOT NULL DEFAULT 0, connection_uri TEXT,
+                    created_at INTEGER NOT NULL DEFAULT 0);
+                 INSERT INTO servers (name, host, username, password, ssl_enabled)
+                 VALUES ('com', 'h', 'u', '', 1), ('sem', 'h', 'u', '', 0);",
+            )
+            .unwrap();
+        }
+
+        let storage = Mutex::new(init_storage(&path).unwrap());
+        let modes: Vec<SslMode> = get_all(&storage).unwrap().into_iter().map(|s| s.ssl_mode).collect();
+        assert_eq!(modes, vec![SslMode::Require, SslMode::Disable]);
+        drop(storage);
+        let _ = std::fs::remove_file(&path);
     }
 }

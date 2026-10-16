@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{Manager, Url, Webview};
 use tauri_plugin_updater::UpdaterExt;
 
+use crate::error::{Error, Result};
+
 /// Releases do repositório, as mais novas primeiro (inclui pre-releases; os
 /// rascunhos não aparecem sem token).
 const RELEASES_API: &str = "https://api.github.com/repos/LKTeloeken/octapus_db/releases?per_page=30";
@@ -47,23 +49,39 @@ struct GithubAsset {
 /// "latest" uma release normal —, então aqui o manifesto vem da API.
 /// A assinatura continua verificada com a chave pública da config.
 #[tauri::command]
-pub async fn check_beta_update(webview: Webview) -> Result<Option<UpdateMetadata>, String> {
-    let releases = fetch_releases().await?;
+pub async fn check_beta_update(webview: Webview) -> Result<Option<UpdateMetadata>> {
+    let result = find_beta_update(&webview).await;
+    match &result {
+        Ok(Some(update)) => log::info!(
+            "updater beta: {} disponível (instalada {})",
+            update.version,
+            update.current_version
+        ),
+        Ok(None) => log::info!("updater beta: nenhuma versão nova"),
+        Err(error) => log::warn!("updater beta: falha na checagem: {error}"),
+    }
+    result
+}
+
+async fn find_beta_update(webview: &Webview) -> Result<Option<UpdateMetadata>> {
+    let releases = fetch_releases().await.map_err(Error::External)?;
 
     let mut builder = webview.updater_builder();
     // Nenhuma release com manifesto: fica o endpoint estável da config
     if let Some((_, manifest)) = newest_manifest(&releases) {
         builder = builder
-            .endpoints(vec![release_manifest_url(manifest)?])
-            .map_err(|e| e.to_string())?;
+            .endpoints(vec![
+                release_manifest_url(manifest).map_err(Error::External)?
+            ])
+            .map_err(external)?;
     }
 
     let update = builder
         .build()
-        .map_err(|e| e.to_string())?
+        .map_err(external)?
         .check()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(external)?;
 
     Ok(update.map(|update| UpdateMetadata {
         current_version: update.current_version.clone(),
@@ -74,7 +92,11 @@ pub async fn check_beta_update(webview: Webview) -> Result<Option<UpdateMetadata
     }))
 }
 
-async fn fetch_releases() -> Result<Vec<GithubRelease>, String> {
+fn external(error: impl std::fmt::Display) -> Error {
+    Error::External(error.to_string())
+}
+
+async fn fetch_releases() -> std::result::Result<Vec<GithubRelease>, String> {
     // O reqwest vem sem provedor de criptografia (como no plugin do updater,
     // que instala o mesmo `ring` na primeira checagem)
     if rustls::crypto::CryptoProvider::get_default().is_none() {
@@ -114,7 +136,7 @@ fn newest_manifest(releases: &[GithubRelease]) -> Option<(Version, &str)> {
         .max_by(|a, b| a.0.cmp(&b.0))
 }
 
-fn release_manifest_url(raw: &str) -> Result<Url, String> {
+fn release_manifest_url(raw: &str) -> std::result::Result<Url, String> {
     let url = Url::parse(raw).map_err(|e| e.to_string())?;
     let path_ok = url
         .as_str()

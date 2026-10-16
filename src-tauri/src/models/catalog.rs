@@ -17,6 +17,7 @@ pub const CATALOG_EVENT: &str = "catalog-event";
 /// Nó cujos filhos o front quer: `{ kind: "schemas" }`,
 /// `{ kind: "schema", schema }`, `{ kind: "partitions", schema, table }` ou,
 /// na árvore agrupada por formato, `{ kind: "shape", key }`.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum CatalogPathInput {
@@ -48,6 +49,7 @@ impl From<CatalogPathInput> for CatalogPath {
 }
 
 /// Situação do catálogo de um database.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogStatus {
@@ -67,6 +69,7 @@ pub struct CatalogStatus {
 
 /// Evento de progresso, emitido como [`CATALOG_EVENT`]. O front invalida as
 /// fatias daquele database conforme o tipo.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogEvent {
@@ -76,6 +79,7 @@ pub struct CatalogEvent {
     pub kind: CatalogEventKind,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum CatalogEventKind {
@@ -99,6 +103,7 @@ pub enum CatalogEventKind {
 
 /// Resultado da busca com o database de onde veio (a palette busca em todos
 /// os catálogos abertos).
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogSearchHit {
@@ -111,6 +116,7 @@ pub struct CatalogSearchHit {
 /// Diagnóstico de um catálogo ("Copiar diagnóstico" na árvore): estado,
 /// última sincronização e o resumo do drift. Só contagens e tempos — nenhum
 /// nome de schema, tabela, host ou usuário.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogDiagnostics {
@@ -120,12 +126,14 @@ pub struct CatalogDiagnostics {
     pub drift: DriftSummary,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncDiagnostics {
     /// Quando terminou (ms epoch)
     pub at: i64,
     /// `shapeFirst` (um representante por formato) ou `bulk`
+    #[cfg_attr(test, ts(type = "\"shapeFirst\" | \"bulk\""))]
     pub strategy: String,
     pub schemas: usize,
     /// Formatos distintos no servidor (só no shape-first)
@@ -141,6 +149,7 @@ pub struct SyncDiagnostics {
     pub total_ms: f64,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DriftSummary {

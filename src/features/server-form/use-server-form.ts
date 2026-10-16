@@ -1,3 +1,4 @@
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import type { DatabaseType, ServerInput } from '@/api/types/server.types';
@@ -8,6 +9,7 @@ import {
   useUpdateServer,
 } from '@/queries/use-servers';
 import { DEFAULT_DATABASES, DEFAULT_PORTS } from '@/lib/db-defaults';
+import { sslModeFor, sslModesFor, sslModeVerifies } from '@/lib/ssl-modes';
 import type { ServerFormProps } from './server-form.types';
 
 const emptyForm: ServerInput = {
@@ -18,7 +20,8 @@ const emptyForm: ServerInput = {
   username: 'postgres',
   password: '',
   defaultDatabase: DEFAULT_DATABASES.postgres,
-  sslEnabled: false,
+  sslMode: 'disable',
+  sslRootCert: null,
   connectionUri: null,
   scopeDatabases: null,
   scopeSchemas: null,
@@ -54,7 +57,8 @@ export const useServerForm = ({
         username: server.username,
         password: '', // never comes back from the backend — must be retyped
         defaultDatabase: server.defaultDatabase,
-        sslEnabled: server.sslEnabled,
+        sslMode: server.sslMode,
+        sslRootCert: server.sslRootCert,
         connectionUri: server.connectionUri,
         scopeDatabases: server.scopeDatabases,
         scopeSchemas: server.scopeSchemas,
@@ -92,16 +96,31 @@ export const useServerForm = ({
           prev.defaultDatabase === DEFAULT_DATABASES[prev.dbType]
             ? DEFAULT_DATABASES[dbType]
             : prev.defaultDatabase,
+        // O modo de TLS vira o mais próximo que o banco novo aceita
+        sslMode: sslModeFor(prev.sslMode ?? 'disable', dbType),
         ...(crossesFileBoundary && {
           host: '',
           username: '',
           password: '',
           connectionUri: null,
-          sslEnabled: false,
+          sslRootCert: null,
         }),
       };
     });
   };
+
+  /** CA própria em PEM para os modos `verify-*` */
+  const chooseRootCert = async () => {
+    const path = await openFileDialog({
+      title: 'Certificado da CA (PEM)',
+      filters: [{ name: 'Certificado', extensions: ['pem', 'crt', 'cer'] }],
+      defaultPath: form.sslRootCert ?? undefined,
+    });
+    if (typeof path === 'string') setField('sslRootCert', path);
+  };
+
+  const sslOptions = sslModesFor(form.dbType);
+  const sslVerifies = sslModeVerifies(form.sslMode);
 
   const disableSave = useMemo(() => {
     // No SQLite a URI é o caminho do arquivo, e é o único campo obrigatório
@@ -146,8 +165,11 @@ export const useServerForm = ({
     isSaving,
     disableSave,
     openRemoveDialog,
+    sslOptions,
+    sslVerifies,
     setField,
     setDbType,
+    chooseRootCert,
     setOpenRemoveDialog,
     handleSave,
     handleRemove,

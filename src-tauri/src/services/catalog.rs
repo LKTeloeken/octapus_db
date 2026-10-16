@@ -76,7 +76,9 @@ pub fn connection_identity(server: &Server) -> String {
             server.host.as_bytes(),
             server.port.to_string().as_bytes(),
             server.username.as_bytes(),
-            &[u8::from(server.ssl_enabled)],
+            // Só se há TLS: o modo de verificação não muda o que se enxerga,
+            // e a identidade dos catálogos já salvos continua a mesma
+            &[u8::from(server.ssl_mode.uses_tls())],
             server.connection_uri.as_deref().unwrap_or_default().as_bytes(),
             server.scope_schemas.as_deref().unwrap_or_default().as_bytes(),
         ])
@@ -173,8 +175,15 @@ impl Shared {
             store.save(&target.store_key(), &catalog)
         })
         .await;
-        if matches!(saved, Ok(Ok(()))) {
-            entry.state.lock().dirty = false;
+        match saved {
+            Ok(Ok(())) => entry.state.lock().dirty = false,
+            // Fica `dirty`: a manutenção tenta de novo
+            Ok(Err(error)) => log::warn!(
+                "catálogo server {} db {}: falha ao gravar em disco: {error}",
+                entry.key.server_id,
+                entry.key.database
+            ),
+            Err(error) => log::warn!("catálogo: tarefa de gravação falhou: {error}"),
         }
     }
 }
@@ -197,6 +206,8 @@ async fn open_lane<'a>(
 
 async fn run_sync(shared: Arc<Shared>, entry: Arc<CatalogEntry>) {
     let key = entry.key.clone();
+    let label = format!("server {} db {}", key.server_id, key.database);
+    log::info!("catálogo {label}: sincronizando");
     shared.emit(&key, CatalogEventKind::Syncing);
 
     let outcome = async {
@@ -228,6 +239,15 @@ async fn run_sync(shared: Arc<Shared>, entry: Arc<CatalogEntry>) {
 
     match outcome {
         Ok(report) => {
+            log::info!(
+                "catálogo {label}: pronto em {} ms ({:?}; {} schemas, {} lidos, {} pelo formato; camada 0 em {} ms)",
+                report.total.as_millis(),
+                report.strategy,
+                report.schemas,
+                report.fetched,
+                report.shared,
+                report.layer0.as_millis()
+            );
             {
                 let mut state = entry.state.lock();
                 state.syncing = false;
@@ -249,10 +269,12 @@ async fn run_sync(shared: Arc<Shared>, entry: Arc<CatalogEntry>) {
             );
         }
         Err(Error::Cancelled) => {
+            log::info!("catálogo {label}: sincronização cancelada");
             entry.state.lock().syncing = false;
             shared.emit(&key, CatalogEventKind::Cancelled);
         }
         Err(error) => {
+            log::warn!("catálogo {label}: falha na sincronização: {error}");
             {
                 let mut state = entry.state.lock();
                 state.syncing = false;
@@ -1175,7 +1197,8 @@ mod tests {
             username: "app".into(),
             password: "secret".into(),
             default_database: None,
-            ssl_enabled: false,
+            ssl_mode: crate::models::SslMode::Disable,
+            ssl_root_cert: None,
             connection_uri: None,
             scope_databases: None,
             scope_schemas: None,
@@ -1184,11 +1207,14 @@ mod tests {
         };
         let base = connection_identity(&server);
         assert_eq!(base, connection_identity(&Server { name: "outro".into(), password: "x".into(), ..server.clone() }));
+        // Verificar o certificado não muda o que se enxerga
+        let tls = connection_identity(&Server { ssl_mode: crate::models::SslMode::Require, ..server.clone() });
+        assert_eq!(tls, connection_identity(&Server { ssl_mode: crate::models::SslMode::VerifyFull, ..server.clone() }));
         for changed in [
             Server { host: "db2".into(), ..server.clone() },
             Server { port: 5433, ..server.clone() },
             Server { username: "ro".into(), ..server.clone() },
-            Server { ssl_enabled: true, ..server.clone() },
+            Server { ssl_mode: crate::models::SslMode::Require, ..server.clone() },
             Server { connection_uri: Some("postgres://x".into()), ..server.clone() },
             Server { scope_schemas: Some("tenant_*".into()), ..server.clone() },
         ] {

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub const BACKUP_EVENT: &str = "backup-event";
 
 /// De onde veio a instalação das ferramentas do Postgres.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PgToolsSource {
@@ -16,6 +17,7 @@ pub enum PgToolsSource {
 }
 
 /// Uma pasta com o `pg_dump` (e, se houver, `pg_restore` e `psql`).
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PgToolsInstall {
@@ -31,6 +33,7 @@ pub struct PgToolsInstall {
 }
 
 /// Resultado da busca pelas ferramentas, sem olhar para nenhum servidor.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PgToolsDetection {
@@ -43,6 +46,7 @@ pub struct PgToolsDetection {
 }
 
 /// Por que não dá para rodar backup/restore neste servidor.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum PgToolsProblem {
@@ -57,6 +61,7 @@ pub enum PgToolsProblem {
 }
 
 /// As ferramentas frente a um servidor: dá para fazer backup dele?
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PgToolsStatus {
@@ -69,6 +74,7 @@ pub struct PgToolsStatus {
 }
 
 /// O que entra no backup: o nó da árvore em que o usuário clicou.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(
     tag = "kind",
@@ -88,6 +94,7 @@ pub enum BackupTarget {
 }
 
 /// Formato do arquivo gerado.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DumpFormat {
@@ -107,6 +114,7 @@ impl DumpFormat {
 }
 
 /// Estrutura, dados ou os dois.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DumpContent {
@@ -115,6 +123,7 @@ pub enum DumpContent {
     DataOnly,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupOptions {
@@ -130,6 +139,7 @@ pub struct BackupOptions {
     pub column_inserts: bool,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupRequest {
@@ -140,6 +150,7 @@ pub struct BackupRequest {
 }
 
 /// O que o diálogo mostra antes de rodar.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupPreview {
@@ -150,6 +161,7 @@ pub struct BackupPreview {
 }
 
 /// Andamento de um job, emitido como [`BACKUP_EVENT`].
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupEvent {
@@ -158,6 +170,7 @@ pub struct BackupEvent {
     pub kind: BackupEventKind,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(
     tag = "type",
@@ -184,6 +197,7 @@ pub enum BackupEventKind {
 }
 
 /// Formato de um arquivo a restaurar, detectado pelo conteúdo.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RestoreFormat {
@@ -194,6 +208,7 @@ pub enum RestoreFormat {
 }
 
 /// O que há num `.dump`, pelo `pg_restore --list`.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveSummary {
@@ -212,6 +227,7 @@ pub struct ArchiveSummary {
 }
 
 /// O arquivo escolhido para restaurar.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RestoreInspection {
@@ -224,6 +240,7 @@ pub struct RestoreInspection {
     pub summary_error: Option<String>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RestoreOptions {
@@ -236,6 +253,7 @@ pub struct RestoreOptions {
     pub single_transaction: bool,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RestoreRequest {

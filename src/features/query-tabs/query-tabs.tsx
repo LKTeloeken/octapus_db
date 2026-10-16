@@ -8,6 +8,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { memo } from 'react';
+import { ErrorBoundary } from '@/components/error-boundary';
 import { Button } from '@/components/ui/button';
 import { ContentState } from '@/components/ui/content-state';
 import { Kbd } from '@/components/ui/kbd';
@@ -166,11 +167,14 @@ export const QueryTabs = memo(() => {
           value={activeTab.id}
           className="flex-1 overflow-hidden mt-0"
         >
-          {activeTab.kind === 'browse' ? (
-            <TableBrowser tab={activeTab} />
-          ) : (
-            <QueryEditorPanel tab={activeTab} />
-          )}
+          {/* Erro de render numa aba fica nela; trocar de aba limpa */}
+          <ErrorBoundary area="nesta aba" resetKeys={[activeTab.id]}>
+            {activeTab.kind === 'browse' ? (
+              <TableBrowser tab={activeTab} />
+            ) : (
+              <QueryEditorPanel tab={activeTab} />
+            )}
+          </ErrorBoundary>
         </TabsContent>
       )}
     </Tabs>

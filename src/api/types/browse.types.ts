@@ -1,19 +1,4 @@
-export interface SortSpec {
-  column: string;
-  direction: 'asc' | 'desc';
-}
+// Gerados do Rust (ts-rs) — ver src-tauri/src/models; não edite à mão
+export type { SortSpec } from './generated/SortSpec';
+export type { TableDataRequest } from './generated/TableDataRequest';
 
-export interface TableDataRequest {
-  /** Postgres: schema (default 'public'); Mongo/Redis: ignored */
-  schema?: string | null;
-  /** Table / collection / key group */
-  table: string;
-  /** Postgres-only raw WHERE expression (without the WHERE keyword) */
-  whereExpr?: string;
-  sort?: SortSpec[];
-  limit?: number;
-  offset?: number;
-  countTotal?: boolean;
-  /** Ignora o `limit` e traz todas as linhas do filtro (usado na exportação) */
-  unlimited?: boolean;
-}

@@ -1,0 +1,5 @@
+# Tipos gerados pelo ts-rs (`cargo test --lib export_bindings`): vão direto
+# para o front, com i64 como `number` (ids e epochs cabem no número do JS).
+[env]
+TS_RS_EXPORT_DIR = { value = "../src/api/types/generated", relative = true }
+TS_RS_LARGE_INT = "number"

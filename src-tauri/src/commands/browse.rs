@@ -1,6 +1,7 @@
 use tauri::State;
 
-use crate::models::{AdapterCapabilities, QueryResult, TableDataRequest};
+use crate::error::{Error, Result};
+use crate::models::{AdapterCapabilities, DbTypeCapabilities, QueryResult, TableDataRequest};
 use crate::state::AppState;
 use crate::storage::repositories::servers;
 
@@ -12,23 +13,26 @@ pub async fn fetch_table_data(
     server_id: i64,
     database: String,
     request: TableDataRequest,
-) -> Result<QueryResult, String> {
+) -> Result<QueryResult> {
     let adapter = connect_adapter(&state, server_id, &database).await?;
 
-    adapter
-        .fetch_table_data(request)
-        .await
-        .map_err(|e| e.to_string())
+    adapter.fetch_table_data(request).await
+}
+
+/// As capabilities de todos os tipos de banco, de uma vez: dependem só do
+/// tipo, e o front decide por servidor (árvore, palette) sem uma consulta por
+/// servidor. Estático — o front guarda sem prazo.
+#[tauri::command]
+pub fn get_db_capabilities() -> Vec<DbTypeCapabilities> {
+    AdapterCapabilities::all()
 }
 
 #[tauri::command]
-pub fn get_capabilities(
-    state: State<'_, AppState>,
-    server_id: i64,
-) -> Result<AdapterCapabilities, String> {
+pub fn get_capabilities(state: State<'_, AppState>, server_id: i64) -> Result<AdapterCapabilities> {
     // Capabilities depend only on the db type — no connection, no keychain.
-    let server = servers::get_by_id_meta(&state.storage, server_id).map_err(|e| e.to_string())?;
+    let server = servers::get_by_id_meta(&state.storage, server_id)?;
 
-    AdapterCapabilities::for_db_type(server.db_type)
-        .ok_or_else(|| format!("No adapter available for {:?}", server.db_type))
+    AdapterCapabilities::for_db_type(server.db_type).ok_or_else(|| {
+        Error::UnsupportedDatabase(format!("no adapter available for {:?}", server.db_type))
+    })
 }

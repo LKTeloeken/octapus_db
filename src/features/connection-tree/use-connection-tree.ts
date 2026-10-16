@@ -38,6 +38,7 @@ import type {
 } from '@/api/types/structure.types';
 import { useServerGroups } from '@/queries/use-server-groups';
 import { useServers } from '@/queries/use-servers';
+import { useDbCapabilities } from '@/queries/use-capabilities';
 import { useRefreshStructure } from '@/queries/use-refresh-structure';
 import {
   CATALOG_PAGE_SIZE,
@@ -92,10 +93,6 @@ const columnsKey = (
 
 const dbKey = (ref: NodeRef) => `${ref.serverId}|${ref.database}`;
 
-/** Bancos cuja estrutura (tabelas e colunas) se edita pela árvore */
-const canEditStructure = (dbType: DatabaseType | undefined) =>
-  dbType === 'postgres' || dbType === 'sqlite';
-
 /** Relações que têm colunas próprias para editar (views e externas não) */
 const hasEditableColumns = (kind: CatalogNodeKind | undefined) =>
   kind === undefined || kind === 'table' || kind === 'partitioned';
@@ -134,6 +131,8 @@ export const useConnectionTree = ({
   useCatalogEvents();
 
   const serversQuery = useServers();
+  // O que cada banco suporta (catálogo, edição de estrutura, backup…)
+  const capsByType = useDbCapabilities();
   const groupsQuery = useServerGroups();
   const collapsedGroups = useTreeStore(state => state.collapsedGroups);
   const openGroupDialog = useServerGroupDialogStore(state => state.open);
@@ -161,7 +160,7 @@ export const useConnectionTree = ({
   // campo a cada letra digitada.
   const lastPages = useRef(new Map<string, CatalogPage<CatalogNode>>());
 
-  const servers = serversQuery.data ?? [];
+  const servers = useMemo(() => serversQuery.data ?? [], [serversQuery.data]);
   const serverIds = useMemo(
     () => new Set(servers.map(server => server.id)),
     [servers],
@@ -169,9 +168,11 @@ export const useConnectionTree = ({
   const catalogServerIds = useMemo(
     () =>
       new Set(
-        servers.filter(server => hasCatalog(server.dbType)).map(server => server.id),
+        servers
+          .filter(server => hasCatalog(capsByType[server.dbType]))
+          .map(server => server.id),
       ),
-    [servers],
+    [servers, capsByType],
   );
   const dbTypes = useMemo(
     () => new Map(servers.map(server => [server.id, server.dbType])),
@@ -180,9 +181,11 @@ export const useConnectionTree = ({
   const flatServerIds = useMemo(
     () =>
       new Set(
-        servers.filter(server => isFlatCatalog(server.dbType)).map(server => server.id),
+        servers
+          .filter(server => isFlatCatalog(capsByType[server.dbType]))
+          .map(server => server.id),
       ),
-    [servers],
+    [servers, capsByType],
   );
 
   // Decode the expansion set into the entities whose children must be fetched.
@@ -204,9 +207,24 @@ export const useConnectionTree = ({
       ),
     [expandedRefs, serverIds],
   );
+  // Estrutura inteira (Redis) só com as capabilities já em mãos: enquanto
+  // carregam, um Postgres pareceria "sem catálogo" e pediria a estrutura
+  // inteira — o que derrubava servidores com milhares de schemas
+  const legacyServerIds = useMemo(
+    () =>
+      new Set(
+        servers
+          .filter(server => {
+            const caps = capsByType[server.dbType];
+            return caps !== undefined && !caps.hasCatalog;
+          })
+          .map(server => server.id),
+      ),
+    [servers, capsByType],
+  );
   const legacyDbRefs = useMemo(
-    () => expandedDbRefs.filter(ref => !catalogServerIds.has(ref.serverId)),
-    [expandedDbRefs, catalogServerIds],
+    () => expandedDbRefs.filter(ref => legacyServerIds.has(ref.serverId)),
+    [expandedDbRefs, legacyServerIds],
   );
   const catalogDbRefs = useMemo(
     () =>
@@ -566,8 +584,8 @@ export const useConnectionTree = ({
     schema: string | null,
   ): StructureTarget | null => {
     const dbType = dbTypes.get(serverId);
-    return canEditStructure(dbType)
-      ? { serverId, database, dbType: dbType!, schema }
+    return dbType && capsByType[dbType]?.supportsStructureChanges
+      ? { serverId, database, dbType, schema }
       : null;
   };
 
@@ -607,13 +625,19 @@ export const useConnectionTree = ({
     ];
   };
 
-  /** Backup pelo pg_dump do nó (database, schema ou tabela) — só Postgres */
+  /** O que o banco do servidor suporta; undefined enquanto carrega */
+  const capsOf = (serverId: number) => {
+    const dbType = dbTypes.get(serverId);
+    return dbType ? capsByType[dbType] : undefined;
+  };
+
+  /** Backup pelo pg_dump do nó (database, schema ou tabela) */
   const backupAction = (
     serverId: number,
     database: string,
     target: BackupTarget,
   ): NodeRowAction[] =>
-    dbTypes.get(serverId) === 'postgres'
+    capsOf(serverId)?.supportsBackup
       ? [
           {
             label: 'Fazer backup…',
@@ -810,7 +834,7 @@ export const useConnectionTree = ({
             },
           ]
         : []),
-      ...(dbTypes.get(serverId) === 'postgres'
+      ...(capsOf(serverId)?.supportsSchemaCompare
         ? [compareAction(serverId, database, schema)]
         : []),
       ...backupAction(serverId, database, { kind: 'schema', schema }),
@@ -861,7 +885,7 @@ export const useConnectionTree = ({
       return;
     }
 
-    if (isFlatCatalog(dbType)) {
+    if (isFlatCatalog(capsByType[dbType])) {
       const placeholder = dbType === 'mongodb' ? 'Filtrar coleções' : 'Filtrar tabelas';
       pushWindowed(dbNodeId, 2, children, placeholder, relation =>
         pushTable(
@@ -1004,11 +1028,12 @@ export const useConnectionTree = ({
     const repeats = hasRepeatedShapes(status);
     const grouped = shapeGrouped.has(dbNodeId);
     // Sem schema (SQLite), a tabela nova nasce direto no database
-    const flatTarget = isFlatCatalog(dbType)
+    const caps = capsByType[dbType];
+    const flatTarget = isFlatCatalog(caps)
       ? structureTarget(serverId, database, null)
       : null;
     return [
-      ...(!isFlatCatalog(dbType) && (repeats || grouped)
+      ...(!isFlatCatalog(caps) && (repeats || grouped)
         ? [
             {
               label: grouped ? 'Lista simples' : 'Agrupar por formato',
@@ -1017,9 +1042,9 @@ export const useConnectionTree = ({
             },
           ]
         : []),
-      ...(dbType === 'postgres' ? [compareAction(serverId, database, null)] : []),
+      ...(caps?.supportsSchemaCompare ? [compareAction(serverId, database, null)] : []),
       ...backupAction(serverId, database, { kind: 'database' }),
-      ...(dbType === 'postgres'
+      ...(caps?.supportsBackup
         ? [
             {
               label: 'Restaurar backup…',

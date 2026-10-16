@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager, State};
 
+use crate::error::{Error, Result};
 use crate::models::{
-    BackupPreview, BackupRequest, DatabaseType, PgToolsDetection, PgToolsInstall, PgToolsStatus,
+    AdapterCapabilities, BackupPreview, BackupRequest, PgToolsDetection, PgToolsInstall, PgToolsStatus,
     QueryOptions, RestoreFormat, RestoreInspection, RestoreRequest, Server,
 };
 use crate::services::backup::{self, JobInput, JobSpec};
@@ -15,8 +16,8 @@ use super::connect_adapter;
 /// Procura o `pg_dump`/`pg_restore`/`psql` (pasta das Preferências, `PATH`,
 /// locais conhecidos), sem olhar para nenhum servidor — a tela de Preferências.
 #[tauri::command]
-pub async fn pg_tools_detect(state: State<'_, AppState>) -> Result<PgToolsDetection, String> {
-    let settings = settings_store::load(&state.storage).map_err(|e| e.to_string())?;
+pub async fn pg_tools_detect(state: State<'_, AppState>) -> Result<PgToolsDetection> {
+    let settings = settings_store::load(&state.storage)?;
     Ok(backup::detect(settings.pg_tools_dir.as_deref()).await)
 }
 
@@ -27,12 +28,12 @@ pub async fn pg_tools_status(
     state: State<'_, AppState>,
     server_id: i64,
     database: String,
-) -> Result<PgToolsStatus, String> {
-    postgres_only(&servers::get_by_id_meta(&state.storage, server_id).map_err(|e| e.to_string())?)?;
+) -> Result<PgToolsStatus> {
+    postgres_only(&servers::get_by_id_meta(&state.storage, server_id)?)?;
 
     let (server_version, server_version_num) = server_version(&state, server_id, &database).await?;
 
-    let settings = settings_store::load(&state.storage).map_err(|e| e.to_string())?;
+    let settings = settings_store::load(&state.storage)?;
     let detection = backup::detect(settings.pg_tools_dir.as_deref()).await;
     Ok(backup::status(
         detection,
@@ -44,12 +45,8 @@ pub async fn pg_tools_status(
 /// A linha de comando (sem senha) e o nome sugerido, para o diálogo mostrar
 /// antes de rodar. Não decifra a senha nem procura as ferramentas.
 #[tauri::command]
-pub fn backup_preview(
-    state: State<'_, AppState>,
-    request: BackupRequest,
-) -> Result<BackupPreview, String> {
-    let server =
-        servers::get_by_id_meta(&state.storage, request.server_id).map_err(|e| e.to_string())?;
+pub fn backup_preview(state: State<'_, AppState>, request: BackupRequest) -> Result<BackupPreview> {
+    let server = servers::get_by_id_meta(&state.storage, request.server_id)?;
     postgres_only(&server)?;
 
     let file_name = backup::suggested_file_name(
@@ -59,7 +56,8 @@ pub fn backup_preview(
         chrono::Local::now().naive_local(),
     );
     let connection = backup::connection_args(&server, &request.database);
-    let args = backup::dump_args(&connection, &request.target, &request.options, &file_name)?;
+    let args = backup::dump_args(&connection, &request.target, &request.options, &file_name)
+        .map_err(Error::External)?;
     Ok(BackupPreview {
         command: backup::display_command("pg_dump", &args),
         file_name,
@@ -73,17 +71,17 @@ pub async fn backup_start(
     state: State<'_, AppState>,
     request: BackupRequest,
     path: String,
-) -> Result<String, String> {
+) -> Result<String> {
     // Decifra a senha: uma vez por job, fora de caminho quente
-    let server =
-        servers::get_by_id(&state.storage, request.server_id).map_err(|e| e.to_string())?;
+    let server = servers::get_by_id(&state.storage, request.server_id)?;
     postgres_only(&server)?;
 
     let install = selected_tools(&state).await?;
 
     let partial = backup::partial_path(&path);
     let connection = backup::connection_args(&server, &request.database);
-    let args = backup::dump_args(&connection, &request.target, &request.options, &partial)?;
+    let args = backup::dump_args(&connection, &request.target, &request.options, &partial)
+        .map_err(Error::External)?;
 
     Ok(state.backups.start(JobSpec {
         tool: "pg_dump",
@@ -109,8 +107,10 @@ pub fn backup_cancel(state: State<'_, AppState>, job_id: String) {
 pub async fn restore_inspect(
     state: State<'_, AppState>,
     path: String,
-) -> Result<RestoreInspection, String> {
-    let (format, size_bytes) = backup::detect_format(Path::new(&path)).await?;
+) -> Result<RestoreInspection> {
+    let (format, size_bytes) = backup::detect_format(Path::new(&path))
+        .await
+        .map_err(Error::External)?;
 
     let (summary, summary_error) = match format {
         RestoreFormat::Plain => (None, None),
@@ -122,7 +122,7 @@ pub async fn restore_inspect(
                 }
             }
             Ok(None) => (None, Some(MISSING_PG_RESTORE.to_string())),
-            Err(message) => (None, Some(message)),
+            Err(error) => (None, Some(error.to_string())),
         },
     };
 
@@ -142,9 +142,8 @@ pub async fn restore_preview(
     state: State<'_, AppState>,
     request: RestoreRequest,
     path: String,
-) -> Result<String, String> {
-    let server =
-        servers::get_by_id_meta(&state.storage, request.server_id).map_err(|e| e.to_string())?;
+) -> Result<String> {
+    let server = servers::get_by_id_meta(&state.storage, request.server_id)?;
     postgres_only(&server)?;
 
     let plan = plan_restore(&state, &server, &request, &path).await?;
@@ -160,17 +159,21 @@ pub async fn restore_start(
     state: State<'_, AppState>,
     request: RestoreRequest,
     path: String,
-) -> Result<String, String> {
-    let server =
-        servers::get_by_id(&state.storage, request.server_id).map_err(|e| e.to_string())?;
+) -> Result<String> {
+    let server = servers::get_by_id(&state.storage, request.server_id)?;
     postgres_only(&server)?;
 
     let install = selected_tools(&state).await?;
     let plan = plan_restore(&state, &server, &request, &path).await?;
-    let pg_restore = || install.pg_restore.clone().ok_or(MISSING_PG_RESTORE);
+    let pg_restore = || {
+        install
+            .pg_restore
+            .clone()
+            .ok_or_else(|| missing(MISSING_PG_RESTORE))
+    };
     let program = match plan.tool {
         "pg_restore" => pg_restore()?,
-        _ => install.psql.clone().ok_or(MISSING_PSQL)?,
+        _ => install.psql.clone().ok_or_else(|| missing(MISSING_PSQL))?,
     };
     let input = match plan.input {
         None => None,
@@ -211,7 +214,7 @@ async fn plan_restore(
     server: &Server,
     request: &RestoreRequest,
     path: &str,
-) -> Result<backup::RestorePlan, String> {
+) -> Result<backup::RestorePlan> {
     let (_, server_num) = server_version(state, request.server_id, &request.database).await?;
     let tools_num = selected_tools(state)
         .await
@@ -225,6 +228,7 @@ async fn plan_restore(
         path,
         backup::needs_timeout_filter(tools_num, server_num),
     )
+    .map_err(Error::External)
 }
 
 /// `server_version` (sem o sufixo da distribuição) e `server_version_num` do
@@ -233,15 +237,14 @@ async fn server_version(
     state: &State<'_, AppState>,
     server_id: i64,
     database: &str,
-) -> Result<(String, u32), String> {
+) -> Result<(String, u32)> {
     let adapter = connect_adapter(state, server_id, database).await?;
     let result = adapter
         .execute_query(
             "SELECT current_setting('server_version_num'), current_setting('server_version')",
             QueryOptions::default(),
         )
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let row = result.rows.first();
     let cell = |index: usize| {
         row.and_then(|row| row.get(index))
@@ -255,36 +258,44 @@ const MISSING_PG_RESTORE: &str =
 const MISSING_PSQL: &str =
     "Não há psql na pasta das ferramentas do PostgreSQL — ele é preciso para rodar scripts .sql.";
 
+fn missing(message: &str) -> Error {
+    Error::External(message.to_string())
+}
+
 /// A instalação em uso, ou o motivo de não haver uma.
-async fn selected_tools(state: &State<'_, AppState>) -> Result<PgToolsInstall, String> {
-    let settings = settings_store::load(&state.storage).map_err(|e| e.to_string())?;
+async fn selected_tools(state: &State<'_, AppState>) -> Result<PgToolsInstall> {
+    let settings = settings_store::load(&state.storage)?;
     let detection = backup::detect(settings.pg_tools_dir.as_deref()).await;
     match (detection.selected, detection.configured_error) {
-        (_, Some(message)) => Err(message),
-        (None, None) => Err(
-            "O pg_dump não foi encontrado. Instale as ferramentas do PostgreSQL ou escolha a pasta em Preferências › PostgreSQL."
-                .into(),
-        ),
+        (_, Some(message)) => Err(Error::External(message)),
+        (None, None) => Err(missing(
+            "O pg_dump não foi encontrado. Instale as ferramentas do PostgreSQL ou escolha a pasta em Preferências › PostgreSQL.",
+        )),
         (Some(install), None) => Ok(install),
     }
 }
 
-fn postgres_only(server: &Server) -> Result<(), String> {
-    if server.db_type == DatabaseType::Postgres {
+fn postgres_only(server: &Server) -> Result<()> {
+    let supported = AdapterCapabilities::for_db_type(server.db_type)
+        .is_some_and(|caps| caps.supports_backup);
+    if supported {
         Ok(())
     } else {
-        Err("Backup e restauração só existem para PostgreSQL.".into())
+        Err(Error::UnsupportedDatabase(
+            "Backup e restauração só existem para PostgreSQL.".into(),
+        ))
     }
 }
 
 /// Ambiente do processo: a senha (fora do argv), o TLS do servidor e um
 /// timeout de conexão — o app não espera para sempre um host que não responde.
 fn tool_env(connection: &backup::ConnectionArgs) -> Vec<(String, String)> {
-    let mut env = vec![
-        ("PGSSLMODE".to_string(), connection.ssl_mode.to_string()),
-        ("PGCONNECT_TIMEOUT".to_string(), "10".to_string()),
-        ("PGAPPNAME".to_string(), "octapus_db".to_string()),
-    ];
+    let mut env: Vec<(String, String)> = backup::ssl_env(connection)
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect();
+    env.push(("PGCONNECT_TIMEOUT".to_string(), "10".to_string()));
+    env.push(("PGAPPNAME".to_string(), "octapus_db".to_string()));
     if let Some(password) = &connection.password {
         env.push(("PGPASSWORD".to_string(), password.clone()));
     }

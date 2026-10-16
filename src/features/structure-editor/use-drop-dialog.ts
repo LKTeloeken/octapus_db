@@ -4,6 +4,7 @@ import type {
   RelationKind,
   StructureChange,
 } from '@/api/types/structure.types';
+import { useDbCapabilities } from '@/queries/use-capabilities';
 import { useTabsStore } from '@/stores/tabs-store';
 import type { DialogOf } from './structure-editor.types';
 import { useStructureChangeDialog } from './use-structure-change-dialog';
@@ -60,6 +61,7 @@ export function useDropDialog(dialog: DropDialog) {
   );
 
   const subject = subjectOf(dialog);
+  const capsByType = useDbCapabilities();
   const dialogState = useStructureChangeDialog(target, change, {
     success: `${name} foi excluída.`,
     // A aba da tabela que deixou de existir fecha
@@ -74,7 +76,7 @@ export function useDropDialog(dialog: DropDialog) {
     name,
     subject,
     isColumn,
-    supportsCascade: target.dbType === 'postgres',
+    supportsCascade: !!capsByType[target.dbType]?.supportsDropCascade,
     cascade,
     setCascade,
     ...dialogState,

@@ -4,9 +4,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::DatabaseType;
+use super::{DatabaseType, SslMode};
 
 /// App (ou formato) de onde as conexões vêm.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ImportSource {
@@ -20,6 +21,7 @@ pub enum ImportSource {
 }
 
 /// Como o app de origem guarda as senhas — decide o que a tela promete.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PasswordStorage {
@@ -32,6 +34,7 @@ pub enum PasswordStorage {
 }
 
 /// Uma origem disponível nesta máquina (ou que aceita arquivo escolhido).
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportSourceInfo {
@@ -46,6 +49,7 @@ pub struct ImportSourceInfo {
 }
 
 /// Algo que não sai igual do app de origem — a tela explica cada caso.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ImportWarning {
@@ -55,8 +59,9 @@ pub enum ImportWarning {
     UnsupportedType { driver: String },
     /// Senha não veio (o app não exporta, ou não estava salva)
     NoPassword,
-    /// `verify-ca`/`verify-full`: o Octapus cifra sem verificar o certificado
-    SslNotVerified { mode: String },
+    /// `verify-ca`/`verify-full`: o certificado é conferido contra as CAs do
+    /// sistema — uma CA própria do app de origem precisa ser escolhida de novo
+    SslSystemCa { mode: SslMode },
     /// Certificado de cliente (mTLS), que o Octapus não usa
     ClientCertificate,
     /// Arquivo do SQLite que não existe mais nesta máquina
@@ -64,6 +69,7 @@ pub enum ImportWarning {
 }
 
 /// Uma conexão lida, já no formato do Octapus (sem a senha).
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportCandidate {
@@ -79,7 +85,7 @@ pub struct ImportCandidate {
     pub username: String,
     pub default_database: Option<String>,
     pub connection_uri: Option<String>,
-    pub ssl_enabled: bool,
+    pub ssl_mode: SslMode,
     /// Pasta/grupo no app de origem
     pub group: Option<String>,
     /// A senha já está em mãos (arquivo, URL ou `.pgpass`)
@@ -93,6 +99,7 @@ pub struct ImportCandidate {
 
 /// Resultado da leitura de uma origem. O `token` identifica a prévia no
 /// commit — as senhas ficaram no backend, presas a ele.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportPreview {
@@ -108,6 +115,7 @@ pub struct ImportPreview {
 }
 
 /// O que importar de uma prévia.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportCommitRequest {
@@ -122,6 +130,7 @@ pub struct ImportCommitRequest {
     pub target_group_id: Option<i64>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportResult {

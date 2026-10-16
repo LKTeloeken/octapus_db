@@ -57,7 +57,8 @@ const SERVER: Server = {
   port: 55432,
   username: 'postgres',
   defaultDatabase: DATABASE,
-  sslEnabled: false,
+  sslMode: 'disable',
+  sslRootCert: null,
   connectionUri: null,
   createdAt: 0,
   scopeDatabases: null,
@@ -72,6 +73,11 @@ const CAPABILITIES: AdapterCapabilities = {
   supportsTransactions: true,
   supportsIndexes: true,
   browsable: true,
+  hasCatalog: true,
+  supportsStructureChanges: true,
+  supportsDropCascade: true,
+  supportsSchemaCompare: true,
+  supportsBackup: true,
 };
 
 const COLUMNS: ColumnInfo[] = [
@@ -208,6 +214,9 @@ describe('catálogo — baseline do front', () => {
         },
       });
       client.setQueryData(queryKeys.servers, [SERVER]);
+      client.setQueryData(queryKeys.dbCapabilities, [
+        { dbType: 'postgres', capabilities: CAPABILITIES },
+      ]);
       client.setQueryData(queryKeys.capabilities(SERVER_ID), CAPABILITIES);
       client.setQueryData(queryKeys.databases(SERVER_ID), [
         { name: DATABASE, sizeBytes: null },

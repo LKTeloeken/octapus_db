@@ -167,6 +167,7 @@ pub trait DatabaseAdapter: Send + Sync {
 }
 
 /// Pool statistics for monitoring
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PoolStats {

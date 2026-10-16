@@ -11,6 +11,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "type-check": "tsc --noEmit",
+    "lint": "eslint . && node scripts/check-design-tokens.mjs",
+    "lint:tokens": "node scripts/check-design-tokens.mjs",
+    "gen:types": "rm -rf src/api/types/generated && cd src-tauri && cargo test --lib export_bindings -q",
     "test": "vitest run",
     "perf:front": "OCTAPUS_PERF=1 vitest run"
   },
@@ -67,13 +70,19 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@eslint/js": "^9",
     "@tauri-apps/cli": "^2.11.5",
     "@types/node": "^22.15.3",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
+    "eslint": "^9",
+    "eslint-plugin-jsx-a11y": "^6",
+    "eslint-plugin-react-hooks": "^5",
+    "globals": "^16",
     "prettier": "^3.8.1",
     "typescript": "~5.6.2",
+    "typescript-eslint": "^8",
     "vite": "^6.0.3",
     "vitest": "^3.2"
   }

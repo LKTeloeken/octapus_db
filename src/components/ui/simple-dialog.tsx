@@ -11,7 +11,7 @@ import {
 
 export interface SimpleDialogProps {
   /** Conteúdo do gatilho (botão ou elemento que abre o diálogo) */
-  trigger?: React.ForwardRefExoticComponent<any> | React.ComponentType<any>;
+  trigger?: React.ElementType;
   /** Título do diálogo */
   title: React.ReactNode;
   /** Descrição ou subtítulo */

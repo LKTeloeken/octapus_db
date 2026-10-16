@@ -2,6 +2,8 @@ mod browse;
 mod ddl;
 pub mod introspect;
 mod pool;
+#[cfg(test)]
+mod tls_e2e;
 mod executor;
 mod metadata;
 mod notices;

@@ -28,13 +28,14 @@ veja [BACKEND.md](BACKEND.md) e [FRONTEND.md](FRONTEND.md).
 ## Fronteira front ↔ back
 
 - **Transporte:** Tauri `invoke`. Comando em `snake_case`; argumentos e retornos em
-  **`camelCase`** (conversão automática). Erro = a Promise **rejeita com uma string**.
+  **`camelCase`** (conversão automática). Erro = a Promise **rejeita com `{ code, message }`**
+  (`crate::Error` serializado; `code` como `QUERY_ERROR`, `CANCELLED`…).
 - **Eventos:** no sentido contrário, o backend emite `catalog-event` com o progresso dos
   catálogos (sincronizando, schemas, relações, pronto, erro); o front escuta em
   [api/catalog.ts](src/api/catalog.ts) e invalida só as fatias afetadas.
 - **Contrato:** todo valor de célula trafega como `string | null`; formatação é do front.
 - **Camada única no front:** `src/api/` centraliza os `invoke` ([client.ts](src/api/client.ts)
-  normaliza o erro-string em `ApiError`); `src/queries/` envolve cada comando num hook
+  normaliza a rejeição em `ApiError`, com `code`); `src/queries/` envolve cada comando num hook
   React Query. Telas nunca chamam `invoke` direto.
 
 ## Decisões de design

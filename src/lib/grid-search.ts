@@ -53,7 +53,7 @@ export const MAX_RANGES_PER_CELL = 20;
 // `u` não passaria no type-check.
 const COMBINING_MARKS = new RegExp('\\p{M}', 'gu');
 const COMBINING_MARK = new RegExp('^\\p{M}$', 'u');
-const NON_ASCII = /[^\x00-\x7f]/;
+const NON_ASCII = /[\u0080-\uffff]/;
 const WORD_CHAR = new RegExp('[\\p{L}\\p{N}_]', 'u');
 
 const stripAccents = (text: string) =>

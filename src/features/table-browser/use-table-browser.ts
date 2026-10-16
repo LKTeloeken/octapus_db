@@ -4,6 +4,7 @@ import type { SortSpec } from '@/api/types/browse.types';
 import { useHiddenColumnsReset } from '@/components/column-selector/use-hidden-columns-reset';
 import { sqlFragmentContext } from '@/components/query-editor/query-editor/sql-completion/sql-fragment-context';
 import type { SaveRowChanges } from '@/components/results-table/results-table.types';
+import { persistRowChanges } from '@/lib/persist-row-changes';
 import {
   useApplyRowEdits,
   useDeleteRows,
@@ -197,32 +198,20 @@ export const useTableBrowser = (tab: BrowseTab) => {
   // Persist deletes, inserts and edits together. Each mutation invalidates the
   // browse query, so the table only reflects changes once the backend confirms.
   const save = useCallback(
-    async ({ edits, inserts, deletes }: SaveRowChanges) => {
+    async (changes: SaveRowChanges) => {
       const editable = data.editableInfo;
       if (!editable) return;
 
       const base = { serverId: tab.serverId, database: tab.database, editable };
 
       try {
-        let affected = 0;
-        if (deletes.length > 0) {
-          const r = await deleteRowsMutation.mutateAsync({
-            ...base,
-            pkValues: deletes,
-          });
-          affected += r.affectedRows;
-        }
-        if (inserts.length > 0) {
-          const r = await insertRowsMutation.mutateAsync({
-            ...base,
-            rows: inserts,
-          });
-          affected += r.affectedRows;
-        }
-        if (edits.length > 0) {
-          const r = await applyEditsMutation.mutateAsync({ ...base, edits });
-          affected += r.affectedRows;
-        }
+        const affected = await persistRowChanges(changes, {
+          deleteRows: pkValues =>
+            deleteRowsMutation.mutateAsync({ ...base, pkValues }),
+          insertRows: rows => insertRowsMutation.mutateAsync({ ...base, rows }),
+          applyEdits: edits =>
+            applyEditsMutation.mutateAsync({ ...base, edits }),
+        });
         toast.success(`${affected} linhas alteradas`);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : String(error));

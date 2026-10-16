@@ -11,12 +11,12 @@ import {
 } from '@/components/ui/select';
 import { SimpleAlertDialog } from '@/components/ui/simple-alert-dialog';
 import { SimpleDialog } from '@/components/ui/simple-dialog';
-import { Switch } from '@/components/ui/switch';
 import {
   DB_TYPE_ICONS,
   DB_TYPE_LABELS,
   SUPPORTED_DB_TYPES,
 } from '@/lib/db-defaults';
+import type { SslMode } from '@/api/types/server.types';
 import type { ServerFormProps } from './server-form.types';
 import { useServerForm } from './use-server-form';
 import { NO_GROUP } from '@/features/server-groups/server-groups.types';
@@ -33,8 +33,11 @@ export function ServerForm(props: ServerFormProps) {
     isEditMode,
     disableSave,
     openRemoveDialog,
+    sslOptions,
+    sslVerifies,
     setField,
     setDbType,
+    chooseRootCert,
     setOpenRemoveDialog,
     handleSave,
     handleRemove,
@@ -214,20 +217,50 @@ export function ServerForm(props: ServerFormProps) {
                       setField('connectionUri', e.target.value || null)
                     }
                   />
-
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="ssl-enabled"
-                      checked={!!form.sslEnabled}
-                      onCheckedChange={checked =>
-                        setField('sslEnabled', checked)
-                      }
-                    />
-                    <Label htmlFor="ssl-enabled" className="text-sm">
-                      SSL habilitado
-                    </Label>
-                  </div>
                 </>
+              )}
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="server-ssl-mode">Criptografia (SSL/TLS)</Label>
+                <Select
+                  value={form.sslMode ?? 'disable'}
+                  onValueChange={value => setField('sslMode', value as SslMode)}
+                >
+                  <SelectTrigger id="server-ssl-mode" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sslOptions.map(option => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-small text-fg-muted">
+                  {
+                    sslOptions.find(option => option.value === form.sslMode)
+                      ?.description
+                  }
+                </p>
+              </div>
+
+              {sslVerifies && (
+                <div className="flex items-end gap-2">
+                  <Input
+                    type="text"
+                    label="CA própria (opcional)"
+                    placeholder="CAs confiáveis do sistema"
+                    className="flex-1"
+                    value={form.sslRootCert ?? ''}
+                    onChange={e =>
+                      setField('sslRootCert', e.target.value || null)
+                    }
+                  />
+                  <Button variant="outline" onClick={chooseRootCert}>
+                    Escolher…
+                  </Button>
+                </div>
               )}
 
               {/* Escopo: quem tem milhares de tenants e só cuida de alguns */}

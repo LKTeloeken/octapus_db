@@ -17,19 +17,32 @@ pub struct ConnectionArgs {
     pub password: Option<String>,
     /// `PGSSLMODE` padrão; um `sslmode` na própria URI prevalece sobre ele
     pub ssl_mode: &'static str,
+    /// CA própria (`PGSSLROOTCERT`) dos modos `verify-*`
+    pub ssl_root_cert: Option<String>,
+}
+
+/// O TLS do processo, pelo ambiente: o modo do servidor e, nos `verify-*`, a
+/// CA — a do servidor ou `system`, as CAs do sistema (libpq 16+; uma libpq
+/// mais velha lê `system` como caminho de arquivo e recusa com erro claro).
+pub fn ssl_env(connection: &ConnectionArgs) -> Vec<(&'static str, String)> {
+    let mut env = vec![("PGSSLMODE", connection.ssl_mode.to_string())];
+    if matches!(connection.ssl_mode, "verify-ca" | "verify-full") {
+        let root = connection.ssl_root_cert.clone().unwrap_or_else(|| "system".into());
+        env.push(("PGSSLROOTCERT", root));
+    }
+    env
 }
 
 /// Argumentos de conexão para `database` no servidor. Com `connection_uri`, a
 /// URI vai no `--dbname` sem a senha e com o database trocado pelo escolhido
 /// (como faz o pool); sem ela, `--host`/`--port`/`--username`.
 pub fn connection_args(server: &Server, database: &str) -> ConnectionArgs {
-    // Mesma semântica do pool (pool.rs): com SSL, encripta sem validar o
-    // certificado — o `require` da libpq
-    let ssl_mode = if server.ssl_enabled {
-        "require"
-    } else {
-        "disable"
-    };
+    // O mesmo modo do pool (pool.rs), com os nomes da libpq
+    let ssl_mode = server.ssl_mode.as_str();
+    let ssl_root_cert = server
+        .ssl_root_cert
+        .clone()
+        .filter(|_| server.ssl_mode.verifies());
     let server_password = Some(server.password.clone()).filter(|p| !p.is_empty());
 
     if let Some(uri) = server.connection_uri.as_deref().map(str::trim) {
@@ -43,6 +56,7 @@ pub fn connection_args(server: &Server, database: &str) -> ConnectionArgs {
                 args: vec![format!("--dbname={dbname}")],
                 password: uri_password.or(server_password),
                 ssl_mode,
+                ssl_root_cert,
             };
         }
     }
@@ -62,6 +76,7 @@ pub fn connection_args(server: &Server, database: &str) -> ConnectionArgs {
         args,
         password: server_password,
         ssl_mode,
+        ssl_root_cert,
     }
 }
 
@@ -555,7 +570,7 @@ fn shell_quote(arg: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::DatabaseType;
+    use crate::models::{DatabaseType, SslMode};
 
     fn server() -> Server {
         Server {
@@ -567,7 +582,8 @@ mod tests {
             username: "app".into(),
             password: "s3gredo".into(),
             default_database: None,
-            ssl_enabled: false,
+            ssl_mode: crate::models::SslMode::Disable,
+            ssl_root_cert: None,
             connection_uri: None,
             created_at: 0,
             scope_databases: None,
@@ -604,17 +620,54 @@ mod tests {
         );
         assert_eq!(conn.password.as_deref(), Some("s3gredo"));
         assert_eq!(conn.ssl_mode, "disable");
+        assert_eq!(ssl_env(&conn), vec![("PGSSLMODE", "disable".to_string())]);
 
         let ssl = connection_args(
             &Server {
-                ssl_enabled: true,
+                ssl_mode: SslMode::Require,
+                ssl_root_cert: Some("/ignorada/sem/verify.pem".into()),
                 password: String::new(),
                 ..server()
             },
             "loja",
         );
         assert_eq!(ssl.ssl_mode, "require");
+        assert_eq!(ssl.ssl_root_cert, None);
         assert_eq!(ssl.password, None);
+    }
+
+    #[test]
+    fn verify_modes_point_libpq_at_the_ca() {
+        let own_ca = connection_args(
+            &Server {
+                ssl_mode: SslMode::VerifyCa,
+                ssl_root_cert: Some("/certs/rds.pem".into()),
+                ..server()
+            },
+            "loja",
+        );
+        assert_eq!(
+            ssl_env(&own_ca),
+            vec![
+                ("PGSSLMODE", "verify-ca".to_string()),
+                ("PGSSLROOTCERT", "/certs/rds.pem".to_string()),
+            ]
+        );
+
+        let system = connection_args(
+            &Server {
+                ssl_mode: SslMode::VerifyFull,
+                ..server()
+            },
+            "loja",
+        );
+        assert_eq!(
+            ssl_env(&system),
+            vec![
+                ("PGSSLMODE", "verify-full".to_string()),
+                ("PGSSLROOTCERT", "system".to_string()),
+            ]
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryResult {
@@ -12,6 +13,7 @@ pub struct QueryResult {
     pub editable_info: Option<EditableInfo>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditableInfo {
@@ -21,6 +23,7 @@ pub struct EditableInfo {
     pub primary_key_column_indices: Vec<usize>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RowEdit {
@@ -30,6 +33,7 @@ pub struct RowEdit {
     pub changes: Vec<(String, Option<String>)>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RowInsert {
@@ -38,6 +42,7 @@ pub struct RowInsert {
     pub values: Vec<(String, Option<String>)>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryColumnInfo {
@@ -48,23 +53,30 @@ pub struct QueryColumnInfo {
     pub type_oid: Option<u32>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryOptions {
     #[serde(default = "default_limit")]
+    #[cfg_attr(test, ts(as = "Option<i64>", optional))]
     pub limit: i64,
     #[serde(default)]
+    #[cfg_attr(test, ts(as = "Option<i64>", optional))]
     pub offset: i64,
     #[serde(default)]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
     pub count_total: bool,
     #[serde(default)]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
     pub unlimited: bool,
     /// Schema colocado no início do `search_path` desta execução (Postgres).
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub schema: Option<String>,
     /// Frontend-generated id used to target this execution from the
     /// `cancel_query` command; without it the query cannot be cancelled.
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub query_id: Option<String>,
 }
 
@@ -85,6 +97,7 @@ impl Default for QueryOptions {
     }
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatementResult {
@@ -92,6 +105,7 @@ pub struct StatementResult {
     pub execution_time_ms: u64,
 }
 /// Categoria da mensagem, usada pelo front para escolher o estilo da linha.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum QueryMessageKind {
@@ -107,6 +121,7 @@ pub enum QueryMessageKind {
 /// `RAISE NOTICE/WARNING/INFO`, o erro detalhado (com a pilha do PL/pgSQL em
 /// `context`) e a linha de conclusão. Chega ao front em streaming, não dentro
 /// do `QueryResult`.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryMessage {

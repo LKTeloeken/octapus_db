@@ -11,6 +11,7 @@ import type {
   StatementResult,
 } from '@/api/types/query.types';
 import type {
+  DatabaseType,
   Server,
   ServerGroup,
   ServerInput,
@@ -62,6 +63,7 @@ import {
   emptyResult,
   selectFrom,
 } from './engine';
+import { sslModeFor, sslModeVerifies } from '@/lib/ssl-modes';
 import { mockCatalog } from './catalog';
 import { applyStructure, structureSql } from './structure';
 import { parseScope } from './scope';
@@ -91,7 +93,11 @@ const serverFromInput = (
   port: input.port,
   username: input.username,
   defaultDatabase: input.defaultDatabase ?? null,
-  sslEnabled: input.sslEnabled ?? false,
+  // Mesma regra do backend: o modo ajustado ao banco, a CA só nos verify-*
+  sslMode: sslModeFor(input.sslMode ?? 'disable', input.dbType),
+  sslRootCert: sslModeVerifies(input.sslMode)
+    ? (input.sslRootCert ?? null)
+    : null,
   connectionUri: input.connectionUri ?? null,
   createdAt,
   scopeDatabases: input.scopeDatabases?.trim() ? input.scopeDatabases : null,
@@ -287,7 +293,7 @@ const importHandlers: Record<string, MockHandler> = {
           username: candidate.username,
           password: hasPassword ? 'mock' : '',
           defaultDatabase: candidate.defaultDatabase,
-          sslEnabled: candidate.sslEnabled,
+          sslMode: candidate.sslMode,
           connectionUri: candidate.connectionUri,
           groupId,
         } satisfies ServerInput,
@@ -334,6 +340,12 @@ const connectionHandlers: Record<string, MockHandler> = {
 
   [RustCommand.GetCapabilities]: ({ serverId }: Args) =>
     requireServerEntry(serverId as number).capabilities,
+
+  [RustCommand.GetDbCapabilities]: () =>
+    (Object.keys(CAPABILITIES) as DatabaseType[]).map(dbType => ({
+      dbType,
+      capabilities: CAPABILITIES[dbType],
+    })),
 };
 
 // ── Estrutura ───────────────────────────────────────────────────────────────
@@ -603,6 +615,9 @@ const settingsHandlers: Record<string, MockHandler> = {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
     return settings as AppSettings;
   },
+
+  // No navegador não há pasta para abrir: só confirma, como o app
+  [RustCommand.OpenLogDir]: (): void => undefined,
 };
 
 // ── Ferramentas do Postgres (backup/restore) ────────────────────────────────

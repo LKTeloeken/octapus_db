@@ -31,7 +31,9 @@ um servidor limpa o `query-results-store`).
 ## 2. Camada de API (`src/api/`)
 
 Cada comando do backend tem uma função tipada. O wrapper `call`
-([client.ts](src/api/client.ts)) chama `invoke` e converte a rejeição (string) em `ApiError`.
+([client.ts](src/api/client.ts)) chama `invoke` e converte a rejeição (`{ code, message }`) em `ApiError`, com `code`
+(`UNKNOWN` quando a rejeição não veio do app — argumento inválido, plugin). Para decidir
+pelo tipo do erro, use `hasErrorCode(error, 'CANCELLED')`, nunca o texto da mensagem.
 
 ```ts
 // src/api/commands.ts — nomes dos comandos
@@ -45,7 +47,11 @@ export function executeQuery(serverId, database, query, options?) {
 
 Módulos: `servers.ts`, `connection.ts`, `structure.ts`, `catalog.ts`, `browse.ts`,
 `query.ts`, `export.ts`, `session.ts`, `window.ts`. Tipos em `src/api/types/` (`server`,
-`structure`, `catalog`, `browse`, `query`, `capabilities`). O `catalog.ts` também expõe
+`structure`, `catalog`, `browse`, `query`, `capabilities`): os do IPC são **gerados do
+Rust** pelo ts-rs em `src/api/types/generated/` (`pnpm gen:types`; também a cada
+`cargo test`) e os `*.types.ts` só os reexportam, mais o que é só do front (constantes,
+`ApiError`, `CatalogPath` com nome do front). O `src/api/commands.test.ts` confere que
+`generate_handler!`, `RustCommand` e os handlers do mock têm os mesmos comandos. O `catalog.ts` também expõe
 `onCatalogEvent` — o `listen` do evento `catalog-event` (ver §4).
 Os formatos seguem o BACKEND.md §3 — tudo em `camelCase`, célula sempre `string | null`.
 
@@ -59,7 +65,7 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
 | Hook | Comando |
 |---|---|
 | `use-servers` | CRUD de servidores |
-| `use-capabilities` | `get_capabilities` |
+| `use-capabilities` | `get_capabilities`; `useDbCapabilities` → `get_db_capabilities` (tabela por tipo) |
 | `use-databases` / `use-columns` / `use-indexes` | databases, colunas e índices (sob demanda) |
 | `use-catalog` | catálogo do backend: `catalogStatusQuery` (abre com `catalog_open`), `catalogChildrenQuery`, `catalogShapesQuery`, `useCatalogSearch`, `useCatalogRelationSize`, `useCatalogRefresh`, `useCatalogDiagnostics`, `useSchemaComparison` (dois schemas, key `schema-comparison` fora do prefixo do catálogo); `hasCatalog`/`isFlatCatalog` dizem quem usa |
 | `use-catalog-events` | liga o `catalog-event` às invalidações (montado pela árvore) |
@@ -235,8 +241,15 @@ tanto pelo editor livre quanto pelo browse. Características:
   - atalhos: `Cmd/Ctrl+S` salva, `Backspace` remove as linhas selecionadas, `Esc` limpa
     a seleção;
   - ao **Salvar**, chama `onSave({ edits, inserts, deletes })`; o consumidor dispara
-    `delete_rows` → `insert_rows` → `apply_row_edits` e a tela só atualiza após o `ok`
-    (via invalidação/refetch).
+    `delete_rows` → `insert_rows` → `apply_row_edits` pelo
+    [persistRowChanges](src/lib/persist-row-changes.ts) e a tela só atualiza após o `ok`
+    (via invalidação/refetch). Cada etapa é uma transação própria: se uma falha, as
+    anteriores já valeram e a grade mantém tudo pendente;
+  - as regras das pendências (desfazer ao voltar ao original, `''` ≠ NULL, linha nova só
+    com as colunas tocadas, linha removida não leva a edição) são funções puras em
+    [pending-changes.ts](src/components/results-table/pending-changes.ts), com teste. A
+    linha existente é identificada pelos valores da PK em JSON — nada de juntar com
+    separador, que confundia um valor com `|` ou o texto `"NULL"`.
 - **Painel de valor** ([results-table-value-panel](src/components/results-table/results-table-value-panel)),
   ligado por `showValuePanel`: mostra e edita a célula sob o cursor (`focusedCell`), num
   painel redimensionável à direita. Colunas JSON, lista (array) e texto ganham o menu de
@@ -248,6 +261,18 @@ tanto pelo editor livre quanto pelo browse. Características:
   reindentado por tokens, sem `JSON.parse`, para não arredondar bigint).
 - **Contrato com o consumidor:** props `columns`, `rows`, `editableInfo`, `onSave`,
   `onLoadMore`, `onReorderTable`. Editável só quando `editableInfo != null`.
+
+---
+
+### Erros de render e carregamento sob demanda
+- [ErrorBoundary](src/components/error-boundary.tsx) em três níveis: o app inteiro (com
+  "Recarregar o app"), a barra lateral e a aba ativa (`resetKeys` = id da aba: trocar de
+  aba limpa o erro). O erro de render vira o estado de erro do DESIGN.md §8 e vai para o
+  console; erro de evento ou Promise continua virando toast.
+- Linguagens do CodeMirror pouco usadas (JavaScript do Mongo, XML/HTML do painel de valor)
+  carregam sob demanda por [use-lazy-language](src/lib/use-lazy-language.ts): chunks à
+  parte, e o editor abre na hora, sem destaque até o chunk chegar. SQL e JSON ficam no
+  bundle principal. Biblioteca pesada nova que só uma tela usa entra do mesmo jeito.
 
 ---
 
@@ -287,8 +312,11 @@ dizendo qual comando falta. Detalhes e receitas em
 - **Imports** com alias `@/` para `src/`.
 - **Padrão hook + view:** `feature.tsx` só renderiza; lógica em `use-feature.ts`.
 - **Arquivos de tipos** colocados ao lado do componente como `*.types.ts`.
-- **Erros do backend** chegam como `ApiError` (mensagem em string) — trate com `toast`.
-- Rode `pnpm type-check` antes de concluir mudanças no front, e `pnpm test` (Vitest) —
+- **Erros do backend** chegam como `ApiError` (`message` + `code`) — trate com `toast`.
+- **Lint:** `pnpm lint` roda o ESLint (`eslint.config.js`: TypeScript, regras dos hooks e
+  `jsx-a11y`) e o verificador dos tokens do DESIGN.md (`scripts/check-design-tokens.mjs`).
+  Erro reprova; os avisos de a11y e `exhaustive-deps` são dívida a pagar aos poucos.
+- Rode `pnpm type-check` e `pnpm lint` antes de concluir mudanças no front, e `pnpm test` (Vitest) —
   hooks testados com `renderToString`: o zustand lê o estado **inicial** da store no SSR,
   então os testes preenchem `useTreeStore.getInitialState()`.
 - Medições de desempenho do front em `src/perf/` (`pnpm perf:front`), ao lado das do

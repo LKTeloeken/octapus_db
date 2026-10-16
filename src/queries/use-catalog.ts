@@ -16,7 +16,7 @@ import {
   catalogShapes,
 } from '@/api/catalog';
 import type { CatalogPath } from '@/api/types/catalog.types';
-import type { DatabaseType } from '@/api/types/server.types';
+import type { AdapterCapabilities } from '@/api/types/capabilities.types';
 import { queryKeys } from './keys';
 
 /** Janela padrão de filhos por nó; a árvore pede mais com "carregar mais" */
@@ -26,16 +26,17 @@ export const CATALOG_PAGE_SIZE = 500;
 export const CATALOG_SEARCH_LIMIT = 50;
 
 /**
- * Bancos com catálogo no backend. O Redis segue com a estrutura inteira
- * (`useStructure`): as chaves não têm estrutura fixa.
+ * Banco com catálogo no backend (`caps` de `useDbCapabilities`). O Redis
+ * segue com a estrutura inteira (`useStructure`): as chaves não têm
+ * estrutura fixa.
  */
-export function hasCatalog(dbType: DatabaseType | undefined): boolean {
-  return dbType === 'postgres' || dbType === 'mongodb' || dbType === 'sqlite';
+export function hasCatalog(caps: AdapterCapabilities | undefined): boolean {
+  return !!caps?.hasCatalog;
 }
 
 /** Catálogo sem nível de schema: as relações ficam em `FLAT_SCHEMA` */
-export function isFlatCatalog(dbType: DatabaseType | undefined): boolean {
-  return dbType === 'mongodb' || dbType === 'sqlite';
+export function isFlatCatalog(caps: AdapterCapabilities | undefined): boolean {
+  return !!caps?.hasCatalog && !caps.hasSchemas;
 }
 
 /**

@@ -5,6 +5,7 @@ import { connect } from '@/api/connection';
 import type { Server } from '@/api/types/server.types';
 import { catalogStatusQuery, hasCatalog, useCatalogSearch } from '@/queries/use-catalog';
 import { useServers } from '@/queries/use-servers';
+import { useDbCapabilities } from '@/queries/use-capabilities';
 import { useCommandPaletteStore } from '@/stores/command-palette-store';
 import { useConnectionStore } from '@/stores/connection-store';
 import { useRecentTablesStore, type TableRef } from '@/stores/recent-tables-store';
@@ -46,6 +47,7 @@ export const useCommandPalette = () => {
   const recents = useRecentTablesStore(state => state.recents);
   const addRecent = useRecentTablesStore(state => state.addRecent);
   const { data: servers } = useServers();
+  const capsByType = useDbCapabilities();
   const catalogSearch = useCatalogSearch(query, {
     enabled: open,
     schema: pinnedSchema,
@@ -76,7 +78,9 @@ export const useCommandPalette = () => {
   useEffect(() => {
     if (!open || !servers) return;
     const withCatalog = new Set(
-      servers.filter(server => hasCatalog(server.dbType)).map(server => server.id),
+      servers
+        .filter(server => hasCatalog(capsByType[server.dbType]))
+        .map(server => server.id),
     );
     const targets = new Map<string, { serverId: number; database: string }>();
     const add = (serverId: number, database: string) => {
@@ -90,7 +94,7 @@ export const useCommandPalette = () => {
     targets.forEach(({ serverId, database }) => {
       void queryClient.prefetchQuery(catalogStatusQuery(serverId, database));
     });
-  }, [open, servers, recents, queryClient]);
+  }, [open, servers, capsByType, recents, queryClient]);
 
   // A paleta continua visível durante a animação de saída, então nada muda ao
   // fechar: o campo é zerado ao ABRIR (ainda no render, antes de pintar) e,
@@ -310,7 +314,7 @@ export const useCommandPalette = () => {
   const isEmptyCache =
     entries.length === 0 &&
     recents.length === 0 &&
-    !(servers ?? []).some(server => hasCatalog(server.dbType));
+    !(servers ?? []).some(server => hasCatalog(capsByType[server.dbType]));
 
   return {
     open,

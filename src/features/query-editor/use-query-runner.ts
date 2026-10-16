@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import type { QueryMessage } from '@/api/types/query.types';
 import type { SaveRowChanges } from '@/components/results-table/results-table.types';
+import { persistRowChanges } from '@/lib/persist-row-changes';
 import {
   useApplyRowEdits,
   useDeleteRows,
@@ -193,32 +194,19 @@ export const useQueryRunner = (tab: QueryTab) => {
   }, [run, tab.serverId, tab.database, tab.schema, executeQuery]);
 
   const save = useCallback(
-    async ({ edits, inserts, deletes }: SaveRowChanges) => {
+    async (changes: SaveRowChanges) => {
       const editable = run?.result.editableInfo;
       if (!editable) return;
 
       const base = { serverId: tab.serverId, database: tab.database, editable };
 
       try {
-        let affected = 0;
-        if (deletes.length > 0) {
-          const r = await deleteRowsMutation.mutateAsync({
-            ...base,
-            pkValues: deletes,
-          });
-          affected += r.affectedRows;
-        }
-        if (inserts.length > 0) {
-          const r = await insertRowsMutation.mutateAsync({
-            ...base,
-            rows: inserts,
-          });
-          affected += r.affectedRows;
-        }
-        if (edits.length > 0) {
-          const r = await applyEditsMutation.mutateAsync({ ...base, edits });
-          affected += r.affectedRows;
-        }
+        const affected = await persistRowChanges(changes, {
+          deleteRows: pkValues =>
+            deleteRowsMutation.mutateAsync({ ...base, pkValues }),
+          insertRows: rows => insertRowsMutation.mutateAsync({ ...base, rows }),
+          applyEdits: edits => applyEditsMutation.mutateAsync({ ...base, edits }),
+        });
         toast.success(`${affected} linhas alteradas`);
         await executeRun(run.query);
       } catch (error) {

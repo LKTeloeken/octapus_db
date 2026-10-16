@@ -12,14 +12,14 @@ import {
 } from '@/components/ui/alert-dialog';
 
 interface SimpleAlertDialogProps {
-  Trigger?: React.ForwardRefExoticComponent<any> | React.ComponentType<any>;
+  Trigger?: React.ElementType;
   title: React.ReactNode;
   description?: React.ReactNode;
   children?: React.ReactNode;
   acceptLabel?: string;
   cancelLabel?: string;
-  onAccept?: () => any;
-  onCancel?: () => any;
+  onAccept?: () => void;
+  onCancel?: () => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }

@@ -11,7 +11,9 @@ export default defineConfig(env =>
   mergeConfig(viteConfig(env), {
     test: {
       environment: 'node',
-      include: perf ? [perfFiles] : ['src/**/*.test.{ts,tsx}'],
+      include: perf
+        ? [perfFiles]
+        : ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
       exclude: perf
         ? configDefaults.exclude
         : [...configDefaults.exclude, perfFiles],

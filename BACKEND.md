@@ -53,6 +53,39 @@ Custo fixo por comando: o pool usa `RecyclingMethod::Fast` com um hook que só v
 conexões paradas, e os metadados usam `prepare_cached` — um comando de metadado sobre
 uma conexão em uso custa **uma** ida e volta ao banco.
 
+### TLS das conexões
+`adapters/tls.rs` monta o `rustls::ClientConfig` a partir do `SslMode` do servidor (nomes
+e semântica do `sslmode` da libpq): `prefer`/`require` cifram sem verificar o certificado;
+`verify-ca` exige cadeia até uma CA confiável; `verify-full` exige também o nome do host.
+As CAs são as do sistema (no macOS, o Keychain — inclusive CA corporativa) ou só a do
+`sslRootCert`. O Postgres usa os cinco modos e fixa o `sslmode` do tokio-postgres (o
+padrão dele, `prefer`, caía para texto puro em silêncio). Mongo e Redis aceitam só
+`disable`, `require` e `verify-full`; o que chega fora disso é ajustado ao gravar
+(`SslMode::for_db_type`: `prefer` → `disable`, `verify-ca` → `verify-full`). Com
+`connectionUri`, o Mongo e o Redis seguem o TLS da URI. Erros de handshake trazem a causa
+(`error_chain`: "certificate not valid for name…", "UnknownIssuer"). E2E com CA própria:
+`scripts/tls-e2e.sh up` e `cargo test --lib postgres::tls_e2e -- --ignored` (ver o
+arquivo).
+
+### Tipos do front gerados (ts-rs)
+Os modelos que cruzam o IPC levam `#[cfg_attr(test, derive(ts_rs::TS), ts(export))]` e
+viram arquivos em `src/api/types/generated/` quando os testes rodam (`pnpm gen:types`, ou
+qualquer `cargo test`); `.cargo/config.toml` aponta a pasta e faz `i64` virar `number`.
+Só em teste: o binário não leva o ts-rs. O que o `serde` faz e o TS não enxerga se anota
+no campo: `ts(skip)` (ex.: `Server.password`, que nunca sai), `ts(type = "...")`,
+`ts(optional = nullable)` / `ts(as = "Option<T>", optional)` para campo de entrada que
+pode faltar.
+
+### Log do app
+`logging.rs` liga o `tauri-plugin-log`: arquivo `octapus.log` na pasta de logs do SO
+(`app_log_dir`; no macOS `~/Library/Logs/com.octapus-db.app/`), girando a cada 5 MB e
+guardando 4 antigos, mais o terminal em dev. O app loga em `info` (`debug` em dev); as
+dependências só a partir de `warn`. Um panic vai para o log antes do caminho padrão.
+Entram: conexão criada/falha/reconexão por ping, sincronização do catálogo (início, fim
+com contagens e tempos, cancelamento, falha, falha ao gravar em disco), jobs de backup e
+restauração, importação de conexões e checagem do updater beta. Servidor pelo id e
+database pelo nome — **nunca** senha, URI, texto de query nem nomes de schema/tabela.
+
 ### 1.1 Catálogo de metadados
 
 A estrutura dos bancos (schemas, tabelas, coleções) mora no backend, num catálogo por
@@ -115,8 +148,15 @@ implementa) nem de pedir `pg_total_relation_size`/`$collStats` em massa.
 - **Argumentos:** objeto com chaves em **`camelCase`** — o Tauri converte
   automaticamente do Rust `server_id` para o JS `serverId`.
 - **Retorno:** Promise. Sucesso → o objeto descrito em cada comando. Erro → a
-  Promise **rejeita com uma `string`** (mensagem legível, ex.:
-  `"Connection error: ..."`). Sempre use `try/catch`.
+  Promise **rejeita com `{ code, message }`**: o `Serialize` de `crate::Error`
+  ([error.rs](src-tauri/src/error.rs)). `message` é o `Display` (legível, ex.:
+  `"Connection error: ..."`); `code` é um de `STORAGE_ERROR`, `CONNECTION_ERROR`,
+  `POOL_EXHAUSTED`, `CONNECTION_TIMEOUT`, `QUERY_ERROR`, `INVALID_QUERY`, `NOT_FOUND`,
+  `ALREADY_EXISTS`, `INVALID_STATE`, `CANCELLED`, `UNSUPPORTED_DATABASE`,
+  `UNSUPPORTED_TYPE` ou `EXTERNAL_ERROR` (falha fora dos bancos — `pg_dump`, arquivo,
+  updater —, com a mensagem sem prefixo). Rejeições do próprio Tauri (argumento que
+  não desserializa, comando inexistente) e dos plugins continuam sendo string.
+  Sempre use `try/catch`.
 
 ```ts
 import { invoke } from '@tauri-apps/api/core';
@@ -128,7 +168,7 @@ try {
     query: 'SELECT * FROM users',
   });
 } catch (err) {
-  // err é uma string com a mensagem de erro
+  // err é { code: 'QUERY_ERROR', message: 'Query error: ...' }
   console.error(err);
 }
 ```
@@ -155,7 +195,8 @@ interface Server {
   username: string;
   // password NUNCA é serializada para o front
   defaultDatabase: string | null;
-  sslEnabled: boolean;
+  sslMode: SslMode;               // 'disable' | 'prefer' | 'require' | 'verify-ca' | 'verify-full' (ver "TLS das conexões", §1)
+  sslRootCert: string | null;     // CA própria (PEM) dos verify-*; null = CAs do sistema
   connectionUri: string | null;   // URI completa (Atlas, Redis cloud); no SQLite, o caminho do arquivo
   createdAt: number;              // epoch em segundos
   // Escopo salvo: padrões separados por vírgula; `*` e `?`; `!` na frente exclui.
@@ -173,7 +214,8 @@ interface ServerInput {
   username: string;
   password: string;               // criptografada no cofre do back
   defaultDatabase?: string | null;
-  sslEnabled?: boolean | null;
+  sslMode?: SslMode | null;       // ajustado ao banco ao gravar (ver "TLS das conexões", §1)
+  sslRootCert?: string | null;    // só guardada nos verify-*
   connectionUri?: string | null;
   scopeDatabases?: string | null; // só espaços = null
   scopeSchemas?: string | null;
@@ -289,8 +331,8 @@ interface DatabaseStructure {
 ```
 
 ### Catálogo de metadados
-Espelho em `src/api/types/catalog.types.ts` (Rust: `models/catalog.rs` e
-`catalog/model.rs`).
+Gerado em `src/api/types/generated/` (ts-rs) e reexportado por
+`src/api/types/catalog.types.ts` (Rust: `models/catalog.rs` e `catalog/model.rs`).
 ```ts
 type CatalogNodeKind =
   'schema' | 'table' | 'view' | 'materializedView' | 'foreign' | 'partitioned';
@@ -390,8 +432,19 @@ interface AdapterCapabilities {
   supportsTransactions: boolean;// Postgres e SQLite
   supportsIndexes: boolean;     // Postgres/Mongo/SQLite true; Redis false
   browsable: boolean;           // os quatro true
+  hasCatalog: boolean;          // Postgres/Mongo/SQLite (catalog_*); Redis usa list_schemas_with_tables
+  supportsStructureChanges: boolean; // Postgres e SQLite (criar/renomear/remover tabela e coluna)
+  supportsDropCascade: boolean; // só Postgres
+  supportsSchemaCompare: boolean; // só Postgres (catalog_compare_schemas)
+  supportsBackup: boolean;      // só Postgres (pg_dump/pg_restore)
 }
 ```
+
+As capabilities dependem **só do tipo do banco**: `get_db_capabilities` devolve a tabela
+inteira (`{ dbType, capabilities }[]`), que o front busca uma vez (`useDbCapabilities`) e
+consulta por servidor (`caps[server.dbType]`) — é por ela que a árvore, a palette e o
+autocomplete decidem catálogo, edição de estrutura, backup e comparar schemas, em vez de
+comparar `dbType`. Banco novo ou recurso novo = flag aqui, nos dois lados.
 
 ---
 
@@ -499,6 +552,7 @@ buscado. O escopo entra na identidade do arquivo do catálogo.
 |---|---|---|
 | `fetch_table_data` | `{ serverId, database, request: TableDataRequest }` | `QueryResult` |
 | `get_capabilities` | `{ serverId }` | `AdapterCapabilities` |
+| `get_db_capabilities` | — | `{ dbType, capabilities }[]` — a tabela de todos os tipos |
 
 ### Exportação
 
@@ -537,7 +591,8 @@ não do pool. Só Postgres.
   anterior à do servidor; a restauração não.
 - **Linha de comando** (`args.rs`, puro e testado): a **senha nunca vai no argv** (`ps`
   mostra) — sai por `PGPASSWORD`; com `connectionUri`, a URI vai sem a senha e com o
-  database trocado. `PGSSLMODE` segue o `ssl_enabled` (`require`/`disable`, como o pool);
+  database trocado. `PGSSLMODE` é o `sslMode` do servidor e, nos `verify-*`, `PGSSLROOTCERT`
+  aponta a CA própria ou `system` (CAs do sistema — exige libpq 16+);
   `PG*` herdadas do app são limpas. Nomes vão entre aspas no `-n`/`-t` (`"Vendas"."pedidos"`).
   Combinações que o `pg_dump` recusaria ou ignoraria em silêncio viram erro.
 - **Jobs** (`runner.rs`): um processo por job; stdout e stderr viram log em lotes (200 ms
@@ -585,10 +640,16 @@ um JSON **opaco** para o backend — formato e versão são do front
 
 `AppSettings` (`models/settings.rs`) vira uma linha chave/valor (JSON) por campo na
 tabela `app_settings` do `app.db`. Configuração nova = campo no struct, com o padrão no
-`Default`, e o tipo espelho em `src/api/types/settings.types.ts` — sem migração: o que
+`Default`, e `pnpm gen:types` para o tipo do front (gerado pelo ts-rs) — sem migração: o que
 nunca foi salvo (ou ficou ilegível) volta com o padrão. O tema **não** mora aqui: fica
 no `ui-store` (localStorage), lido antes da primeira pintura. `pgToolsDir` é a pasta das
 ferramentas do Postgres (`null` = detectar sozinho — ver Backup e restauração).
+
+### Diagnóstico
+
+| Comando | Args | Retorno |
+|---|---|---|
+| `open_log_dir` | — | `void` — abre a pasta de logs com o `octapus.log` selecionado (Preferências › Diagnóstico) |
 
 ### Auto-update — canal beta (só desktop)
 
@@ -773,7 +834,7 @@ seguido de refetch.
 ## 7. Camada de acesso sugerida no front
 
 Centralize os `invoke` num módulo tipado — evita repetir nomes e facilita tratar
-o erro-string em um lugar só:
+o erro em um lugar só (o app faz isso em [client.ts](src/api/client.ts), com `ApiError`):
 
 ```ts
 // src/api/db.ts
@@ -783,7 +844,9 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   try {
     return await invoke<T>(cmd, args);
   } catch (e) {
-    throw new Error(typeof e === 'string' ? e : 'Erro desconhecido no backend');
+    // { code, message } dos comandos do app; string nas rejeições do Tauri
+    const message = typeof e === 'string' ? e : (e as { message?: string }).message;
+    throw new Error(message ?? 'Erro desconhecido no backend');
   }
 }
 
