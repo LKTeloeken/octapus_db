@@ -81,6 +81,52 @@ pnpm tauri build   # empacota o app de produção
 cd src-tauri && cargo build && cargo clippy && cargo test
 ```
 
+## Lançar uma versão
+
+Cada versão é uma tag anotada `app-v<versão>` num commit da `main`. O push da tag
+dispara o `release.yml`, que builda macOS (arm64 e x64), Windows e Linux exatamente
+daquele commit e cria a release como **rascunho**. Antes de gastar os builds, o
+workflow confere se a tag bate com a versão gravada no app.
+
+```bash
+git switch main && git pull
+pnpm release:version 1.2.0     # package.json, tauri.conf.json, Cargo.toml e Cargo.lock
+git commit -am "1.2.0"
+git tag -a app-v1.2.0 -m "octapus-db 1.2.0"
+git push origin main app-v1.2.0
+```
+
+Revise o rascunho no GitHub e publique. Uma versão estável vira a release "latest",
+que o updater do app consulta. Uma versão com sufixo (`1.2.0-beta.1`) sai como
+pre-release e só chega a quem ligou o canal beta. Para refazer o build de uma tag que
+já existe, rode o workflow Release à mão e escolha a tag em "Use workflow from".
+
+### Rollback
+
+A tag de cada versão é o ponto de volta, mas o updater **só instala versões maiores**
+do que a instalada. Por isso, voltar atrás é feito em duas frentes:
+
+1. **Parar a distribuição.** Converta a release ruim em rascunho (Edit → Save as
+   draft) ou marque a anterior como "Set as latest release". Quem ainda não atualizou
+   deixa de receber a versão ruim. Apagar a release não apaga a tag.
+2. **Corrigir quem já atualizou.** Lance uma versão nova a partir do código bom, com
+   um número maior:
+
+   ```bash
+   git switch -c rollback/1.2.1 app-v1.1.0   # ou um git revert na main
+   pnpm release:version 1.2.1
+   git commit -am "1.2.1" && git tag -a app-v1.2.1 -m "octapus-db 1.2.1"
+   git push origin rollback/1.2.1 app-v1.2.1
+   ```
+
+   Antes, confira se a versão ruim mudou algum formato local, porque o código antigo
+   pode não ler o formato novo: as migrações do banco local (`storage/`), o
+   `FORMAT_VERSION` do catálogo e o `buster` do cache do front. Nesse caso, leve a
+   migração de volta junto com o rollback.
+
+Os instaladores de cada versão continuam na página da release dela, para quem quiser
+reinstalar à mão. A branch `nix` se atualiza quando a versão nova é publicada.
+
 ## Estrutura do repositório
 
 ```

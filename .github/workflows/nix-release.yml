@@ -5,7 +5,7 @@ name: Nix
 # com `nix build` e só então grava.
 #
 # Roda na publicação, não no build do release.yml: enquanto a release é
-# rascunho o .deb não é público, e um novo push na `release` pode reenviar os
+# rascunho o .deb não é público, e refazer o build da tag pode reenviar os
 # assets e mudar o hash.
 on:
   release:

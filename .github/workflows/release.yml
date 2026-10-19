@@ -2,13 +2,38 @@ name: Release
 
 # Publica os bundles das 3 plataformas numa GitHub Release e gera o
 # latest.json que o updater do app consome.
+#
+# Cada versão nasce de uma tag `app-v<versão>` (ver "Lançar uma versão" no
+# README): a release é o build exato daquele commit, e a tag fica como ponto
+# de volta para um rollback. O workflow_dispatch serve para refazer o build de
+# uma tag que já existe — escolha a tag em "Use workflow from".
 on:
   push:
-    branches: [release]
+    tags: ['app-v*']
   workflow_dispatch:
 
 jobs:
+  # Antes de gastar 4 builds: a tag tem que ser `app-v<versão>` e bater com a
+  # versão gravada nos arquivos do app (package.json, Cargo.toml, Cargo.lock,
+  # tauri.conf.json) — é ela que o updater compara e que vai no latest.json.
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Conferir a tag com a versão do app
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "::error::Rode a partir de uma tag app-v<versão>, não da branch $TAG"
+            exit 1
+          fi
+          node scripts/release-version.mjs check "$TAG"
+
   release:
+    needs: version
     permissions:
       contents: write
     strategy:
@@ -108,7 +133,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: app-v__VERSION__
+          tagName: ${{ github.ref_name }}
           releaseName: octapus-db v__VERSION__
           releaseBody: |
             Instalação e notas desta versão.
@@ -135,7 +160,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
-          TAG: app-v${{ steps.tauri.outputs.appVersion }}
+          TAG: ${{ github.ref_name }}
           LABEL: ${{ matrix.label }}
         run: |
           set -euo pipefail

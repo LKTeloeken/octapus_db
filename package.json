@@ -12,7 +12,8 @@
     "tauri": "tauri",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "perf:front": "OCTAPUS_PERF=1 vitest run"
+    "perf:front": "OCTAPUS_PERF=1 vitest run",
+    "release:version": "node scripts/release-version.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.1",
