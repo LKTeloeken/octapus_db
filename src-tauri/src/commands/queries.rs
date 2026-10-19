@@ -7,8 +7,8 @@ use tauri::{State, Webview};
 use crate::adapters::MessageSink;
 use crate::error::Result;
 use crate::models::{
-    EditableInfo, QueryMessage, QueryMessageKind, QueryOptions, QueryResult, RowEdit, RowInsert,
-    StatementResult,
+    EditableInfo, QueryMessage, QueryMessageKind, QueryOptions, QueryResult, RowChanges, RowEdit,
+    RowInsert, StatementResult,
 };
 use crate::state::AppState;
 
@@ -174,4 +174,18 @@ pub async fn cancel_query(
     };
 
     adapter.cancel_query(&query_id).await
+}
+
+/// DELETE → INSERT → UPDATE numa transação só (ver `DatabaseAdapter::save_row_changes`)
+#[tauri::command]
+pub async fn save_row_changes(
+    state: State<'_, AppState>,
+    server_id: i64,
+    database: String,
+    editable: EditableInfo,
+    changes: RowChanges,
+) -> Result<StatementResult> {
+    let adapter = connect_adapter(&state, server_id, &database).await?;
+
+    adapter.save_row_changes(&editable, changes).await
 }

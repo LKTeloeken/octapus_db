@@ -128,6 +128,7 @@ pub fn run() {
             commands::apply_row_edits,
             commands::insert_rows,
             commands::delete_rows,
+            commands::save_row_changes,
             commands::execute_transaction,
             commands::cancel_query,
             // Browse (server-side pagination/sort/filter)

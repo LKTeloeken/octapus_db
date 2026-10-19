@@ -2,14 +2,15 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use rusqlite::types::Value;
-use rusqlite::{params_from_iter, Connection};
+use rusqlite::{params_from_iter, Connection, Transaction};
 use sqlparser::ast::{GroupByExpr, SetExpr, Statement as SqlStatement, TableFactor};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
 use crate::error::{Error, Result};
 use crate::models::{
-    EditableInfo, QueryColumnInfo, QueryOptions, QueryResult, RowEdit, RowInsert, StatementResult,
+    EditableInfo, QueryColumnInfo, QueryOptions, QueryResult, RowChanges, RowEdit, RowInsert,
+    StatementResult,
 };
 
 use super::util::{
@@ -161,7 +162,54 @@ pub fn apply_row_edits(
     editable: &EditableInfo,
     edits: Vec<RowEdit>,
 ) -> Result<StatementResult> {
-    if edits.is_empty() {
+    save_row_changes(
+        conn,
+        editable,
+        RowChanges {
+            edits,
+            ..Default::default()
+        },
+    )
+}
+
+pub fn insert_rows(
+    conn: &mut Connection,
+    editable: &EditableInfo,
+    rows: Vec<RowInsert>,
+) -> Result<StatementResult> {
+    save_row_changes(
+        conn,
+        editable,
+        RowChanges {
+            inserts: rows,
+            ..Default::default()
+        },
+    )
+}
+
+pub fn delete_rows(
+    conn: &mut Connection,
+    editable: &EditableInfo,
+    pk_values: Vec<Vec<Option<String>>>,
+) -> Result<StatementResult> {
+    save_row_changes(
+        conn,
+        editable,
+        RowChanges {
+            deletes: pk_values,
+            ..Default::default()
+        },
+    )
+}
+
+/// Grava DELETE → INSERT → UPDATE numa transação só: um erro em qualquer
+/// etapa derruba o `Transaction` sem `commit`, e o rusqlite faz o ROLLBACK.
+pub fn save_row_changes(
+    conn: &mut Connection,
+    editable: &EditableInfo,
+    changes: RowChanges,
+) -> Result<StatementResult> {
+    if changes.deletes.is_empty() && changes.inserts.is_empty() && changes.edits.is_empty() {
         return Ok(no_op());
     }
 
@@ -169,9 +217,28 @@ pub fn apply_row_edits(
 
     let start = Instant::now();
     let tx = conn.transaction().map_err(db_err)?;
+
+    let mut total_affected = delete_in_tx(&tx, editable, &types, &changes.deletes)?;
+    total_affected += insert_in_tx(&tx, editable, &types, &changes.inserts)?;
+    total_affected += update_in_tx(&tx, editable, &types, &changes.edits)?;
+
+    tx.commit().map_err(db_err)?;
+
+    Ok(StatementResult {
+        affected_rows: total_affected,
+        execution_time_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+fn update_in_tx(
+    tx: &Transaction<'_>,
+    editable: &EditableInfo,
+    types: &HashMap<String, String>,
+    edits: &[RowEdit],
+) -> Result<u64> {
     let mut total_affected: u64 = 0;
 
-    for edit in &edits {
+    for edit in edits {
         if edit.changes.is_empty() {
             continue;
         }
@@ -187,14 +254,14 @@ pub fn apply_row_edits(
         // ── SET ──────────────────────────────────────────────────────────
         let mut set_clauses: Vec<String> = Vec::new();
         for (column, value) in &edit.changes {
-            params.push(coerce_value(value.as_deref(), declared_type(&types, column)?)?);
+            params.push(coerce_value(value.as_deref(), declared_type(types, column)?)?);
             set_clauses.push(format!("{} = ?{}", quote_ident(column), params.len()));
         }
 
         // ── WHERE (identifica a linha pela PK) ───────────────────────────
         let mut where_clauses: Vec<String> = Vec::new();
         for (column, value) in editable.primary_key_columns.iter().zip(&edit.pk_values) {
-            params.push(coerce_value(value.as_deref(), declared_type(&types, column)?)?);
+            params.push(coerce_value(value.as_deref(), declared_type(types, column)?)?);
             where_clauses.push(format!("{} = ?{}", quote_ident(column), params.len()));
         }
 
@@ -212,30 +279,18 @@ pub fn apply_row_edits(
         total_affected += affected as u64;
     }
 
-    tx.commit().map_err(db_err)?;
-
-    Ok(StatementResult {
-        affected_rows: total_affected,
-        execution_time_ms: start.elapsed().as_millis() as u64,
-    })
+    Ok(total_affected)
 }
 
-pub fn insert_rows(
-    conn: &mut Connection,
+fn insert_in_tx(
+    tx: &Transaction<'_>,
     editable: &EditableInfo,
-    rows: Vec<RowInsert>,
-) -> Result<StatementResult> {
-    if rows.is_empty() {
-        return Ok(no_op());
-    }
-
-    let types = column_types(conn, &editable.table)?;
-
-    let start = Instant::now();
-    let tx = conn.transaction().map_err(db_err)?;
+    types: &HashMap<String, String>,
+    rows: &[RowInsert],
+) -> Result<u64> {
     let mut total_affected: u64 = 0;
 
-    for row in &rows {
+    for row in rows {
         // Só as colunas preenchidas são enviadas; as de fora ficam com o
         // default da tabela (AUTOINCREMENT, DEFAULT, rowid).
         if row.values.is_empty() {
@@ -247,7 +302,7 @@ pub fn insert_rows(
         let mut placeholders: Vec<String> = Vec::new();
 
         for (column, value) in &row.values {
-            params.push(coerce_value(value.as_deref(), declared_type(&types, column)?)?);
+            params.push(coerce_value(value.as_deref(), declared_type(types, column)?)?);
             columns.push(quote_ident(column));
             placeholders.push(format!("?{}", params.len()));
         }
@@ -266,30 +321,18 @@ pub fn insert_rows(
         total_affected += affected as u64;
     }
 
-    tx.commit().map_err(db_err)?;
-
-    Ok(StatementResult {
-        affected_rows: total_affected,
-        execution_time_ms: start.elapsed().as_millis() as u64,
-    })
+    Ok(total_affected)
 }
 
-pub fn delete_rows(
-    conn: &mut Connection,
+fn delete_in_tx(
+    tx: &Transaction<'_>,
     editable: &EditableInfo,
-    pk_values: Vec<Vec<Option<String>>>,
-) -> Result<StatementResult> {
-    if pk_values.is_empty() {
-        return Ok(no_op());
-    }
-
-    let types = column_types(conn, &editable.table)?;
-
-    let start = Instant::now();
-    let tx = conn.transaction().map_err(db_err)?;
+    types: &HashMap<String, String>,
+    pk_values: &[Vec<Option<String>>],
+) -> Result<u64> {
     let mut total_affected: u64 = 0;
 
-    for pk in &pk_values {
+    for pk in pk_values {
         if pk.len() != editable.primary_key_columns.len() {
             return Err(Error::InvalidQuery(
                 "Primary key value count does not match primary key columns".into(),
@@ -300,7 +343,7 @@ pub fn delete_rows(
         let mut where_clauses: Vec<String> = Vec::new();
 
         for (column, value) in editable.primary_key_columns.iter().zip(pk) {
-            params.push(coerce_value(value.as_deref(), declared_type(&types, column)?)?);
+            params.push(coerce_value(value.as_deref(), declared_type(types, column)?)?);
             where_clauses.push(format!("{} = ?{}", quote_ident(column), params.len()));
         }
 
@@ -317,12 +360,7 @@ pub fn delete_rows(
         total_affected += affected as u64;
     }
 
-    tx.commit().map_err(db_err)?;
-
-    Ok(StatementResult {
-        affected_rows: total_affected,
-        execution_time_ms: start.elapsed().as_millis() as u64,
-    })
+    Ok(total_affected)
 }
 
 pub fn execute_transaction(

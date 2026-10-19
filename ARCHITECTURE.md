@@ -140,5 +140,5 @@ As senhas são criptografadas por um **cofre próprio do app**
    no backend e pagina, devolvendo um `QueryResult`. Postgres aceita `whereExpr`.
 5. Ordenar/filtrar/paginar → reenvia `fetch_table_data` com novo `TableDataRequest`.
 6. Editar/inserir/remover linhas → alterações ficam pendentes no front e são aplicadas
-   em lote no salvar (`apply_row_edits` / `insert_rows` / `delete_rows`), seguido de
+   em lote no salvar (`save_row_changes`, uma transação para tudo), seguido de
    refetch via invalidação.

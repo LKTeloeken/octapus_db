@@ -5,7 +5,11 @@ import {
 } from './persist-row-changes';
 
 /** Operações falsas que anotam a ordem e afetam `affected` linhas cada */
-function fakeOperations(affected = 1, failOn?: keyof RowChangeOperations) {
+function fakeOperations(
+  affected = 1,
+  failOn?: keyof RowChangeOperations,
+  { atomic = false } = {},
+) {
   const calls: string[] = [];
   const op =
     (name: keyof RowChangeOperations) =>
@@ -18,6 +22,7 @@ function fakeOperations(affected = 1, failOn?: keyof RowChangeOperations) {
     deleteRows: op('deleteRows'),
     insertRows: op('insertRows'),
     applyEdits: op('applyEdits'),
+    ...(atomic && { saveAll: op('saveAll') }),
   };
   return { calls, operations };
 }
@@ -53,5 +58,33 @@ describe('persistRowChanges', () => {
     );
     // O DELETE já foi; o UPDATE nem começou
     expect(calls).toEqual(['deleteRows', 'insertRows']);
+  });
+
+  it('com saveAll, grava tudo numa chamada só', async () => {
+    const { calls, operations } = fakeOperations(5, undefined, {
+      atomic: true,
+    });
+    await expect(persistRowChanges(all, operations)).resolves.toBe(5);
+    expect(calls).toEqual(['saveAll']);
+  });
+
+  it('com saveAll, o erro da transação sobe sem tentar as etapas soltas', async () => {
+    const { calls, operations } = fakeOperations(1, 'saveAll', {
+      atomic: true,
+    });
+    await expect(persistRowChanges(all, operations)).rejects.toThrow(
+      'saveAll falhou',
+    );
+    expect(calls).toEqual(['saveAll']);
+  });
+
+  it('sem nada pendente não chama o backend', async () => {
+    const { calls, operations } = fakeOperations(1, undefined, {
+      atomic: true,
+    });
+    await expect(
+      persistRowChanges({ deletes: [], inserts: [], edits: [] }, operations),
+    ).resolves.toBe(0);
+    expect(calls).toEqual([]);
   });
 });

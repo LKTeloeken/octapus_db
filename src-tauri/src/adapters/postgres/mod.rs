@@ -106,6 +106,14 @@ impl DatabaseAdapter for PostgresAdapter {
         executor::delete_rows(&self.pool, editable, pk_values).await
     }
 
+    async fn save_row_changes(
+        &self,
+        editable: &EditableInfo,
+        changes: RowChanges,
+    ) -> Result<StatementResult> {
+        executor::save_row_changes(&self.pool, editable, changes).await
+    }
+
     async fn execute_statement(&self, statement: &str) -> Result<StatementResult> {
         executor::execute_statement(&self.pool, statement).await
     }

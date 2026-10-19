@@ -73,7 +73,7 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
 | `use-structure` | estrutura inteira — só Redis (os demais usam o catálogo) |
 | `use-table-data` | `fetch_table_data` (browse, com `infiniteQuery`) |
 | `use-execute-query` | editor livre |
-| `use-apply-row-edits` | `apply_row_edits` / `insert_rows` / `delete_rows` |
+| `use-apply-row-edits` | `save_row_changes` (tudo numa transação) e `apply_row_edits` / `insert_rows` / `delete_rows` |
 | `use-write-export-file` | `write_export_file` (exportação da grade) |
 | `use-structure-change` | `preview_structure_change` (prévia do SQL) e `apply_structure_change` (DDL da árvore) |
 
@@ -240,11 +240,12 @@ tanto pelo editor livre quanto pelo browse. Características:
     (clique no header, visual);
   - atalhos: `Cmd/Ctrl+S` salva, `Backspace` remove as linhas selecionadas, `Esc` limpa
     a seleção;
-  - ao **Salvar**, chama `onSave({ edits, inserts, deletes })`; o consumidor dispara
-    `delete_rows` → `insert_rows` → `apply_row_edits` pelo
+  - ao **Salvar**, chama `onSave({ edits, inserts, deletes })`; o consumidor grava pelo
     [persistRowChanges](src/lib/persist-row-changes.ts) e a tela só atualiza após o `ok`
-    (via invalidação/refetch). Cada etapa é uma transação própria: se uma falha, as
-    anteriores já valeram e a grade mantém tudo pendente;
+    (via invalidação/refetch). Com `supportsAtomicSave` vai tudo num `save_row_changes`
+    (uma transação: se falha, nada vale e a grade mantém tudo pendente para reenviar);
+    sem ela, `delete_rows` → `insert_rows` → `apply_row_edits`, cada etapa na sua
+    transação;
   - as regras das pendências (desfazer ao voltar ao original, `''` ≠ NULL, linha nova só
     com as colunas tocadas, linha removida não leva a edição) são funções puras em
     [pending-changes.ts](src/components/results-table/pending-changes.ts), com teste. A

@@ -6,6 +6,7 @@ import type {
   QueryMessage,
   QueryOptions,
   QueryResult,
+  RowChanges,
   RowEdit,
   RowInsert,
   StatementResult,
@@ -102,6 +103,21 @@ export function deleteRows(
     database,
     editable,
     pkValues,
+  });
+}
+
+/** DELETE → INSERT → UPDATE numa transação só: se uma etapa falha, nenhuma vale */
+export function saveRowChanges(
+  serverId: number,
+  database: string,
+  editable: EditableInfo,
+  changes: RowChanges,
+): Promise<StatementResult> {
+  return call<StatementResult>(RustCommand.SaveRowChanges, {
+    serverId,
+    database,
+    editable,
+    changes,
   });
 }
 

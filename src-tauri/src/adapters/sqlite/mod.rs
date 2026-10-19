@@ -164,6 +164,17 @@ impl DatabaseAdapter for SqliteAdapter {
             .await
     }
 
+    async fn save_row_changes(
+        &self,
+        editable: &EditableInfo,
+        changes: RowChanges,
+    ) -> Result<StatementResult> {
+        let editable = editable.clone();
+
+        self.with_conn(move |conn| executor::save_row_changes(conn, &editable, changes))
+            .await
+    }
+
     async fn execute_statement(&self, statement: &str) -> Result<StatementResult> {
         let statement = statement.to_string();
 
@@ -562,6 +573,61 @@ mod tests {
             .unwrap();
         assert_eq!(remaining.total_count, Some(1));
         assert_eq!(remaining.rows[0][0].as_deref(), Some("3"));
+
+        drop(adapter);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    /// `save_row_changes` é tudo ou nada: o UPDATE que falha no fim desfaz o
+    /// DELETE e o INSERT de antes.
+    #[tokio::test]
+    async fn e2e_sqlite_save_row_changes_rolls_back_on_failure() {
+        let (server, path) = fixture(
+            "save",
+            "CREATE TABLE pessoas (id INTEGER PRIMARY KEY, nome TEXT NOT NULL);\
+             INSERT INTO pessoas VALUES (1, 'Ana'), (2, 'Bia'), (3, 'Caio');",
+        );
+
+        let adapter = SqliteAdapter::new(&server, "main").unwrap();
+        let editable = editable_for("pessoas");
+        let snapshot = || async {
+            adapter
+                .execute_query("SELECT id, nome FROM pessoas ORDER BY id", QueryOptions::default())
+                .await
+                .unwrap()
+                .rows
+        };
+        let before = snapshot().await;
+
+        let mut changes = RowChanges {
+            deletes: vec![vec![Some("1".into())]],
+            inserts: vec![RowInsert {
+                values: vec![("id".into(), Some("4".into())), ("nome".into(), Some("Duda".into()))],
+            }],
+            edits: vec![RowEdit {
+                pk_values: vec![Some("2".into())],
+                changes: vec![("nome".into(), None)],
+            }],
+        };
+        adapter
+            .save_row_changes(&editable, changes.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(snapshot().await, before);
+
+        // Corrigida, vale inteira — e a linha nova pode reusar a PK removida
+        changes.edits[0].changes = vec![("nome".into(), Some("Beatriz".into()))];
+        changes.inserts.push(RowInsert {
+            values: vec![("id".into(), Some("1".into())), ("nome".into(), Some("Ana 2".into()))],
+        });
+        let result = adapter.save_row_changes(&editable, changes).await.unwrap();
+        assert_eq!(result.affected_rows, 4);
+        let names: Vec<_> = snapshot()
+            .await
+            .into_iter()
+            .map(|row| row[1].clone().unwrap())
+            .collect();
+        assert_eq!(names, vec!["Ana 2", "Beatriz", "Caio", "Duda"]);
 
         drop(adapter);
         std::fs::remove_file(&path).unwrap();

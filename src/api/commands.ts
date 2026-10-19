@@ -62,6 +62,7 @@ export enum RustCommand {
   ApplyRowEdits = 'apply_row_edits',
   InsertRows = 'insert_rows',
   DeleteRows = 'delete_rows',
+  SaveRowChanges = 'save_row_changes',
   CancelQuery = 'cancel_query',
 
   // Browse (server-side pagination/sort/filter)

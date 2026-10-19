@@ -54,4 +54,11 @@ supportsSchemaCompare: boolean,
 /**
  * Backup e restauração pelas ferramentas nativas (`pg_dump`/`pg_restore`).
  */
-supportsBackup: boolean, };
+supportsBackup: boolean, 
+/**
+ * Gravar as alterações pendentes da grade numa chamada só
+ * (`save_row_changes`), que desfaz tudo se uma etapa falhar. No Mongo isso
+ * depende da topologia: replica set/mongos usa transação; num standalone
+ * as etapas valem uma a uma (com aviso no log), como nas chamadas separadas.
+ */
+supportsAtomicSave: boolean, };

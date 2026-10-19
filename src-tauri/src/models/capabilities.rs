@@ -44,6 +44,12 @@ pub struct AdapterCapabilities {
 
     /// Backup e restauração pelas ferramentas nativas (`pg_dump`/`pg_restore`).
     pub supports_backup: bool,
+
+    /// Gravar as alterações pendentes da grade numa chamada só
+    /// (`save_row_changes`), que desfaz tudo se uma etapa falhar. No Mongo isso
+    /// depende da topologia: replica set/mongos usa transação; num standalone
+    /// as etapas valem uma a uma (com aviso no log), como nas chamadas separadas.
+    pub supports_atomic_save: bool,
 }
 
 /// As capabilities de um tipo de banco — a tabela do `get_db_capabilities`.
@@ -69,6 +75,7 @@ impl AdapterCapabilities {
             supports_drop_cascade: true,
             supports_schema_compare: true,
             supports_backup: true,
+            supports_atomic_save: true,
         }
     }
 
@@ -85,6 +92,7 @@ impl AdapterCapabilities {
             supports_drop_cascade: false,
             supports_schema_compare: false,
             supports_backup: false,
+            supports_atomic_save: true,
         }
     }
 
@@ -101,6 +109,7 @@ impl AdapterCapabilities {
             supports_drop_cascade: false,
             supports_schema_compare: false,
             supports_backup: false,
+            supports_atomic_save: false,
         }
     }
 
@@ -118,6 +127,7 @@ impl AdapterCapabilities {
             supports_drop_cascade: false,
             supports_schema_compare: false,
             supports_backup: false,
+            supports_atomic_save: true,
         }
     }
 

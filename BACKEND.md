@@ -459,6 +459,7 @@ interface AdapterCapabilities {
   supportsDropCascade: boolean; // só Postgres
   supportsSchemaCompare: boolean; // só Postgres (catalog_compare_schemas)
   supportsBackup: boolean;      // só Postgres (pg_dump/pg_restore)
+  supportsAtomicSave: boolean;  // Postgres/Mongo/SQLite (save_row_changes); Mongo só é atômico em replica set
 }
 ```
 
@@ -564,6 +565,7 @@ buscado. O escopo entra na identidade do arquivo do catálogo.
 | `apply_row_edits` | `{ serverId, database, editable, edits }` | `StatementResult` |
 | `insert_rows` | `{ serverId, database, editable, rows: RowInsert[] }` | `StatementResult` |
 | `delete_rows` | `{ serverId, database, editable, pkValues: (string\|null)[][] }` | `StatementResult` |
+| `save_row_changes` | `{ serverId, database, editable, changes: RowChanges }` | `StatementResult` *(DELETE → INSERT → UPDATE numa transação)* |
 | `cancel_query` | `{ serverId, database, queryId }` | `void` *(só Postgres; Mongo/Redis retornam "não suportado")* |
 
 `StatementResult`: `{ affectedRows: number, executionTimeMs: number }`.
@@ -848,8 +850,19 @@ await invoke<StatementResult>('delete_rows', {
   pkValues: [['42'], ['43']],
 });
 ```
-Ordem recomendada ao salvar tudo junto: `delete_rows` → `insert_rows` → `apply_row_edits`,
-seguido de refetch.
+Para salvar tudo junto, use `save_row_changes` (quando `supportsAtomicSave`): ele aplica
+`deletes` → `inserts` → `edits` numa transação só e, se uma etapa falha, desfaz as outras
+— a grade pode reenviar as mesmas pendências sem que uma parte já tenha valido:
+```ts
+await invoke<StatementResult>('save_row_changes', {
+  serverId, database, editable: data.editableInfo,
+  changes: { deletes: [['42']], inserts: [{ values: [['name', 'Ana']] }], edits },
+});
+```
+No Mongo a transação exige replica set ou mongos (o backend pergunta ao `hello`); num
+standalone as etapas valem uma a uma, como nas chamadas separadas, com aviso no log. Sem
+`supportsAtomicSave`, a ordem ao salvar é `delete_rows` → `insert_rows` →
+`apply_row_edits`, cada uma na sua transação. Depois, refetch.
 
 ---
 

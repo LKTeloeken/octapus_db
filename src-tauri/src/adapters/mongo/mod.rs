@@ -130,6 +130,14 @@ impl DatabaseAdapter for MongoAdapter {
         executor::delete_rows(&self.db(), editable, pk_values).await
     }
 
+    async fn save_row_changes(
+        &self,
+        editable: &EditableInfo,
+        changes: RowChanges,
+    ) -> Result<StatementResult> {
+        executor::save_row_changes(&self.client, &self.db(), editable, changes).await
+    }
+
     async fn execute_statement(&self, statement: &str) -> Result<StatementResult> {
         executor::execute_statement(&self.db(), statement).await
     }

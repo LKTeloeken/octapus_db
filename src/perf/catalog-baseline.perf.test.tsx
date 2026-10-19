@@ -78,6 +78,7 @@ const CAPABILITIES: AdapterCapabilities = {
   supportsDropCascade: true,
   supportsSchemaCompare: true,
   supportsBackup: true,
+  supportsAtomicSave: true,
 };
 
 const COLUMNS: ColumnInfo[] = [

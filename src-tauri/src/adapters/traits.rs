@@ -6,8 +6,8 @@ use crate::adapters::MessageSink;
 use crate::error::{Error, Result};
 use crate::models::{
     AdapterCapabilities, ColumnInfo, DatabaseInfo, DatabaseStructure, EditableInfo, IndexInfo,
-    QueryOptions, QueryResult, RowEdit, RowInsert, SchemaInfo, StatementResult, StructureChange,
-    TableDataRequest, TableInfo,
+    QueryOptions, QueryResult, RowChanges, RowEdit, RowInsert, SchemaInfo, StatementResult,
+    StructureChange, TableDataRequest, TableInfo,
 };
 
 /// Core trait that all database adapters must implement.
@@ -87,6 +87,18 @@ pub trait DatabaseAdapter: Send + Sync {
     ) -> Result<StatementResult> {
         Err(Error::UnsupportedType(
             "Row deletion is not supported for this database".into(),
+        ))
+    }
+
+    /// Grava as alterações pendentes da grade — DELETE → INSERT → UPDATE —
+    /// numa transação só: se uma etapa falha, nenhuma vale.
+    async fn save_row_changes(
+        &self,
+        _editable: &EditableInfo,
+        _changes: RowChanges,
+    ) -> Result<StatementResult> {
+        Err(Error::UnsupportedType(
+            "Saving row changes is not supported for this database".into(),
         ))
     }
 

@@ -6,6 +6,7 @@ import type {
   QueryMessage,
   QueryOptions,
   QueryResult,
+  RowChanges,
   RowEdit,
   RowInsert,
   StatementResult,
@@ -1147,6 +1148,39 @@ const queryHandlers: Record<string, MockHandler> = {
       affectedRows,
       executionTimeMs: Math.round(performance.now() - startedAt),
     };
+  },
+
+  // Tudo ou nada, como a transação do backend: um erro no meio devolve as
+  // linhas da tabela ao estado de antes (a sequência serial não volta — no
+  // Postgres também não)
+  [RustCommand.SaveRowChanges]: ({
+    serverId,
+    database,
+    editable,
+    changes,
+  }: Args): StatementResult => {
+    const entry = requireServerEntry(serverId as number);
+    if (!entry.capabilities.supportsAtomicSave) {
+      throw 'Unsupported type: Saving row changes is not supported for this database';
+    }
+    const { table, startedAt } = editTarget(serverId, database, editable);
+    const typed = editable as EditableInfo;
+    const { deletes, inserts, edits } = changes as RowChanges;
+    const rows = tableRows(table);
+    const before = rows.slice();
+    try {
+      const affectedRows =
+        applyDeletes(table, typed, deletes) +
+        applyInserts(table, inserts) +
+        applyEdits(table, typed, edits);
+      return {
+        affectedRows,
+        executionTimeMs: Math.round(performance.now() - startedAt),
+      };
+    } catch (error) {
+      rows.splice(0, rows.length, ...before);
+      throw error;
+    }
   },
 
   [RustCommand.CancelQuery]: (): void => undefined,

@@ -9,6 +9,7 @@ import {
   useApplyRowEdits,
   useDeleteRows,
   useInsertRows,
+  useSaveRowChanges,
 } from '@/queries/use-apply-row-edits';
 import { useCapabilities } from '@/queries/use-capabilities';
 import { useServers } from '@/queries/use-servers';
@@ -26,12 +27,15 @@ export const useTableBrowser = (tab: BrowseTab) => {
   const applyEditsMutation = useApplyRowEdits();
   const insertRowsMutation = useInsertRows();
   const deleteRowsMutation = useDeleteRows();
+  const saveRowChangesMutation = useSaveRowChanges();
   const fetchAllMutation = useFetchAllTableData();
   const { data: capabilities } = useCapabilities(tab.serverId);
   // Servidor da aba: nome e banco para o breadcrumb da toolbar.
   const { data: servers } = useServers();
   const server = servers?.find(item => item.id === tab.serverId);
   const supportsSql = capabilities?.supportsSql === true;
+  // Sem saber ainda (capabilities carregando), grava em etapas separadas
+  const supportsAtomicSave = capabilities?.supportsAtomicSave === true;
   const isValuePanelOpen = useValuePanelStore(state => state.isOpen);
   const toggleValuePanel = useValuePanelStore(state => state.toggleOpen);
   const setValuePanelOpen = useValuePanelStore(state => state.setOpen);
@@ -211,6 +215,10 @@ export const useTableBrowser = (tab: BrowseTab) => {
 
       try {
         const affected = await persistRowChanges(changes, {
+          saveAll: supportsAtomicSave
+            ? all =>
+                saveRowChangesMutation.mutateAsync({ ...base, changes: all })
+            : undefined,
           deleteRows: pkValues =>
             deleteRowsMutation.mutateAsync({ ...base, pkValues }),
           insertRows: rows => insertRowsMutation.mutateAsync({ ...base, rows }),
@@ -230,6 +238,8 @@ export const useTableBrowser = (tab: BrowseTab) => {
       applyEditsMutation,
       insertRowsMutation,
       deleteRowsMutation,
+      saveRowChangesMutation,
+      supportsAtomicSave,
     ],
   );
 

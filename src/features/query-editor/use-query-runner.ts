@@ -7,6 +7,7 @@ import {
   useApplyRowEdits,
   useDeleteRows,
   useInsertRows,
+  useSaveRowChanges,
 } from '@/queries/use-apply-row-edits';
 import { useCapabilities } from '@/queries/use-capabilities';
 import { useExecuteQuery } from '@/queries/use-execute-query';
@@ -51,11 +52,14 @@ export const useQueryRunner = (tab: QueryTab) => {
   const applyEditsMutation = useApplyRowEdits();
   const insertRowsMutation = useInsertRows();
   const deleteRowsMutation = useDeleteRows();
+  const saveRowChangesMutation = useSaveRowChanges();
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const { data: servers } = useServers();
   const { data: capabilities } = useCapabilities(tab.serverId);
   const supportsSql = capabilities?.supportsSql ?? true;
+  // Sem saber ainda (capabilities carregando), grava em etapas separadas
+  const supportsAtomicSave = capabilities?.supportsAtomicSave === true;
 
   const sqlCompletion = useSqlCompletion({
     serverId: tab.serverId,
@@ -202,6 +206,10 @@ export const useQueryRunner = (tab: QueryTab) => {
 
       try {
         const affected = await persistRowChanges(changes, {
+          saveAll: supportsAtomicSave
+            ? all =>
+                saveRowChangesMutation.mutateAsync({ ...base, changes: all })
+            : undefined,
           deleteRows: pkValues =>
             deleteRowsMutation.mutateAsync({ ...base, pkValues }),
           insertRows: rows => insertRowsMutation.mutateAsync({ ...base, rows }),
@@ -222,6 +230,8 @@ export const useQueryRunner = (tab: QueryTab) => {
       applyEditsMutation,
       insertRowsMutation,
       deleteRowsMutation,
+      saveRowChangesMutation,
+      supportsAtomicSave,
       executeRun,
     ],
   );

@@ -32,6 +32,7 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsDropCascade: true,
     supportsSchemaCompare: true,
     supportsBackup: true,
+    supportsAtomicSave: true,
   },
   mongodb: {
     hasSchemas: false,
@@ -45,6 +46,7 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsDropCascade: false,
     supportsSchemaCompare: false,
     supportsBackup: false,
+    supportsAtomicSave: true,
   },
   redis: {
     hasSchemas: false,
@@ -58,6 +60,7 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsDropCascade: false,
     supportsSchemaCompare: false,
     supportsBackup: false,
+    supportsAtomicSave: false,
   },
   sqlite: {
     hasSchemas: false,
@@ -71,6 +74,7 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsDropCascade: false,
     supportsSchemaCompare: false,
     supportsBackup: false,
+    supportsAtomicSave: true,
   },
 };
 

@@ -1,14 +1,15 @@
-import type { RowEdit, RowInsert } from '@/api/types/query.types';
+import type { RowChanges, RowEdit, RowInsert } from '@/api/types/query.types';
 
 /** As alterações pendentes da grade (o `SaveRowChanges` da ResultsTable) */
-export interface PendingRowChanges {
-  edits: RowEdit[];
-  inserts: RowInsert[];
-  deletes: (string | null)[][];
-}
+export type PendingRowChanges = RowChanges;
 
-/** As três operações de gravação da grade (as mutations do React Query) */
+/** As operações de gravação da grade (as mutations do React Query) */
 export interface RowChangeOperations {
+  /**
+   * Tudo numa transação só (`save_row_changes`). Quem chama passa só quando o
+   * banco tem `supportsAtomicSave`; sem ela, cada etapa vai numa chamada.
+   */
+  saveAll?: (changes: PendingRowChanges) => Promise<{ affectedRows: number }>;
   deleteRows: (
     pkValues: (string | null)[][],
   ) => Promise<{ affectedRows: number }>;
@@ -19,14 +20,23 @@ export interface RowChangeOperations {
 /**
  * Grava as alterações pendentes na ordem de BACKEND.md §6.6: DELETE → INSERT
  * → UPDATE (remover primeiro libera chaves que uma linha nova pode reusar).
- * Cada etapa é uma transação própria no backend: se uma falha, o erro sobe e
- * as anteriores já valeram — a grade mantém tudo pendente para tentar de novo.
+ * Com `saveAll`, o backend faz as três numa transação: se uma falha, nada
+ * vale e a grade, que mantém tudo pendente, pode reenviar igual. Sem ela,
+ * cada etapa é uma transação própria e as anteriores à falha já valeram.
  * Devolve o total de linhas afetadas.
  */
 export async function persistRowChanges(
-  { edits, inserts, deletes }: PendingRowChanges,
+  changes: PendingRowChanges,
   operations: RowChangeOperations,
 ): Promise<number> {
+  const { edits, inserts, deletes } = changes;
+  if (deletes.length === 0 && inserts.length === 0 && edits.length === 0) {
+    return 0;
+  }
+  if (operations.saveAll) {
+    return (await operations.saveAll(changes)).affectedRows;
+  }
+
   let affected = 0;
   if (deletes.length > 0) {
     affected += (await operations.deleteRows(deletes)).affectedRows;

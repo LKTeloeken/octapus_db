@@ -5,6 +5,7 @@ export type { QueryMessage } from './generated/QueryMessage';
 export type { QueryMessageKind } from './generated/QueryMessageKind';
 export type { QueryOptions } from './generated/QueryOptions';
 export type { QueryResult } from './generated/QueryResult';
+export type { RowChanges } from './generated/RowChanges';
 export type { RowEdit } from './generated/RowEdit';
 export type { RowInsert } from './generated/RowInsert';
 export type { StatementResult } from './generated/StatementResult';

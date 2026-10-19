@@ -42,6 +42,19 @@ pub struct RowInsert {
     pub values: Vec<(String, Option<String>)>,
 }
 
+/// As alterações pendentes da grade, gravadas juntas por `save_row_changes`
+/// na ordem DELETE → INSERT → UPDATE (remover primeiro libera chaves que uma
+/// linha nova pode reusar).
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RowChanges {
+    /// PK de cada linha removida, na ordem de `EditableInfo::primary_key_columns`
+    pub deletes: Vec<Vec<Option<String>>>,
+    pub inserts: Vec<RowInsert>,
+    pub edits: Vec<RowEdit>,
+}
+
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
