@@ -64,7 +64,7 @@ const base = (
   username: 'postgres',
   defaultDatabase: null,
   connectionUri: null,
-  sslEnabled: false,
+  sslMode: 'disable',
   group: null,
   hasPassword: true,
   passwordInKeychain: false,
@@ -79,11 +79,11 @@ const FIXTURES: Record<Exclude<ImportSource, 'urls'>, Fixture[]> = {
       host: 'db.erp.interno',
       username: 'erp',
       defaultDatabase: 'erp',
-      sslEnabled: true,
+      sslMode: 'verify-full',
       group: 'Clientes / ACME',
       warnings: [
         { kind: 'sshTunnel', host: 'bastion.acme.com' },
-        { kind: 'sslNotVerified', mode: 'verify-full' },
+        { kind: 'sslSystemCa', mode: 'verify-full' },
       ],
     }),
     base('ERP homologação', 'postgres', 'PostgreSQL', {

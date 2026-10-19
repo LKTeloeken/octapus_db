@@ -27,7 +27,11 @@ export function columnCompletion(
   boost?: number,
   origin?: string,
 ): Completion {
-  const flag = column.isPrimaryKey ? ' · pk' : column.isForeignKey ? ' · fk' : '';
+  const flag = column.isPrimaryKey
+    ? ' · pk'
+    : column.isForeignKey
+      ? ' · fk'
+      : '';
   const detail = origin
     ? `${column.dataType}${flag} · ${origin}`
     : `${column.dataType}${flag}`;

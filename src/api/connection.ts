@@ -1,6 +1,9 @@
 import { call } from './client';
 import { RustCommand } from './commands';
-import type { AdapterCapabilities } from './types/capabilities.types';
+import type {
+  AdapterCapabilities,
+  DbTypeCapabilities,
+} from './types/capabilities.types';
 import type { PoolStats } from './types/server.types';
 
 /** database null → connects to the db type's default (postgres/admin/0) */
@@ -38,6 +41,11 @@ export function getPoolStats(
     serverId,
     database,
   });
+}
+
+/** As capabilities de cada tipo de banco (estáticas — dependem só do tipo) */
+export function getDbCapabilities(): Promise<DbTypeCapabilities[]> {
+  return call<DbTypeCapabilities[]>(RustCommand.GetDbCapabilities);
 }
 
 export function getCapabilities(

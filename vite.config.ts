@@ -1,14 +1,14 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
-import { readFileSync } from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { readFileSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Versão exibida no rodapé da sidebar (a mesma que o updater publica).
 const { version } = JSON.parse(
-  readFileSync(path.resolve(__dirname, "package.json"), "utf-8"),
+  readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
 ) as { version: string };
 const host = process.env.TAURI_DEV_HOST;
 
@@ -24,11 +24,11 @@ export default defineConfig(({ mode }) => ({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      '@': path.resolve(__dirname, './src'),
     },
   },
   build: {
-    outDir: "dist", // Custom output directory (default is 'dist')
+    outDir: 'dist', // Custom output directory (default is 'dist')
     // Or use a different folder name:
     // outDir: "build",
     // outDir: "web-build",
@@ -40,19 +40,19 @@ export default defineConfig(({ mode }) => ({
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
-    port: mode === "mock" ? MOCK_PORT : 1420,
+    port: mode === 'mock' ? MOCK_PORT : 1420,
     strictPort: true,
     host: host || false,
     hmr: host
       ? {
-          protocol: "ws",
+          protocol: 'ws',
           host,
           port: 1421,
         }
       : undefined,
     watch: {
-      include: ["src/**"],
-      ignored: ["**/src-tauri/**"],
+      include: ['src/**'],
+      ignored: ['**/src-tauri/**'],
     },
   },
 }));

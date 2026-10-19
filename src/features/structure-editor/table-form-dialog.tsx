@@ -77,7 +77,9 @@ export function TableFormDialog({ open, dialog }: TableFormDialogProps) {
           />
 
           <div className="flex min-w-0 flex-col gap-2">
-            <div className={`${GRID} text-micro font-medium uppercase text-fg-subtle`}>
+            <div
+              className={`${GRID} text-micro font-medium uppercase text-fg-subtle`}
+            >
               <span>Coluna</span>
               <span>Tipo</span>
               <span>Default</span>
@@ -182,11 +184,7 @@ export function TableFormDialog({ open, dialog }: TableFormDialogProps) {
           <Button variant="ghost" size="sm" onClick={close}>
             Cancelar
           </Button>
-          <Button
-            size="sm"
-            disabled={!canApply}
-            onClick={() => void submit()}
-          >
+          <Button size="sm" disabled={!canApply} onClick={() => void submit()}>
             {isApplying ? 'Criando…' : 'Criar tabela'}
           </Button>
         </DialogFooter>

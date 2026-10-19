@@ -22,6 +22,7 @@ import {
 } from '@/features/command-palette/palette-items';
 import { useConnectionTree } from '@/features/connection-tree/use-connection-tree';
 import { encodeNodeId } from '@/lib/node-ref';
+import { CAPABILITIES } from '@/mocks/data';
 import { queryKeys } from '@/queries/keys';
 import { CATALOG_PAGE_SIZE } from '@/queries/use-catalog';
 import { useTreeStore } from '@/stores/tree-store';
@@ -99,7 +100,8 @@ const SERVER: Server = {
   port: 55432,
   username: 'postgres',
   defaultDatabase: DATABASE,
-  sslEnabled: false,
+  sslMode: 'disable',
+  sslRootCert: null,
   connectionUri: null,
   createdAt: 0,
   scopeDatabases: null,
@@ -134,6 +136,9 @@ function treeClient(expandedSchemas: number) {
     },
   });
   queryClient.setQueryData(queryKeys.servers, [SERVER]);
+  queryClient.setQueryData(queryKeys.dbCapabilities, [
+    { dbType: 'postgres', capabilities: CAPABILITIES.postgres },
+  ]);
   queryClient.setQueryData(queryKeys.databases(SERVER_ID), [
     { name: DATABASE, sizeBytes: null },
   ]);

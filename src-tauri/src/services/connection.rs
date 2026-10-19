@@ -69,11 +69,18 @@ impl ConnectionService {
         ping_after: Duration,
     ) -> Option<Arc<dyn DatabaseAdapter>> {
         let (adapter, idle) = self.get_cached(server_id, database)?;
-        if idle < ping_after || adapter.test_connection().await.is_ok() {
+        if idle < ping_after {
             return Some(adapter);
         }
-        self.disconnect(server_id, database);
-        None
+        if let Err(error) = adapter.test_connection().await {
+            log::info!(
+                "server {server_id} db {database}: conexão parada há {}s não respondeu ao ping ({error}); reconectando",
+                idle.as_secs()
+            );
+            self.disconnect(server_id, database);
+            return None;
+        }
+        Some(adapter)
     }
 
     /// Get or create an adapter for the given connection
@@ -96,7 +103,22 @@ impl ConnectionService {
 
         // Slow path: create adapter. Concurrent creations may race; the
         // first inserted adapter wins and duplicates are dropped.
-        let adapter = create_adapter(server, database).await?;
+        let started = std::time::Instant::now();
+        let adapter = match create_adapter(server, database).await {
+            Ok(adapter) => adapter,
+            Err(error) => {
+                log::warn!(
+                    "server {server_id} db {database} ({:?}): falha ao conectar: {error}",
+                    server.db_type
+                );
+                return Err(error);
+            }
+        };
+        log::info!(
+            "server {server_id} db {database} ({:?}): conectado em {} ms",
+            server.db_type,
+            started.elapsed().as_millis()
+        );
 
         let mut adapters = self.adapters.write();
         Ok(Arc::clone(

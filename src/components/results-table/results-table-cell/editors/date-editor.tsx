@@ -75,7 +75,11 @@ export const DateEditor = memo(function DateEditor({
         autoFocus
       />
       {error && <span className="text-small text-danger">{error}</span>}
-      <EditorFooter onSave={handleSave} onCancel={onCancel} onSetNull={onSetNull} />
+      <EditorFooter
+        onSave={handleSave}
+        onCancel={onCancel}
+        onSetNull={onSetNull}
+      />
     </div>
   );
 });

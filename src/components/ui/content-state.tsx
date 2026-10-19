@@ -47,7 +47,11 @@ export function ContentState({
         {description && (
           <div className="text-body text-fg-muted">{description}</div>
         )}
-        {action && <div className="mt-1 flex flex-wrap justify-center gap-2">{action}</div>}
+        {action && (
+          <div className="mt-1 flex flex-wrap justify-center gap-2">
+            {action}
+          </div>
+        )}
       </div>
     </div>
   );

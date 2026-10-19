@@ -22,6 +22,7 @@ function Switch({
     >
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"
+        // design-tokens-ignore: o indicador é branco sobre o trilho (Iris ligado)
         className="pointer-events-none block size-3 rounded-full bg-white shadow-raised transition-transform duration-180 ease-spring data-[state=checked]:translate-x-3 data-[state=unchecked]:translate-x-0 motion-reduce:transition-none"
       />
     </SwitchPrimitive.Root>

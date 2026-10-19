@@ -2,6 +2,8 @@ mod browse;
 mod ddl;
 pub mod introspect;
 mod pool;
+#[cfg(test)]
+mod tls_e2e;
 mod executor;
 mod metadata;
 mod notices;
@@ -102,6 +104,14 @@ impl DatabaseAdapter for PostgresAdapter {
         pk_values: Vec<Vec<Option<String>>>,
     ) -> Result<StatementResult> {
         executor::delete_rows(&self.pool, editable, pk_values).await
+    }
+
+    async fn save_row_changes(
+        &self,
+        editable: &EditableInfo,
+        changes: RowChanges,
+    ) -> Result<StatementResult> {
+        executor::save_row_changes(&self.pool, editable, changes).await
     }
 
     async fn execute_statement(&self, statement: &str) -> Result<StatementResult> {

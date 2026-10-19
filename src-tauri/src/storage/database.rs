@@ -28,6 +28,8 @@ pub fn init_storage<P: AsRef<Path>>(db_path: P) -> Result<Connection> {
             password        TEXT NOT NULL,
             default_database TEXT,
             ssl_enabled     INTEGER NOT NULL DEFAULT 0,
+            ssl_mode        TEXT,
+            ssl_root_cert   TEXT,
             connection_uri  TEXT,
             created_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
         );
@@ -74,6 +76,8 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             "ALTER TABLE servers ADD COLUMN group_id INTEGER \
              REFERENCES server_groups(id) ON DELETE SET NULL",
         ),
+        ("ssl_mode", "ALTER TABLE servers ADD COLUMN ssl_mode TEXT"),
+        ("ssl_root_cert", "ALTER TABLE servers ADD COLUMN ssl_root_cert TEXT"),
     ];
 
     for (col_name, alter_sql) in migrations {
@@ -81,6 +85,16 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             conn.execute(alter_sql, [])?;
         }
     }
+
+    // `ssl_enabled` (booleano) virou `ssl_mode`: ligado era TLS sem verificar
+    // o certificado. O `ssl_enabled` continua gravado em par com o modo, para
+    // uma versão anterior do app ainda ler o servidor.
+    conn.execute(
+        "UPDATE servers \
+         SET ssl_mode = CASE WHEN ssl_enabled != 0 THEN 'require' ELSE 'disable' END \
+         WHERE ssl_mode IS NULL",
+        [],
+    )?;
 
     Ok(())
 }

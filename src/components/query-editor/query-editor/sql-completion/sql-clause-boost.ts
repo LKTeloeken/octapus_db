@@ -53,7 +53,13 @@ export const CLAUSE_BOOSTS: Record<
   from: { column: null, table: 80, keyword: -10, function: -40, snippet: -60 },
   join: { column: null, table: 80, keyword: -10, function: -40, snippet: -60 },
   into: { column: null, table: 80, keyword: -10, function: -40, snippet: -60 },
-  update: { column: null, table: 80, keyword: -10, function: -40, snippet: -60 },
+  update: {
+    column: null,
+    table: 80,
+    keyword: -10,
+    function: -40,
+    snippet: -60,
+  },
   values: { column: 20, table: -50, keyword: 10, function: 30, snippet: -60 },
   limit: { column: -60, table: -60, keyword: 10, function: -20, snippet: -60 },
 };
@@ -135,7 +141,9 @@ export function rankOptions(
  */
 export function withClauseBoost(
   source: CompletionSource,
-  categoryOf: SqlCompletionCategory | ((option: Completion) => SqlCompletionCategory),
+  categoryOf:
+    | SqlCompletionCategory
+    | ((option: Completion) => SqlCompletionCategory),
 ): CompletionSource {
   const resolveCategory =
     typeof categoryOf === 'function' ? categoryOf : () => categoryOf;

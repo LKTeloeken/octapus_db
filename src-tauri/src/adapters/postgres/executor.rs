@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use deadpool_postgres::{Pool, Timeouts};
-use tokio_postgres::{Column, Row, SimpleQueryMessage, SimpleQueryRow, Statement};
+use tokio_postgres::{Column, Row, SimpleQueryMessage, SimpleQueryRow, Statement, Transaction};
 
 use super::notices::{message_from_db_error, NoticeHub};
 use super::QueryRegistry;
@@ -11,8 +11,8 @@ use super::QueryRegistry;
 use crate::adapters::MessageSink;
 use crate::error::{Error, Result};
 use crate::models::{
-    EditableInfo, QueryColumnInfo, QueryMessage, QueryOptions, QueryResult, RowEdit, RowInsert,
-    StatementResult,
+    EditableInfo, QueryColumnInfo, QueryMessage, QueryOptions, QueryResult, RowChanges, RowEdit,
+    RowInsert, StatementResult,
 };
 
 use super::util::{get_column_types, quote_ident};
@@ -264,16 +264,73 @@ fn completion_status(
     }
 }
 
+type ColumnTypes = std::collections::HashMap<String, String>;
+
+fn no_op() -> StatementResult {
+    StatementResult {
+        affected_rows: 0,
+        execution_time_ms: 0,
+    }
+}
+
 pub async fn apply_row_edits(
     pool: &Pool,
     editable: &EditableInfo,
     edits: Vec<RowEdit>,
 ) -> Result<StatementResult> {
-    if edits.is_empty() {
-        return Ok(StatementResult {
-            affected_rows: 0,
-            execution_time_ms: 0,
-        });
+    save_row_changes(
+        pool,
+        editable,
+        RowChanges {
+            edits,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+pub async fn insert_rows(
+    pool: &Pool,
+    editable: &EditableInfo,
+    rows: Vec<RowInsert>,
+) -> Result<StatementResult> {
+    save_row_changes(
+        pool,
+        editable,
+        RowChanges {
+            inserts: rows,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+pub async fn delete_rows(
+    pool: &Pool,
+    editable: &EditableInfo,
+    pk_values: Vec<Vec<Option<String>>>,
+) -> Result<StatementResult> {
+    save_row_changes(
+        pool,
+        editable,
+        RowChanges {
+            deletes: pk_values,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+/// Grava DELETE → INSERT → UPDATE numa transação só: se qualquer comando
+/// falha, o `Transaction` cai sem `commit` e o Postgres desfaz tudo — a grade
+/// pode reenviar as mesmas alterações sem que uma parte já tenha valido.
+pub async fn save_row_changes(
+    pool: &Pool,
+    editable: &EditableInfo,
+    changes: RowChanges,
+) -> Result<StatementResult> {
+    if changes.deletes.is_empty() && changes.inserts.is_empty() && changes.edits.is_empty() {
+        return Ok(no_op());
     }
 
     let mut client = pool.get().await?;
@@ -283,9 +340,28 @@ pub async fn apply_row_edits(
 
     let start = Instant::now();
     let tx = client.transaction().await?;
+
+    let mut total_affected = delete_in_tx(&tx, editable, &type_map, &changes.deletes).await?;
+    total_affected += insert_in_tx(&tx, editable, &type_map, &changes.inserts).await?;
+    total_affected += update_in_tx(&tx, editable, &type_map, &changes.edits).await?;
+
+    tx.commit().await?;
+
+    Ok(StatementResult {
+        affected_rows: total_affected,
+        execution_time_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+async fn update_in_tx(
+    tx: &Transaction<'_>,
+    editable: &EditableInfo,
+    type_map: &ColumnTypes,
+    edits: &[RowEdit],
+) -> Result<u64> {
     let mut total_affected: u64 = 0;
 
-    for edit in &edits {
+    for edit in edits {
         if edit.changes.is_empty() {
             continue;
         }
@@ -359,36 +435,18 @@ pub async fn apply_row_edits(
         total_affected += affected;
     }
 
-    tx.commit().await?;
-
-    Ok(StatementResult {
-        affected_rows: total_affected,
-        execution_time_ms: start.elapsed().as_millis() as u64,
-    })
+    Ok(total_affected)
 }
 
-pub async fn insert_rows(
-    pool: &Pool,
+async fn insert_in_tx(
+    tx: &Transaction<'_>,
     editable: &EditableInfo,
-    rows: Vec<RowInsert>,
-) -> Result<StatementResult> {
-    if rows.is_empty() {
-        return Ok(StatementResult {
-            affected_rows: 0,
-            execution_time_ms: 0,
-        });
-    }
-
-    let mut client = pool.get().await?;
-
-    let type_map =
-        get_column_types(&client, &editable.schema, &editable.table).await?;
-
-    let start = Instant::now();
-    let tx = client.transaction().await?;
+    type_map: &ColumnTypes,
+    rows: &[RowInsert],
+) -> Result<u64> {
     let mut total_affected: u64 = 0;
 
-    for row in &rows {
+    for row in rows {
         // Only the filled columns are sent; omitted ones fall back to the
         // database default (serial, DEFAULT, generated identity).
         if row.values.is_empty() {
@@ -430,36 +488,18 @@ pub async fn insert_rows(
         total_affected += affected;
     }
 
-    tx.commit().await?;
-
-    Ok(StatementResult {
-        affected_rows: total_affected,
-        execution_time_ms: start.elapsed().as_millis() as u64,
-    })
+    Ok(total_affected)
 }
 
-pub async fn delete_rows(
-    pool: &Pool,
+async fn delete_in_tx(
+    tx: &Transaction<'_>,
     editable: &EditableInfo,
-    pk_values: Vec<Vec<Option<String>>>,
-) -> Result<StatementResult> {
-    if pk_values.is_empty() {
-        return Ok(StatementResult {
-            affected_rows: 0,
-            execution_time_ms: 0,
-        });
-    }
-
-    let mut client = pool.get().await?;
-
-    let type_map =
-        get_column_types(&client, &editable.schema, &editable.table).await?;
-
-    let start = Instant::now();
-    let tx = client.transaction().await?;
+    type_map: &ColumnTypes,
+    pk_values: &[Vec<Option<String>>],
+) -> Result<u64> {
     let mut total_affected: u64 = 0;
 
-    for pk in &pk_values {
+    for pk in pk_values {
         if pk.len() != editable.primary_key_columns.len() {
             return Err(Error::InvalidQuery(
                 "Primary key value count does not match primary key columns"
@@ -508,12 +548,7 @@ pub async fn delete_rows(
         total_affected += affected;
     }
 
-    tx.commit().await?;
-
-    Ok(StatementResult {
-        affected_rows: total_affected,
-        execution_time_ms: start.elapsed().as_millis() as u64,
-    })
+    Ok(total_affected)
 }
 
 pub async fn execute_statement(pool: &Pool, statement: &str) -> Result<StatementResult> {
@@ -706,7 +741,8 @@ mod tests {
             username: "postgres".into(),
             password: "1234".into(),
             default_database: None,
-            ssl_enabled: false,
+            ssl_mode: crate::models::SslMode::Disable,
+            ssl_root_cert: None,
             connection_uri: None,
             scope_databases: None,
             scope_schemas: None,
@@ -756,6 +792,118 @@ mod tests {
         adapter.cancel_query(query_id).await.unwrap();
     }
 
+    /// `save_row_changes` é tudo ou nada: um UPDATE que falha no fim desfaz o
+    /// DELETE e o INSERT que vieram antes, e a mesma gravação pode ser
+    /// reenviada sem que uma parte já tenha valido.
+    #[tokio::test]
+    #[ignore = "requires local postgres on localhost:5432 (postgres/1234)"]
+    async fn e2e_save_row_changes_rolls_back_on_failure() {
+        use crate::adapters::postgres::PostgresAdapter;
+        use crate::adapters::DatabaseAdapter;
+        use crate::models::{DatabaseType, QueryOptions, Server};
+
+        let server = Server {
+            id: Some(1),
+            name: "e2e".into(),
+            db_type: DatabaseType::Postgres,
+            host: "localhost".into(),
+            port: 5432,
+            username: "postgres".into(),
+            password: "1234".into(),
+            default_database: None,
+            ssl_mode: crate::models::SslMode::Disable,
+            ssl_root_cert: None,
+            connection_uri: None,
+            scope_databases: None,
+            scope_schemas: None,
+            group_id: None,
+            created_at: 0,
+        };
+        let admin = PostgresAdapter::new(&server, "postgres").unwrap();
+        admin
+            .execute_statement("DROP DATABASE IF EXISTS octapus_db_e2e_save WITH (FORCE)")
+            .await
+            .unwrap();
+        admin.execute_statement("CREATE DATABASE octapus_db_e2e_save").await.unwrap();
+        let adapter = PostgresAdapter::new(&server, "octapus_db_e2e_save").unwrap();
+
+        adapter
+            .execute_statement(
+                "CREATE TABLE public.pessoas (id integer PRIMARY KEY, nome text NOT NULL)",
+            )
+            .await
+            .unwrap();
+        adapter
+            .execute_statement("INSERT INTO public.pessoas VALUES (1, 'Ana'), (2, 'Bia'), (3, 'Caio')")
+            .await
+            .unwrap();
+
+        let editable = EditableInfo {
+            schema: "public".into(),
+            table: "pessoas".into(),
+            primary_key_columns: vec!["id".into()],
+            primary_key_column_indices: vec![0],
+        };
+        let snapshot = || async {
+            adapter
+                .execute_query("SELECT id, nome FROM public.pessoas ORDER BY id", QueryOptions::default())
+                .await
+                .unwrap()
+                .rows
+        };
+        let row = |id: &str, nome: &str| vec![Some(id.to_string()), Some(nome.to_string())];
+        let before = snapshot().await;
+
+        // DELETE e INSERT passam; o UPDATE viola o NOT NULL e derruba tudo
+        let failing = RowChanges {
+            deletes: vec![vec![Some("1".into())]],
+            inserts: vec![RowInsert {
+                values: vec![("id".into(), Some("4".into())), ("nome".into(), Some("Duda".into()))],
+            }],
+            edits: vec![RowEdit {
+                pk_values: vec![Some("2".into())],
+                changes: vec![("nome".into(), None)],
+            }],
+        };
+        let err = adapter
+            .save_row_changes(&editable, failing.clone())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::Query(_)), "{err:?}");
+        assert_eq!(snapshot().await, before, "a falha no UPDATE deveria desfazer tudo");
+
+        // Um INSERT que falha (PK repetida) também desfaz o DELETE anterior
+        let duplicate = RowChanges {
+            deletes: vec![vec![Some("1".into())]],
+            inserts: vec![RowInsert {
+                values: vec![("id".into(), Some("3".into())), ("nome".into(), Some("Outro".into()))],
+            }],
+            edits: vec![],
+        };
+        adapter.save_row_changes(&editable, duplicate).await.unwrap_err();
+        assert_eq!(snapshot().await, before);
+
+        // Corrigida, a mesma gravação vale inteira — o DELETE não é "repetido"
+        let mut fixed = failing;
+        fixed.edits[0].changes = vec![("nome".into(), Some("Beatriz".into()))];
+        // A linha nova reusa a PK da removida: DELETE antes do INSERT
+        fixed.inserts.push(RowInsert {
+            values: vec![("id".into(), Some("1".into())), ("nome".into(), Some("Ana 2".into()))],
+        });
+        let result = adapter.save_row_changes(&editable, fixed).await.unwrap();
+        assert_eq!(result.affected_rows, 4);
+        assert_eq!(
+            snapshot().await,
+            vec![row("1", "Ana 2"), row("2", "Beatriz"), row("3", "Caio"), row("4", "Duda")]
+        );
+
+        drop(adapter);
+        admin
+            .execute_statement("DROP DATABASE IF EXISTS octapus_db_e2e_save WITH (FORCE)")
+            .await
+            .unwrap();
+    }
+
     /// Regression: rich types (jsonb/json/numeric/uuid/arrays/bool/timestamptz)
     /// used to come back as NULL because tokio-postgres can't decode them as
     /// String. Now Postgres renders everything as text, so every column must
@@ -776,7 +924,8 @@ mod tests {
             username: "postgres".into(),
             password: "1234".into(),
             default_database: None,
-            ssl_enabled: false,
+            ssl_mode: crate::models::SslMode::Disable,
+            ssl_root_cert: None,
             connection_uri: None,
             scope_databases: None,
             scope_schemas: None,

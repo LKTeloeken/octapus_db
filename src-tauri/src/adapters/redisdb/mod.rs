@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use redis::aio::ConnectionManager;
-use redis::{ConnectionAddr, ConnectionInfo, RedisConnectionInfo};
+use redis::{ConnectionAddr, ConnectionInfo, RedisConnectionInfo, TlsCertificates};
 use tokio::sync::OnceCell;
 
 use crate::adapters::DatabaseAdapter;
@@ -38,12 +38,13 @@ impl RedisAdapter {
             info.redis.db = db_index;
             redis::Client::open(info).map_err(|e| Error::Connection(e.to_string()))?
         } else {
-            let addr = if server.ssl_enabled {
-                // Encrypt without certificate verification (self-signed servers)
+            // `require` cifra sem verificar (servidor autoassinado); `verify-full`
+            // confere cadeia e nome, com a CA própria quando houver
+            let addr = if server.ssl_mode.uses_tls() {
                 ConnectionAddr::TcpTls {
                     host: server.host.clone(),
                     port: server.port,
-                    insecure: true,
+                    insecure: !server.ssl_mode.verifies(),
                     tls_params: None,
                 }
             } else {
@@ -60,7 +61,19 @@ impl RedisAdapter {
                 },
             };
 
-            redis::Client::open(info).map_err(|e| Error::Connection(e.to_string()))?
+            match server.ssl_root_cert.as_deref().filter(|_| server.ssl_mode.verifies()) {
+                Some(path) => {
+                    let root_cert = std::fs::read(path)
+                        .map_err(|e| Error::Connection(format!("CA {path}: {e}")))?;
+                    let certs = TlsCertificates {
+                        client_tls: None,
+                        root_cert: Some(root_cert),
+                    };
+                    redis::Client::build_with_tls(info, certs)
+                        .map_err(|e| Error::Connection(e.to_string()))?
+                }
+                None => redis::Client::open(info).map_err(|e| Error::Connection(e.to_string()))?,
+            }
         };
 
         Ok(Self {

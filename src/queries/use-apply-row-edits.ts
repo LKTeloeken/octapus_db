@@ -1,7 +1,13 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { applyRowEdits, deleteRows, insertRows } from '@/api/query';
+import {
+  applyRowEdits,
+  deleteRows,
+  insertRows,
+  saveRowChanges,
+} from '@/api/query';
 import type {
   EditableInfo,
+  RowChanges,
   RowEdit,
   RowInsert,
 } from '@/api/types/query.types';
@@ -28,12 +34,24 @@ export interface DeleteRowsVariables {
   pkValues: (string | null)[][];
 }
 
+export interface SaveRowChangesVariables {
+  serverId: number;
+  database: string;
+  editable: EditableInfo;
+  changes: RowChanges;
+}
+
 /** Persists inline cell edits and refreshes every browse view of that table */
 export function useApplyRowEdits() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ serverId, database, editable, edits }: ApplyRowEditsVariables) =>
+    mutationFn: ({
+      serverId,
+      database,
+      editable,
+      edits,
+    }: ApplyRowEditsVariables) =>
       applyRowEdits(serverId, database, editable, edits),
     onSuccess: (_result, { serverId, database, editable }) => {
       queryClient.invalidateQueries({
@@ -73,8 +91,41 @@ export function useDeleteRows() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ serverId, database, editable, pkValues }: DeleteRowsVariables) =>
+    mutationFn: ({
+      serverId,
+      database,
+      editable,
+      pkValues,
+    }: DeleteRowsVariables) =>
       deleteRows(serverId, database, editable, pkValues),
+    onSuccess: (_result, { serverId, database, editable }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tableDataForTable(
+          serverId,
+          database,
+          editable.schema || null,
+          editable.table,
+        ),
+      });
+    },
+  });
+}
+
+/**
+ * Grava deletes, inserts e edits numa transação só e refaz as leituras da
+ * tabela. Se falha, nada foi gravado — não há o que invalidar.
+ */
+export function useSaveRowChanges() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      serverId,
+      database,
+      editable,
+      changes,
+    }: SaveRowChangesVariables) =>
+      saveRowChanges(serverId, database, editable, changes),
     onSuccess: (_result, { serverId, database, editable }) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.tableDataForTable(

@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useId, useState } from 'react';
 import { EditorFooter } from './editor-footer';
 
 interface JsonEditorProps {
@@ -15,6 +15,7 @@ export const JsonEditor = memo(function JsonEditor({
   onSetNull,
 }: JsonEditorProps) {
   const [editValue, setEditValue] = useState(value);
+  const fieldId = useId();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -79,7 +80,10 @@ export const JsonEditor = memo(function JsonEditor({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <label className="text-micro font-medium uppercase text-fg-subtle">
+        <label
+          htmlFor={fieldId}
+          className="text-micro font-medium uppercase text-fg-subtle"
+        >
           Editar JSON
         </label>
         <div className="flex gap-1">
@@ -100,6 +104,7 @@ export const JsonEditor = memo(function JsonEditor({
         </div>
       </div>
       <textarea
+        id={fieldId}
         className={
           'w-full min-h-[120px] max-h-[240px] p-2 text-small font-mono ' +
           'bg-field text-fg border rounded-sm resize-y ' +
@@ -116,7 +121,11 @@ export const JsonEditor = memo(function JsonEditor({
         autoFocus
       />
       {error && <span className="text-small text-danger">{error}</span>}
-      <EditorFooter onSave={handleSave} onCancel={onCancel} onSetNull={onSetNull} />
+      <EditorFooter
+        onSave={handleSave}
+        onCancel={onCancel}
+        onSetNull={onSetNull}
+      />
     </div>
   );
 });

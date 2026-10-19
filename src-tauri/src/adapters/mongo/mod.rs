@@ -49,12 +49,16 @@ pub(crate) async fn client_options(server: &Server) -> Result<ClientOptions> {
             );
         }
 
-        if server.ssl_enabled {
-            options.tls = Some(Tls::Enabled(
-                TlsOptions::builder()
-                    .allow_invalid_certificates(true)
-                    .build(),
-            ));
+        // `require` cifra sem verificar; `verify-full` confere cadeia e nome
+        // (o modo já chega ajustado ao Mongo — ver `SslMode::for_db_type`)
+        if server.ssl_mode.uses_tls() {
+            let mut tls = TlsOptions::builder()
+                .allow_invalid_certificates(!server.ssl_mode.verifies())
+                .build();
+            if server.ssl_mode.verifies() {
+                tls.ca_file_path = server.ssl_root_cert.as_ref().map(std::path::PathBuf::from);
+            }
+            options.tls = Some(Tls::Enabled(tls));
         }
 
         options
@@ -124,6 +128,14 @@ impl DatabaseAdapter for MongoAdapter {
         pk_values: Vec<Vec<Option<String>>>,
     ) -> Result<StatementResult> {
         executor::delete_rows(&self.db(), editable, pk_values).await
+    }
+
+    async fn save_row_changes(
+        &self,
+        editable: &EditableInfo,
+        changes: RowChanges,
+    ) -> Result<StatementResult> {
+        executor::save_row_changes(&self.client, &self.db(), editable, changes).await
     }
 
     async fn execute_statement(&self, statement: &str) -> Result<StatementResult> {

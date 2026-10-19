@@ -79,7 +79,10 @@ const notas: MockTable = {
     }),
     column('titulo', 'TEXT', gen.sentence(2, 6), { isNullable: false }),
     column('conteudo', 'TEXT', gen.sentence(8, 40, { nullRate: 0.15 })),
-    column('fixada', 'BOOLEAN', flag(), { isNullable: false, defaultValue: '0' }),
+    column('fixada', 'BOOLEAN', flag(), {
+      isNullable: false,
+      defaultValue: '0',
+    }),
     column('atualizada_em', 'TEXT', gen.timestamp()),
   ],
   indexes: [
@@ -100,10 +103,19 @@ const tags: MockTable = {
   rowEstimate: 42,
   columns: [
     pk(),
-    column('nome', 'TEXT', gen.pick(['pessoal', 'trabalho', 'ideias', 'urgente']), {
-      isNullable: false,
-    }),
-    column('cor', 'TEXT', gen.pick(['#ef4444', '#22c55e', '#3b82f6', '#eab308'])),
+    column(
+      'nome',
+      'TEXT',
+      gen.pick(['pessoal', 'trabalho', 'ideias', 'urgente']),
+      {
+        isNullable: false,
+      },
+    ),
+    column(
+      'cor',
+      'TEXT',
+      gen.pick(['#ef4444', '#22c55e', '#3b82f6', '#eab308']),
+    ),
   ],
   indexes: [],
 };

@@ -3,6 +3,7 @@ use serde::Serialize;
 /// Describes what a given adapter supports, so the frontend can decide what to
 /// render (schema tree levels, editable grids, free-form editor, etc.) without
 /// branching on `dbType` directly.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdapterCapabilities {
@@ -26,6 +27,38 @@ pub struct AdapterCapabilities {
 
     /// Whether `fetch_table_data` (paginated/sorted/filtered browse) is available.
     pub browsable: bool,
+
+    /// Estrutura pelo catálogo de metadados (`catalog_*`) em vez do
+    /// `list_schemas_with_tables` — o mesmo que `adapters::has_catalog`.
+    pub has_catalog: bool,
+
+    /// Criar/renomear/remover tabela e coluna (`structure_change_sql`,
+    /// `apply_structure_change`).
+    pub supports_structure_changes: bool,
+
+    /// `DROP ... CASCADE` ao remover uma tabela.
+    pub supports_drop_cascade: bool,
+
+    /// Comparar dois schemas do database (`catalog_compare_schemas`).
+    pub supports_schema_compare: bool,
+
+    /// Backup e restauração pelas ferramentas nativas (`pg_dump`/`pg_restore`).
+    pub supports_backup: bool,
+
+    /// Gravar as alterações pendentes da grade numa chamada só
+    /// (`save_row_changes`), que desfaz tudo se uma etapa falhar. No Mongo isso
+    /// depende da topologia: replica set/mongos usa transação; num standalone
+    /// as etapas valem uma a uma (com aviso no log), como nas chamadas separadas.
+    pub supports_atomic_save: bool,
+}
+
+/// As capabilities de um tipo de banco — a tabela do `get_db_capabilities`.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbTypeCapabilities {
+    pub db_type: super::DatabaseType,
+    pub capabilities: AdapterCapabilities,
 }
 
 impl AdapterCapabilities {
@@ -37,6 +70,12 @@ impl AdapterCapabilities {
             supports_transactions: true,
             supports_indexes: true,
             browsable: true,
+            has_catalog: true,
+            supports_structure_changes: true,
+            supports_drop_cascade: true,
+            supports_schema_compare: true,
+            supports_backup: true,
+            supports_atomic_save: true,
         }
     }
 
@@ -48,6 +87,12 @@ impl AdapterCapabilities {
             supports_transactions: false,
             supports_indexes: true,
             browsable: true,
+            has_catalog: true,
+            supports_structure_changes: false,
+            supports_drop_cascade: false,
+            supports_schema_compare: false,
+            supports_backup: false,
+            supports_atomic_save: true,
         }
     }
 
@@ -59,6 +104,12 @@ impl AdapterCapabilities {
             supports_transactions: false,
             supports_indexes: false,
             browsable: true,
+            has_catalog: false,
+            supports_structure_changes: false,
+            supports_drop_cascade: false,
+            supports_schema_compare: false,
+            supports_backup: false,
+            supports_atomic_save: false,
         }
     }
 
@@ -71,6 +122,12 @@ impl AdapterCapabilities {
             supports_transactions: true,
             supports_indexes: true,
             browsable: true,
+            has_catalog: true,
+            supports_structure_changes: true,
+            supports_drop_cascade: false,
+            supports_schema_compare: false,
+            supports_backup: false,
+            supports_atomic_save: true,
         }
     }
 
@@ -84,5 +141,54 @@ impl AdapterCapabilities {
             super::DatabaseType::Sqlite => Some(Self::sqlite()),
             super::DatabaseType::Mysql => None,
         }
+    }
+
+    /// A tabela de todos os tipos com adapter, para o front decidir por
+    /// servidor sem uma consulta por servidor.
+    pub fn all() -> Vec<DbTypeCapabilities> {
+        use super::DatabaseType::*;
+        [Postgres, Mongodb, Redis, Sqlite]
+            .into_iter()
+            .filter_map(|db_type| {
+                Self::for_db_type(db_type).map(|capabilities| DbTypeCapabilities {
+                    db_type,
+                    capabilities,
+                })
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::has_catalog;
+    use crate::models::DatabaseType;
+
+    #[test]
+    fn catalog_flag_matches_the_adapters() {
+        for entry in AdapterCapabilities::all() {
+            assert_eq!(
+                entry.capabilities.has_catalog,
+                has_catalog(entry.db_type),
+                "{:?}",
+                entry.db_type
+            );
+        }
+    }
+
+    #[test]
+    fn schema_level_features_need_schemas() {
+        for entry in AdapterCapabilities::all() {
+            let caps = entry.capabilities;
+            if caps.supports_schema_compare {
+                assert!(caps.has_schemas && caps.has_catalog, "{:?}", entry.db_type);
+            }
+            if caps.supports_drop_cascade {
+                assert!(caps.supports_structure_changes, "{:?}", entry.db_type);
+            }
+        }
+        assert_eq!(AdapterCapabilities::all().len(), 4);
+        assert!(AdapterCapabilities::for_db_type(DatabaseType::Mysql).is_none());
     }
 }

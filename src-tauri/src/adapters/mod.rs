@@ -5,6 +5,7 @@ pub mod mongo;
 pub mod postgres;
 pub mod redisdb;
 pub mod sqlite;
+pub mod tls;
 
 pub use message_sink::*;
 pub use traits::*;

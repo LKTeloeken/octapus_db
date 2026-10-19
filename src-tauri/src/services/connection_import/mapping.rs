@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use crate::models::{DatabaseType, ImportCandidate, ImportWarning, Server, ServerInput};
+use crate::models::{DatabaseType, ImportCandidate, ImportWarning, Server, ServerInput, SslMode};
 
 /// Onde está a senha de uma conexão lida.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,7 +102,7 @@ struct Mapped {
     username: String,
     default_database: Option<String>,
     connection_uri: Option<String>,
-    ssl_enabled: bool,
+    ssl_mode: SslMode,
     warnings: Vec<ImportWarning>,
 }
 
@@ -119,17 +119,16 @@ fn map(raw: &RawConnection) -> Mapped {
         });
     }
 
-    let ssl_mode = raw.ssl_mode.as_deref().map(str::to_ascii_lowercase);
-    // `prefer`/`allow` tentam SSL e aceitam sem: o Octapus não tem o meio-termo
-    // e conecta sem, que é o que funciona com qualquer servidor
-    let ssl_enabled = matches!(
-        ssl_mode.as_deref(),
-        Some("require" | "verify-ca" | "verify-full")
-    );
-    if let Some(mode @ ("verify-ca" | "verify-full")) = ssl_mode.as_deref() {
-        warnings.push(ImportWarning::SslNotVerified {
-            mode: mode.to_string(),
-        });
+    // O modo do app de origem, no mais próximo que o banco aceita (Mongo e
+    // Redis: `prefer` vira `disable`, `verify-ca` vira `verify-full`)
+    let ssl_mode = raw
+        .ssl_mode
+        .as_deref()
+        .and_then(SslMode::parse)
+        .unwrap_or_default();
+    let ssl_mode = db_type.map_or(ssl_mode, |db_type| ssl_mode.for_db_type(db_type));
+    if ssl_mode.verifies() {
+        warnings.push(ImportWarning::SslSystemCa { mode: ssl_mode });
     }
     if raw.client_certificate {
         warnings.push(ImportWarning::ClientCertificate);
@@ -150,7 +149,7 @@ fn map(raw: &RawConnection) -> Mapped {
             username: String::new(),
             default_database: Some("main".into()),
             connection_uri: Some(path).filter(|p| !p.is_empty()),
-            ssl_enabled: false,
+            ssl_mode: SslMode::Disable,
             warnings,
         };
     }
@@ -167,7 +166,7 @@ fn map(raw: &RawConnection) -> Mapped {
         username: raw.username.clone(),
         default_database: database,
         connection_uri: raw.uri.clone(),
-        ssl_enabled,
+        ssl_mode,
         warnings,
     }
 }
@@ -218,7 +217,7 @@ pub fn to_candidate(key: usize, raw: &RawConnection, existing: &[Server]) -> Imp
         default_database: mapped.default_database,
         // A URI pode trazer a senha: a prévia vai para o front, a senha não
         connection_uri: mapped.connection_uri.as_deref().map(redact_uri),
-        ssl_enabled: mapped.ssl_enabled,
+        ssl_mode: mapped.ssl_mode,
         group: raw.group.clone(),
         has_password,
         password_in_keychain: in_keychain,
@@ -242,7 +241,8 @@ pub fn to_server_input(
         username: mapped.username,
         password,
         default_database: mapped.default_database,
-        ssl_enabled: Some(mapped.ssl_enabled),
+        ssl_mode: Some(mapped.ssl_mode),
+        ssl_root_cert: None,
         connection_uri: mapped.connection_uri,
         scope_databases: None,
         scope_schemas: None,
@@ -378,15 +378,15 @@ mod tests {
         raw.ssl_mode = Some("verify-full".into());
         raw.client_certificate = true;
         let candidate = to_candidate(0, &raw, &[]);
-        assert!(candidate.ssl_enabled);
+        assert_eq!(candidate.ssl_mode, SslMode::VerifyFull);
         assert_eq!(
             candidate.warnings,
             vec![
                 ImportWarning::SshTunnel {
                     host: "bastion.exemplo.com".into()
                 },
-                ImportWarning::SslNotVerified {
-                    mode: "verify-full".into()
+                ImportWarning::SslSystemCa {
+                    mode: SslMode::VerifyFull
                 },
                 ImportWarning::ClientCertificate,
                 ImportWarning::NoPassword,
@@ -412,12 +412,12 @@ mod tests {
     }
 
     #[test]
-    fn prefer_connects_without_ssl_and_password_is_kept() {
+    fn prefer_is_kept_on_postgres_and_password_too() {
         let mut raw = pg("localhost");
         raw.ssl_mode = Some("prefer".into());
         raw.secret = Secret::Plain("s3cret".into());
         let candidate = to_candidate(0, &raw, &[]);
-        assert!(!candidate.ssl_enabled);
+        assert_eq!(candidate.ssl_mode, SslMode::Prefer);
         assert!(candidate.has_password);
         assert!(candidate.warnings.is_empty());
 
@@ -458,7 +458,8 @@ mod tests {
             username: "app".into(),
             password: String::new(),
             default_database: Some("loja".into()),
-            ssl_enabled: false,
+            ssl_mode: SslMode::Disable,
+            ssl_root_cert: None,
             connection_uri: None,
             created_at: 0,
             scope_databases: None,
@@ -466,7 +467,7 @@ mod tests {
             group_id: None,
         };
         assert_eq!(
-            to_candidate(0, &pg("localhost"), &[existing.clone()]).duplicate_of,
+            to_candidate(0, &pg("localhost"), std::slice::from_ref(&existing)).duplicate_of,
             Some(42)
         );
         assert_eq!(

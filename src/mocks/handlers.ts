@@ -6,11 +6,13 @@ import type {
   QueryMessage,
   QueryOptions,
   QueryResult,
+  RowChanges,
   RowEdit,
   RowInsert,
   StatementResult,
 } from '@/api/types/query.types';
 import type {
+  DatabaseType,
   Server,
   ServerGroup,
   ServerInput,
@@ -62,6 +64,7 @@ import {
   emptyResult,
   selectFrom,
 } from './engine';
+import { sslModeFor, sslModeVerifies } from '@/lib/ssl-modes';
 import { mockCatalog } from './catalog';
 import { applyStructure, structureSql } from './structure';
 import { parseScope } from './scope';
@@ -91,7 +94,11 @@ const serverFromInput = (
   port: input.port,
   username: input.username,
   defaultDatabase: input.defaultDatabase ?? null,
-  sslEnabled: input.sslEnabled ?? false,
+  // Mesma regra do backend: o modo ajustado ao banco, a CA só nos verify-*
+  sslMode: sslModeFor(input.sslMode ?? 'disable', input.dbType),
+  sslRootCert: sslModeVerifies(input.sslMode)
+    ? (input.sslRootCert ?? null)
+    : null,
   connectionUri: input.connectionUri ?? null,
   createdAt,
   scopeDatabases: input.scopeDatabases?.trim() ? input.scopeDatabases : null,
@@ -172,7 +179,10 @@ const serverHandlers: Record<string, MockHandler> = {
   [RustCommand.SetServerGroup]: ({ id, groupId }: Args): void => {
     const entry = requireServerEntry(id as number);
     if (groupId != null) requireGroup(groupId as number);
-    entry.server = { ...entry.server, groupId: (groupId as number | null) ?? null };
+    entry.server = {
+      ...entry.server,
+      groupId: (groupId as number | null) ?? null,
+    };
   },
 
   [RustCommand.GetAllServerGroups]: (): ServerGroup[] =>
@@ -204,7 +214,8 @@ const serverHandlers: Record<string, MockHandler> = {
     requireGroup(id as number);
     dataset.groups = dataset.groups.filter(group => group.id !== id);
     for (const entry of dataset.servers) {
-      if (entry.server.groupId === id) entry.server = { ...entry.server, groupId: null };
+      if (entry.server.groupId === id)
+        entry.server = { ...entry.server, groupId: null };
     }
   },
 };
@@ -217,7 +228,11 @@ let mockImportPreview: ImportPreview | null = null;
 const importHandlers: Record<string, MockHandler> = {
   [RustCommand.ImportDetectSources]: () => MOCK_IMPORT_SOURCES,
 
-  [RustCommand.ImportPreview]: ({ source, path, text }: Args): ImportPreview => {
+  [RustCommand.ImportPreview]: ({
+    source,
+    path,
+    text,
+  }: Args): ImportPreview => {
     const servers = getDataset().servers.map(entry => entry.server);
     const candidates: ImportCandidate[] = mockImportFixtures(
       source as ImportSource,
@@ -235,7 +250,9 @@ const importHandlers: Record<string, MockHandler> = {
             server.defaultDatabase === fixture.defaultDatabase,
         )?.id ?? null,
     }));
-    const groups = Array.from(new Set(candidates.flatMap(c => (c.group ? [c.group] : []))));
+    const groups = Array.from(
+      new Set(candidates.flatMap(c => (c.group ? [c.group] : []))),
+    );
     const info = MOCK_IMPORT_SOURCES.find(entry => entry.source === source);
     mockImportPreview = {
       // Mesma faixa do Rust (u32): cabe exato num Number
@@ -277,7 +294,8 @@ const importHandlers: Record<string, MockHandler> = {
           ? groupIdOf(candidate.group)
           : typed.targetGroupId;
       const hasPassword =
-        typed.includePasswords && (candidate.hasPassword || candidate.passwordInKeychain);
+        typed.includePasswords &&
+        (candidate.hasPassword || candidate.passwordInKeychain);
       serverHandlers[RustCommand.CreateServer]({
         input: {
           name: candidate.name,
@@ -287,14 +305,16 @@ const importHandlers: Record<string, MockHandler> = {
           username: candidate.username,
           password: hasPassword ? 'mock' : '',
           defaultDatabase: candidate.defaultDatabase,
-          sslEnabled: candidate.sslEnabled,
+          sslMode: candidate.sslMode,
           connectionUri: candidate.connectionUri,
           groupId,
         } satisfies ServerInput,
       });
       imported++;
       const needsPassword =
-        candidate.dbType !== 'sqlite' && !candidate.connectionUri && !!candidate.username;
+        candidate.dbType !== 'sqlite' &&
+        !candidate.connectionUri &&
+        !!candidate.username;
       if (needsPassword && !hasPassword) withoutPassword++;
     }
     return {
@@ -334,6 +354,12 @@ const connectionHandlers: Record<string, MockHandler> = {
 
   [RustCommand.GetCapabilities]: ({ serverId }: Args) =>
     requireServerEntry(serverId as number).capabilities,
+
+  [RustCommand.GetDbCapabilities]: () =>
+    (Object.keys(CAPABILITIES) as DatabaseType[]).map(dbType => ({
+      dbType,
+      capabilities: CAPABILITIES[dbType],
+    })),
 };
 
 // ── Estrutura ───────────────────────────────────────────────────────────────
@@ -496,7 +522,11 @@ const ddlHandlers: Record<string, MockHandler> = {
     change,
   }: Args): StatementResult => {
     requireStructureEditing(serverId);
-    applyStructure(serverId as number, database as string, change as StructureChange);
+    applyStructure(
+      serverId as number,
+      database as string,
+      change as StructureChange,
+    );
     return { affectedRows: 0, executionTimeMs: 12 };
   },
 };
@@ -603,6 +633,9 @@ const settingsHandlers: Record<string, MockHandler> = {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
     return settings as AppSettings;
   },
+
+  // No navegador não há pasta para abrir: só confirma, como o app
+  [RustCommand.OpenLogDir]: (): void => undefined,
 };
 
 // ── Ferramentas do Postgres (backup/restore) ────────────────────────────────
@@ -624,8 +657,18 @@ const mockPgInstall = (
 });
 
 const MOCK_PG_CANDIDATES: PgToolsInstall[] = [
-  mockPgInstall('/opt/homebrew/opt/postgresql@17/bin', '17.2', 170_002, 'knownLocation'),
-  mockPgInstall('/opt/homebrew/opt/postgresql@15/bin', '15.10', 150_010, 'knownLocation'),
+  mockPgInstall(
+    '/opt/homebrew/opt/postgresql@17/bin',
+    '17.2',
+    170_002,
+    'knownLocation',
+  ),
+  mockPgInstall(
+    '/opt/homebrew/opt/postgresql@15/bin',
+    '15.10',
+    150_010,
+    'knownLocation',
+  ),
 ];
 
 /**
@@ -633,7 +676,9 @@ const MOCK_PG_CANDIDATES: PgToolsInstall[] = [
  * no caminho simula a pasta sem pg_dump); sem ela, a mais nova achada.
  */
 function mockPgDetection(): PgToolsDetection {
-  const { pgToolsDir } = settingsHandlers[RustCommand.GetSettings]({}) as AppSettings;
+  const { pgToolsDir } = settingsHandlers[RustCommand.GetSettings](
+    {},
+  ) as AppSettings;
   if (!pgToolsDir) {
     return {
       selected: MOCK_PG_CANDIDATES[0],
@@ -804,7 +849,13 @@ const backupHandlers: Record<string, MockHandler> = {
       throw 'Não parece um backup do PostgreSQL (.dump) nem um script SQL.';
     }
     if (file.endsWith('.sql')) {
-      return { path: file, format: 'plain', sizeBytes: 812_345, summary: null, summaryError: null };
+      return {
+        path: file,
+        format: 'plain',
+        sizeBytes: 812_345,
+        summary: null,
+        summaryError: null,
+      };
     }
     return {
       path: file,
@@ -837,7 +888,9 @@ const backupHandlers: Record<string, MockHandler> = {
     if (restore.format === 'plain') {
       return [
         'psql --no-psqlrc --no-password',
-        ...(options.singleTransaction ? ['--set=ON_ERROR_STOP=1 --single-transaction'] : []),
+        ...(options.singleTransaction
+          ? ['--set=ON_ERROR_STOP=1 --single-transaction']
+          : []),
         `--file=${path as string}`,
         ...connection,
       ].join(' ');
@@ -846,7 +899,9 @@ const backupHandlers: Record<string, MockHandler> = {
       'pg_restore --verbose --no-password',
       ...(options.noOwner ? ['--no-owner --no-privileges'] : []),
       ...(options.clean ? ['--clean --if-exists'] : []),
-      ...(options.singleTransaction ? ['--single-transaction --exit-on-error'] : []),
+      ...(options.singleTransaction
+        ? ['--single-transaction --exit-on-error']
+        : []),
       ...connection,
       path as string,
     ].join(' ');
@@ -877,7 +932,8 @@ const backupHandlers: Record<string, MockHandler> = {
           ? {
               jobId,
               type: 'error',
-              message: 'pg_restore: error: could not execute query: ERROR:  schema "vendas" already exists',
+              message:
+                'pg_restore: error: could not execute query: ERROR:  schema "vendas" already exists',
             }
           : {
               jobId,
@@ -887,7 +943,9 @@ const backupHandlers: Record<string, MockHandler> = {
               elapsedMs: steps.length * 500,
               warnings: restore.options.singleTransaction
                 ? []
-                : ['pg_restore: error: could not execute query: ERROR:  role "app" does not exist'],
+                : [
+                    'pg_restore: error: could not execute query: ERROR:  role "app" does not exist',
+                  ],
             },
       );
     };
@@ -1092,6 +1150,39 @@ const queryHandlers: Record<string, MockHandler> = {
     };
   },
 
+  // Tudo ou nada, como a transação do backend: um erro no meio devolve as
+  // linhas da tabela ao estado de antes (a sequência serial não volta — no
+  // Postgres também não)
+  [RustCommand.SaveRowChanges]: ({
+    serverId,
+    database,
+    editable,
+    changes,
+  }: Args): StatementResult => {
+    const entry = requireServerEntry(serverId as number);
+    if (!entry.capabilities.supportsAtomicSave) {
+      throw 'Unsupported type: Saving row changes is not supported for this database';
+    }
+    const { table, startedAt } = editTarget(serverId, database, editable);
+    const typed = editable as EditableInfo;
+    const { deletes, inserts, edits } = changes as RowChanges;
+    const rows = tableRows(table);
+    const before = rows.slice();
+    try {
+      const affectedRows =
+        applyDeletes(table, typed, deletes) +
+        applyInserts(table, inserts) +
+        applyEdits(table, typed, edits);
+      return {
+        affectedRows,
+        executionTimeMs: Math.round(performance.now() - startedAt),
+      };
+    } catch (error) {
+      rows.splice(0, rows.length, ...before);
+      throw error;
+    }
+  },
+
   [RustCommand.CancelQuery]: (): void => undefined,
 };
 
@@ -1215,7 +1306,7 @@ const pluginHandlers: Record<string, MockHandler> = {
       rid: 1,
       available: true,
       currentVersion: '0.1.0-beta.16',
-      version: '0.1.0-beta.17',
+      version: '1.0.0',
       date: '2026-09-14 12:00:00.000 +00:00:00',
       body: 'Notas de versão simuladas pelo modo mock.',
       rawJson: {},

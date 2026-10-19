@@ -88,6 +88,8 @@ impl BackupService {
         let sink = self.sink.get().cloned();
         let jobs = Arc::clone(&self.jobs);
         let id = job_id.clone();
+        let tool = spec.tool;
+        log::info!("{job_id}: {tool} iniciado");
         tokio::spawn(async move {
             let emit = |kind| {
                 if let Some(sink) = &sink {
@@ -99,6 +101,20 @@ impl BackupService {
             };
             let outcome = run(spec, cancel_rx, &emit).await;
             jobs.lock().remove(&id);
+            match &outcome {
+                BackupEventKind::Done {
+                    size_bytes,
+                    elapsed_ms,
+                    warnings,
+                    ..
+                } => log::info!(
+                    "{id}: {tool} concluído em {elapsed_ms} ms ({size_bytes} bytes, {} aviso(s))",
+                    warnings.len()
+                ),
+                BackupEventKind::Error { message } => log::warn!("{id}: {tool} falhou: {message}"),
+                BackupEventKind::Cancelled => log::info!("{id}: {tool} cancelado"),
+                BackupEventKind::Log { .. } => {}
+            }
             emit(outcome);
         });
         job_id

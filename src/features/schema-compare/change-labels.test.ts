@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { describeChange } from './change-labels';
 
-const spec = (dataType: string, nullable = true, defaultValue: string | null = null) => ({
+const spec = (
+  dataType: string,
+  nullable = true,
+  defaultValue: string | null = null,
+) => ({
   dataType,
   nullable,
   defaultValue,
@@ -10,10 +14,22 @@ const spec = (dataType: string, nullable = true, defaultValue: string | null = n
 describe('describeChange', () => {
   it('coluna que só um dos schemas tem mostra a definição', () => {
     expect(
-      describeChange({ column: 'discount', expected: null, actual: spec('numeric', false, '0') }),
-    ).toEqual({ tone: 'onlyOther', label: 'só no outro', detail: 'numeric NOT NULL DEFAULT 0' });
+      describeChange({
+        column: 'discount',
+        expected: null,
+        actual: spec('numeric', false, '0'),
+      }),
+    ).toEqual({
+      tone: 'onlyOther',
+      label: 'só no outro',
+      detail: 'numeric NOT NULL DEFAULT 0',
+    });
     expect(
-      describeChange({ column: 'status', expected: spec('text'), actual: null }),
+      describeChange({
+        column: 'status',
+        expected: spec('text'),
+        actual: null,
+      }),
     ).toEqual({ tone: 'onlyBase', label: 'só na base', detail: 'text' });
   });
 

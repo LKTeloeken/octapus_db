@@ -25,10 +25,18 @@ export function specText(spec: ColumnSpec): string {
 export function describeChange(change: ColumnChange): ChangeLabel {
   const { expected, actual } = change;
   if (!expected && actual) {
-    return { tone: 'onlyOther', label: 'só no outro', detail: specText(actual) };
+    return {
+      tone: 'onlyOther',
+      label: 'só no outro',
+      detail: specText(actual),
+    };
   }
   if (expected && !actual) {
-    return { tone: 'onlyBase', label: 'só na base', detail: specText(expected) };
+    return {
+      tone: 'onlyBase',
+      label: 'só na base',
+      detail: specText(expected),
+    };
   }
 
   const parts: string[] = [];
@@ -37,7 +45,9 @@ export function describeChange(change: ColumnChange): ChangeLabel {
       parts.push(`${expected.dataType} → ${actual.dataType}`);
     }
     if (expected.nullable !== actual.nullable) {
-      parts.push(actual.nullable ? 'NOT NULL → aceita nulo' : 'aceita nulo → NOT NULL');
+      parts.push(
+        actual.nullable ? 'NOT NULL → aceita nulo' : 'aceita nulo → NOT NULL',
+      );
     }
     if (expected.defaultValue !== actual.defaultValue) {
       parts.push(

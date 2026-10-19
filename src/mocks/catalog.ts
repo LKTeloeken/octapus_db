@@ -714,7 +714,11 @@ const columnSpec = (column: MockColumn): ColumnSpec => ({
 });
 
 /** Colunas de uma tabela de um schema do dataset (o `saas` gera na hora) */
-function columnsOf(db: MockDatabase, schema: string, table: string): MockColumn[] {
+function columnsOf(
+  db: MockDatabase,
+  schema: string,
+  table: string,
+): MockColumn[] {
   const found =
     db.generated === 'tenants'
       ? tenantTable(schema, table)
@@ -723,7 +727,10 @@ function columnsOf(db: MockDatabase, schema: string, table: string): MockColumn[
 }
 
 /** As mesmas regras do `catalog/columns.rs`: pelo nome, base → outro */
-function columnChanges(base: MockColumn[], other: MockColumn[]): ColumnChange[] {
+function columnChanges(
+  base: MockColumn[],
+  other: MockColumn[],
+): ColumnChange[] {
   const otherByName = new Map(other.map(column => [column.name, column]));
   const baseNames = new Set(base.map(column => column.name));
   const changes: ColumnChange[] = [];
@@ -737,7 +744,11 @@ function columnChanges(base: MockColumn[], other: MockColumn[]): ColumnChange[] 
   }
   for (const column of other) {
     if (!baseNames.has(column.name)) {
-      changes.push({ column: column.name, expected: null, actual: columnSpec(column) });
+      changes.push({
+        column: column.name,
+        expected: null,
+        actual: columnSpec(column),
+      });
     }
   }
   return changes;
@@ -775,7 +786,10 @@ async function compareSchemas(
     different: common
       .map(table => ({
         table,
-        changes: columnChanges(columnsOf(db, base, table), columnsOf(db, other, table)),
+        changes: columnChanges(
+          columnsOf(db, base, table),
+          columnsOf(db, other, table),
+        ),
       }))
       .filter(diff => diff.changes.length > 0),
   };

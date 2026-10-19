@@ -44,8 +44,10 @@ export const QueryProvider = ({ children }: { children: ReactNode }) => {
         // Sobe quando o formato do cache persistido muda. `catalog-v1`: os
         // Postgres passaram para o catálogo do backend, e a estrutura inteira
         // que ficava aqui (dezenas de MB num banco multi-tenant) é descartada.
-        // `server-groups-v1`: `Server` ganhou o `groupId` (grupos da sidebar)
-        buster: 'server-groups-v1',
+        // `server-groups-v1`: `Server` ganhou o `groupId` (grupos da sidebar).
+        // `ssl-capabilities-v1`: `Server` trocou `sslEnabled` por `sslMode` e
+        // `AdapterCapabilities` ganhou as flags de catálogo, estrutura e backup
+        buster: 'ssl-capabilities-v1',
         dehydrateOptions: {
           shouldDehydrateQuery: query =>
             query.state.status === 'success' &&

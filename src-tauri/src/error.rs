@@ -28,6 +28,11 @@ pub enum Error {
     // Adapter errors
     UnsupportedDatabase(String),
     UnsupportedType(String),
+
+    /// Falha fora dos bancos: ferramentas externas (pg_dump…), sistema de
+    /// arquivos, API do updater. A mensagem já é escrita para o usuário, então
+    /// sai sem prefixo.
+    External(String),
 }
 
 impl fmt::Display for Error {
@@ -45,6 +50,7 @@ impl fmt::Display for Error {
             Self::Cancelled => write!(f, "Operation cancelled"),
             Self::UnsupportedDatabase(msg) => write!(f, "Unsupported database: {msg}"),
             Self::UnsupportedType(msg) => write!(f, "Unsupported type: {msg}"),
+            Self::External(msg) => f.write_str(msg),
         }
     }
 }
@@ -58,13 +64,30 @@ impl From<rusqlite::Error> for Error {
     }
 }
 
+/// A mensagem com as causas encadeadas (`a: b: c`). O tokio-postgres diz só
+/// "error performing TLS handshake"; o motivo (CA desconhecida, nome que não
+/// bate) está no `source()`.
+pub fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !message.contains(&text) {
+            message.push_str(": ");
+            message.push_str(&text);
+        }
+        source = cause.source();
+    }
+    message
+}
+
 impl From<tokio_postgres::Error> for Error {
     fn from(e: tokio_postgres::Error) -> Self {
         // tokio_postgres Display is just "db error"; the server message
         // (e.g. "canceling statement due to user request") lives in DbError.
         match e.as_db_error() {
             Some(db) => Error::Query(db.message().to_string()),
-            None => Error::Query(e.to_string()),
+            None => Error::Query(error_chain(&e)),
         }
     }
 }
@@ -96,12 +119,13 @@ impl From<deadpool_postgres::PoolError> for Error {
     fn from(e: deadpool_postgres::PoolError) -> Self {
         match e {
             deadpool_postgres::PoolError::Timeout(_) => Error::ConnectionTimeout,
-            _ => Error::Connection(e.to_string()),
+            _ => Error::Connection(error_chain(&e)),
         }
     }
 }
 
-// For Tauri serialization
+/// Formato da rejeição no front: `{ code, message }`, com `message` igual ao
+/// `Display` (ver `ApiError` em src/api/client.ts).
 impl serde::Serialize for Error {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -131,8 +155,34 @@ impl Error {
             Self::Cancelled => "CANCELLED",
             Self::UnsupportedDatabase(_) => "UNSUPPORTED_DATABASE",
             Self::UnsupportedType(_) => "UNSUPPORTED_TYPE",
+            Self::External(_) => "EXTERNAL_ERROR",
         }
     }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serializes_code_and_display_message() {
+        let json =
+            serde_json::to_value(Error::Query("relation \"x\" does not exist".into())).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "code": "QUERY_ERROR",
+                "message": "Query error: relation \"x\" does not exist",
+            })
+        );
+    }
+
+    #[test]
+    fn external_message_has_no_prefix() {
+        let error = Error::External("O pg_dump não foi encontrado.".into());
+        assert_eq!(error.to_string(), "O pg_dump não foi encontrado.");
+        assert_eq!(error.code(), "EXTERNAL_ERROR");
+    }
+}

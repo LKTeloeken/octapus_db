@@ -1,11 +1,10 @@
 import { memo, useMemo } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
-import { html } from '@codemirror/lang-html';
 import { json } from '@codemirror/lang-json';
-import { xml } from '@codemirror/lang-xml';
 import type { Extension } from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
 import { inkEditorTheme } from '@/lib/codemirror-theme';
+import { useLazyLanguage } from '@/lib/use-lazy-language';
 import type { ValueFormat } from '@/lib/value-format';
 import { useUiStore } from '@/stores/ui-store';
 
@@ -15,18 +14,11 @@ const disableSpellcheck = EditorView.contentAttributes.of({
   autocapitalize: 'off',
 });
 
-const languageFor = (format: ValueFormat): Extension[] => {
-  switch (format) {
-    case 'json':
-      return [json()];
-    case 'xml':
-      return [xml()];
-    case 'html':
-      return [html()];
-    default:
-      return [];
-  }
-};
+const jsonLanguage = json();
+
+/** XML e HTML vêm sob demanda (use-lazy-language); JSON fica no bundle */
+const lazyLanguageFor = (format: ValueFormat) =>
+  format === 'xml' || format === 'html' ? format : null;
 
 interface ValueEditorProps {
   value: string;
@@ -50,10 +42,18 @@ export const ValueEditor = memo(
     onEscape,
   }: ValueEditorProps) => {
     const theme = useUiStore(state => state.theme);
-    const editorTheme = useMemo(() => inkEditorTheme(theme === 'dark'), [theme]);
+    const editorTheme = useMemo(
+      () => inkEditorTheme(theme === 'dark'),
+      [theme],
+    );
+
+    const lazyLanguage = useLazyLanguage(lazyLanguageFor(format));
 
     const extensions = useMemo(() => {
-      const list: Extension[] = [disableSpellcheck, ...languageFor(format)];
+      const list: Extension[] = [
+        disableSpellcheck,
+        format === 'json' ? jsonLanguage : lazyLanguage,
+      ];
       // O dump binário tem colunas alinhadas: quebrar a linha o desmonta.
       if (wordWrap && format !== 'binary') list.push(EditorView.lineWrapping);
       if (isNull) list.push(placeholder('NULL'));
@@ -71,7 +71,7 @@ export const ValueEditor = memo(
         );
       }
       return list;
-    }, [format, wordWrap, isNull, onEscape]);
+    }, [format, lazyLanguage, wordWrap, isNull, onEscape]);
 
     return (
       <CodeMirror

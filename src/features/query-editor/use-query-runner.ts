@@ -2,10 +2,12 @@ import { useCallback, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import type { QueryMessage } from '@/api/types/query.types';
 import type { SaveRowChanges } from '@/components/results-table/results-table.types';
+import { persistRowChanges } from '@/lib/persist-row-changes';
 import {
   useApplyRowEdits,
   useDeleteRows,
   useInsertRows,
+  useSaveRowChanges,
 } from '@/queries/use-apply-row-edits';
 import { useCapabilities } from '@/queries/use-capabilities';
 import { useExecuteQuery } from '@/queries/use-execute-query';
@@ -20,7 +22,7 @@ import { useSqlCompletion } from './use-sql-completion';
 
 const PLACEHOLDERS: Record<string, string> = {
   postgres: 'SELECT * FROM ...',
-  mongodb: "db.collection.find({ ... })",
+  mongodb: 'db.collection.find({ ... })',
   redis: 'GET user:1 · HGETALL session:abc · SCAN 0 MATCH user:*',
   sqlite: 'SELECT * FROM ...',
 };
@@ -50,11 +52,14 @@ export const useQueryRunner = (tab: QueryTab) => {
   const applyEditsMutation = useApplyRowEdits();
   const insertRowsMutation = useInsertRows();
   const deleteRowsMutation = useDeleteRows();
+  const saveRowChangesMutation = useSaveRowChanges();
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const { data: servers } = useServers();
   const { data: capabilities } = useCapabilities(tab.serverId);
   const supportsSql = capabilities?.supportsSql ?? true;
+  // Sem saber ainda (capabilities carregando), grava em etapas separadas
+  const supportsAtomicSave = capabilities?.supportsAtomicSave === true;
 
   const sqlCompletion = useSqlCompletion({
     serverId: tab.serverId,
@@ -193,32 +198,24 @@ export const useQueryRunner = (tab: QueryTab) => {
   }, [run, tab.serverId, tab.database, tab.schema, executeQuery]);
 
   const save = useCallback(
-    async ({ edits, inserts, deletes }: SaveRowChanges) => {
+    async (changes: SaveRowChanges) => {
       const editable = run?.result.editableInfo;
       if (!editable) return;
 
       const base = { serverId: tab.serverId, database: tab.database, editable };
 
       try {
-        let affected = 0;
-        if (deletes.length > 0) {
-          const r = await deleteRowsMutation.mutateAsync({
-            ...base,
-            pkValues: deletes,
-          });
-          affected += r.affectedRows;
-        }
-        if (inserts.length > 0) {
-          const r = await insertRowsMutation.mutateAsync({
-            ...base,
-            rows: inserts,
-          });
-          affected += r.affectedRows;
-        }
-        if (edits.length > 0) {
-          const r = await applyEditsMutation.mutateAsync({ ...base, edits });
-          affected += r.affectedRows;
-        }
+        const affected = await persistRowChanges(changes, {
+          saveAll: supportsAtomicSave
+            ? all =>
+                saveRowChangesMutation.mutateAsync({ ...base, changes: all })
+            : undefined,
+          deleteRows: pkValues =>
+            deleteRowsMutation.mutateAsync({ ...base, pkValues }),
+          insertRows: rows => insertRowsMutation.mutateAsync({ ...base, rows }),
+          applyEdits: edits =>
+            applyEditsMutation.mutateAsync({ ...base, edits }),
+        });
         toast.success(`${affected} linhas alteradas`);
         await executeRun(run.query);
       } catch (error) {
@@ -233,6 +230,8 @@ export const useQueryRunner = (tab: QueryTab) => {
       applyEditsMutation,
       insertRowsMutation,
       deleteRowsMutation,
+      saveRowChangesMutation,
+      supportsAtomicSave,
       executeRun,
     ],
   );

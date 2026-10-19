@@ -19,7 +19,11 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useMemo, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { getCapabilities } from '@/api/connection';
-import { listColumns, listDatabases, listSchemasWithTables } from '@/api/structure';
+import {
+  listColumns,
+  listDatabases,
+  listSchemasWithTables,
+} from '@/api/structure';
 import type { BackupTarget } from '@/api/types/backup.types';
 import type { AdapterCapabilities } from '@/api/types/capabilities.types';
 import {
@@ -30,7 +34,11 @@ import {
   type CatalogStatus,
   type ShapeGroup,
 } from '@/api/types/catalog.types';
-import type { DatabaseType, Server, ServerGroup } from '@/api/types/server.types';
+import type {
+  DatabaseType,
+  Server,
+  ServerGroup,
+} from '@/api/types/server.types';
 import type {
   ColumnInfo,
   DatabaseInfo,
@@ -38,6 +46,7 @@ import type {
 } from '@/api/types/structure.types';
 import { useServerGroups } from '@/queries/use-server-groups';
 import { useServers } from '@/queries/use-servers';
+import { useDbCapabilities } from '@/queries/use-capabilities';
 import { useRefreshStructure } from '@/queries/use-refresh-structure';
 import {
   CATALOG_PAGE_SIZE,
@@ -92,10 +101,6 @@ const columnsKey = (
 
 const dbKey = (ref: NodeRef) => `${ref.serverId}|${ref.database}`;
 
-/** Bancos cuja estrutura (tabelas e colunas) se edita pela árvore */
-const canEditStructure = (dbType: DatabaseType | undefined) =>
-  dbType === 'postgres' || dbType === 'sqlite';
-
 /** Relações que têm colunas próprias para editar (views e externas não) */
 const hasEditableColumns = (kind: CatalogNodeKind | undefined) =>
   kind === undefined || kind === 'table' || kind === 'partitioned';
@@ -103,9 +108,12 @@ const hasEditableColumns = (kind: CatalogNodeKind | undefined) =>
 /** Há formato repetido entre os schemas (algum molde de tenant): só aí vale agrupar */
 const hasRepeatedShapes = (status: CatalogStatus | undefined) => {
   const stats = status?.stats;
-  return !!stats && stats.loaded + stats.stale > stats.shapes && stats.shapes > 0;
+  return (
+    !!stats && stats.loaded + stats.stale > stats.shapes && stats.shapes > 0
+  );
 };
-const schemaKey = (ref: NodeRef) => `${ref.serverId}|${ref.database}|${ref.schema}`;
+const schemaKey = (ref: NodeRef) =>
+  `${ref.serverId}|${ref.database}|${ref.schema}`;
 
 /**
  * Flattens the expanded tree into a single virtualizable list. Each level's
@@ -134,6 +142,8 @@ export const useConnectionTree = ({
   useCatalogEvents();
 
   const serversQuery = useServers();
+  // O que cada banco suporta (catálogo, edição de estrutura, backup…)
+  const capsByType = useDbCapabilities();
   const groupsQuery = useServerGroups();
   const collapsedGroups = useTreeStore(state => state.collapsedGroups);
   const openGroupDialog = useServerGroupDialogStore(state => state.open);
@@ -161,7 +171,7 @@ export const useConnectionTree = ({
   // campo a cada letra digitada.
   const lastPages = useRef(new Map<string, CatalogPage<CatalogNode>>());
 
-  const servers = serversQuery.data ?? [];
+  const servers = useMemo(() => serversQuery.data ?? [], [serversQuery.data]);
   const serverIds = useMemo(
     () => new Set(servers.map(server => server.id)),
     [servers],
@@ -169,9 +179,11 @@ export const useConnectionTree = ({
   const catalogServerIds = useMemo(
     () =>
       new Set(
-        servers.filter(server => hasCatalog(server.dbType)).map(server => server.id),
+        servers
+          .filter(server => hasCatalog(capsByType[server.dbType]))
+          .map(server => server.id),
       ),
-    [servers],
+    [servers, capsByType],
   );
   const dbTypes = useMemo(
     () => new Map(servers.map(server => [server.id, server.dbType])),
@@ -180,9 +192,11 @@ export const useConnectionTree = ({
   const flatServerIds = useMemo(
     () =>
       new Set(
-        servers.filter(server => isFlatCatalog(server.dbType)).map(server => server.id),
+        servers
+          .filter(server => isFlatCatalog(capsByType[server.dbType]))
+          .map(server => server.id),
       ),
-    [servers],
+    [servers, capsByType],
   );
 
   // Decode the expansion set into the entities whose children must be fetched.
@@ -193,7 +207,9 @@ export const useConnectionTree = ({
   const expandedServerIds = useMemo(
     () =>
       expandedRefs
-        .filter(ref => nodeKind(ref) === 'server' && serverIds.has(ref.serverId))
+        .filter(
+          ref => nodeKind(ref) === 'server' && serverIds.has(ref.serverId),
+        )
         .map(ref => ref.serverId),
     [expandedRefs, serverIds],
   );
@@ -204,14 +220,31 @@ export const useConnectionTree = ({
       ),
     [expandedRefs, serverIds],
   );
+  // Estrutura inteira (Redis) só com as capabilities já em mãos: enquanto
+  // carregam, um Postgres pareceria "sem catálogo" e pediria a estrutura
+  // inteira — o que derrubava servidores com milhares de schemas
+  const legacyServerIds = useMemo(
+    () =>
+      new Set(
+        servers
+          .filter(server => {
+            const caps = capsByType[server.dbType];
+            return caps !== undefined && !caps.hasCatalog;
+          })
+          .map(server => server.id),
+      ),
+    [servers, capsByType],
+  );
   const legacyDbRefs = useMemo(
-    () => expandedDbRefs.filter(ref => !catalogServerIds.has(ref.serverId)),
-    [expandedDbRefs, catalogServerIds],
+    () => expandedDbRefs.filter(ref => legacyServerIds.has(ref.serverId)),
+    [expandedDbRefs, legacyServerIds],
   );
   const catalogDbRefs = useMemo(
     () =>
       expandedDbRefs.filter(
-        ref => catalogServerIds.has(ref.serverId) && !flatServerIds.has(ref.serverId),
+        ref =>
+          catalogServerIds.has(ref.serverId) &&
+          !flatServerIds.has(ref.serverId),
       ),
     [expandedDbRefs, catalogServerIds, flatServerIds],
   );
@@ -227,7 +260,9 @@ export const useConnectionTree = ({
         ref =>
           nodeKind(ref) === 'schema' &&
           catalogServerIds.has(ref.serverId) &&
-          expanded.has(encodeNodeId({ serverId: ref.serverId, database: ref.database })),
+          expanded.has(
+            encodeNodeId({ serverId: ref.serverId, database: ref.database }),
+          ),
       ),
     [expandedRefs, catalogServerIds, expanded],
   );
@@ -288,7 +323,9 @@ export const useConnectionTree = ({
     [catalogDbRefs, flatDbRefs],
   );
   const catalogStatusQueries = useQueries({
-    queries: catalogStatusRefs.map(ref => catalogStatusQuery(ref.serverId, ref.database!)),
+    queries: catalogStatusRefs.map(ref =>
+      catalogStatusQuery(ref.serverId, ref.database!),
+    ),
   });
 
   // Agrupados por formato: os grupos primeiro; a lista simples só sem eles
@@ -301,7 +338,9 @@ export const useConnectionTree = ({
     ),
   });
   const shapesByKey = new Map<string, UseQueryResult<ShapeGroup[]>>();
-  groupedDbRefs.forEach((ref, i) => shapesByKey.set(dbKey(ref), shapeQueries[i]));
+  groupedDbRefs.forEach((ref, i) =>
+    shapesByKey.set(dbKey(ref), shapeQueries[i]),
+  );
   /** Sem formato repetido não há grupos: a árvore fica na lista simples */
   const listDbRefs = catalogDbRefs.filter(ref => {
     const shapes = shapesByKey.get(dbKey(ref));
@@ -312,8 +351,9 @@ export const useConnectionTree = ({
     if (nodeKind(ref) !== 'shape') return false;
     const groups = shapesByKey.get(dbKey(ref))?.data;
     return (
-      expanded.has(encodeNodeId({ serverId: ref.serverId, database: ref.database })) &&
-      !!groups?.some(group => group.key === ref.shape)
+      expanded.has(
+        encodeNodeId({ serverId: ref.serverId, database: ref.database }),
+      ) && !!groups?.some(group => group.key === ref.shape)
     );
   });
   const shapeSchemaQueries = useQueries({
@@ -424,7 +464,9 @@ export const useConnectionTree = ({
 
   // Zip query results back to their entities (results keep input order).
   const databasesByServer = new Map<number, UseQueryResult<DatabaseInfo[]>>();
-  expandedServerIds.forEach((id, i) => databasesByServer.set(id, databaseQueries[i]));
+  expandedServerIds.forEach((id, i) =>
+    databasesByServer.set(id, databaseQueries[i]),
+  );
 
   const capabilitiesByServer = new Map<
     number,
@@ -435,22 +477,39 @@ export const useConnectionTree = ({
   );
 
   const structureByKey = new Map<string, UseQueryResult<DatabaseStructure>>();
-  legacyDbRefs.forEach((ref, i) => structureByKey.set(dbKey(ref), structureQueries[i]));
+  legacyDbRefs.forEach((ref, i) =>
+    structureByKey.set(dbKey(ref), structureQueries[i]),
+  );
 
   const statusByKey = new Map<string, UseQueryResult<CatalogStatus>>();
-  catalogStatusRefs.forEach((ref, i) => statusByKey.set(dbKey(ref), catalogStatusQueries[i]));
+  catalogStatusRefs.forEach((ref, i) =>
+    statusByKey.set(dbKey(ref), catalogStatusQueries[i]),
+  );
 
   // Filhos do database com catálogo: schemas ou, sem schema, as relações
-  const dbChildrenByKey = new Map<string, UseQueryResult<CatalogPage<CatalogNode>>>();
-  listDbRefs.forEach((ref, i) => dbChildrenByKey.set(dbKey(ref), schemaListQueries[i]));
-  flatDbRefs.forEach((ref, i) => dbChildrenByKey.set(dbKey(ref), flatListQueries[i]));
+  const dbChildrenByKey = new Map<
+    string,
+    UseQueryResult<CatalogPage<CatalogNode>>
+  >();
+  listDbRefs.forEach((ref, i) =>
+    dbChildrenByKey.set(dbKey(ref), schemaListQueries[i]),
+  );
+  flatDbRefs.forEach((ref, i) =>
+    dbChildrenByKey.set(dbKey(ref), flatListQueries[i]),
+  );
 
-  const relationListByKey = new Map<string, UseQueryResult<CatalogPage<CatalogNode>>>();
+  const relationListByKey = new Map<
+    string,
+    UseQueryResult<CatalogPage<CatalogNode>>
+  >();
   catalogSchemaRefs.forEach((ref, i) =>
     relationListByKey.set(schemaKey(ref), relationListQueries[i]),
   );
 
-  const partitionsByKey = new Map<string, UseQueryResult<CatalogPage<CatalogNode>>>();
+  const partitionsByKey = new Map<
+    string,
+    UseQueryResult<CatalogPage<CatalogNode>>
+  >();
   partitionedRefs.forEach((ref, i) =>
     partitionsByKey.set(
       columnsKey(ref.serverId, ref.database!, ref.schema ?? null, ref.table!),
@@ -484,7 +543,7 @@ export const useConnectionTree = ({
    * Filtro (lista grande) antes dos filhos de `nodeId`, e "carregar mais"
    * depois deles quando a janela não cobre o total.
    */
-  const pushPage = <T,>(
+  const pushPage = <T>(
     nodeId: string,
     level: number,
     page: CatalogPage<T>,
@@ -544,19 +603,28 @@ export const useConnectionTree = ({
 
     if (query?.data) lastPages.current.set(nodeId, query.data);
     const page =
-      query?.data ?? (query?.isPending ? lastPages.current.get(nodeId) : undefined);
+      query?.data ??
+      (query?.isPending ? lastPages.current.get(nodeId) : undefined);
     if (!query || !page) return;
     pushPage(nodeId, level, page, query.isFetching, placeholder, pushChild);
   };
 
   /** A mesma janela sobre uma lista que já está inteira no front */
-  const localPage = <T,>(nodeId: string, items: T[], nameOf: (item: T) => string) => {
+  const localPage = <T>(
+    nodeId: string,
+    items: T[],
+    nameOf: (item: T) => string,
+  ) => {
     const needle = (filters.get(nodeId) ?? '').trim().toLowerCase();
     const matching = needle
       ? items.filter(item => nameOf(item).toLowerCase().includes(needle))
       : items;
     const limit = limits.get(nodeId) ?? CATALOG_PAGE_SIZE;
-    return { total: matching.length, offset: 0, items: matching.slice(0, limit) };
+    return {
+      total: matching.length,
+      offset: 0,
+      items: matching.slice(0, limit),
+    };
   };
 
   /** Onde a árvore edita a estrutura; null nos bancos sem edição */
@@ -566,8 +634,8 @@ export const useConnectionTree = ({
     schema: string | null,
   ): StructureTarget | null => {
     const dbType = dbTypes.get(serverId);
-    return canEditStructure(dbType)
-      ? { serverId, database, dbType: dbType!, schema }
+    return dbType && capsByType[dbType]?.supportsStructureChanges
+      ? { serverId, database, dbType, schema }
       : null;
   };
 
@@ -579,7 +647,8 @@ export const useConnectionTree = ({
   ): NodeRowAction[] => {
     if (!target) return [];
     const isTable = hasEditableColumns(relationKind);
-    const isView = relationKind === 'view' || relationKind === 'materializedView';
+    const isView =
+      relationKind === 'view' || relationKind === 'materializedView';
     return [
       ...(isTable
         ? [
@@ -587,12 +656,14 @@ export const useConnectionTree = ({
               label: 'Nova coluna',
               icon: ColumnInsertIcon,
               separated: true,
-              onSelect: () => openStructureDialog({ kind: 'addColumn', target, table }),
+              onSelect: () =>
+                openStructureDialog({ kind: 'addColumn', target, table }),
             },
             {
               label: 'Renomear',
               icon: PencilEdit02Icon,
-              onSelect: () => openStructureDialog({ kind: 'renameTable', target, table }),
+              onSelect: () =>
+                openStructureDialog({ kind: 'renameTable', target, table }),
             },
           ]
         : []),
@@ -602,18 +673,29 @@ export const useConnectionTree = ({
         danger: true,
         separated: true,
         onSelect: () =>
-          openStructureDialog({ kind: 'dropTable', target, table, relationKind }),
+          openStructureDialog({
+            kind: 'dropTable',
+            target,
+            table,
+            relationKind,
+          }),
       },
     ];
   };
 
-  /** Backup pelo pg_dump do nó (database, schema ou tabela) — só Postgres */
+  /** O que o banco do servidor suporta; undefined enquanto carrega */
+  const capsOf = (serverId: number) => {
+    const dbType = dbTypes.get(serverId);
+    return dbType ? capsByType[dbType] : undefined;
+  };
+
+  /** Backup pelo pg_dump do nó (database, schema ou tabela) */
   const backupAction = (
     serverId: number,
     database: string,
     target: BackupTarget,
   ): NodeRowAction[] =>
-    dbTypes.get(serverId) === 'postgres'
+    capsOf(serverId)?.supportsBackup
       ? [
           {
             label: 'Fazer backup…',
@@ -655,7 +737,9 @@ export const useConnectionTree = ({
     const isExpanded = expanded.has(tableNodeId);
     const key = columnsKey(serverId, database, schema, table);
     const partitioned = relationKind === 'partitioned';
-    const childQuery = partitioned ? partitionsByKey.get(key) : columnsByKey.get(key);
+    const childQuery = partitioned
+      ? partitionsByKey.get(key)
+      : columnsByKey.get(key);
     const target = structureTarget(serverId, database, schema);
     const columnsEditable = !!target && hasEditableColumns(relationKind);
 
@@ -806,18 +890,24 @@ export const useConnectionTree = ({
               label: 'Nova tabela',
               icon: Table01Icon,
               separated: true,
-              onSelect: () => openStructureDialog({ kind: 'createTable', target }),
+              onSelect: () =>
+                openStructureDialog({ kind: 'createTable', target }),
             },
           ]
         : []),
-      ...(dbTypes.get(serverId) === 'postgres'
+      ...(capsOf(serverId)?.supportsSchemaCompare
         ? [compareAction(serverId, database, schema)]
         : []),
       ...backupAction(serverId, database, { kind: 'schema', schema }),
     ];
   };
 
-  const openSizeFor = (serverId: number, database: string, schema: string, table: string) =>
+  const openSizeFor = (
+    serverId: number,
+    database: string,
+    schema: string,
+    table: string,
+  ) =>
     openRef?.serverId === serverId &&
     openRef.database === database &&
     openRef.schema === schema &&
@@ -829,7 +919,11 @@ export const useConnectionTree = ({
    * Database com catálogo: schemas em janela, relações sob demanda. Sem
    * schema (Mongo, SQLite), as relações vêm direto, também em janela.
    */
-  const pushCatalogDatabase = (serverId: number, database: string, dbType: DatabaseType) => {
+  const pushCatalogDatabase = (
+    serverId: number,
+    database: string,
+    dbType: DatabaseType,
+  ) => {
     const dbNodeId = encodeNodeId({ serverId, database });
     const key = `${serverId}|${database}`;
     const status = statusByKey.get(key);
@@ -861,8 +955,9 @@ export const useConnectionTree = ({
       return;
     }
 
-    if (isFlatCatalog(dbType)) {
-      const placeholder = dbType === 'mongodb' ? 'Filtrar coleções' : 'Filtrar tabelas';
+    if (isFlatCatalog(capsByType[dbType])) {
+      const placeholder =
+        dbType === 'mongodb' ? 'Filtrar coleções' : 'Filtrar tabelas';
       pushWindowed(dbNodeId, 2, children, placeholder, relation =>
         pushTable(
           serverId,
@@ -890,7 +985,8 @@ export const useConnectionTree = ({
     }
     if (shapes && !shapes.data) return;
     if (shapes?.data?.length) {
-      for (const group of shapes.data) pushShapeGroup(serverId, database, group);
+      for (const group of shapes.data)
+        pushShapeGroup(serverId, database, group);
       return;
     }
 
@@ -900,10 +996,16 @@ export const useConnectionTree = ({
   };
 
   /** Um grupo da árvore agrupada e, aberto, os schemas dele em janela */
-  const pushShapeGroup = (serverId: number, database: string, group: ShapeGroup) => {
+  const pushShapeGroup = (
+    serverId: number,
+    database: string,
+    group: ShapeGroup,
+  ) => {
     const groupNodeId = encodeNodeId({ serverId, database, shape: group.key });
     const isGroupExpanded = expanded.has(groupNodeId);
-    const schemas = shapeSchemasByKey.get(`${serverId}|${database}|${group.key}`);
+    const schemas = shapeSchemasByKey.get(
+      `${serverId}|${database}|${group.key}`,
+    );
     const { name, subLabel, badge } = shapeGroupRow(group);
 
     rows.push({
@@ -937,9 +1039,15 @@ export const useConnectionTree = ({
     level: number,
     showDrift: boolean,
   ) => {
-    const schemaNodeId = encodeNodeId({ serverId, database, schema: node.name });
+    const schemaNodeId = encodeNodeId({
+      serverId,
+      database,
+      schema: node.name,
+    });
     const isSchemaExpanded = expanded.has(schemaNodeId);
-    const relations = relationListByKey.get(`${serverId}|${database}|${node.name}`);
+    const relations = relationListByKey.get(
+      `${serverId}|${database}|${node.name}`,
+    );
     // Com aviso de drift a contagem sai: a sidebar é estreita e o nome do
     // tenant não pode sumir
     const badge = showDrift ? driftBadge(node.drift) : undefined;
@@ -952,7 +1060,9 @@ export const useConnectionTree = ({
         kind: 'schema',
         name: node.name,
         subLabel:
-          badge || node.childCount == null ? undefined : formatCount(node.childCount),
+          badge || node.childCount == null
+            ? undefined
+            : formatCount(node.childCount),
         badge,
         // Ainda não carregado: pode ter filhos — abrir carrega na hora
         hasChildren: node.childCount == null || node.childCount > 0,
@@ -964,16 +1074,21 @@ export const useConnectionTree = ({
     });
 
     if (!isSchemaExpanded) return;
-    pushWindowed(schemaNodeId, level + 1, relations, 'Filtrar tabelas', relation =>
-      pushTable(
-        serverId,
-        database,
-        node.name,
-        relation.name,
-        openSizeFor(serverId, database, node.name, relation.name),
-        level + 1,
-        relation.kind,
-      ),
+    pushWindowed(
+      schemaNodeId,
+      level + 1,
+      relations,
+      'Filtrar tabelas',
+      relation =>
+        pushTable(
+          serverId,
+          database,
+          node.name,
+          relation.name,
+          openSizeFor(serverId, database, node.name, relation.name),
+          level + 1,
+          relation.kind,
+        ),
     );
   };
 
@@ -1004,11 +1119,12 @@ export const useConnectionTree = ({
     const repeats = hasRepeatedShapes(status);
     const grouped = shapeGrouped.has(dbNodeId);
     // Sem schema (SQLite), a tabela nova nasce direto no database
-    const flatTarget = isFlatCatalog(dbType)
+    const caps = capsByType[dbType];
+    const flatTarget = isFlatCatalog(caps)
       ? structureTarget(serverId, database, null)
       : null;
     return [
-      ...(!isFlatCatalog(dbType) && (repeats || grouped)
+      ...(!isFlatCatalog(caps) && (repeats || grouped)
         ? [
             {
               label: grouped ? 'Lista simples' : 'Agrupar por formato',
@@ -1017,9 +1133,11 @@ export const useConnectionTree = ({
             },
           ]
         : []),
-      ...(dbType === 'postgres' ? [compareAction(serverId, database, null)] : []),
+      ...(caps?.supportsSchemaCompare
+        ? [compareAction(serverId, database, null)]
+        : []),
       ...backupAction(serverId, database, { kind: 'database' }),
-      ...(dbType === 'postgres'
+      ...(caps?.supportsBackup
         ? [
             {
               label: 'Restaurar backup…',
@@ -1035,7 +1153,10 @@ export const useConnectionTree = ({
               label: 'Nova tabela',
               icon: Table01Icon,
               onSelect: () =>
-                openStructureDialog({ kind: 'createTable', target: flatTarget }),
+                openStructureDialog({
+                  kind: 'createTable',
+                  target: flatTarget,
+                }),
             },
           ]
         : []),
@@ -1065,7 +1186,10 @@ export const useConnectionTree = ({
         name: server.name,
         // Quantos databases (o filtro aparece acima de 50)
         subLabel:
-          isExpanded && databases && databases.length > FILTER_FROM && !filters.get(serverNodeId)
+          isExpanded &&
+          databases &&
+          databases.length > FILTER_FROM &&
+          !filters.get(serverNodeId)
             ? formatCount(databases.length)
             : undefined,
         hasChildren: true,
@@ -1156,7 +1280,9 @@ export const useConnectionTree = ({
           isLoading:
             isDbExpanded &&
             (withCatalog
-              ? (catalogStatus?.data?.syncing ?? catalogStatus?.isFetching ?? false) ||
+              ? (catalogStatus?.data?.syncing ??
+                  catalogStatus?.isFetching ??
+                  false) ||
                 (childList?.isFetching ?? false) ||
                 (shapes?.isFetching ?? false)
               : (structureQuery?.isFetching ?? false)),
@@ -1316,10 +1442,13 @@ export const useConnectionTree = ({
   // servidores fora de grupo. Um `groupId` de grupo que não está na lista
   // (cache defasado) conta como fora de grupo, para o servidor não sumir.
   const groups = groupsQuery.data ?? [];
-  const membersByGroup = new Map<number, Server[]>(groups.map(group => [group.id, []]));
+  const membersByGroup = new Map<number, Server[]>(
+    groups.map(group => [group.id, []]),
+  );
   const ungrouped: Server[] = [];
   for (const server of servers) {
-    const members = server.groupId == null ? undefined : membersByGroup.get(server.groupId);
+    const members =
+      server.groupId == null ? undefined : membersByGroup.get(server.groupId);
     if (members) members.push(server);
     else ungrouped.push(server);
   }

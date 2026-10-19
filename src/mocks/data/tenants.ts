@@ -116,7 +116,9 @@ const VARCHAR_STATUS_EVERY = 333;
 
 const DISCOUNT_COLUMN = column('discount', 'numeric', 1700, gen.decimal(0, 50));
 const VARCHAR_STATUS_COLUMNS = TENANT_COLUMNS.map(col =>
-  col.name === 'status' ? { ...col, dataType: 'character varying(20)', typeOid: 1043 } : col,
+  col.name === 'status'
+    ? { ...col, dataType: 'character varying(20)', typeOid: 1043 }
+    : col,
 );
 
 /** As colunas de uma tabela de tenant (com a diferença acima) */
@@ -124,7 +126,11 @@ function tenantColumns(index: number | null, name: string): MockColumn[] {
   if (index !== null && name === 'orders' && index % DISCOUNT_EVERY === 0) {
     return [...TENANT_COLUMNS, DISCOUNT_COLUMN];
   }
-  if (index !== null && name === 'customers' && index % VARCHAR_STATUS_EVERY === 0) {
+  if (
+    index !== null &&
+    name === 'customers' &&
+    index % VARCHAR_STATUS_EVERY === 0
+  ) {
     return VARCHAR_STATUS_COLUMNS;
   }
   return TENANT_COLUMNS;

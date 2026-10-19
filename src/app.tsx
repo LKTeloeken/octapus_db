@@ -4,6 +4,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from '@/components/ui/resizable';
+import { ErrorBoundary } from '@/components/error-boundary';
 import { TooltipProvider } from '@/components/ui/tooltip/tooltip';
 import { BackupDialogs } from '@/features/backup/backup-dialogs';
 import { BackupJobs } from '@/features/backup/backup-jobs';
@@ -29,33 +30,38 @@ const App = () => {
       {/* 500 ms antes do primeiro tooltip; entre vizinhos (skipDelayDuration)
           eles abrem na hora, sem piscar ao atravessar a toolbar. */}
       <TooltipProvider delayDuration={500}>
-        {/* A moldura de 8 px em volta dos painéis também arrasta a janela. */}
-        <ResizablePanelGroup
-          data-tauri-drag-region
-          direction="horizontal"
-          className="h-screen w-full gap-1 bg-bg p-2 text-fg"
-        >
-          <ResizablePanel
-            defaultSize={20}
-            minSize={20}
-            maxSize={50}
-            className="overflow-hidden rounded-lg border border-line bg-surface-1"
+        {/* Último limite: o que escapar dos de baixo não deixa a janela vazia */}
+        <ErrorBoundary area="no app" offerReload className="h-screen bg-bg">
+          {/* A moldura de 8 px em volta dos painéis também arrasta a janela. */}
+          <ResizablePanelGroup
+            data-tauri-drag-region
+            direction="horizontal"
+            className="h-screen w-full gap-1 bg-bg p-2 text-fg"
           >
-            <Sidebar />
-          </ResizablePanel>
+            <ResizablePanel
+              defaultSize={20}
+              minSize={20}
+              maxSize={50}
+              className="overflow-hidden rounded-lg border border-line bg-surface-1"
+            >
+              <ErrorBoundary area="na barra lateral">
+                <Sidebar />
+              </ErrorBoundary>
+            </ResizablePanel>
 
-          <ResizableHandle className="cursor-col-resize! bg-transparent" />
+            <ResizableHandle className="cursor-col-resize! bg-transparent" />
 
-          <ResizablePanel>
-            <QueryTabs />
-          </ResizablePanel>
-        </ResizablePanelGroup>
+            <ResizablePanel>
+              <QueryTabs />
+            </ResizablePanel>
+          </ResizablePanelGroup>
 
-        <CommandPalette />
-        <BackupDialogs />
-        <CustomToaster />
-        <BackupJobs />
-        <UpdateNotifier />
+          <CommandPalette />
+          <BackupDialogs />
+          <CustomToaster />
+          <BackupJobs />
+          <UpdateNotifier />
+        </ErrorBoundary>
       </TooltipProvider>
     </QueryProvider>
   );

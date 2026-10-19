@@ -7,8 +7,9 @@ import {
   type CatalogPage,
   type CatalogStatus,
 } from '@/api/types/catalog.types';
-import type { Server } from '@/api/types/server.types';
+import type { DatabaseType, Server } from '@/api/types/server.types';
 import { encodeNodeId, groupNodeId } from '@/lib/node-ref';
+import { CAPABILITIES } from '@/mocks/data';
 import { queryKeys } from '@/queries/keys';
 import { CATALOG_PAGE_SIZE } from '@/queries/use-catalog';
 import { useTreeStore } from '@/stores/tree-store';
@@ -28,7 +29,8 @@ const server = (id: number, dbType: Server['dbType']): Server => ({
   port: 5432,
   username: 'app',
   defaultDatabase: null,
-  sslEnabled: false,
+  sslMode: 'disable',
+  sslRootCert: null,
   connectionUri: null,
   createdAt: 0,
   scopeDatabases: null,
@@ -79,7 +81,12 @@ const page = (
 const serverNode = encodeNodeId({ serverId: PG });
 const dbNode = encodeNodeId({ serverId: PG, database: 'saas' });
 
-function client() {
+/** A tabela do `get_db_capabilities`, a mesma do mock */
+const DB_CAPABILITIES = (Object.keys(CAPABILITIES) as DatabaseType[]).map(
+  dbType => ({ dbType, capabilities: CAPABILITIES[dbType] }),
+);
+
+function client({ withCapabilities = true } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
@@ -103,6 +110,9 @@ function client() {
     browsable: true,
   });
   queryClient.setQueryData(queryKeys.catalogStatus(PG, 'saas'), status());
+  if (withCapabilities) {
+    queryClient.setQueryData(queryKeys.dbCapabilities, DB_CAPABILITIES);
+  }
   return queryClient;
 }
 
@@ -448,6 +458,26 @@ describe('useConnectionTree com catálogo', () => {
     expect(names).toHaveLength(10);
     expect(names.every(name => name.startsWith('tenantdb_012'))).toBe(true);
     expect(tree.some(row => row.variant === 'more')).toBe(false);
+  });
+
+  it('sem as capabilities ainda, o Postgres não cai na estrutura inteira', () => {
+    treeState([serverNode, dbNode]);
+    const queryClient = client({ withCapabilities: false });
+    // Se o Postgres fosse tratado como banco sem catálogo, esta estrutura
+    // (a de list_schemas_with_tables) apareceria na árvore
+    queryClient.setQueryData(queryKeys.structure(PG, 'saas'), {
+      schemas: [
+        {
+          name: 'legado',
+          tables: [
+            { name: 'nao_deveria', tableType: 'table', sizeBytes: null },
+          ],
+        },
+      ],
+      fetchedAt: 1,
+    });
+
+    expect(rows(queryClient).map(describeRow)).not.toContain('schema:legado');
   });
 
   it('banco sem catálogo (Redis) segue com a estrutura inteira', () => {

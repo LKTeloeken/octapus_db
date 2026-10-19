@@ -1,9 +1,4 @@
-import type {
-  EditableInfo,
-  QueryColumnInfo,
-  RowEdit,
-  RowInsert,
-} from '@/api/types/query.types';
+import type { EditableInfo, QueryColumnInfo } from '@/api/types/query.types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ActivateCellFn,
@@ -18,13 +13,20 @@ import type {
   IsColumnEditableFn,
   IsPrimaryKeyColumnFn,
   IsRowFlagFn,
-  RowSelectionMode,
   SaveRowChanges,
   SelectAllRowsFn,
   ToggleRowSelectionFn,
   UpdateCellFn,
   UseResultsTableReturn,
 } from './results-table.types';
+import {
+  applyCellChange,
+  buildDeletes,
+  buildEdits,
+  buildInserts,
+  countCellChanges,
+  pkKeyOf,
+} from './pending-changes';
 
 /** Stable identity for a row in the selection set, robust to load-more. */
 const existingRowId = (pkKey: string) => `e:${pkKey}`;
@@ -113,7 +115,7 @@ const useResultsTable = (
   const rowKeys = useMemo<(string | null)[]>(() => {
     const pkIndices = editableInfo?.primaryKeyColumnIndices;
     if (!pkIndices) return [];
-    return rows.map(row => pkIndices.map(key => row[key] ?? 'NULL').join('|'));
+    return rows.map(row => pkKeyOf(row, pkIndices));
   }, [rows, editableInfo]);
 
   const generateRowKey = useCallback(
@@ -197,30 +199,9 @@ const useResultsTable = (
       const pkKey = generateRowKey(rowIndex);
       if (!pkKey) return;
 
-      setChanges(prev => {
-        const newChanges = new Map(prev);
-        let rowChanges = newChanges.get(pkKey);
-
-        // Comparação null-aware: '' e NULL são valores distintos.
-        if (newValue === originalValue) {
-          if (!rowChanges) return newChanges;
-
-          rowChanges.delete(columnId);
-
-          if (rowChanges.size === 0) {
-            newChanges.delete(pkKey);
-          } else {
-            newChanges.set(pkKey, rowChanges);
-          }
-
-          return newChanges;
-        }
-
-        rowChanges ??= new Map();
-        rowChanges.set(columnId, { columnId, originalValue, newValue });
-        newChanges.set(pkKey, rowChanges);
-        return newChanges;
-      });
+      setChanges(prev =>
+        applyCellChange(prev, pkKey, columnId, originalValue, newValue),
+      );
     },
     [existingCount, columnIndexByName, generateRowKey],
   );
@@ -404,64 +385,19 @@ const useResultsTable = (
 
   // ── Persist ───────────────────────────────────────────────────────────
 
-  const buildEdits = useCallback((): RowEdit[] => {
-    const result: RowEdit[] = [];
-
-    changes.forEach((rowChanges, pkKey) => {
-      // Skip rows that are being deleted in the same save.
-      if (removedRowKeys.has(pkKey)) return;
-
-      const pkValues = pkKey.split('|').map(v => (v === 'NULL' ? null : v));
-      const changesArray: [string, string | null][] = [];
-      rowChanges.forEach(cellChange => {
-        changesArray.push([cellChange.columnId, cellChange.newValue]);
-      });
-
-      result.push({ pkValues, changes: changesArray });
-    });
-
-    return result;
-  }, [changes, removedRowKeys]);
-
-  const buildInserts = useCallback((): RowInsert[] => {
-    return addedRows
-      .map(row => {
-        const values: [string, string | null][] = [];
-        row.cells.forEach((value, i) => {
-          // Coluna não tocada → o banco aplica o default; tocada entra no
-          // INSERT mesmo com valor null (NULL explícito).
-          if (row.touched.has(i)) values.push([columns[i].name, value]);
-        });
-        return { values };
-      })
-      .filter(insert => insert.values.length > 0);
-  }, [addedRows, columns]);
-
-  const buildDeletes = useCallback(
-    (): (string | null)[][] =>
-      Array.from(removedRowKeys).map(key =>
-        key.split('|').map(v => (v === 'NULL' ? null : v)),
-      ),
-    [removedRowKeys],
+  const changesCount = useMemo(
+    () => countCellChanges(changes, removedRowKeys),
+    [changes, removedRowKeys],
   );
-
-  const changesCount = useMemo(() => {
-    let count = 0;
-    changes.forEach((rowChanges, pkKey) => {
-      if (removedRowKeys.has(pkKey)) return;
-      count += rowChanges.size;
-    });
-    return count;
-  }, [changes, removedRowKeys]);
 
   const addedCount = addedRows.length;
   const removedCount = removedRowKeys.size;
   const pendingCount = changesCount + addedCount + removedCount;
 
   const save = useCallback(async () => {
-    const edits = buildEdits();
-    const inserts = buildInserts();
-    const deletes = buildDeletes();
+    const edits = buildEdits(changes, removedRowKeys);
+    const inserts = buildInserts(addedRows, columns);
+    const deletes = buildDeletes(removedRowKeys);
 
     if (edits.length === 0 && inserts.length === 0 && deletes.length === 0) {
       return;
@@ -483,7 +419,7 @@ const useResultsTable = (
     } catch {
       // Keep the pending changes highlighted so the user can retry.
     }
-  }, [buildEdits, buildInserts, buildDeletes, onSave, clearSelection]);
+  }, [changes, removedRowKeys, addedRows, columns, onSave, clearSelection]);
 
   const discardChanges = useCallback(() => {
     setChanges(new Map());

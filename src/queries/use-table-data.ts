@@ -2,10 +2,7 @@ import { useInfiniteQuery, useMutation } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { fetchTableData } from '@/api/browse';
 import type { SortSpec } from '@/api/types/browse.types';
-import type {
-  EditableInfo,
-  QueryColumnInfo,
-} from '@/api/types/query.types';
+import type { EditableInfo, QueryColumnInfo } from '@/api/types/query.types';
 import { queryKeys } from './keys';
 
 export const TABLE_DATA_PAGE_SIZE = 500;
@@ -80,10 +77,7 @@ export function useTableData(
 
   const pages = query.data?.pages;
 
-  const rows = useMemo(
-    () => pages?.flatMap(page => page.rows) ?? [],
-    [pages],
-  );
+  const rows = useMemo(() => pages?.flatMap(page => page.rows) ?? [], [pages]);
 
   const firstPage = pages?.[0];
   const lastPage = pages?.[pages.length - 1];

@@ -23,7 +23,8 @@ const quote = (name: string) => `"${name.trim().replace(/"/g, '""')}"`;
 function columnSql(column: ColumnDefinition, inlinePk: boolean): string {
   let sql = `${quote(column.name)} ${column.dataType.trim()}`;
   if (!column.nullable) sql += ' NOT NULL';
-  if (column.defaultValue?.trim()) sql += ` DEFAULT ${column.defaultValue.trim()}`;
+  if (column.defaultValue?.trim())
+    sql += ` DEFAULT ${column.defaultValue.trim()}`;
   if (inlinePk && column.primaryKey) sql += ' PRIMARY KEY';
   return sql;
 }
@@ -75,9 +76,13 @@ export function structureSql(
   switch (change.type) {
     case 'createTable': {
       const keys = change.columns.filter(column => column.primaryKey);
-      const body = change.columns.map(column => `  ${columnSql(column, false)}`);
+      const body = change.columns.map(
+        column => `  ${columnSql(column, false)}`,
+      );
       if (keys.length) {
-        body.push(`  PRIMARY KEY (${keys.map(key => quote(key.name)).join(', ')})`);
+        body.push(
+          `  PRIMARY KEY (${keys.map(key => quote(key.name)).join(', ')})`,
+        );
       }
       return [`CREATE TABLE ${target} (\n${body.join(',\n')}\n)`];
     }
@@ -95,7 +100,9 @@ export function structureSql(
       ];
     }
     case 'addColumn':
-      return [`ALTER TABLE ${target} ADD COLUMN ${columnSql(change.column, true)}`];
+      return [
+        `ALTER TABLE ${target} ADD COLUMN ${columnSql(change.column, true)}`,
+      ];
     case 'dropColumn':
       return [
         `ALTER TABLE ${target} DROP COLUMN ${quote(change.column)}${change.cascade && !sqlite ? ' CASCADE' : ''}`,
@@ -110,7 +117,10 @@ export function structureSql(
         );
       }
       const typeChanged = !sameType(original.dataType, updated.dataType);
-      const defaultChanged = !sameDefault(original.defaultValue, updated.defaultValue);
+      const defaultChanged = !sameDefault(
+        original.defaultValue,
+        updated.defaultValue,
+      );
       const nullChanged = original.nullable !== updated.nullable;
 
       if (sqlite) {
@@ -174,12 +184,15 @@ export function applyStructure(
     throw 'Unsupported type: o mock não edita a estrutura do database gerado';
   }
 
-  const schema = entry.capabilities.hasSchemas ? (change.schema ?? 'public') : '';
+  const schema = entry.capabilities.hasSchemas
+    ? (change.schema ?? 'public')
+    : '';
   const find = (name: string) =>
     db.tables.find(table => table.name === name && table.schema === schema);
   const require = (name: string): MockTable => {
     const found = find(name);
-    if (!found) throw `Query error: relation "${qualify(schema, name)}" does not exist`;
+    if (!found)
+      throw `Query error: relation "${qualify(schema, name)}" does not exist`;
     return found;
   };
   const columnIndex = (table: MockTable, name: string) => {
@@ -230,7 +243,10 @@ export function applyStructure(
     case 'alterColumn': {
       const table = require(change.table);
       const index = columnIndex(table, change.original.name);
-      if (!change.updated.nullable && table.rows?.some(row => row[index] === null)) {
+      if (
+        !change.updated.nullable &&
+        table.rows?.some(row => row[index] === null)
+      ) {
         throw `Query error: column "${change.updated.name.trim()}" of relation "${table.name}" contains null values`;
       }
       const current = table.columns[index];

@@ -2,6 +2,7 @@ mod adapters;
 mod catalog;
 mod commands;
 mod error;
+mod logging;
 mod models;
 mod services;
 mod state;
@@ -27,7 +28,17 @@ const ADAPTER_IDLE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = Builder::default()
+        // Primeiro plugin: o resto da partida já loga
+        .plugin(logging::plugin())
         .setup(|app| {
+            logging::install_panic_hook();
+            log::info!(
+                "Octapus {} iniciando ({} {})",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            );
+
             let app_data_dir = app
                 .path()
                 .app_data_dir()
@@ -60,13 +71,20 @@ pub fn run() {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = handle.state::<AppState>();
-                let _ = state.catalog.purge_expired();
+                match state.catalog.purge_expired() {
+                    Ok(0) => {}
+                    Ok(purged) => log::info!("catálogo: {purged} arquivo(s) vencido(s) apagado(s)"),
+                    Err(error) => log::warn!("catálogo: falha ao apagar os vencidos: {error}"),
+                }
                 let mut tick = tokio::time::interval(MAINTENANCE_EVERY);
                 tick.tick().await;
                 loop {
                     tick.tick().await;
                     state.catalog.maintenance().await;
-                    state.connections.evict_idle(ADAPTER_IDLE_TIMEOUT);
+                    let evicted = state.connections.evict_idle(ADAPTER_IDLE_TIMEOUT);
+                    if evicted > 0 {
+                        log::debug!("{evicted} conexão(ões) ociosa(s) fechada(s)");
+                    }
                 }
             });
 
@@ -110,11 +128,13 @@ pub fn run() {
             commands::apply_row_edits,
             commands::insert_rows,
             commands::delete_rows,
+            commands::save_row_changes,
             commands::execute_transaction,
             commands::cancel_query,
             // Browse (server-side pagination/sort/filter)
             commands::fetch_table_data,
             commands::get_capabilities,
+            commands::get_db_capabilities,
             // Exportação de resultados
             commands::write_export_file,
             // Structure (lazy loading)
@@ -146,6 +166,8 @@ pub fn run() {
             // Preferências do app
             commands::get_settings,
             commands::update_settings,
+            // Diagnóstico: a pasta do log do app
+            commands::open_log_dir,
             // Backup e restauração (ferramentas nativas do Postgres)
             commands::pg_tools_detect,
             commands::pg_tools_status,

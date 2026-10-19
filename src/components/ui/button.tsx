@@ -21,6 +21,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        // design-tokens-ignore: branco sobre Iris (DESIGN.md §2.2)
         default: 'bg-iris text-white shadow-cta hover:bg-iris-hover',
         outline:
           'border border-control-border bg-control text-fg shadow-control hover:bg-active data-[state=open]:bg-active',
@@ -29,7 +30,8 @@ const buttonVariants = cva(
         ghost:
           'text-fg-muted hover:bg-hover hover:text-fg data-[state=open]:bg-active data-[state=open]:text-fg aria-pressed:bg-active aria-pressed:text-fg',
         destructive:
-          'bg-danger-soft text-danger hover:bg-danger hover:text-white',
+          // design-tokens-ignore: branco sobre o --danger-solid no hover
+          'bg-danger-soft text-danger hover:bg-danger-solid hover:text-white',
         link: 'text-iris-text underline-offset-4 hover:underline',
       },
       size: {

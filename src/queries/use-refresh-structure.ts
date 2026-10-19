@@ -3,11 +3,13 @@ import { useCallback, useMemo } from 'react';
 import { catalogRefresh } from '@/api/catalog';
 import { listTables } from '@/api/structure';
 import type { CatalogStatus } from '@/api/types/catalog.types';
+import type { DbTypeCapabilities } from '@/api/types/capabilities.types';
 import type { Server } from '@/api/types/server.types';
 import type { DatabaseStructure } from '@/api/types/structure.types';
 import { decodeNodeId, nodeKind } from '@/lib/node-ref';
 import { useTreeStore } from '@/stores/tree-store';
 import { queryKeys } from './keys';
+import { toCapabilitiesByType } from './use-capabilities';
 import { hasCatalog } from './use-catalog';
 
 /**
@@ -29,12 +31,17 @@ export function useRefreshStructure() {
   const queryClient = useQueryClient();
 
   const usesCatalog = useCallback(
-    (serverId: number) =>
-      hasCatalog(
-        queryClient
-          .getQueryData<Server[]>(queryKeys.servers)
-          ?.find(server => server.id === serverId)?.dbType,
-      ),
+    (serverId: number) => {
+      const dbType = queryClient
+        .getQueryData<Server[]>(queryKeys.servers)
+        ?.find(server => server.id === serverId)?.dbType;
+      const caps = toCapabilitiesByType(
+        queryClient.getQueryData<DbTypeCapabilities[]>(
+          queryKeys.dbCapabilities,
+        ),
+      );
+      return dbType !== undefined && hasCatalog(caps[dbType]);
+    },
     [queryClient],
   );
 

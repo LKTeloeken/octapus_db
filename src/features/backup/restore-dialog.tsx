@@ -70,11 +70,16 @@ export function RestoreDialog({ open, dialog }: RestoreDialogProps) {
           <div className="flex items-center justify-between gap-3 rounded-sm border border-line bg-field px-3 py-2.5">
             <div className="flex min-w-0 flex-col gap-0.5">
               {fileName ? (
-                <span className="truncate font-mono text-body text-fg" title={path ?? undefined}>
+                <span
+                  className="truncate font-mono text-body text-fg"
+                  title={path ?? undefined}
+                >
                   {fileName}
                 </span>
               ) : (
-                <span className="text-body text-fg-muted">Nenhum arquivo escolhido</span>
+                <span className="text-body text-fg-muted">
+                  Nenhum arquivo escolhido
+                </span>
               )}
               {file && (
                 <span className="text-small text-fg-muted">
@@ -144,7 +149,9 @@ export function RestoreDialog({ open, dialog }: RestoreDialogProps) {
                 label="Tudo ou nada"
                 hint="Uma transação só: no primeiro erro, nada fica. Desligado, os erros são pulados e listados no fim."
                 checked={options.singleTransaction}
-                onChange={singleTransaction => setOptions({ singleTransaction })}
+                onChange={singleTransaction =>
+                  setOptions({ singleTransaction })
+                }
               />
             </div>
           )}

@@ -6,7 +6,10 @@ import type { DialogOf } from './structure-editor.types';
 import { useStructureChangeDialog } from './use-structure-change-dialog';
 
 /** A aba de browse tem o mesmo id do nó da tabela na árvore */
-export function tableTabId(dialog: { target: DialogOf<'renameTable'>['target']; table: string }) {
+export function tableTabId(dialog: {
+  target: DialogOf<'renameTable'>['target'];
+  table: string;
+}) {
   const { target, table } = dialog;
   return encodeNodeId({
     serverId: target.serverId,

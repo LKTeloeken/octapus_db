@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useId, useState } from 'react';
 import { EditorFooter } from './editor-footer';
 
 interface NumberEditorProps {
@@ -15,6 +15,7 @@ export const NumberEditor = memo(function NumberEditor({
   onSetNull,
 }: NumberEditorProps) {
   const [editValue, setEditValue] = useState(value);
+  const fieldId = useId();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -54,10 +55,14 @@ export const NumberEditor = memo(function NumberEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-micro font-medium uppercase text-fg-subtle">
+      <label
+        htmlFor={fieldId}
+        className="text-micro font-medium uppercase text-fg-subtle"
+      >
         Editar número
       </label>
       <input
+        id={fieldId}
         type="text"
         inputMode="decimal"
         className={
@@ -71,7 +76,11 @@ export const NumberEditor = memo(function NumberEditor({
         autoFocus
       />
       {error && <span className="text-small text-danger">{error}</span>}
-      <EditorFooter onSave={handleSave} onCancel={onCancel} onSetNull={onSetNull} />
+      <EditorFooter
+        onSave={handleSave}
+        onCancel={onCancel}
+        onSetNull={onSetNull}
+      />
     </div>
   );
 });

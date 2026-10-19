@@ -6,8 +6,8 @@ use crate::adapters::MessageSink;
 use crate::error::{Error, Result};
 use crate::models::{
     AdapterCapabilities, ColumnInfo, DatabaseInfo, DatabaseStructure, EditableInfo, IndexInfo,
-    QueryOptions, QueryResult, RowEdit, RowInsert, SchemaInfo, StatementResult, StructureChange,
-    TableDataRequest, TableInfo,
+    QueryOptions, QueryResult, RowChanges, RowEdit, RowInsert, SchemaInfo, StatementResult,
+    StructureChange, TableDataRequest, TableInfo,
 };
 
 /// Core trait that all database adapters must implement.
@@ -90,6 +90,18 @@ pub trait DatabaseAdapter: Send + Sync {
         ))
     }
 
+    /// Grava as alterações pendentes da grade — DELETE → INSERT → UPDATE —
+    /// numa transação só: se uma etapa falha, nenhuma vale.
+    async fn save_row_changes(
+        &self,
+        _editable: &EditableInfo,
+        _changes: RowChanges,
+    ) -> Result<StatementResult> {
+        Err(Error::UnsupportedType(
+            "Saving row changes is not supported for this database".into(),
+        ))
+    }
+
     async fn execute_statement(&self, statement: &str) -> Result<StatementResult>;
 
     async fn execute_transaction(
@@ -167,6 +179,7 @@ pub trait DatabaseAdapter: Send + Sync {
 }
 
 /// Pool statistics for monitoring
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PoolStats {

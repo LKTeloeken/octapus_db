@@ -97,7 +97,8 @@ export const useGridSearch = ({
 
   useEffect(() => {
     if (debounced.scopeId === scopeId && debounced.query === query) return;
-    const delay = debounced.scopeId !== scopeId || query === '' ? 0 : DEBOUNCE_MS;
+    const delay =
+      debounced.scopeId !== scopeId || query === '' ? 0 : DEBOUNCE_MS;
     const timer = setTimeout(() => setDebounced({ scopeId, query }), delay);
     return () => clearTimeout(timer);
   }, [scopeId, query, debounced]);
@@ -279,7 +280,10 @@ export const useGridSearch = ({
 
   // ── Abrir / fechar ────────────────────────────────────────────────────
 
-  const toggle = useCallback(() => toggleInStore(scopeId), [toggleInStore, scopeId]);
+  const toggle = useCallback(
+    () => toggleInStore(scopeId),
+    [toggleInStore, scopeId],
+  );
   const close = useCallback(
     () => setOpenInStore(scopeId, false),
     [setOpenInStore, scopeId],

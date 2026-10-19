@@ -40,7 +40,7 @@ export const Typography = React.forwardRef<HTMLElement, TypographyProps>(
 
     return (
       <Component
-        ref={ref as any}
+        ref={ref}
         className={cn(typographyVariants({ variant }), className)}
         {...props}
       >

@@ -33,7 +33,9 @@ describe('describePgToolsProblem', () => {
   });
 
   it('explica como instalar quando não acha nada', () => {
-    expect(describePgToolsProblem({ kind: 'notFound' })).toMatch(/^O pg_dump não foi encontrado\. Instale/);
+    expect(describePgToolsProblem({ kind: 'notFound' })).toMatch(
+      /^O pg_dump não foi encontrado\. Instale/,
+    );
   });
 });
 

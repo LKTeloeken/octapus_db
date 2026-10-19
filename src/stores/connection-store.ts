@@ -19,7 +19,8 @@ interface ConnectionState {
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
   connected: new Set(),
 
-  isConnected: (serverId, database) => get().connected.has(key(serverId, database)),
+  isConnected: (serverId, database) =>
+    get().connected.has(key(serverId, database)),
 
   markConnected: (serverId, database) => {
     set(state => {

@@ -22,6 +22,8 @@ dist-ssr
 # ...menos as declarações de ambiente do Vite (tipos de import de .svg etc.)
 !src/vite-env.d.ts
 *.js
+# ...menos a configuração do ESLint (flat config é sempre .js)
+!eslint.config.js
 *.js.map
 tsconfig.tsbuildinfo
 

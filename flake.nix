@@ -29,7 +29,9 @@
           pango
           harfbuzz
           librsvg
-          openssl
+          # Sem openssl: o TLS dos bancos e do updater é rustls (ver
+          # src-tauri/Cargo.toml). O nix/package.nix ainda o lista porque
+          # empacota o binário já publicado, de antes da troca.
         ];
         # O pacote mudou para a branch `nix` (github:LKTeloeken/octapus_db/nix),
         # atualizada sozinha a cada release. Aqui ele fica congelado na última

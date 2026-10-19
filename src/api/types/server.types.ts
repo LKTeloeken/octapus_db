@@ -1,55 +1,7 @@
-export type DatabaseType = 'postgres' | 'mongodb' | 'redis' | 'sqlite';
-
-export interface Server {
-  id: number;
-  name: string;
-  dbType: DatabaseType;
-  host: string;
-  port: number;
-  username: string;
-  defaultDatabase: string | null;
-  sslEnabled: boolean;
-  connectionUri: string | null;
-  /** Epoch in seconds */
-  createdAt: number;
-  /**
-   * Escopo salvo: que databases o app enxerga (padrões com `*` e `?`, `!` na
-   * frente exclui; separados por vírgula). null = todos
-   */
-  scopeDatabases: string | null;
-  /** Escopo salvo: que schemas o catálogo lê (Postgres). null = todos */
-  scopeSchemas: string | null;
-  /** Grupo da sidebar; null = fora de qualquer grupo */
-  groupId: number | null;
-}
-
-export interface ServerInput {
-  name: string;
-  dbType: DatabaseType;
-  host: string;
-  port: number;
-  username: string;
-  /** Stored in the OS keychain by the backend — never returned on Server */
-  password: string;
-  defaultDatabase?: string | null;
-  sslEnabled?: boolean | null;
-  connectionUri?: string | null;
-  scopeDatabases?: string | null;
-  scopeSchemas?: string | null;
-  groupId?: number | null;
-}
-
-/** Grupo de servidores na sidebar (pasta de um nível) */
-export interface ServerGroup {
-  id: number;
-  name: string;
-  /** Epoch in seconds */
-  createdAt: number;
-}
-
-export interface PoolStats {
-  size: number;
-  available: number;
-  inUse: number;
-  waiting: number;
-}
+// Gerados do Rust (ts-rs) — ver src-tauri/src/models; não edite à mão
+export type { DatabaseType } from './generated/DatabaseType';
+export type { PoolStats } from './generated/PoolStats';
+export type { Server } from './generated/Server';
+export type { ServerGroup } from './generated/ServerGroup';
+export type { ServerInput } from './generated/ServerInput';
+export type { SslMode } from './generated/SslMode';

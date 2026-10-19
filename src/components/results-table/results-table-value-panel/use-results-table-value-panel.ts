@@ -104,6 +104,9 @@ export const useResultsTableValuePanel = ({
       autoFormat,
       encoding,
     });
+    // Só célula e valor disparam (ver o comentário acima): preferências e
+    // formato têm os próprios handlers
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cellKey, value, typeName]);
 
   // Refs para o `onChange` do editor ter identidade estável: trocar a função

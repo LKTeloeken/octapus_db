@@ -16,6 +16,7 @@ function Checkbox({
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
+        // design-tokens-ignore: o check é branco sobre Iris (DESIGN.md §2.2)
         'peer size-4 shrink-0 cursor-pointer rounded-xs border-[1.5px] border-line-strong bg-transparent text-white transition-colors',
         'data-[state=checked]:border-iris data-[state=checked]:bg-iris data-[state=indeterminate]:border-iris data-[state=indeterminate]:bg-iris',
         'outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring',

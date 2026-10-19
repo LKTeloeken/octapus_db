@@ -1,6 +1,7 @@
 use tauri::State;
 
 use crate::adapters::PoolStats;
+use crate::error::Result;
 use crate::state::AppState;
 use crate::storage::repositories::servers;
 
@@ -11,10 +12,10 @@ pub async fn connect(
     state: State<'_, AppState>,
     server_id: i64,
     database: Option<String>,
-) -> Result<bool, String> {
+) -> Result<bool> {
     // Resolve the target database from metadata only; the password is fetched
     // by connect_adapter, and only when the pool actually needs creating.
-    let server = servers::get_by_id_meta(&state.storage, server_id).map_err(|e| e.to_string())?;
+    let server = servers::get_by_id_meta(&state.storage, server_id)?;
 
     let db = database
         .or(server.default_database.clone())
@@ -23,20 +24,14 @@ pub async fn connect(
     let adapter = connect_adapter(&state, server_id, &db).await?;
 
     // Verify connection works
-    adapter
-        .test_connection()
-        .await
-        .map_err(|e| e.to_string())?;
+    adapter.test_connection().await?;
 
     Ok(true)
 }
 
 #[tauri::command]
-pub async fn test_connection(
-    state: State<'_, AppState>,
-    server_id: i64,
-) -> Result<bool, String> {
-    let server = servers::get_by_id_meta(&state.storage, server_id).map_err(|e| e.to_string())?;
+pub async fn test_connection(state: State<'_, AppState>, server_id: i64) -> Result<bool> {
+    let server = servers::get_by_id_meta(&state.storage, server_id)?;
 
     let db = server
         .default_database
@@ -45,10 +40,7 @@ pub async fn test_connection(
 
     let adapter = connect_adapter(&state, server_id, &db).await?;
 
-    adapter
-        .test_connection()
-        .await
-        .map_err(|e| e.to_string())?;
+    adapter.test_connection().await?;
 
     Ok(true)
 }
@@ -58,7 +50,7 @@ pub fn disconnect(
     state: State<'_, AppState>,
     server_id: i64,
     database: Option<String>,
-) -> Result<(), String> {
+) -> Result<()> {
     match database {
         Some(db) => state.connections.disconnect(server_id, &db),
         None => state.connections.disconnect_server(server_id),
@@ -71,6 +63,6 @@ pub fn get_pool_stats(
     state: State<'_, AppState>,
     server_id: i64,
     database: String,
-) -> Result<Option<PoolStats>, String> {
+) -> Result<Option<PoolStats>> {
     Ok(state.connections.pool_stats(server_id, &database))
 }

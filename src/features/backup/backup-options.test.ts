@@ -28,11 +28,17 @@ describe('normalizeBackupOptions', () => {
   });
 
   it('cada conteúdo desliga a opção que briga com ele', () => {
-    const dataOnly = normalizeBackupOptions({ ...plainAll, content: 'dataOnly' });
+    const dataOnly = normalizeBackupOptions({
+      ...plainAll,
+      content: 'dataOnly',
+    });
     expect(dataOnly.clean).toBe(false);
     expect(dataOnly.columnInserts).toBe(true);
 
-    const schemaOnly = normalizeBackupOptions({ ...plainAll, content: 'schemaOnly' });
+    const schemaOnly = normalizeBackupOptions({
+      ...plainAll,
+      content: 'schemaOnly',
+    });
     expect(schemaOnly.clean).toBe(true);
     expect(schemaOnly.columnInserts).toBe(false);
   });
@@ -41,11 +47,15 @@ describe('normalizeBackupOptions', () => {
 describe('backupTargetLabel', () => {
   it('descreve database, schema e tabela', () => {
     expect(backupTargetLabel('loja', { kind: 'database' })).toBe('loja');
-    expect(backupTargetLabel('loja', { kind: 'schema', schema: 'vendas' })).toBe(
-      'loja › vendas',
-    );
     expect(
-      backupTargetLabel('loja', { kind: 'table', schema: 'vendas', table: 'pedidos' }),
+      backupTargetLabel('loja', { kind: 'schema', schema: 'vendas' }),
+    ).toBe('loja › vendas');
+    expect(
+      backupTargetLabel('loja', {
+        kind: 'table',
+        schema: 'vendas',
+        table: 'pedidos',
+      }),
     ).toBe('loja › vendas.pedidos');
   });
 });
@@ -96,7 +106,10 @@ describe('restoreToolsProblem', () => {
 
   it('sem pg_dump nenhum, explica', () => {
     expect(
-      restoreToolsProblem('custom', status({ selected: null, problem: { kind: 'notFound' } })),
+      restoreToolsProblem(
+        'custom',
+        status({ selected: null, problem: { kind: 'notFound' } }),
+      ),
     ).toMatch(/não foi encontrado/);
   });
 });

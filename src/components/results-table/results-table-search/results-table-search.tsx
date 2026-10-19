@@ -12,10 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input/input';
 import { SegmentedControl } from '@/components/ui/segmented-control/segmented-control';
 import type { SegmentedControlOption } from '@/components/ui/segmented-control/segmented-control.types';
-import type {
-  GridSearchColumnScope,
-  GridSearchMode,
-} from '@/lib/grid-search';
+import type { GridSearchColumnScope, GridSearchMode } from '@/lib/grid-search';
 import { shortcut } from '@/lib/platform';
 import type { ResultsTableSearchProps } from './results-table-search.types';
 import { useResultsTableSearch } from './use-results-table-search';

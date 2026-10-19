@@ -54,7 +54,8 @@ const dbTypeOf = (target: PaletteTarget) =>
 /** O que o Enter faz no item ativo */
 const actionOf = (target: PaletteTarget) => {
   if (target.kind === 'schema') return 'Listar';
-  if (target.kind === 'group' && target.schemas.total > 1) return 'Escolher schema';
+  if (target.kind === 'group' && target.schemas.total > 1)
+    return 'Escolher schema';
   return 'Abrir';
 };
 

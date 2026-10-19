@@ -54,10 +54,10 @@ com alpha, então funcionam sobre qualquer camada.
 | `--line-strong` | `oklch(1 0 0 / 15%)`     | `oklch(0 0 0 / 18%)`     | Input em hover, checkbox desmarcado               |
 | `--fg`          | `oklch(0.95 0.004 265)`  | `oklch(0.22 0.012 265)`  | Texto principal                                   |
 | `--fg-muted`    | `oklch(0.76 0.01 265)`   | `oklch(0.44 0.014 265)`  | Texto secundário, ícones                          |
-| `--fg-subtle`   | `oklch(0.68 0.012 265)`  | `oklch(0.5 0.014 265)`   | Metadados, placeholders, `NULL`, números de linha |
+| `--fg-subtle`   | `oklch(0.7 0.012 265)`   | `oklch(0.5 0.014 265)`   | Metadados, placeholders, `NULL`, números de linha |
 | `--fg-disabled` | `oklch(0.45 0.01 265)`   | `oklch(0.7 0.01 265)`    | Só controles desabilitados (isentos de contraste) |
 
-Contraste sobre `--surface-1` (escuro / claro): `--fg` 15,6 / 17,1 · `--fg-muted` 8,4 / 7,7 · `--fg-subtle` 6,3 / 5,9 (mínimo 4,5). O `--fg-subtle` foi calibrado na Fase 5 para passar
+Contraste sobre `--surface-1` (escuro / claro): `--fg` 15,6 / 17,1 · `--fg-muted` 8,4 / 7,7 · `--fg-subtle` 6,8 / 5,9 (mínimo 4,5). O `--fg-subtle` foi calibrado na Fase 5 para passar
 também sobre as camadas elevadas (`--active`, `--control`, vidro); `--fg-disabled` nunca
 leva texto que precise ser lido.
 
@@ -74,7 +74,7 @@ identidade fica, a vibração sai.
 | Token          | Escuro                       | Claro                        | Uso                                                                         |
 | -------------- | ---------------------------- | ---------------------------- | --------------------------------------------------------------------------- |
 | `--iris`       | `oklch(0.55 0.16 282)`       | `oklch(0.52 0.18 282)`       | Preenchimento: botão primário, checkbox, switch (branco em cima: 5,1 / 5,9) |
-| `--iris-hover` | `oklch(0.58 0.16 282)`       | `oklch(0.47 0.18 282)`       | Hover do preenchimento                                                      |
+| `--iris-hover` | `oklch(0.57 0.16 282)`       | `oklch(0.47 0.18 282)`       | Hover do preenchimento                                                      |
 | `--iris-text`  | `oklch(0.77 0.12 282)`       | `oklch(0.5 0.18 282)`        | Texto e ícone em Iris sobre painel (links)                                  |
 | `--iris-soft`  | `oklch(0.66 0.15 282 / 16%)` | `oklch(0.55 0.18 282 / 10%)` | Fundo de seleção: linha, célula, texto                                      |
 | `--ring`       | `oklch(0.7 0.15 282 / 60%)`  | `oklch(0.55 0.18 282 / 50%)` | Anel de foco                                                                |
@@ -93,7 +93,9 @@ ordenada (→ `--fg` + ícone de ordenação), ícone de servidor (→ cor do ba
 ### 2.3 Semânticas
 
 Cada uma tem um sólido (ícone, ponto, texto) e um `-soft` (fundo). No claro os sólidos
-escurecem para manter 4,5:1 — inclusive sobre o próprio `-soft` (texto de badge).
+escurecem para manter 4,5:1 — inclusive sobre o próprio `-soft` (texto de badge). O
+`--danger` do escuro é claro demais para levar branco em cima: o preenchimento do botão
+destrutivo usa `--danger-solid` (mesma lógica de `--iris` × `--iris-text`).
 
 | Token            | Escuro                       | Claro                       | Uso                                            |
 | ---------------- | ---------------------------- | --------------------------- | ---------------------------------------------- |
@@ -101,9 +103,10 @@ escurecem para manter 4,5:1 — inclusive sobre o próprio `-soft` (texto de bad
 | `--success-soft` | `oklch(0.76 0.14 158 / 14%)` | `oklch(0.6 0.13 158 / 12%)` | Fundo de linha nova, toast de sucesso          |
 | `--warning`      | `oklch(0.82 0.13 78)`        | `oklch(0.52 0.12 70)`       | Célula editada e não salva, aviso, ícone de PK |
 | `--warning-soft` | `oklch(0.82 0.13 78 / 14%)`  | `oklch(0.75 0.14 75 / 18%)` | Fundo de célula editada                        |
-| `--danger`       | `oklch(0.7 0.17 22)`         | `oklch(0.53 0.19 25)`       | Linha removida, erro, ação destrutiva          |
+| `--danger`       | `oklch(0.72 0.17 22)`        | `oklch(0.53 0.19 25)`       | Linha removida, erro, ação destrutiva          |
 | `--danger-soft`  | `oklch(0.7 0.17 22 / 14%)`   | `oklch(0.6 0.19 25 / 10%)`  | Fundo de linha removida, botão `danger`        |
-| `--info`         | `oklch(0.76 0.11 235)`       | `oklch(0.52 0.13 240)`      | Mensagens do servidor, `NOTICE`, dicas         |
+| `--danger-solid` | `oklch(0.55 0.18 25)`        | `oklch(0.53 0.19 25)`       | Preenchimento do destrutivo (hover), branco em cima: 5,3 / 5,8 |
+| `--info`         | `oklch(0.76 0.11 235)`       | `oklch(0.51 0.13 240)`      | Mensagens do servidor, `NOTICE`, dicas         |
 | `--info-soft`    | `oklch(0.76 0.11 235 / 14%)` | `oklch(0.6 0.13 240 / 10%)` | Fundo de aviso informativo                     |
 
 ### 2.4 Alterações pendentes na grade
@@ -156,7 +159,7 @@ fundo nem em texto corrido.
 | `NULL`                                | `--fg-subtle`   | —                     | —                      | itálico, literal `NULL`            |
 | booleano                              | `--data-bool`   | `oklch(0.78 0.1 350)` | `oklch(0.52 0.15 350)` | `true` / `false` normalizados      |
 | data / hora                           | `--data-date`   | `oklch(0.8 0.08 185)` | `oklch(0.5 0.09 185)`  | —                                  |
-| JSON / array                          | `--data-json`   | `oklch(0.8 0.1 60)`   | `oklch(0.54 0.13 55)`  | —                                  |
+| JSON / array                          | `--data-json`   | `oklch(0.8 0.1 60)`   | `oklch(0.53 0.13 55)`  | —                                  |
 | uuid / binário                        | `--fg-muted`    | —                     | —                      | —                                  |
 
 Croma baixo (≈ 0,09 no escuro): tingem sem gritar. A cor vem do `typeName` da coluna — a
@@ -169,7 +172,7 @@ mesma resolução que o `resolveCellEditor` já faz.
 | `--syn-keyword`  | `oklch(0.76 0.12 285)` | `oklch(0.5 0.18 285)` | `SELECT`, `FROM`, `AND`, `true` |
 | `--syn-function` | `oklch(0.8 0.09 235)`  | `oklch(0.5 0.12 240)` | `count()`, `now()`              |
 | `--syn-string`   | `oklch(0.8 0.1 150)`   | `oklch(0.5 0.12 150)` | `'90 days'`                     |
-| `--syn-number`   | `oklch(0.8 0.1 60)`    | `oklch(0.54 0.13 55)` | `50`, `12,2`                    |
+| `--syn-number`   | `oklch(0.8 0.1 60)`    | `oklch(0.53 0.13 55)` | `50`, `12,2`                    |
 | `--syn-type`     | `oklch(0.8 0.08 185)`  | `oklch(0.5 0.09 185)` | `::numeric`, `interval`         |
 
 Comentários em `--fg-subtle` itálico, operadores e pontuação em `--fg-muted`,
@@ -426,8 +429,8 @@ tela **não recria** botão, badge ou atalho: usa os de `components/ui`.
 
 - **Button** (`ui/button.tsx`) — variantes `default` (primário em Iris, uma por área),
   `outline`/`secondary` (neutro: `--control` + borda `--control-border`), `ghost` (sem
-  fundo, `--fg-muted`; `aria-pressed` = ligado), `destructive` (`--danger-soft`, sólido no
-  hover) e `link`; tamanhos `xs` 24 · `sm` 28 (padrão) · `default` 32 · `lg` 36, e `icon`
+  fundo, `--fg-muted`; `aria-pressed` = ligado), `destructive` (`--danger-soft`; no
+  hover, `--danger-solid` com texto branco) e `link`; tamanhos `xs` 24 · `sm` 28 (padrão) · `default` 32 · `lg` 36, e `icon`
   28 / `icon-xs` 24 quadrados. Pressionado `scale(.98)`; um foco só (contorno de 2 px em
   `--ring` com 2 px de respiro); desabilitado 45%. Somente ícone ⇒ `aria-label` + tooltip.
   Atalho vai num `Kbd` dentro do botão.
@@ -497,7 +500,7 @@ Tokens em [`src/styles/globals.css`](src/styles/globals.css): valores em `:root`
 | Linhas         | `border-line-subtle`, `border-line`, `border-line-strong`, `divide-line-subtle`                                               |
 | Texto          | `text-fg`, `text-fg-muted`, `text-fg-subtle`, `text-fg-disabled`                                                              |
 | Iris           | `bg-iris`, `hover:bg-iris-hover`, `text-iris-text`, `bg-iris-soft`, `ring-ring`                                               |
-| Semânticas     | `text-success`, `bg-success-soft`, … (`warning`, `danger`, `info`)                                                            |
+| Semânticas     | `text-success`, `bg-success-soft`, … (`warning`, `danger`, `info`); `bg-danger-solid` (preenchimento destrutivo)              |
 | Bancos e dados | `text-db-postgres`, …, `text-data-number`, `text-data-json`, …                                                                |
 | Tipo           | `text-micro`, `text-small`, `text-body`, `text-heading`, `text-title`, `text-display`, `font-mono`, `tabular-nums`            |
 | Raio           | `rounded-xs` … `rounded-xl` (§4)                                                                                              |
@@ -631,10 +634,12 @@ Cada fase entrega algo visível e pode ir para a `main` sozinha.
 ## 12. Checklist de PR
 
 1. Nenhuma cor crua em TSX: nada de `bg-red-*`, `text-white/60`, `#hex` ou `rgba` — só
-   tokens.
+   tokens. O `pnpm lint:tokens` verifica (também aliases do shadcn e `transition-all`);
+   exceção pontual, como o branco sobre Iris, leva `// design-tokens-ignore: <motivo>`.
 2. Iris só nos quatro papéis (§2.2).
 3. Estado novo nasce em par claro/escuro e passa 4,5:1 (3:1 para ícones e bordas de
-   controle).
+   controle). O `src/styles/contrast.test.ts` calcula os pares a partir do `globals.css`
+   — token de texto ou camada nova entra lá.
 4. Animar só `transform` e `opacity`, com 120/180/240 ms e as curvas do tema; nada de
    `transition-all`.
 5. Vidro só via `glass`, e só em camadas flutuantes (§7).

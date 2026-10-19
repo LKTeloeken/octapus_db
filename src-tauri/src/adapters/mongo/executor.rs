@@ -1,11 +1,12 @@
 use std::time::Instant;
 
 use mongodb::bson::{doc, Bson, Document};
-use mongodb::{Cursor, Database};
+use mongodb::{Client, ClientSession, Cursor, Database};
 
 use crate::error::{Error, Result};
 use crate::models::{
-    EditableInfo, QueryColumnInfo, QueryOptions, QueryResult, RowEdit, RowInsert, StatementResult,
+    EditableInfo, QueryColumnInfo, QueryOptions, QueryResult, RowChanges, RowEdit, RowInsert,
+    StatementResult,
 };
 
 use super::command::{parse_command, MongoCommand};
@@ -221,11 +222,113 @@ pub async fn apply_row_edits(
     editable: &EditableInfo,
     edits: Vec<RowEdit>,
 ) -> Result<StatementResult> {
-    let coll = db.collection::<Document>(&editable.table);
     let start = Instant::now();
+    let affected = update_docs(db, editable, &edits, None).await?;
+
+    Ok(StatementResult {
+        affected_rows: affected,
+        execution_time_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+pub async fn insert_rows(
+    db: &Database,
+    editable: &EditableInfo,
+    rows: Vec<RowInsert>,
+) -> Result<StatementResult> {
+    let start = Instant::now();
+    let affected = insert_docs(db, editable, &rows, None).await?;
+
+    Ok(StatementResult {
+        affected_rows: affected,
+        execution_time_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+pub async fn delete_rows(
+    db: &Database,
+    editable: &EditableInfo,
+    pk_values: Vec<Vec<Option<String>>>,
+) -> Result<StatementResult> {
+    let start = Instant::now();
+    let affected = delete_docs(db, editable, &pk_values, None).await?;
+
+    Ok(StatementResult {
+        affected_rows: affected,
+        execution_time_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+/// Grava DELETE → INSERT → UPDATE. Transação no Mongo só existe em replica
+/// set ou mongos: nesses, tudo vai numa sessão e um erro aborta o conjunto.
+/// Num standalone não há como desfazer — as etapas valem uma a uma, como nas
+/// três chamadas separadas, e o log avisa.
+pub async fn save_row_changes(
+    client: &Client,
+    db: &Database,
+    editable: &EditableInfo,
+    changes: RowChanges,
+) -> Result<StatementResult> {
+    let start = Instant::now();
+
+    let affected = if supports_transactions(db).await? {
+        let mut session = client.start_session().await?;
+        session.start_transaction().await?;
+
+        match write_changes(db, editable, &changes, Some(&mut session)).await {
+            Ok(affected) => {
+                session.commit_transaction().await?;
+                affected
+            }
+            Err(e) => {
+                // O erro original é o que importa; um abort que falhe não
+                // muda nada (o servidor descarta a transação no timeout)
+                let _ = session.abort_transaction().await;
+                return Err(e);
+            }
+        }
+    } else {
+        log::warn!(
+            "MongoDB sem replica set: alterações da grade em {} gravadas sem transação",
+            db.name()
+        );
+        write_changes(db, editable, &changes, None).await?
+    };
+
+    Ok(StatementResult {
+        affected_rows: affected,
+        execution_time_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+/// Replica set (`setName`) ou mongos (`msg: "isdbgrid"`) — onde há transação.
+async fn supports_transactions(db: &Database) -> Result<bool> {
+    let hello = db.run_command(doc! { "hello": 1 }).await?;
+    Ok(hello.contains_key("setName") || hello.get_str("msg").is_ok_and(|m| m == "isdbgrid"))
+}
+
+async fn write_changes(
+    db: &Database,
+    editable: &EditableInfo,
+    changes: &RowChanges,
+    mut session: Option<&mut ClientSession>,
+) -> Result<u64> {
+    let mut affected = delete_docs(db, editable, &changes.deletes, session.as_deref_mut()).await?;
+    affected += insert_docs(db, editable, &changes.inserts, session.as_deref_mut()).await?;
+    affected += update_docs(db, editable, &changes.edits, session).await?;
+    Ok(affected)
+}
+
+async fn update_docs(
+    db: &Database,
+    editable: &EditableInfo,
+    edits: &[RowEdit],
+    mut session: Option<&mut ClientSession>,
+) -> Result<u64> {
+    let coll = db.collection::<Document>(&editable.table);
     let mut total_modified: u64 = 0;
 
-    for edit in &edits {
+    for edit in edits {
         if edit.changes.is_empty() {
             continue;
         }
@@ -244,32 +347,31 @@ pub async fn apply_row_edits(
             );
         }
 
-        let result = coll
-            .update_one(
-                doc! { "_id": { "$in": scalar_variants(id_value) } },
-                doc! { "$set": set_doc },
-            )
-            .await?;
+        let update = coll.update_one(
+            doc! { "_id": { "$in": scalar_variants(id_value) } },
+            doc! { "$set": set_doc },
+        );
+        let result = match session.as_deref_mut() {
+            Some(s) => update.session(s).await?,
+            None => update.await?,
+        };
 
         total_modified += result.modified_count;
     }
 
-    Ok(StatementResult {
-        affected_rows: total_modified,
-        execution_time_ms: start.elapsed().as_millis() as u64,
-    })
+    Ok(total_modified)
 }
 
-pub async fn insert_rows(
+async fn insert_docs(
     db: &Database,
     editable: &EditableInfo,
-    rows: Vec<RowInsert>,
-) -> Result<StatementResult> {
+    rows: &[RowInsert],
+    mut session: Option<&mut ClientSession>,
+) -> Result<u64> {
     let coll = db.collection::<Document>(&editable.table);
-    let start = Instant::now();
     let mut total_inserted: u64 = 0;
 
-    for row in &rows {
+    for row in rows {
         // Only filled fields are written; omitting `_id` lets MongoDB
         // generate an ObjectId automatically.
         if row.values.is_empty() {
@@ -284,42 +386,42 @@ pub async fn insert_rows(
             );
         }
 
-        coll.insert_one(document).await?;
+        let insert = coll.insert_one(document);
+        match session.as_deref_mut() {
+            Some(s) => insert.session(s).await?,
+            None => insert.await?,
+        };
         total_inserted += 1;
     }
 
-    Ok(StatementResult {
-        affected_rows: total_inserted,
-        execution_time_ms: start.elapsed().as_millis() as u64,
-    })
+    Ok(total_inserted)
 }
 
-pub async fn delete_rows(
+async fn delete_docs(
     db: &Database,
     editable: &EditableInfo,
-    pk_values: Vec<Vec<Option<String>>>,
-) -> Result<StatementResult> {
+    pk_values: &[Vec<Option<String>>],
+    mut session: Option<&mut ClientSession>,
+) -> Result<u64> {
     let coll = db.collection::<Document>(&editable.table);
-    let start = Instant::now();
     let mut total_deleted: u64 = 0;
 
-    for pk in &pk_values {
+    for pk in pk_values {
         let id_value = pk
             .first()
             .and_then(|v| v.as_deref())
             .ok_or_else(|| Error::InvalidQuery("Missing _id value for delete".into()))?;
 
-        let result = coll
-            .delete_one(doc! { "_id": { "$in": scalar_variants(id_value) } })
-            .await?;
+        let delete = coll.delete_one(doc! { "_id": { "$in": scalar_variants(id_value) } });
+        let result = match session.as_deref_mut() {
+            Some(s) => delete.session(s).await?,
+            None => delete.await?,
+        };
 
         total_deleted += result.deleted_count;
     }
 
-    Ok(StatementResult {
-        affected_rows: total_deleted,
-        execution_time_ms: start.elapsed().as_millis() as u64,
-    })
+    Ok(total_deleted)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -513,4 +615,112 @@ async fn run_write(db: &Database, command: MongoCommand) -> Result<Document> {
     };
 
     Ok(summary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::mongo::MongoAdapter;
+    use crate::adapters::DatabaseAdapter;
+    use crate::models::{DatabaseType, Server, SslMode};
+
+    fn server(connection_uri: &str) -> Server {
+        Server {
+            id: Some(1),
+            name: "e2e".into(),
+            db_type: DatabaseType::Mongodb,
+            host: String::new(),
+            port: 0,
+            username: String::new(),
+            password: String::new(),
+            default_database: None,
+            ssl_mode: SslMode::Disable,
+            ssl_root_cert: None,
+            connection_uri: Some(connection_uri.into()),
+            scope_databases: None,
+            scope_schemas: None,
+            group_id: None,
+            created_at: 0,
+        }
+    }
+
+    /// Recria `pessoas` com os `_id` 1, 2 e 3.
+    async fn seed(adapter: &MongoAdapter) {
+        let coll = adapter.db().collection::<Document>("pessoas");
+        coll.drop().await.unwrap();
+        coll.insert_many(vec![
+            doc! { "_id": 1, "nome": "Ana" },
+            doc! { "_id": 2, "nome": "Bia" },
+            doc! { "_id": 3, "nome": "Caio" },
+        ])
+        .await
+        .unwrap();
+    }
+
+    async fn ids(adapter: &MongoAdapter) -> Vec<i32> {
+        let coll = adapter.db().collection::<Document>("pessoas");
+        let docs = collect_cursor(coll.find(doc! {}).sort(doc! { "_id": 1 }).await.unwrap(), None)
+            .await
+            .unwrap();
+        docs.iter().map(|d| d.get_i32("_id").unwrap()).collect()
+    }
+
+    /// DELETE de 1 passa, o INSERT de `_id` 3 (repetido) falha.
+    fn failing_changes() -> RowChanges {
+        RowChanges {
+            deletes: vec![vec![Some("1".into())]],
+            inserts: vec![RowInsert {
+                values: vec![("_id".into(), Some("3".into())), ("nome".into(), Some("Outro".into()))],
+            }],
+            edits: vec![],
+        }
+    }
+
+    fn editable() -> EditableInfo {
+        EditableInfo {
+            schema: String::new(),
+            table: "pessoas".into(),
+            primary_key_columns: vec!["_id".into()],
+            primary_key_column_indices: vec![0],
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a mongodb replica set on localhost:27018 (no auth)"]
+    async fn e2e_save_row_changes_rolls_back_on_replica_set() {
+        let adapter = MongoAdapter::new(
+            &server("mongodb://localhost:27018/?directConnection=true"),
+            "octapus_e2e_save",
+        )
+        .await
+        .unwrap();
+        seed(&adapter).await;
+
+        adapter
+            .save_row_changes(&editable(), failing_changes())
+            .await
+            .unwrap_err();
+        // A transação abortou: o DELETE de 1 não valeu
+        assert_eq!(ids(&adapter).await, vec![1, 2, 3]);
+
+        adapter.db().drop().await.unwrap();
+    }
+
+    /// Standalone não tem transação: as etapas valem uma a uma, como antes.
+    #[tokio::test]
+    #[ignore = "requires local mongodb on localhost:27017 (no auth)"]
+    async fn e2e_save_row_changes_without_transactions_on_standalone() {
+        let adapter = MongoAdapter::new(&server("mongodb://localhost:27017"), "octapus_e2e_save")
+            .await
+            .unwrap();
+        seed(&adapter).await;
+
+        adapter
+            .save_row_changes(&editable(), failing_changes())
+            .await
+            .unwrap_err();
+        assert_eq!(ids(&adapter).await, vec![2, 3]);
+
+        adapter.db().drop().await.unwrap();
+    }
 }

@@ -27,6 +27,7 @@ import {
   isFlatCatalog,
 } from '@/queries/use-catalog';
 import { useServers } from '@/queries/use-servers';
+import { useDbCapabilities } from '@/queries/use-capabilities';
 import { useStructure } from '@/queries/use-structure';
 
 export interface UseSqlCompletionParams {
@@ -116,11 +117,15 @@ export function useSqlCompletion({
 }: UseSqlCompletionParams): SqlCompletion {
   const queryClient = useQueryClient();
   const { data: servers } = useServers();
+  const capsByType = useDbCapabilities();
   const dbType = servers?.find(server => server.id === serverId)?.dbType;
-  const withCatalog = hasCatalog(dbType);
-  const flat = isFlatCatalog(dbType);
+  const caps = dbType ? capsByType[dbType] : undefined;
+  const withCatalog = hasCatalog(caps);
+  const flat = isFlatCatalog(caps);
+  // Estrutura inteira só para banco sem catálogo — e só depois de saber
+  // disso: enquanto as capabilities carregam, nada de pedir a estrutura
   const { data: structure } = useStructure(serverId, database, {
-    enabled: enabled && servers !== undefined && !withCatalog,
+    enabled: enabled && caps !== undefined && !withCatalog,
   });
 
   const target = useRef<{

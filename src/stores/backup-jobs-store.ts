@@ -62,7 +62,10 @@ const emptyJob = (jobId: string): BackupJob => ({
 });
 
 /** O job depois do evento (puro, testável) */
-export function applyBackupEvent(job: BackupJob, event: BackupEvent): BackupJob {
+export function applyBackupEvent(
+  job: BackupJob,
+  event: BackupEvent,
+): BackupJob {
   switch (event.type) {
     case 'log': {
       const log = job.log.concat(event.lines);

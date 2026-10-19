@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useId, useState } from 'react';
 import { EditorFooter } from './editor-footer';
 
 interface UuidEditorProps {
@@ -18,6 +18,7 @@ export const UuidEditor = memo(function UuidEditor({
   onSetNull,
 }: UuidEditorProps) {
   const [editValue, setEditValue] = useState(value);
+  const fieldId = useId();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,10 +48,14 @@ export const UuidEditor = memo(function UuidEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-micro font-medium uppercase text-fg-subtle">
+      <label
+        htmlFor={fieldId}
+        className="text-micro font-medium uppercase text-fg-subtle"
+      >
         Editar UUID
       </label>
       <input
+        id={fieldId}
         type="text"
         className={
           'w-full p-2 text-small font-mono text-fg bg-field border rounded-sm ' +
@@ -67,7 +72,11 @@ export const UuidEditor = memo(function UuidEditor({
         autoFocus
       />
       {error && <span className="text-small text-danger">{error}</span>}
-      <EditorFooter onSave={handleSave} onCancel={onCancel} onSetNull={onSetNull} />
+      <EditorFooter
+        onSave={handleSave}
+        onCancel={onCancel}
+        onSetNull={onSetNull}
+      />
     </div>
   );
 });

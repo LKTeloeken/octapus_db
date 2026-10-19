@@ -3,11 +3,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { connect } from '@/api/connection';
 import type { Server } from '@/api/types/server.types';
-import { catalogStatusQuery, hasCatalog, useCatalogSearch } from '@/queries/use-catalog';
+import {
+  catalogStatusQuery,
+  hasCatalog,
+  useCatalogSearch,
+} from '@/queries/use-catalog';
 import { useServers } from '@/queries/use-servers';
+import { useDbCapabilities } from '@/queries/use-capabilities';
 import { useCommandPaletteStore } from '@/stores/command-palette-store';
 import { useConnectionStore } from '@/stores/connection-store';
-import { useRecentTablesStore, type TableRef } from '@/stores/recent-tables-store';
+import {
+  useRecentTablesStore,
+  type TableRef,
+} from '@/stores/recent-tables-store';
 import { useTabsStore } from '@/stores/tabs-store';
 import { fuzzyMatch } from '@/lib/fuzzy';
 import { encodeNodeId } from '@/lib/node-ref';
@@ -36,7 +44,9 @@ export const useCommandPalette = () => {
   const setOpen = useCommandPaletteStore(state => state.setOpen);
   const togglePalette = useCommandPaletteStore(state => state.toggle);
   const pinnedSchema = useCommandPaletteStore(state => state.pinnedSchema);
-  const setPinnedSchema = useCommandPaletteStore(state => state.setPinnedSchema);
+  const setPinnedSchema = useCommandPaletteStore(
+    state => state.setPinnedSchema,
+  );
   const [query, setQuery] = useState('');
   const [caret, setCaret] = useState<QueryCaret | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
@@ -46,6 +56,7 @@ export const useCommandPalette = () => {
   const recents = useRecentTablesStore(state => state.recents);
   const addRecent = useRecentTablesStore(state => state.addRecent);
   const { data: servers } = useServers();
+  const capsByType = useDbCapabilities();
   const catalogSearch = useCatalogSearch(query, {
     enabled: open,
     schema: pinnedSchema,
@@ -76,7 +87,9 @@ export const useCommandPalette = () => {
   useEffect(() => {
     if (!open || !servers) return;
     const withCatalog = new Set(
-      servers.filter(server => hasCatalog(server.dbType)).map(server => server.id),
+      servers
+        .filter(server => hasCatalog(capsByType[server.dbType]))
+        .map(server => server.id),
     );
     const targets = new Map<string, { serverId: number; database: string }>();
     const add = (serverId: number, database: string) => {
@@ -84,13 +97,15 @@ export const useCommandPalette = () => {
         targets.set(`${serverId}|${database}`, { serverId, database });
       }
     };
-    useTabsStore.getState().tabs.forEach(tab => add(tab.serverId, tab.database));
+    useTabsStore
+      .getState()
+      .tabs.forEach(tab => add(tab.serverId, tab.database));
     recents.forEach(ref => add(ref.serverId, ref.database));
 
     targets.forEach(({ serverId, database }) => {
       void queryClient.prefetchQuery(catalogStatusQuery(serverId, database));
     });
-  }, [open, servers, recents, queryClient]);
+  }, [open, servers, capsByType, recents, queryClient]);
 
   // A paleta continua visível durante a animação de saída, então nada muda ao
   // fechar: o campo é zerado ao ABRIR (ainda no render, antes de pintar) e,
@@ -277,7 +292,12 @@ export const useCommandPalette = () => {
             const server = serversById.get(target.serverId);
             if (server) {
               void openEntry(
-                tableEntry(server, target.database, target.schemas.sample[0], target.name),
+                tableEntry(
+                  server,
+                  target.database,
+                  target.schemas.sample[0],
+                  target.name,
+                ),
               );
             }
             return;
@@ -305,12 +325,15 @@ export const useCommandPalette = () => {
     [query, refine, setPinnedSchema],
   );
 
-  const unpinSchema = useCallback(() => setPinnedSchema(null), [setPinnedSchema]);
+  const unpinSchema = useCallback(
+    () => setPinnedSchema(null),
+    [setPinnedSchema],
+  );
 
   const isEmptyCache =
     entries.length === 0 &&
     recents.length === 0 &&
-    !(servers ?? []).some(server => hasCatalog(server.dbType));
+    !(servers ?? []).some(server => hasCatalog(capsByType[server.dbType]));
 
   return {
     open,

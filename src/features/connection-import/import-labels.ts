@@ -38,8 +38,11 @@ export function sourceSummary(info: ImportSourceInfo): string {
   return `${count} · ${PASSWORD_LABELS[info.passwords]}`;
 }
 
-/** Dica de onde achar o arquivo quando o app não está no lugar padrão */
-export const SOURCE_FILE_HINTS: Record<ImportSourceInfo['source'], string> = {
+/**
+ * Dica de onde achar o arquivo quando o app não está no lugar padrão. As
+ * URLs coladas não têm arquivo (e nunca aparecem como origem detectada).
+ */
+export const SOURCE_FILE_HINTS: Partial<Record<ImportSource, string>> = {
   dbeaver: 'data-sources.json da pasta .dbeaver do projeto',
   tableplus: 'Connections.plist da pasta Data do TablePlus',
   pgadmin: 'JSON de Tools › Import/Export Servers, ou o pgadmin4.db',
@@ -75,10 +78,10 @@ export function warningLabel(warning: ImportWarning): WarningLabel {
           'A senha não veio do app de origem: informe ao editar o servidor.',
         tone: 'neutral',
       };
-    case 'sslNotVerified':
+    case 'sslSystemCa':
       return {
         label: 'SSL',
-        title: `Usava ${warning.mode}; o Octapus cifra a conexão sem verificar o certificado.`,
+        title: `Usava ${warning.mode}: o certificado é conferido contra as CAs do sistema. Se o app de origem usava uma CA própria, escolha o arquivo ao editar o servidor.`,
         tone: 'neutral',
       };
     case 'clientCertificate':

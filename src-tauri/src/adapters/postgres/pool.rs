@@ -3,13 +3,15 @@ use std::time::Duration;
 
 use deadpool_postgres::{
     Config, Hook, HookError, Manager, ManagerConfig, Pool, RecyclingMethod, Runtime,
+    SslMode as PgSslMode,
 };
-use postgres_native_tls::MakeTlsConnector;
 use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
 use tokio_postgres::{CancelToken, Client, NoTls, Socket};
+use tokio_postgres_rustls::MakeRustlsConnect;
 
-use crate::error::{Error, Result};
-use crate::models::Server;
+use crate::adapters::tls;
+use crate::error::{error_chain, Error, Result};
+use crate::models::{Server, SslMode};
 
 use super::notices::{NoticeConnect, NoticeHub};
 
@@ -32,6 +34,14 @@ fn base_config(server: &Server, database: &str) -> Config {
     }
     cfg.dbname = Some(database.to_string());
     cfg.connect_timeout = Some(CONNECT_TIMEOUT);
+    // Explícito: o padrão do tokio-postgres é `prefer`, que cai para texto
+    // puro em silêncio quando o servidor recusa TLS. O modo do servidor
+    // cadastrado manda, também sobre o `sslmode` de uma URI.
+    cfg.ssl_mode = Some(match server.ssl_mode {
+        SslMode::Disable => PgSslMode::Disable,
+        SslMode::Prefer => PgSslMode::Prefer,
+        SslMode::Require | SslMode::VerifyCa | SslMode::VerifyFull => PgSslMode::Require,
+    });
 
     // Garante a entrega dos RAISE NOTICE mesmo em servidores cujo default de
     // client_min_messages seja mais restritivo que o do Postgres.
@@ -44,15 +54,12 @@ fn base_config(server: &Server, database: &str) -> Config {
     cfg
 }
 
-/// sslmode=require semantics: encrypt the connection without verifying the
-/// certificate (common for self-signed DB servers)
-fn tls_connector() -> Result<MakeTlsConnector> {
-    let connector = native_tls::TlsConnector::builder()
-        .danger_accept_invalid_certs(true)
-        .danger_accept_invalid_hostnames(true)
-        .build()
-        .map_err(|e| Error::Connection(format!("TLS setup failed: {e}")))?;
-    Ok(MakeTlsConnector::new(connector))
+/// O conector TLS do modo do servidor (`None` em `disable`) — ver `tls.rs`.
+fn tls_connector(server: &Server) -> Result<Option<MakeRustlsConnect>> {
+    Ok(
+        tls::client_config(server.ssl_mode, server.ssl_root_cert.as_deref())?
+            .map(MakeRustlsConnect::new),
+    )
 }
 
 pub fn create_pool(server: &Server, database: &str, hub: &Arc<NoticeHub>) -> Result<Pool> {
@@ -75,10 +82,9 @@ pub fn create_pool(server: &Server, database: &str, hub: &Arc<NoticeHub>) -> Res
         ..Default::default()
     });
 
-    if server.ssl_enabled {
-        build_pool(&cfg, tls_connector()?, hub)
-    } else {
-        build_pool(&cfg, NoTls, hub)
+    match tls_connector(server)? {
+        Some(tls) => build_pool(&cfg, tls, hub),
+        None => build_pool(&cfg, NoTls, hub),
     }
 }
 
@@ -87,7 +93,7 @@ pub fn create_pool(server: &Server, database: &str, hub: &Arc<NoticeHub>) -> Res
 #[derive(Clone)]
 pub enum CancelHandle {
     Plain(CancelToken),
-    Tls(CancelToken, MakeTlsConnector),
+    Tls(CancelToken, MakeRustlsConnect),
 }
 
 impl CancelHandle {
@@ -110,10 +116,12 @@ pub async fn connect_dedicated(server: &Server, database: &str) -> Result<(Clien
         .get_pg_config()
         .map_err(|e| Error::Connection(e.to_string()))?;
 
-    let connect_error = |e: tokio_postgres::Error| Error::Connection(e.to_string());
-    if server.ssl_enabled {
-        let tls = tls_connector()?;
-        let (client, connection) = pg_config.connect(tls.clone()).await.map_err(connect_error)?;
+    let connect_error = |e: tokio_postgres::Error| Error::Connection(error_chain(&e));
+    if let Some(tls) = tls_connector(server)? {
+        let (client, connection) = pg_config
+            .connect(tls.clone())
+            .await
+            .map_err(connect_error)?;
         tokio::spawn(connection);
         let cancel = CancelHandle::Tls(client.cancel_token(), tls);
         Ok((client, cancel))
@@ -142,7 +150,9 @@ fn verify_if_idle() -> Hook {
             }
             match tokio::time::timeout(CONNECT_TIMEOUT, client.simple_query("")).await {
                 Ok(Ok(_)) => Ok(()),
-                _ => Err(HookError::Message("idle connection failed verification".into())),
+                _ => Err(HookError::Message(
+                    "idle connection failed verification".into(),
+                )),
             }
         })
     })

@@ -9,7 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { formatBytes } from '@/lib/format-bytes';
 import { cn } from '@/lib/utils';
-import type { BackupJobKind, BackupJobStatus } from '@/stores/backup-jobs-store';
+import type {
+  BackupJobKind,
+  BackupJobStatus,
+} from '@/stores/backup-jobs-store';
 import { useBackupJobCard } from './use-backup-job-card';
 
 /** `4 s`, `1 min 12 s` */
@@ -67,7 +70,9 @@ export function BackupJobCard({ jobId }: { jobId: string }) {
     <div className="glass flex w-80 flex-col gap-2.5 rounded-lg p-4 text-fg">
       <div className="flex items-start gap-2.5">
         <span className="mt-0.5 shrink-0">
-          {job.status === 'running' && <Spinner className="size-4 text-fg-muted" />}
+          {job.status === 'running' && (
+            <Spinner className="size-4 text-fg-muted" />
+          )}
           {job.status === 'done' && (
             <HugeiconsIcon
               icon={warned ? Alert02Icon : CheckmarkCircle02Icon}
@@ -78,12 +83,18 @@ export function BackupJobCard({ jobId }: { jobId: string }) {
             <HugeiconsIcon icon={Alert02Icon} className="size-4 text-danger" />
           )}
           {job.status === 'cancelled' && (
-            <HugeiconsIcon icon={Cancel01Icon} className="size-4 text-fg-muted" />
+            <HugeiconsIcon
+              icon={Cancel01Icon}
+              className="size-4 text-fg-muted"
+            />
           )}
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <p className="text-body font-medium">{title}</p>
-          <p className="truncate font-mono text-small text-fg-muted" title={job.label}>
+          <p
+            className="truncate font-mono text-small text-fg-muted"
+            title={job.label}
+          >
             {job.label}
           </p>
           <p className="text-small text-fg-muted">
@@ -99,7 +110,10 @@ export function BackupJobCard({ jobId }: { jobId: string }) {
       </div>
 
       {job.status === 'running' && lastLine && !showLog && (
-        <p className="truncate font-mono text-small text-fg-muted" title={lastLine}>
+        <p
+          className="truncate font-mono text-small text-fg-muted"
+          title={lastLine}
+        >
           {lastLine}
         </p>
       )}

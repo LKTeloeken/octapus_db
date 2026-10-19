@@ -1,6 +1,6 @@
 [package]
 name = "octapus_db"
-version = "0.1.0-beta.16"
+version = "1.1.0-beta.9"
 description = "Cliente de banco de dados desktop para PostgreSQL, MongoDB e Redis"
 authors = ["LKTeloeken"]
 license = "MIT OR Apache-2.0"
@@ -39,10 +39,16 @@ tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 deadpool-postgres = "0.14"
 mongodb = "3"
 json5 = "0.4"
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager", "tokio-native-tls-comp"] }
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager", "tokio-rustls-comp", "tls-rustls-insecure"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-postgres-native-tls = "0.5"
-native-tls = "0.2"
+
+# TLS dos bancos (adapters/tls.rs): rustls com as CAs do sistema — o
+# native-tls do macOS (Secure Transport) recusa bundles de CA reais, como o do
+# RDS. Mesmas versões que o lockfile já tinha.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+rustls-pki-types = { version = "1", features = ["std"] }
+tokio-postgres-rustls = "0.13"
 
 # Secrets vault (device-bound encryption at rest)
 aes-gcm = "0.10"
@@ -78,13 +84,16 @@ hashbrown = { version = "0.15", default-features = false }
 # Já era dependência transitiva — mesma versão do lockfile.
 futures-util = "0.3"
 
+# Log do app em arquivo (pasta de logs do SO, com rotação) — ver lib.rs
+log = "0.4"
+tauri-plugin-log = "2"
+
 # Auto-update (só desktop; o updater não existe em mobile)
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
 # Canal beta (commands/updater.rs): listar as releases na API do GitHub. Mesmas
 # versões e features que o plugin do updater já usa — nenhuma crate nova.
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
 semver = "1"
 
 # macOS: esconder os botões nativos da barra (o front desenha os seus).
@@ -94,6 +103,9 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow"] }
 
 [dev-dependencies]
+# Tipos TypeScript gerados dos modelos (src/api/types/generated/), só em teste:
+# `cargo test --lib export_bindings` (ver .cargo/config.toml). O binário não leva.
+ts-rs = "12"
 # Testes de propriedade do núcleo do catálogo (1.7: as mais novas sobem o
 # bitflags do app inteiro no lockfile)
 proptest = "1.7"

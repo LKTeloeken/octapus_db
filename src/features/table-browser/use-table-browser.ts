@@ -4,10 +4,12 @@ import type { SortSpec } from '@/api/types/browse.types';
 import { useHiddenColumnsReset } from '@/components/column-selector/use-hidden-columns-reset';
 import { sqlFragmentContext } from '@/components/query-editor/query-editor/sql-completion/sql-fragment-context';
 import type { SaveRowChanges } from '@/components/results-table/results-table.types';
+import { persistRowChanges } from '@/lib/persist-row-changes';
 import {
   useApplyRowEdits,
   useDeleteRows,
   useInsertRows,
+  useSaveRowChanges,
 } from '@/queries/use-apply-row-edits';
 import { useCapabilities } from '@/queries/use-capabilities';
 import { useServers } from '@/queries/use-servers';
@@ -25,12 +27,15 @@ export const useTableBrowser = (tab: BrowseTab) => {
   const applyEditsMutation = useApplyRowEdits();
   const insertRowsMutation = useInsertRows();
   const deleteRowsMutation = useDeleteRows();
+  const saveRowChangesMutation = useSaveRowChanges();
   const fetchAllMutation = useFetchAllTableData();
   const { data: capabilities } = useCapabilities(tab.serverId);
   // Servidor da aba: nome e banco para o breadcrumb da toolbar.
   const { data: servers } = useServers();
   const server = servers?.find(item => item.id === tab.serverId);
   const supportsSql = capabilities?.supportsSql === true;
+  // Sem saber ainda (capabilities carregando), grava em etapas separadas
+  const supportsAtomicSave = capabilities?.supportsAtomicSave === true;
   const isValuePanelOpen = useValuePanelStore(state => state.isOpen);
   const toggleValuePanel = useValuePanelStore(state => state.toggleOpen);
   const setValuePanelOpen = useValuePanelStore(state => state.setOpen);
@@ -68,14 +73,19 @@ export const useTableBrowser = (tab: BrowseTab) => {
     whereExpr: tab.whereExpr,
     sort: tab.sort,
   });
+  const { refetch } = data;
 
   // The sort the backend is effectively applying: an explicit single-column
   // choice, or the PK-desc default (derived so the header can show it).
-  const activeSort: SortSpec | null =
-    tab.sort[0] ??
-    (data.editableInfo?.primaryKeyColumns[0]
-      ? { column: data.editableInfo.primaryKeyColumns[0], direction: 'desc' }
-      : null);
+  const defaultSortColumn = data.editableInfo?.primaryKeyColumns[0];
+  const activeSort = useMemo<SortSpec | null>(
+    () =>
+      tab.sort[0] ??
+      (defaultSortColumn
+        ? { column: defaultSortColumn, direction: 'desc' }
+        : null),
+    [tab.sort, defaultSortColumn],
+  );
 
   // Header click: sort by a single column. Re-clicking the active column flips
   // its direction; a new column starts ascending.
@@ -100,10 +110,10 @@ export const useTableBrowser = (tab: BrowseTab) => {
       if (next !== tab.whereExpr) {
         setBrowseWhere(tab.id, next);
       } else {
-        void data.refetch();
+        void refetch();
       }
     },
-    [draftWhere, tab.id, tab.whereExpr, setBrowseWhere, data.refetch],
+    [draftWhere, tab.id, tab.whereExpr, setBrowseWhere, refetch],
   );
 
   const resetWhere = useCallback(() => {
@@ -197,32 +207,24 @@ export const useTableBrowser = (tab: BrowseTab) => {
   // Persist deletes, inserts and edits together. Each mutation invalidates the
   // browse query, so the table only reflects changes once the backend confirms.
   const save = useCallback(
-    async ({ edits, inserts, deletes }: SaveRowChanges) => {
+    async (changes: SaveRowChanges) => {
       const editable = data.editableInfo;
       if (!editable) return;
 
       const base = { serverId: tab.serverId, database: tab.database, editable };
 
       try {
-        let affected = 0;
-        if (deletes.length > 0) {
-          const r = await deleteRowsMutation.mutateAsync({
-            ...base,
-            pkValues: deletes,
-          });
-          affected += r.affectedRows;
-        }
-        if (inserts.length > 0) {
-          const r = await insertRowsMutation.mutateAsync({
-            ...base,
-            rows: inserts,
-          });
-          affected += r.affectedRows;
-        }
-        if (edits.length > 0) {
-          const r = await applyEditsMutation.mutateAsync({ ...base, edits });
-          affected += r.affectedRows;
-        }
+        const affected = await persistRowChanges(changes, {
+          saveAll: supportsAtomicSave
+            ? all =>
+                saveRowChangesMutation.mutateAsync({ ...base, changes: all })
+            : undefined,
+          deleteRows: pkValues =>
+            deleteRowsMutation.mutateAsync({ ...base, pkValues }),
+          insertRows: rows => insertRowsMutation.mutateAsync({ ...base, rows }),
+          applyEdits: edits =>
+            applyEditsMutation.mutateAsync({ ...base, edits }),
+        });
         toast.success(`${affected} linhas alteradas`);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : String(error));
@@ -236,6 +238,8 @@ export const useTableBrowser = (tab: BrowseTab) => {
       applyEditsMutation,
       insertRowsMutation,
       deleteRowsMutation,
+      saveRowChangesMutation,
+      supportsAtomicSave,
     ],
   );
 

@@ -1,4 +1,7 @@
-import { ArrowDataTransferHorizontalIcon, CheckmarkCircle02Icon } from '@hugeicons/core-free-icons';
+import {
+  ArrowDataTransferHorizontalIcon,
+  CheckmarkCircle02Icon,
+} from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -26,16 +29,30 @@ const TONE_BADGE: Record<ChangeTone, 'danger' | 'info' | 'warning'> = {
   changed: 'warning',
 };
 
-function Section({ title, children }: { title: ReactNode; children: ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="text-micro font-medium uppercase text-fg-subtle">{title}</h3>
+      <h3 className="text-micro font-medium uppercase text-fg-subtle">
+        {title}
+      </h3>
       {children}
     </section>
   );
 }
 
-function TableList({ tables, variant }: { tables: string[]; variant: 'danger' | 'info' }) {
+function TableList({
+  tables,
+  variant,
+}: {
+  tables: string[];
+  variant: 'danger' | 'info';
+}) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {tables.map(table => (
@@ -56,7 +73,10 @@ interface SchemaCompareDialogProps {
  * Compara dois schemas: as tabelas que só um tem e, nas comuns, as colunas
  * que diferem (tipo, nulo, default), da base para o outro.
  */
-export function SchemaCompareDialog({ open, dialog }: SchemaCompareDialogProps) {
+export function SchemaCompareDialog({
+  open,
+  dialog,
+}: SchemaCompareDialogProps) {
   const {
     base,
     setBase,
@@ -85,8 +105,8 @@ export function SchemaCompareDialog({ open, dialog }: SchemaCompareDialogProps) 
         <DialogHeader>
           <DialogTitle>Comparar schemas</DialogTitle>
           <DialogDescription>
-            Em <span className="font-mono text-fg">{dialog.database}</span>: tabelas
-            e colunas do outro schema contra a base.
+            Em <span className="font-mono text-fg">{dialog.database}</span>:
+            tabelas e colunas do outro schema contra a base.
           </DialogDescription>
         </DialogHeader>
 
@@ -128,10 +148,14 @@ export function SchemaCompareDialog({ open, dialog }: SchemaCompareDialogProps) 
             onChange={event => setOther(event.target.value)}
           />
           <datalist id="compare-base-schemas">
-            {baseSuggestions.map(name => <option key={name} value={name} />)}
+            {baseSuggestions.map(name => (
+              <option key={name} value={name} />
+            ))}
           </datalist>
           <datalist id="compare-other-schemas">
-            {otherSuggestions.map(name => <option key={name} value={name} />)}
+            {otherSuggestions.map(name => (
+              <option key={name} value={name} />
+            ))}
           </datalist>
           <button type="submit" hidden />
         </form>
@@ -147,7 +171,10 @@ export function SchemaCompareDialog({ open, dialog }: SchemaCompareDialogProps) 
               <p className="text-body text-danger">{error}</p>
             ) : result && identical ? (
               <p className="flex items-center gap-2 text-body text-fg-muted">
-                <HugeiconsIcon icon={CheckmarkCircle02Icon} className="size-4 text-success" />
+                <HugeiconsIcon
+                  icon={CheckmarkCircle02Icon}
+                  className="size-4 text-success"
+                />
                 Mesmas tabelas e colunas nos dois ({formatCount(result.common)}{' '}
                 {result.common === 1 ? 'tabela' : 'tabelas'}).
               </p>
@@ -158,12 +185,30 @@ export function SchemaCompareDialog({ open, dialog }: SchemaCompareDialogProps) 
                   {formatCount(result.different.length)} com colunas diferentes
                 </p>
                 {result.onlyInBase.length > 0 && (
-                  <Section title={<>Só em <span className="font-mono normal-case">{result.base}</span></>}>
+                  <Section
+                    title={
+                      <>
+                        Só em{' '}
+                        <span className="font-mono normal-case">
+                          {result.base}
+                        </span>
+                      </>
+                    }
+                  >
                     <TableList tables={result.onlyInBase} variant="danger" />
                   </Section>
                 )}
                 {result.onlyInOther.length > 0 && (
-                  <Section title={<>Só em <span className="font-mono normal-case">{result.other}</span></>}>
+                  <Section
+                    title={
+                      <>
+                        Só em{' '}
+                        <span className="font-mono normal-case">
+                          {result.other}
+                        </span>
+                      </>
+                    }
+                  >
                     <TableList tables={result.onlyInOther} variant="info" />
                   </Section>
                 )}
@@ -172,14 +217,27 @@ export function SchemaCompareDialog({ open, dialog }: SchemaCompareDialogProps) 
                     <ul className="flex flex-col gap-3">
                       {result.different.map(({ table, changes }) => (
                         <li key={table} className="flex flex-col gap-1">
-                          <span className="font-mono text-body font-medium text-fg">{table}</span>
+                          <span className="font-mono text-body font-medium text-fg">
+                            {table}
+                          </span>
                           {changes.map(change => {
-                            const { tone, label, detail } = describeChange(change);
+                            const { tone, label, detail } =
+                              describeChange(change);
                             return (
-                              <div key={change.column} className="flex items-center gap-2 pl-3 text-small">
-                                <Badge variant={TONE_BADGE[tone]}>{label}</Badge>
-                                <span className="shrink-0 font-mono text-fg">{change.column}</span>
-                                <span className="min-w-0 truncate font-mono text-fg-muted" title={detail}>
+                              <div
+                                key={change.column}
+                                className="flex items-center gap-2 pl-3 text-small"
+                              >
+                                <Badge variant={TONE_BADGE[tone]}>
+                                  {label}
+                                </Badge>
+                                <span className="shrink-0 font-mono text-fg">
+                                  {change.column}
+                                </span>
+                                <span
+                                  className="min-w-0 truncate font-mono text-fg-muted"
+                                  title={detail}
+                                >
                                   {detail}
                                 </span>
                               </div>
@@ -199,7 +257,11 @@ export function SchemaCompareDialog({ open, dialog }: SchemaCompareDialogProps) 
           <Button variant="ghost" size="sm" onClick={close}>
             Fechar
           </Button>
-          <Button size="sm" disabled={!canCompare || isComparing} onClick={compare}>
+          <Button
+            size="sm"
+            disabled={!canCompare || isComparing}
+            onClick={compare}
+          >
             Comparar
           </Button>
         </DialogFooter>

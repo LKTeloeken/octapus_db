@@ -161,7 +161,9 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   closeServerTabs: serverId => {
     const state = get();
     const order = Array.from(state.tabs.keys());
-    const closed = order.filter(id => state.tabs.get(id)?.serverId === serverId);
+    const closed = order.filter(
+      id => state.tabs.get(id)?.serverId === serverId,
+    );
     if (closed.length === 0) return closed;
 
     const tabs = new Map(state.tabs);

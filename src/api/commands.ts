@@ -26,6 +26,7 @@ export enum RustCommand {
   Disconnect = 'disconnect',
   GetPoolStats = 'get_pool_stats',
   GetCapabilities = 'get_capabilities',
+  GetDbCapabilities = 'get_db_capabilities',
 
   // Structure (lazy loading)
   ListDatabases = 'list_databases',
@@ -61,6 +62,7 @@ export enum RustCommand {
   ApplyRowEdits = 'apply_row_edits',
   InsertRows = 'insert_rows',
   DeleteRows = 'delete_rows',
+  SaveRowChanges = 'save_row_changes',
   CancelQuery = 'cancel_query',
 
   // Browse (server-side pagination/sort/filter)
@@ -76,6 +78,9 @@ export enum RustCommand {
   // Preferências do app
   GetSettings = 'get_settings',
   UpdateSettings = 'update_settings',
+
+  // Diagnóstico
+  OpenLogDir = 'open_log_dir',
 
   // Backup e restauração (ferramentas nativas do Postgres)
   PgToolsDetect = 'pg_tools_detect',

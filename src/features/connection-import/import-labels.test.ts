@@ -20,7 +20,7 @@ const candidate = (
   username: 'app',
   defaultDatabase: 'loja',
   connectionUri: null,
-  sslEnabled: false,
+  sslMode: 'disable',
   group: null,
   hasPassword: true,
   passwordInKeychain: false,

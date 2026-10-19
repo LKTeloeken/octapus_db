@@ -53,7 +53,7 @@ export const MAX_RANGES_PER_CELL = 20;
 // `u` não passaria no type-check.
 const COMBINING_MARKS = new RegExp('\\p{M}', 'gu');
 const COMBINING_MARK = new RegExp('^\\p{M}$', 'u');
-const NON_ASCII = /[^\x00-\x7f]/;
+const NON_ASCII = /[\u0080-\uffff]/;
 const WORD_CHAR = new RegExp('[\\p{L}\\p{N}_]', 'u');
 
 const stripAccents = (text: string) =>
@@ -114,7 +114,10 @@ const foldWithMap = (
 const isWordBoundary = (text: string, index: number) =>
   index < 0 || index >= text.length || !WORD_CHAR.test(text[index]);
 
-type Finder = (folded: string, onMatch: (s: number, e: number) => boolean) => void;
+type Finder = (
+  folded: string,
+  onMatch: (s: number, e: number) => boolean,
+) => void;
 
 const buildFinder = (
   query: string,
@@ -232,7 +235,10 @@ export interface SearchColumn {
 }
 
 /** Lê o texto que a célula mostra, ou `null` (NULL nunca casa) */
-export type CellTextReader = (rowIndex: number, column: SearchColumn) => string | null;
+export type CellTextReader = (
+  rowIndex: number,
+  column: SearchColumn,
+) => string | null;
 
 /** Teto de resultados guardados; acima disso o contador mostra "10.000+" */
 export const MAX_GRID_MATCHES = 10_000;

@@ -139,7 +139,13 @@ export const ResultsTableVertical = memo(
                   height: `${HEADER_HEIGHT}px`,
                 }}
               >
-                {removed ? '− ' : added ? '+ ' : isRowModified(virtualRecord.index) ? '• ' : ''}
+                {removed
+                  ? '− '
+                  : added
+                    ? '+ '
+                    : isRowModified(virtualRecord.index)
+                      ? '• '
+                      : ''}
                 #{virtualRecord.index + 1}
               </button>
             );
@@ -178,7 +184,10 @@ export const ResultsTableVertical = memo(
                     'sticky left-0 z-10 flex w-full cursor-pointer flex-col justify-center border-r border-b border-line-subtle bg-surface-1 px-2.5 text-left outline-none',
                     columnSelected && 'bg-iris-soft',
                   )}
-                  style={{ width: `${LABEL_WIDTH}px`, height: `${ROW_HEIGHT}px` }}
+                  style={{
+                    width: `${LABEL_WIDTH}px`,
+                    height: `${ROW_HEIGHT}px`,
+                  }}
                 >
                   <div className="truncate text-small font-medium text-fg">
                     {column.name}
@@ -191,7 +200,9 @@ export const ResultsTableVertical = memo(
 
                 {virtualRecords.map(virtualRecord => {
                   const cell =
-                    rows[virtualRecord.index]?.[columnIndices[virtualField.index]];
+                    rows[virtualRecord.index]?.[
+                      columnIndices[virtualField.index]
+                    ];
                   const displayValue = getCellDisplayValue(
                     virtualRecord.index,
                     column.name,
@@ -213,7 +224,8 @@ export const ResultsTableVertical = memo(
                         'absolute top-0 border-r border-b border-line-subtle',
                         isRowRemoved(virtualRecord.index)
                           ? 'bg-danger-soft'
-                          : isRowAdded(virtualRecord.index) && 'bg-success-soft',
+                          : isRowAdded(virtualRecord.index) &&
+                              'bg-success-soft',
                         focusedCell?.rowIndex === virtualRecord.index &&
                           focusedCell.columnName === column.name &&
                           'z-10 ring-[1.5px] ring-inset ring-ring',
