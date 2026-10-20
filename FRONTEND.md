@@ -81,6 +81,7 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
 | `use-assistant-me` | `assistant_me`; `consentPending` e `quotaRemaining` |
 | `use-assistant-consent` | `assistant_consent_current` e `assistant_consent_accept` (recarrega o termo no `ASSISTANT_CONFLICT`) |
 | `use-assistant-models` | `assistant_models` (só no modo `free`) |
+| `use-assistant-conversations` | conversas (`assistant_conversations`, `assistant_conversation`, `assistant_conversation_create`), o turno (`useAskAssistant`, com o `onEvent` do canal; ao terminar relê a conversa e a cota), `useCancelAssistantTurn` e a execução manual (`useExecuteAssistantQuery`) |
 
 - **Query keys** centralizadas em [queries/keys.ts](src/queries/keys.ts). Mutações
   invalidam a key da tabela afetada → refetch automático.

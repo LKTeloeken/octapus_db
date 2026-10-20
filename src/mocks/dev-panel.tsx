@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { mockCatalog } from './catalog';
 import { resetDataset } from './data';
 import { resetAssistantSession } from './assistant';
+import { resetAssistantConversations } from './assistant-turns';
 import {
   DEFAULT_ERROR_MESSAGE,
   useMockStore,
@@ -67,6 +68,7 @@ const ExpandedPanel = ({ onClose }: { onClose: () => void }) => {
     resetDataset();
     mockCatalog.reset();
     resetAssistantSession();
+    resetAssistantConversations();
     window.location.reload();
   };
 

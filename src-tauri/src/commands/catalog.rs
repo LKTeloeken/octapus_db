@@ -24,7 +24,7 @@ const MAX_PAGE: usize = 1_000;
 /// Catálogo do database, aberto na primeira vez (do disco, se houver) com uma
 /// revalidação em segundo plano. A senha só é decifrada aqui, quando a
 /// entrada ainda não existe.
-async fn entry_for(
+pub(crate) async fn entry_for(
     state: &State<'_, AppState>,
     server_id: i64,
     database: &str,

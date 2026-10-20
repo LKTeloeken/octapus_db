@@ -690,6 +690,12 @@ consulta de leitura que gerou; desligado, ela fica para revisão.
 | `assistant_consent_current` | — | `AssistantConsentTerm` `{ version, body (Markdown), publishedAt }` |
 | `assistant_consent_accept` | `{ version }` | `void`; versão que não é a vigente → `ASSISTANT_CONFLICT` |
 | `assistant_models` | — | `AssistantModel[]` — só no modo `free` (senão `ASSISTANT_MODEL_SELECTION_FORBIDDEN`) |
+| `assistant_conversations` | `{ cursor? }` | `AssistantConversationPage` (mais recentes primeiro) |
+| `assistant_conversation` | `{ conversationId }` | `AssistantConversation` (turnos, tentativas, outcome, avaliação) |
+| `assistant_conversation_create` | `{ serverId, modelId?, title? }` | `AssistantConversationSummary` — paradigma do banco do servidor; o modelo fica fixo |
+| `assistant_turn_ask` | `{ serverId, database, conversationId, question, clientTurnId, schemas?, onEvent: Channel }` | `AssistantTurnFinish`; o andamento chega pelo canal (`AssistantTurnEvent`) |
+| `assistant_turn_cancel` | `{ clientTurnId }` | `boolean` (`false` = já terminou) |
+| `assistant_execute` | `{ serverId, database, query, page, attemptId?, userEdited }` | `QueryResult` — execução manual, sempre só-leitura |
 
 O app fala com a API intermediária do TCC (octapus-assistant-api, contrato 1.4.0 em
 `contract/` daquele repositório), que chama os provedores de modelo e registra o
@@ -800,7 +806,38 @@ com a pergunta, sem nunca carregar a estrutura inteira.
   (`CONTRACT_VERSION`); com `OCTAPUS_CONTRACT_DIR` apontando para o `contract/` da API, o
   teste compara byte a byte.
 - **Idioma da pergunta** (`assistant/language.rs`, crate `whatlang`): `pt`, `en` ou
-  `other`, gravado no turno (C-02). E2E: `cargo test --lib read_only -- --include-ignored`
+  `other`, gravado no turno (C-02).
+
+**O turno** (B6, `assistant/turn.rs`, `run_turn`): uma máquina de estados que depende de
+duas portas — `TurnApi` (a API) e `TurnDatabase` (o banco, só leitura) —, o que deixa os
+testes rodarem com as duas simuladas. O comando `assistant_turn_ask` monta o `TurnSetup`
+(conversa e histórico da API, contexto da estrutura, prompt, preferência de execução
+automática) e liga as portas reais.
+
+1. Abre o turno (`clientTurnId`: repetir é seguro) e avisa a tela.
+2. Pede a tentativa: `POST /attempts`, lendo o SSE (`assistant/sse.rs`) com timeout de
+   inatividade de 45 s; 429 espera o `Retry-After` (até 3 vezes) e avisa (`waiting`).
+3. Confere a resposta (`output::parse`). `clarification` encerra; `code` é entregue e
+   **nunca** executado (RN-14); saída inválida (da API ou do app) tenta de novo com
+   `previousFailure: invalid_output`.
+4. `query`: guard → preflight → execução (só com `assistantAutoExecute`; desligada, a
+   consulta e o plano ficam para a revisão). Falha da consulta → outcome com a classe e o
+   erro sanitizado → nova tentativa com a resposta que falhou e o erro (C-11). Falha que
+   não é da consulta (conexão, banco fora) encerra o turno como `failed`.
+5. A API corta em 4 tentativas (`turn_limit_exceeded`; o app tem teto próprio de 6):
+   `exhausted`, entregando a última consulta gerada (RN-24).
+6. Cada tentativa com resposta ganha um outcome; o turno termina com `finish`. Para `code`
+   e `clarification` o guard não roda: vai `allowed: false` com o motivo `kind_code` ou
+   `kind_clarification`, separado da recusa de verdade na análise.
+
+Cancelar (`assistant_turn_cancel`, pelo `clientTurnId`) acorda quem está esperando: fecha
+o stream (a API interrompe o provedor e devolve a cota) ou chama o `cancel_query` da
+execução marcada com o `clientTurnId`, e o turno termina como `cancelled`. A execução
+manual (`assistant_execute`, revisão e páginas seguintes) passa pelo mesmo caminho
+só-leitura; com `attemptId`, a primeira página completa o outcome guardado em memória
+(nunca em disco) e manda de novo. E2E com a API de verdade (gasta tokens):
+`OCTAPUS_E2E_ASSISTANT_URL=… OCTAPUS_E2E_INVITE=… cargo test --lib
+commands::assistant::e2e -- --ignored --nocapture`. E2E: `cargo test --lib read_only -- --include-ignored`
   (Postgres dos e2e; o SQLite usa arquivo temporário).
 
 ### Diagnóstico

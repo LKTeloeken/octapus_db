@@ -13,9 +13,6 @@
 //! Mudar o formato daqui muda o que o modelo vê: trate como uma versão nova
 //! do prompt.
 
-// Consumido pelo orquestrador do turno (B6)
-#![allow(dead_code)]
-
 use serde::Serialize;
 
 use super::failure::FailureClass;
@@ -64,23 +61,14 @@ pub struct HistoryTurn {
     pub output: ModelOutput,
 }
 
-/// Onde a tentativa falhou.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FailedStage {
-    /// O guard de leitura recusou antes de ir ao banco
-    Guard,
-    /// O `EXPLAIN` (sem executar)
-    Preflight,
-    Execution,
-}
+/// Onde a tentativa falhou (o mesmo `AssistantStage` dos eventos do turno).
+pub use crate::models::AssistantStage as FailedStage;
 
-impl FailedStage {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Guard => "guard",
-            Self::Preflight => "preflight",
-            Self::Execution => "execution",
-        }
+fn stage_name(stage: FailedStage) -> &'static str {
+    match stage {
+        FailedStage::Guard => "guard",
+        FailedStage::Preflight => "preflight",
+        FailedStage::Execution => "execution",
     }
 }
 
@@ -198,7 +186,7 @@ fn correction_text(correction: &Correction) -> String {
     format!(
         "<previous_attempt_failed stage=\"{}\" class=\"{class}\">\n{error}\n</previous_attempt_failed>\n\
          Fix the query and answer again in the same JSON format.",
-        correction.stage.as_str()
+        stage_name(correction.stage)
     )
 }
 

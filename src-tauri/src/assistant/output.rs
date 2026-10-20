@@ -56,7 +56,6 @@ const FIELDS: [&str; 6] = [
 /// Confere a resposta (o `data` do evento `result`) e a linguagem esperada
 /// para o banco. `Err` traz o motivo, para o registro da tentativa — nunca o
 /// texto da consulta.
-#[allow(dead_code)] // chamada pelo orquestrador do turno (B6)
 pub fn parse(value: Value, expected: QueryLanguage) -> Result<ModelOutput, String> {
     let Value::Object(fields) = &value else {
         return Err("output is not a JSON object".into());

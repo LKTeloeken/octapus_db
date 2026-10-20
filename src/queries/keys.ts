@@ -51,6 +51,11 @@ export const queryKeys = {
 
   assistantModels: ['assistant', 'session', 'models'] as const,
 
+  assistantConversations: ['assistant', 'session', 'conversations'] as const,
+
+  assistantConversation: (conversationId: string) =>
+    ['assistant', 'session', 'conversation', conversationId] as const,
+
   /** Ferramentas do Postgres — prefixo, invalidado ao trocar a pasta */
   pgTools: ['pgTools'] as const,
 

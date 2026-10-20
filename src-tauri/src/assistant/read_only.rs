@@ -12,7 +12,6 @@ use super::guard;
 
 /// O preflight: o guard e depois o plano da consulta, sem executá-la. Uma
 /// falha aqui (coluna que não existe, tipo errado) já vai para a correção.
-#[allow(dead_code)] // chamada pelo orquestrador do turno (B6)
 pub async fn preflight(
     adapter: &dyn DatabaseAdapter,
     db_type: DatabaseType,
@@ -30,7 +29,6 @@ pub async fn preflight(
     result
 }
 
-#[allow(dead_code)] // chamada pelo orquestrador do turno (B6)
 pub async fn execute(
     adapter: &dyn DatabaseAdapter,
     db_type: DatabaseType,

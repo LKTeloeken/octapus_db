@@ -10,7 +10,15 @@ import {
 } from '@/api/assistant';
 import { ApiError } from '@/api/client';
 import { consentPending, quotaRemaining } from '@/queries/use-assistant-me';
+import { RustCommand } from '@/api/commands';
+import type {
+  AssistantConversation,
+  AssistantConversationSummary,
+  AssistantTurnEvent,
+  AssistantTurnFinish,
+} from '@/api/types/assistant.types';
 import { resetAssistantSession } from './assistant';
+import { resetAssistantConversations } from './assistant-turns';
 import { useMockStore } from './mock-store';
 import { route } from './router';
 
@@ -108,5 +116,122 @@ describe('assistente no mock', () => {
       online: false,
     });
     expect(await codeOf(getAssistantMe())).toBe('ASSISTANT_UNAVAILABLE');
+  });
+
+  describe('turnos', () => {
+    beforeEach(async () => {
+      resetAssistantConversations();
+      await redeemAssistantInvite('CONVITE-TCC-07');
+      await acceptAssistantConsent((await getAssistantConsent()).version);
+    });
+
+    // O Channel de verdade precisa do Tauri: o mock só chama `onmessage`
+    async function ask(
+      conversationId: string,
+      question: string,
+      id = 'turn-1',
+    ) {
+      const events: AssistantTurnEvent[] = [];
+      const finish = (await route(RustCommand.AssistantTurnAsk, {
+        serverId: 1,
+        database: 'loja',
+        conversationId,
+        question,
+        clientTurnId: id,
+        onEvent: {
+          onmessage: (event: AssistantTurnEvent) => events.push(event),
+        },
+      })) as AssistantTurnFinish;
+      return { finish, types: events.map(event => event.type) };
+    }
+
+    async function conversation() {
+      return (await route(RustCommand.AssistantConversationCreate, {
+        serverId: 1,
+        modelId: null,
+        title: null,
+      })) as AssistantConversationSummary;
+    }
+
+    it('pergunta → eventos na ordem → turno salvo na conversa', async () => {
+      const { id } = await conversation();
+      const { finish, types } = await ask(
+        id,
+        'quantos itens existem no estoque?',
+      );
+
+      expect(finish.status).toBe('answered');
+      expect(types.slice(0, 3)).toEqual([
+        'turnOpened',
+        'context',
+        'attemptStarted',
+      ]);
+      expect(types).toContain('output');
+      expect(types.at(-1)).toBe('plan');
+
+      const saved = (await route(RustCommand.AssistantConversation, {
+        conversationId: id,
+      })) as AssistantConversation;
+      expect(saved.turns).toHaveLength(1);
+      expect(saved.turns[0].attempts[0].output?.kind).toBe('query');
+    });
+
+    it('correção depois do erro, código e esclarecimento', async () => {
+      const { id } = await conversation();
+
+      const corrected = await ask(id, 'total com erro de coluna, por favor');
+      expect(corrected.types).toContain('stageFailed');
+      expect(
+        corrected.types.filter(type => type === 'attemptStarted'),
+      ).toHaveLength(2);
+
+      const code = await ask(
+        id,
+        'apagar o primeiro cliente da lista',
+        'turn-2',
+      );
+      expect(code.finish.status).toBe('code_delivered');
+      expect(code.types).not.toContain('result');
+
+      const unclear = await ask(id, 'e aí?', 'turn-3');
+      expect(unclear.finish.status).toBe('clarification');
+    });
+
+    it('cancelar no meio encerra o turno como cancelado', async () => {
+      const { id } = await conversation();
+      const running = ask(id, 'quantos pedidos existem no total?', 'turn-x');
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(
+        await route(RustCommand.AssistantTurnCancel, {
+          clientTurnId: 'turn-x',
+        }),
+      ).toBe(true);
+      expect((await running).finish.status).toBe('cancelled');
+      expect(
+        await route(RustCommand.AssistantTurnCancel, {
+          clientTurnId: 'turn-x',
+        }),
+      ).toBe(false);
+    });
+
+    it('execução manual só aceita leitura', async () => {
+      await expect(
+        route(RustCommand.AssistantExecute, { query: 'SELECT 1', page: {} }),
+      ).resolves.toMatchObject({ rowCount: 1 });
+      await expect(
+        route(RustCommand.AssistantExecute, {
+          query: 'DELETE FROM t',
+          page: {},
+        }),
+      ).rejects.toMatchObject({ code: 'GUARD_REJECTED' });
+    });
+
+    it('sem termo aceito, a conversa não abre', async () => {
+      resetAssistantSession();
+      await redeemAssistantInvite('CONVITE-TCC-07');
+      await expect(conversation()).rejects.toMatchObject({
+        code: 'ASSISTANT_CONSENT_REQUIRED',
+      });
+    });
   });
 });

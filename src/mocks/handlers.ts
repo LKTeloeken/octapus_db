@@ -72,6 +72,7 @@ import { mockEmit, registerListener, unregisterListener } from './events';
 import { useMockStore } from './mock-store';
 import { MOCK_IMPORT_SOURCES, mockImportFixtures } from './data/imports';
 import { assistantHandlers } from './assistant';
+import { assistantTurnHandlers } from './assistant-turns';
 
 type Args = Record<string, unknown>;
 export type MockHandler = (args: Args) => unknown | Promise<unknown>;
@@ -1424,5 +1425,6 @@ export const handlers: Record<string, MockHandler> = {
   ...backupHandlers,
   ...queryHandlers,
   ...assistantHandlers,
+  ...assistantTurnHandlers,
   ...pluginHandlers,
 };

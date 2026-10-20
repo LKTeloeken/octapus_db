@@ -5,7 +5,7 @@
 //! Os dois são determinísticos e não olham o banco: só o erro e o texto da
 //! consulta que o modelo gerou.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::adapters::STATEMENT_TIMEOUT_MESSAGE;
 use crate::error::Error;
@@ -15,7 +15,7 @@ pub const SANITIZED_MAX_CHARS: usize = 2000;
 
 /// `FailureClass` do contrato 1.4.0 (`openapi.yaml`).
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[allow(dead_code)] // InvalidOutput e ParadigmLimitation vêm da B5 e da B9
 pub enum FailureClass {
@@ -37,7 +37,6 @@ pub enum FailureClass {
 /// A classe da falha de uma consulta. `None` quando o erro não é da consulta
 /// (conexão, cancelamento, banco sem suporte): aí não há o que corrigir, e o
 /// turno para.
-#[allow(dead_code)] // chamada pelo orquestrador do turno (B6)
 pub fn classify(error: &Error) -> Option<FailureClass> {
     match error {
         Error::GuardRejected(_) => Some(FailureClass::GuardRejected),
@@ -116,7 +115,6 @@ fn classify_message(message: &str) -> FailureClass {
 /// Um trecho entre aspas ou um número fica só se aparece como token na
 /// consulta que o modelo escreveu (nome de coluna, literal da pergunta): nesse
 /// caso não é dado do banco. `None` para erros que não são da consulta.
-#[allow(dead_code)] // chamada pelo orquestrador do turno (B6)
 pub fn sanitize(error: &Error, query: &str) -> Option<String> {
     let (sql_state, message) = match error {
         Error::DbQuery { sql_state, message } => (Some(sql_state.as_str()), message.as_str()),

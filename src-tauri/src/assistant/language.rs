@@ -2,19 +2,20 @@
 //! contrato). Serve à análise do experimento; o modelo responde no idioma da
 //! pergunta por conta própria (o prompt pede).
 
-// Consumido pelo orquestrador do turno (B6)
-#![allow(dead_code)]
-
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use whatlang::Lang;
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export, rename = "AssistantLanguage"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
     Pt,
     En,
+    /// Qualquer outro (e valor novo da API)
     Other,
 }
+
+crate::models::lenient_deserialize!(Language { Pt, En } else Other);
 
 /// Português, inglês ou outro, pelo `whatlang`. Pergunta curta demais para
 /// decidir cai no palpite do detector; um idioma que não é nenhum dos dois

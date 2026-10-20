@@ -76,6 +76,14 @@ recusado como revogado) e o termo fica pendente até `assistant_consent_accept`.
 e o aceite ficam no `localStorage` (`octapus-mock-assistant`); o reset do painel apaga.
 O participante está no modo `free`, então `assistant_models` responde.
 
+Conversas e turnos ([`assistant-turns.ts`](assistant-turns.ts)) ficam em memória. O turno
+emite os mesmos eventos do backend, com pausas: pergunta curta (< 12 caracteres) vira
+esclarecimento; pedido de escrita ("apagar", "excluir", "delete", "insert", "cadastrar",
+"atualizar") vira código, nunca executado; "erro" na pergunta faz a primeira tentativa
+falhar no preflight e a correção passar; o resto conta as linhas da primeira tabela do
+database. Com a execução automática ligada nas Preferências vem o resultado; desligada,
+só o plano. `assistant_turn_cancel` interrompe no meio.
+
 ## Painel de dev
 
 Badge `MOCK` no canto inferior direito. Controla latência, injeção de erro

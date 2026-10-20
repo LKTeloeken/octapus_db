@@ -48,7 +48,6 @@ pub const ALL: [Prompt; 2] = [POSTGRES_V1, SQLITE_V1];
 
 /// O prompt em uso para o banco. `None` = o assistente ainda não atende o
 /// paradigma (Mongo e Redis entram com as partes B8 e B9).
-#[allow(dead_code)] // chamada pelo orquestrador do turno (B6)
 pub fn for_db(db_type: DatabaseType) -> Option<Prompt> {
     match db_type {
         DatabaseType::Postgres => Some(POSTGRES_V1),
@@ -58,7 +57,6 @@ pub fn for_db(db_type: DatabaseType) -> Option<Prompt> {
 }
 
 /// O paradigma do contrato para o banco (o `paradigm` da conversa).
-#[allow(dead_code)] // usada ao abrir a conversa (B6)
 pub fn paradigm(db_type: DatabaseType) -> Option<&'static str> {
     match db_type {
         DatabaseType::Postgres => Some("postgres"),

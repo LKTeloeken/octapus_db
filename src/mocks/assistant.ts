@@ -51,7 +51,7 @@ const TERM: AssistantConsentTerm = {
   publishedAt: '2026-10-01T12:00:00Z',
 };
 
-const MODELS: AssistantModel[] = [
+export const ASSISTANT_MODELS: AssistantModel[] = [
   {
     id: '0b6f8f0e-1a2b-4c3d-8e9f-a1b2c3d4e5f6',
     alias: 'Modelo A',
@@ -113,7 +113,7 @@ function requireApi() {
 }
 
 /** Chamada autenticada: sem login é `ASSISTANT_UNAUTHORIZED`, como no Rust */
-function requireLogin(): MockAssistantSession {
+export function requireAssistantLogin(): MockAssistantSession {
   requireApi();
   const session = readSession();
   if (!session.loggedIn) throw 'Assistant unauthorized: not signed in';
@@ -163,7 +163,7 @@ export const assistantHandlers: Record<string, MockHandler> = {
   },
 
   [RustCommand.AssistantMe]: (): AssistantMe => {
-    const session = requireLogin();
+    const session = requireAssistantLogin();
     return {
       participant: PARTICIPANT,
       modelSelection: 'free',
@@ -176,12 +176,12 @@ export const assistantHandlers: Record<string, MockHandler> = {
   },
 
   [RustCommand.AssistantConsentCurrent]: (): AssistantConsentTerm => {
-    requireLogin();
+    requireAssistantLogin();
     return TERM;
   },
 
   [RustCommand.AssistantConsentAccept]: ({ version }: Args): void => {
-    const session = requireLogin();
+    const session = requireAssistantLogin();
     if (version !== TERM.version) {
       throw 'Assistant conflict: consent version is not the current one';
     }
@@ -190,7 +190,7 @@ export const assistantHandlers: Record<string, MockHandler> = {
 
   // A API não exige o termo aqui; só o modo `free` (o do participante mock)
   [RustCommand.AssistantModels]: (): AssistantModel[] => {
-    requireLogin();
-    return MODELS;
+    requireAssistantLogin();
+    return ASSISTANT_MODELS;
   },
 };

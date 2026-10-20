@@ -64,7 +64,6 @@ pub struct ContextRequest<'a> {
 
 /// Monta o contexto pelo catálogo do database: carrega os schemas pedidos se
 /// preciso, escolhe as relações e lê colunas e chaves só delas.
-#[allow(dead_code)] // chamada pelo orquestrador do turno (B6)
 pub async fn build(
     catalogs: &CatalogService,
     entry: &Arc<CatalogEntry>,

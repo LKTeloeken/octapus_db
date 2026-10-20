@@ -10,6 +10,8 @@ describe('keys do assistente', () => {
     queryKeys.assistantMe,
     queryKeys.assistantConsent,
     queryKeys.assistantModels,
+    queryKeys.assistantConversations,
+    queryKeys.assistantConversation('c1'),
   ];
 
   it('nenhuma vai para o cache em disco (RN-01)', () => {
@@ -26,6 +28,8 @@ describe('keys do assistente', () => {
       queryKeys.assistantMe,
       queryKeys.assistantConsent,
       queryKeys.assistantModels,
+      queryKeys.assistantConversations,
+      queryKeys.assistantConversation('c1'),
     ]) {
       expect(key.slice(0, 2)).toEqual([...queryKeys.assistantSession]);
     }

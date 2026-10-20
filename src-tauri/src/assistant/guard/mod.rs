@@ -13,6 +13,18 @@ use self::sql::SqlDialect;
 /// Confere a operação para o banco. Recusa → `GUARD_REJECTED`; operação de
 /// outra linguagem que a do banco ou ainda sem guard → `UNSUPPORTED_TYPE`.
 pub fn check(op: &ReadOnlyOp, db_type: DatabaseType) -> Result<()> {
+    match inspect(op, db_type)? {
+        None => Ok(()),
+        Some(rejection) => {
+            log::info!("assistente: consulta recusada pelo guard ({})", rejection.code());
+            Err(Error::GuardRejected(rejection.to_string()))
+        }
+    }
+}
+
+/// O motivo da recusa, quando há (o orquestrador manda o código no outcome).
+/// `Err` só para operação sem guard (falha fechado).
+pub fn inspect(op: &ReadOnlyOp, db_type: DatabaseType) -> Result<Option<sql::Rejection>> {
     let dialect = match (op, db_type) {
         (ReadOnlyOp::Sql(_), DatabaseType::Postgres) => SqlDialect::Postgres,
         (ReadOnlyOp::Sql(_), DatabaseType::Sqlite) => SqlDialect::Sqlite,
@@ -27,10 +39,7 @@ pub fn check(op: &ReadOnlyOp, db_type: DatabaseType) -> Result<()> {
         unreachable!("só SQL chega aqui");
     };
 
-    sql::check(text, dialect).map_err(|rejection| {
-        log::info!("assistente: consulta recusada pelo guard ({})", rejection.code());
-        Error::GuardRejected(rejection.to_string())
-    })
+    Ok(sql::check(text, dialect).err())
 }
 
 #[cfg(test)]

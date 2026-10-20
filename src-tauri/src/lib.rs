@@ -186,6 +186,12 @@ pub fn run() {
             commands::assistant_consent_current,
             commands::assistant_consent_accept,
             commands::assistant_models,
+            commands::assistant_conversations,
+            commands::assistant_conversation,
+            commands::assistant_conversation_create,
+            commands::assistant_turn_ask,
+            commands::assistant_turn_cancel,
+            commands::assistant_execute,
             // Auto-update pelo canal beta (o estável usa o `check` do plugin)
             #[cfg(desktop)]
             commands::check_beta_update,

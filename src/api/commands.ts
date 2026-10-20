@@ -100,6 +100,12 @@ export enum RustCommand {
   AssistantConsentCurrent = 'assistant_consent_current',
   AssistantConsentAccept = 'assistant_consent_accept',
   AssistantModels = 'assistant_models',
+  AssistantConversations = 'assistant_conversations',
+  AssistantConversation = 'assistant_conversation',
+  AssistantConversationCreate = 'assistant_conversation_create',
+  AssistantTurnAsk = 'assistant_turn_ask',
+  AssistantTurnCancel = 'assistant_turn_cancel',
+  AssistantExecute = 'assistant_execute',
 
   // Auto-update pelo canal beta (o estável usa o `check` do plugin)
   CheckBetaUpdate = 'check_beta_update',
