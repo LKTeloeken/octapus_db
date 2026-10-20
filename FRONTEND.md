@@ -270,7 +270,11 @@ palette, dentro do `QueryProvider`.
   - **Grades várias na tela**: a `ResultsTable` com `keyboardScope` vira uma região de
     teclado (`results-table/keyboard-scope.ts`) e só atende atalhos com o foco nela; a
     grade da aba ignora o que nasce no painel do assistente.
-  - O polvo animado (`components/octapus-thinking`) marca o turno em andamento.
+  - O polvo animado (`components/octapus-animated`) marca o turno em andamento, com uma
+    cena por fase (`turn-mascot.ts`) e, se o turno termina com o cartão aberto, uma cena
+    de fim por um instante (`use-turn-mascot.ts`). O motor (rig, cenas e GSAP) fica em
+    `octapus-animated/engine/` e só entra por `import()`; até carregar, aparece o polvo em
+    CSS (`components/octapus-thinking`), que também é o da aba (14 px).
 - **`settings`** ganhou a seção **Assistente**: execução automática (`assistantAutoExecute`)
   e o participante, com "Sair".
 

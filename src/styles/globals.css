@@ -497,8 +497,13 @@
   .octapus-thinking * {
     animation: none !important;
   }
-  .octapus-thinking {
+  .octapus-thinking,
+  .octapus-animated {
     animation: oct-pulse 1.4s var(--ease-in-out) infinite alternate;
+  }
+  /* O animado já para numa pose: o polvo em CSS dentro dele não pulsa de novo */
+  .octapus-animated .octapus-thinking {
+    animation: none;
   }
 }
 

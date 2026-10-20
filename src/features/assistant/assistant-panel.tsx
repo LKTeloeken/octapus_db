@@ -12,6 +12,7 @@ import { ContentState } from '@/components/ui/content-state';
 import { Kbd } from '@/components/ui/kbd';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip } from '@/components/ui/tooltip/tooltip';
+import { OctapusAnimated } from '@/components/octapus-animated/octapus-animated';
 import { OctapusThinking } from '@/components/octapus-thinking/octapus-thinking';
 import { shortcut } from '@/lib/platform';
 import { cn } from '@/lib/utils';
@@ -177,7 +178,7 @@ function GateState({
     case 'loading':
       return (
         <div className="flex h-full items-center justify-center">
-          <OctapusThinking />
+          <OctapusAnimated className="size-12" />
         </div>
       );
     case 'not-configured':

@@ -3,7 +3,7 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import { useEffect, useRef } from 'react';
 import type { AssistantMe } from '@/api/types/assistant.types';
 import { OctapusMark } from '@/components/octapus-mark';
-import { OctapusThinking } from '@/components/octapus-thinking/octapus-thinking';
+import { OctapusAnimated } from '@/components/octapus-animated/octapus-animated';
 import { PromptEditor } from '@/components/prompt-editor/prompt-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -88,7 +88,7 @@ export function ConversationView({
       >
         {conversation.conversationLoading ? (
           <div className="flex h-full items-center justify-center">
-            <OctapusThinking />
+            <OctapusAnimated className="size-12" />
           </div>
         ) : conversation.turns.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">

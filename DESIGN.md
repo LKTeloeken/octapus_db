@@ -355,7 +355,7 @@ namespace de duração); nos utilitários, use `duration-120`, `duration-180` e 
 | Segmento, switch      | thumb desliza 180 ms `spring`                                                       | —                |
 | Alteração salva       | tinta → transparente em 600 ms, só após o `ok`                                      | —                |
 | Carregando            | barra indeterminada de 2 px + skeleton com brilho de 1,4 s                          | —                |
-| Assistente pensando   | polvo (`octapus-thinking`): tentáculos ondulam 1,4 s, um tamborila, piscar a 3,6 s   | —                |
+| Assistente pensando   | polvo animado (`octapus-animated`): uma cena por fase do turno — ver abaixo           | —                |
 | Hover / press         | fundo e cor 120 ms `standard`; press `scale(.98)` em 80 ms                          | —                |
 
 **Nunca animar:** seleção e navegação por setas, scroll da grade e da árvore
@@ -366,6 +366,17 @@ indicador de carregamento. Nunca bloquear clique ou teclado esperando animação
 **Movimento reduzido** (`prefers-reduced-motion`): deslocamento e escala viram só opacidade
 de 120 ms; rotações e deslizes ficam instantâneos. O loading continua (é informação) — o
 polvo do assistente só pulsa a opacidade.
+
+**O polvo do assistente — exceção aprovada.** É o único elemento animado com GSAP
+(carregado sob demanda, num chunk próprio) e o único que anima a forma (`d` dos
+tentáculos), não só `transform`/`opacity`. Cada fase do turno tem uma cena: lupa (lendo
+a estrutura), pensando, notebook (escrevendo), prancheta (conferindo), tabelas que se
+juntam (executando), ampulheta (aguardando a vez); ao terminar, comemora ou coça a cabeça
+uma vez. Regras: monocromático em `currentColor` (a cor vem do `text-*`); os objetos
+ficam ao lado ou embaixo do polvo, nunca na frente do corpo; a silhueta é a do logo em
+todo quadro. Para fora da tela ou com a janela oculta. Em ícone pequeno (a aba, 14 px)
+fica o polvo só em CSS (`octapus-thinking`). As cenas nascem no laboratório
+`octapus-mascot-lab`, fora do repo.
 
 No código, com `tw-animate-css` e os estados do Radix:
 

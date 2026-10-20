@@ -1,7 +1,7 @@
 import { Alert02Icon, InformationCircleIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import type { ReactNode } from 'react';
-import { OctapusThinking } from '@/components/octapus-thinking/octapus-thinking';
+import { OctapusAnimated } from '@/components/octapus-animated/octapus-animated';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { AssistantTarget } from '@/stores/assistant-store';
@@ -12,6 +12,7 @@ import { STAGE_LABELS, phaseLabel, turnErrorMessage } from './turn-messages';
 import { useCountdown } from './use-countdown';
 import type { ConversationTurn } from './use-conversation-view';
 import { useTurnCard } from './use-turn-card';
+import { useTurnMascot } from './use-turn-mascot';
 
 interface TurnCardProps {
   turn: ConversationTurn;
@@ -35,6 +36,7 @@ export function TurnCard({
   const running = view.outcome === 'running';
   const seconds = useCountdown(view.waitUntil);
   const correcting = running && view.failedAttempts.length > 0;
+  const mascot = useTurnMascot(view);
 
   return (
     <article className="flex flex-col gap-3">
@@ -49,23 +51,30 @@ export function TurnCard({
         </Notice>
       )}
 
-      {running && (
+      {mascot && (
         <div className="flex items-center gap-2.5">
-          <OctapusThinking className={output ? 'size-5' : 'size-8'} />
-          <span className="text-small text-fg-muted" role="status">
-            {view.phase === 'waiting' && seconds !== null
-              ? `Aguardando a vez… ${seconds} s`
-              : phaseLabel(view.phase, view.streaming, correcting)}
-          </span>
-          <span className="flex-1" />
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={onCancel}
-            disabled={isCancelling}
-          >
-            Cancelar
-          </Button>
+          <OctapusAnimated
+            scene={mascot}
+            className={output ? 'size-8' : 'size-12'}
+          />
+          {running && (
+            <>
+              <span className="text-small text-fg-muted" role="status">
+                {view.phase === 'waiting' && seconds !== null
+                  ? `Aguardando a vez… ${seconds} s`
+                  : phaseLabel(view.phase, view.streaming, correcting)}
+              </span>
+              <span className="flex-1" />
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={onCancel}
+                disabled={isCancelling}
+              >
+                Cancelar
+              </Button>
+            </>
+          )}
         </div>
       )}
 
