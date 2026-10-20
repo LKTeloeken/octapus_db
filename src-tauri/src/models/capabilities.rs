@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Describes what a given adapter supports, so the frontend can decide what to
 /// render (schema tree levels, editable grids, free-form editor, etc.) without
@@ -63,7 +63,7 @@ pub struct AdapterCapabilities {
 
 /// Linguagem da consulta gerada pelo assistente.
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryLanguage {
     /// SQL (Postgres e SQLite seguem o mesmo caminho)

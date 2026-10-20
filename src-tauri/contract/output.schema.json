@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://octapus.dev/contract/v1/output.schema.json",
+  "title": "ModelOutput",
+  "description": "Resposta do modelo a cada tentativa. Plano e compatível com o modo estrito de saída estruturada dos provedores: todos os campos são obrigatórios e os opcionais aceitam null. Campo anulável é sempre anyOf [tipo, null], nunca \"type\": [tipo, \"null\"] — a Anthropic recusa type em lista junto com enum. `query` é sempre texto; para `mongo` e `redis_plan` o texto é um JSON validado por mongo-operation.schema.json e redis-plan.schema.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "language",
+    "query",
+    "explanation",
+    "assumptions",
+    "clarificationQuestion"
+  ],
+  "properties": {
+    "kind": {
+      "description": "query = consulta de leitura que responde à pergunta; code = qualquer outro código (DDL, função, escrita), nunca executado; clarification = a estrutura não permite responder.",
+      "type": "string",
+      "enum": ["query", "code", "clarification"]
+    },
+    "language": {
+      "description": "Linguagem de `query`. null quando kind = clarification.",
+      "anyOf": [
+        { "type": "string", "enum": ["sql", "mongo", "redis_plan"] },
+        { "type": "null" }
+      ]
+    },
+    "query": {
+      "description": "A consulta ou o código gerado. null quando kind = clarification.",
+      "anyOf": [{ "type": "string" }, { "type": "null" }]
+    },
+    "explanation": {
+      "description": "O que a consulta retorna (ou o que o código faz), curto, no idioma da pergunta.",
+      "type": "string"
+    },
+    "assumptions": {
+      "description": "Premissas assumidas para montar a consulta (RN-20). Lista vazia quando não houve nenhuma.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "clarificationQuestion": {
+      "description": "O que falta para responder. Obrigatório quando kind = clarification; null nos demais.",
+      "anyOf": [{ "type": "string" }, { "type": "null" }]
+    }
+  }
+}

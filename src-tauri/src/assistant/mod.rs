@@ -13,6 +13,10 @@ mod config;
 mod error;
 pub mod failure;
 pub mod guard;
+pub mod language;
+pub mod messages;
+pub mod output;
+pub mod prompts;
 pub mod read_only;
 pub mod schema_context;
 

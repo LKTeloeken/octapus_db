@@ -1,0 +1,5 @@
+# Bytes exatos: a API confere o SHA-256 do system prompt contra o registrado, e
+# o contrato é comparado com o da API. Um CRLF no checkout do Windows mudaria
+# os dois (src-tauri/prompts/, src-tauri/contract/).
+src-tauri/prompts/*.txt text eol=lf
+src-tauri/contract/*.json text eol=lf

@@ -775,7 +775,32 @@ com a pergunta, sem nunca carregar a estrutura inteira.
   entra mesmo grande, com colunas cortadas; as que sobram vão só pelo nome numa última
   linha, com espaço reservado. Qualquer corte liga `truncated` (`schemaTruncated`).
 - Desempenho: `context_candidates` está no `perf::catalog_core` (p95 ≈ 0,1 ms num tenant
-  do catálogo de 5.000 × 150). E2E: `cargo test --lib read_only -- --include-ignored`
+  do catálogo de 5.000 × 150).
+
+**Prompts, mensagens e resposta** (B5):
+
+- **Prompts** em `src-tauri/prompts/<paradigma>-v<n>.txt` (`postgres-v1`, `sqlite-v1`),
+  embutidos com `include_str!` (`assistant/prompts.rs`). A API confere o SHA-256 dos bytes
+  exatos da mensagem `system` contra o prompt registrado com o mesmo id: registre **o
+  próprio arquivo** no dashboard (Prompts → enviar arquivo, com o paradigma). Texto
+  mudou = arquivo novo (`-v2`), registrado antes do release; o teste
+  `prints_and_pins_each_prompt_hash` imprime os hashes (`cargo test --lib
+  assistant::prompts -- --nocapture`) e reprova se um arquivo for editado. O
+  `.gitattributes` fixa LF nos prompts e no contrato (CRLF no Windows mudaria o hash).
+- **Mensagens** (`assistant/messages.rs`, `attempt_request`): a `system` (nada variável vai
+  nela); os turnos anteriores (`<question>` + o JSON da resposta), os mais recentes que
+  cabem em metade do orçamento da estrutura (C-12); o turno atual com `<schema>` (ou
+  `<schema truncated="true">`) e `<question>`; em correção, cada tentativa que falhou e
+  um `<previous_attempt_failed stage=… class=…>` com o erro sanitizado (C-11). A última é
+  sempre do usuário. Mudar esse formato também é versão nova do prompt.
+- **Resposta** (`assistant/output.rs`): `ModelOutput` do contrato, conferido de novo no
+  app (os seis campos, as regras de cada `kind`, e a `language` tem que ser a do banco);
+  fora disso é `invalid_output`. Cópia do contrato em `src-tauri/contract/` (os três
+  schemas JSON), com o SHA-256 de cada um fixado em teste para a versão 1.4.0
+  (`CONTRACT_VERSION`); com `OCTAPUS_CONTRACT_DIR` apontando para o `contract/` da API, o
+  teste compara byte a byte.
+- **Idioma da pergunta** (`assistant/language.rs`, crate `whatlang`): `pt`, `en` ou
+  `other`, gravado no turno (C-02). E2E: `cargo test --lib read_only -- --include-ignored`
   (Postgres dos e2e; o SQLite usa arquivo temporário).
 
 ### Diagnóstico

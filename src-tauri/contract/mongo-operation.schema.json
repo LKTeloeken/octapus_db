@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://octapus.dev/contract/v1/mongo-operation.schema.json",
+  "title": "MongoOperation",
+  "description": "Conteúdo de ModelOutput.query quando language = mongo. Só operações de leitura existem aqui; o guard do app ainda recusa estágios e operadores com efeito colateral ou JavaScript ($out, $merge, $where, $function, $accumulator). Valores literais seguem MongoDB Extended JSON (relaxed).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["collection", "operation"],
+  "properties": {
+    "collection": { "type": "string", "minLength": 1 },
+    "operation": {
+      "type": "string",
+      "enum": ["find", "aggregate", "countDocuments", "distinct"]
+    },
+    "filter": {
+      "description": "find, countDocuments e distinct.",
+      "type": "object"
+    },
+    "projection": { "description": "find.", "type": "object" },
+    "sort": { "description": "find.", "type": "object" },
+    "limit": { "description": "find.", "type": "integer", "minimum": 1 },
+    "skip": { "description": "find.", "type": "integer", "minimum": 0 },
+    "pipeline": {
+      "description": "aggregate.",
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "field": { "description": "distinct.", "type": "string" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operation": { "const": "aggregate" } } },
+      "then": { "required": ["pipeline"] }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "distinct" } } },
+      "then": { "required": ["field"] }
+    }
+  ]
+}

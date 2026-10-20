@@ -8,4 +8,6 @@ export type { AssistantParticipant } from './generated/AssistantParticipant';
 export type { AssistantQuota } from './generated/AssistantQuota';
 export type { AssistantStatus } from './generated/AssistantStatus';
 export type { FailureClass } from './generated/FailureClass';
+export type { ModelOutput } from './generated/ModelOutput';
+export type { OutputKind } from './generated/OutputKind';
 export type { ReadOnlyPlan } from './generated/ReadOnlyPlan';

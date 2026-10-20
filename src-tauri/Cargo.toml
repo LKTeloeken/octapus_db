@@ -90,6 +90,10 @@ futures-util = "0.3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
 semver = "1"
 
+# Idioma da pergunta do assistente (pt, en ou outro), gravado em cada turno
+# (C-02). Rust puro, sem modelo externo.
+whatlang = "0.18"
+
 # Log do app em arquivo (pasta de logs do SO, com rotação) — ver lib.rs
 log = "0.4"
 tauri-plugin-log = "2"
