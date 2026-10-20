@@ -1,5 +1,6 @@
 import type { EditableInfo, QueryColumnInfo } from '@/api/types/query.types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ownsKeyboardEvent } from './keyboard-scope';
 import type {
   ActivateCellFn,
   ActiveCell,
@@ -40,6 +41,8 @@ const useResultsTable = (
   columns: QueryColumnInfo[],
   editableInfo: EditableInfo | null | undefined,
   onSave: (changes: SaveRowChanges) => void | Promise<void>,
+  /** Região de teclado da grade (`keyboard-scope.ts`); `null` = a da aba */
+  keyboardScope: string | null = null,
 ): UseResultsTableReturn => {
   // Cell edits to EXISTING rows, keyed by pkKey → columnId → change.
   const [changes, setChanges] = useState<ChangesMap>(new Map());
@@ -436,6 +439,7 @@ const useResultsTable = (
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
+      if (!ownsKeyboardEvent(target, keyboardScope)) return;
 
       // Um diálogo aberto por cima da grade (exportação) recebe as mesmas
       // teclas: sem isso, o Esc que fecha o modal limparia a seleção junto e o
@@ -499,6 +503,7 @@ const useResultsTable = (
     removeSelected,
     clearSelection,
     selectAllRows,
+    keyboardScope,
   ]);
 
   return {

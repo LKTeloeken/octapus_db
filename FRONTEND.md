@@ -67,7 +67,7 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
 | `use-servers` | CRUD de servidores |
 | `use-capabilities` | `get_capabilities`; `useDbCapabilities` → `get_db_capabilities` (tabela por tipo) |
 | `use-databases` / `use-columns` / `use-indexes` | databases, colunas e índices (sob demanda) |
-| `use-catalog` | catálogo do backend: `catalogStatusQuery` (abre com `catalog_open`), `catalogChildrenQuery`, `catalogShapesQuery`, `useCatalogSearch`, `useCatalogRelationSize`, `useCatalogRefresh`, `useCatalogDiagnostics`, `useSchemaComparison` (dois schemas, key `schema-comparison` fora do prefixo do catálogo); `hasCatalog`/`isFlatCatalog` dizem quem usa |
+| `use-catalog` | catálogo do backend: `catalogStatusQuery` (abre com `catalog_open`), `catalogChildrenQuery`, `catalogShapesQuery`, `useCatalogSearch`, `useCatalogRelationSize`, `useCatalogRefresh`, `useCatalogDiagnostics`, `catalogCompleteQuery` (completar por prefixo: menções do assistente), `useSchemaComparison` (dois schemas, key `schema-comparison` fora do prefixo do catálogo); `hasCatalog`/`isFlatCatalog` dizem quem usa |
 | `use-catalog-events` | liga o `catalog-event` às invalidações (montado pela árvore) |
 | `use-refresh-structure` | "Atualizar" da árvore (servidor, database, schema, tabela) |
 | `use-structure` | estrutura inteira — só Redis (os demais usam o catálogo) |
@@ -112,6 +112,7 @@ Só estado de **UI**, nada que o backend possa fornecer:
 | `command-palette-store` | paleta de comandos aberta/fechada — aberta pelo `Cmd/Ctrl+K`, pela busca da sidebar e pelo botão Comandos — e o schema fixado nela (em memória, sobrevive ao fechar) |
 | `structure-editor-store` | diálogo de estrutura aberto pelo menu da árvore (criar/renomear/excluir tabela, nova/editar/excluir coluna, comparar dois schemas) |
 | `value-panel-store` | painel de valor da aba de tabela: aberto/fechado e preferências de formatação (global, persistido) |
+| `assistant-store` | painel do assistente: aberto/fechado, abas de conversa (alvo, id da conversa, modelo, rascunho), turno ao vivo de cada aba e resultados por tentativa — **só em memória**, fora do `tabs-store` (RN-01) |
 
 **Sessão das abas** ([stores/tabs-session.ts](src/stores/tabs-session.ts)): as abas
 sobrevivem ao fechamento e ao update do app. O `main.tsx` chama `restoreTabsSession()`
@@ -235,6 +236,43 @@ palette, dentro do `QueryProvider`.
   [palette-items.ts](src/features/command-palette/palette-items.ts).
 
 ---
+
+- **`assistant`** — assistente de consulta (B7), num painel à direita das abas
+  (`AssistantPanel`, montado no `app.tsx` quando `assistant-store.panelOpen`). Abre pelo
+  botão "Assistente" da linha de abas, por `Cmd/Ctrl+J` (`use-toggle-assistant`: leva o
+  banco da aba ativa) e por "Perguntar ao assistente" no menu de database/schema da árvore
+  (C-01) — tudo só com `supportsAssistant` e num build com a API (`configured`).
+  - **Portas** (`assistant-gate.ts`, puro): não configurado → atualização exigida → fora
+    do ar (C-19) → login com convite → termo em Markdown (RN-11, `react-markdown` sem HTML,
+    em chunk à parte) → pronto.
+  - **Abas de conversa** próprias, em memória: `Cmd/Ctrl+T` nova e `Cmd/Ctrl+W` fecha
+    **com o foco no painel** (listener de captura + `preventDefault`; o `use-query-tabs`
+    ignora evento tratado; foco perdido no `body` vale a última zona clicada). Fechar
+    cancela o turno. Histórico do servidor no relógio do cabeçalho (C-15).
+  - **Alvo**: servidor (só os com `supportsAssistant`) e database; abrir o catálogo
+    conecta. Modelo só no modo `free`, antes da 1ª pergunta; cota no rodapé (RN-23).
+  - **Menções `@`** (`mentions.ts`, `mention-completion.ts`): `@schema.tabela` no
+    Postgres, `@tabela` no SQLite, completadas por `catalog_complete` em fatias (nunca a
+    estrutura inteira). Viram o `schemas` do turno: os citados na pergunta (o 1º vai no
+    `search_path`), depois os das perguntas anteriores (relidos do histórico), depois o
+    schema de onde a conversa abriu ou `public`.
+  - **Turno** (`turn-reducer.ts` em `lib/assistant/`, puro): os eventos do canal viram o
+    estado ao vivo, guardado por aba no store (trocar de aba não perde nada). O `delta` é o
+    JSON parcial do `ModelOutput`; `partial-output.ts` extrai explicação, consulta e
+    premissas enquanto chegam, e o `output` troca pela versão conferida. Só fica
+    "executada" com o `result` ou o outcome registrado (RN-21).
+  - **Resposta** (`turn-view.ts` + `turn-card.tsx`): consulta sempre visível com
+    destaque (RN-18), premissas (RN-20), aviso de recorte (RN-26), aviso de código não
+    executado (RN-14/19), revisão com a estimativa do plano, edição e Executar (RN-13),
+    resultado paginado pelo `assistant_execute` na `ResultsTable` sem `editableInfo`
+    (RN-16, C-09), "Abrir no editor" (C-10), tentativas que falharam (RN-29), limite
+    esgotado com a última consulta (RN-24) e cancelar (C-18, também `Esc` no campo).
+  - **Grades várias na tela**: a `ResultsTable` com `keyboardScope` vira uma região de
+    teclado (`results-table/keyboard-scope.ts`) e só atende atalhos com o foco nela; a
+    grade da aba ignora o que nasce no painel do assistente.
+  - O polvo animado (`components/octapus-thinking`) marca o turno em andamento.
+- **`settings`** ganhou a seção **Assistente**: execução automática (`assistantAutoExecute`)
+  e o participante, com "Sair".
 
 ## 5. `ResultsTable` — o grid de dados
 

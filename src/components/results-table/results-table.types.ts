@@ -76,6 +76,11 @@ export interface ResultsTableProps {
   onCloseValuePanel?: () => void;
   /** Id da aba dona da grade: a busca (Cmd/Ctrl+F) guarda o estado por ele */
   searchScopeId: string;
+  /**
+   * Várias grades na tela (assistente): a grade vira uma região de teclado e
+   * só atende atalhos com o foco dentro dela (`keyboard-scope.ts`)
+   */
+  keyboardScope?: boolean;
   className?: string;
 }
 

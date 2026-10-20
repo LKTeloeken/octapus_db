@@ -1,10 +1,12 @@
 import {
+  AiChat02Icon,
   Bug01Icon,
   DatabaseIcon,
   Download04Icon,
   PaintBoardIcon,
 } from '@hugeicons/core-free-icons';
 import { AppearanceSection } from './sections/appearance-section';
+import { AssistantSection } from './sections/assistant-section';
 import { DiagnosticsSection } from './sections/diagnostics-section';
 import { PgToolsSection } from './sections/pg-tools-section';
 import { UpdatesSection } from './sections/updates-section';
@@ -30,6 +32,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: 'Programas do PostgreSQL usados no backup e na restauração.',
     icon: DatabaseIcon,
     Component: PgToolsSection,
+  },
+  {
+    id: 'assistant',
+    label: 'Assistente',
+    description: 'Perguntas em linguagem natural sobre o banco.',
+    icon: AiChat02Icon,
+    Component: AssistantSection,
   },
   {
     id: 'updates',

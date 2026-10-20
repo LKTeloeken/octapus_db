@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { QueryColumnInfo } from '@/api/types/query.types';
+import { ownsKeyboardEvent } from './keyboard-scope';
 import {
   EMPTY_MATCHES,
   compileMatcher,
@@ -37,6 +38,8 @@ const SLICE_MS = 5;
 interface Options {
   /** Id da aba: o estado da busca é por aba */
   scopeId: string;
+  /** Região de teclado da grade (`keyboard-scope.ts`); `null` = a da aba */
+  keyboardScope?: string | null;
   /** Linhas desenhadas (carregadas + adicionadas pendentes) */
   rows: DataTableRow[];
   /** Colunas desenhadas (ocultas já fora) */
@@ -68,6 +71,7 @@ interface ScanResult {
  */
 export const useGridSearch = ({
   scopeId,
+  keyboardScope = null,
   rows,
   columns,
   columnIndices,
@@ -315,6 +319,7 @@ export const useGridSearch = ({
       if (key !== 'f' && key !== 'g') return;
 
       const target = event.target as HTMLElement | null;
+      if (!ownsKeyboardEvent(target, keyboardScope)) return;
       if (target?.closest('.cm-editor')) return;
       const inPanel = !!target?.closest('[data-grid-search]');
       if (
@@ -341,7 +346,7 @@ export const useGridSearch = ({
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [toggle, isOpen, next, prev]);
+  }, [toggle, isOpen, next, prev, keyboardScope]);
 
   // ── Saída para a grade e para o painel ────────────────────────────────
 

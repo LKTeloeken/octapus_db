@@ -355,6 +355,7 @@ namespace de duração); nos utilitários, use `duration-120`, `duration-180` e 
 | Segmento, switch      | thumb desliza 180 ms `spring`                                                       | —                |
 | Alteração salva       | tinta → transparente em 600 ms, só após o `ok`                                      | —                |
 | Carregando            | barra indeterminada de 2 px + skeleton com brilho de 1,4 s                          | —                |
+| Assistente pensando   | polvo (`octapus-thinking`): tentáculos ondulam 1,4 s, um tamborila, piscar a 3,6 s   | —                |
 | Hover / press         | fundo e cor 120 ms `standard`; press `scale(.98)` em 80 ms                          | —                |
 
 **Nunca animar:** seleção e navegação por setas, scroll da grade e da árvore
@@ -363,7 +364,8 @@ resultado de consulta, largura/altura de listas virtualizadas. Nada em loop, exc
 indicador de carregamento. Nunca bloquear clique ou teclado esperando animação.
 
 **Movimento reduzido** (`prefers-reduced-motion`): deslocamento e escala viram só opacidade
-de 120 ms; rotações e deslizes ficam instantâneos. O loading continua (é informação).
+de 120 ms; rotações e deslizes ficam instantâneos. O loading continua (é informação) — o
+polvo do assistente só pulsa a opacidade.
 
 No código, com `tw-animate-css` e os estados do Radix:
 

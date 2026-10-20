@@ -1,5 +1,6 @@
 import {
   Add01Icon,
+  AiChat02Icon,
   ColumnInsertIcon,
   DatabaseExportIcon,
   DatabaseImportIcon,
@@ -44,6 +45,7 @@ import type {
   DatabaseInfo,
   DatabaseStructure,
 } from '@/api/types/structure.types';
+import { useAssistantStatus } from '@/queries/use-assistant-status';
 import { useServerGroups } from '@/queries/use-server-groups';
 import { useServers } from '@/queries/use-servers';
 import { useDbCapabilities } from '@/queries/use-capabilities';
@@ -61,6 +63,7 @@ import {
 import { useCatalogEvents } from '@/queries/use-catalog-events';
 import { queryKeys } from '@/queries/keys';
 import { STRUCTURE_STALE_TIME_MS } from '@/providers/query-provider';
+import { useAssistantStore } from '@/stores/assistant-store';
 import { useBackupDialogStore } from '@/stores/backup-dialog-store';
 import { useServerGroupDialogStore } from '@/stores/server-group-dialog-store';
 import { useFocusStore } from '@/stores/focus-store';
@@ -163,6 +166,8 @@ export const useConnectionTree = ({
   const requestFocus = useFocusStore(state => state.requestFocus);
   const openStructureDialog = useStructureEditorStore(state => state.open);
   const openBackupDialog = useBackupDialogStore(state => state.open);
+  const openAssistant = useAssistantStore(state => state.openPanel);
+  const { data: assistantStatus } = useAssistantStatus();
   const { refreshServer, refreshDatabase, refreshSchema, refreshTable } =
     useRefreshStructure();
   // Última janela de cada nó. O `keepPreviousData` não vale no `useQueries`:
@@ -719,6 +724,22 @@ export const useConnectionTree = ({
       openStructureDialog({ kind: 'compareSchemas', serverId, database, base }),
   });
 
+  /** C-01: o assistente abre com este database (e schema) como alvo */
+  const assistantAction = (
+    serverId: number,
+    database: string,
+    schema: string | null,
+  ): NodeRowAction[] =>
+    assistantStatus?.configured && capsOf(serverId)?.supportsAssistant
+      ? [
+          {
+            label: 'Perguntar ao assistente',
+            icon: AiChat02Icon,
+            onSelect: () => openAssistant({ serverId, database, schema }),
+          },
+        ]
+      : [];
+
   const pushTable = (
     serverId: number,
     database: string,
@@ -884,6 +905,7 @@ export const useConnectionTree = ({
         onSelect: () =>
           openQueryTab({ serverId, database, schema, title: schema }),
       },
+      ...assistantAction(serverId, database, schema),
       ...(target
         ? [
             {
@@ -1299,6 +1321,7 @@ export const useConnectionTree = ({
               onSelect: () =>
                 openQueryTab({ serverId: server.id, database: db.name }),
             },
+            ...assistantAction(server.id, db.name, null),
             ...(withCatalog
               ? catalogActions(
                   server.id,

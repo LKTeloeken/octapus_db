@@ -8,11 +8,18 @@ import type {
   AssistantTurnEvent,
   AssistantTurnFinish,
   AssistantTurnStatus,
+  AttemptOutcome,
   ModelOutput,
 } from '@/api/types/assistant.types';
-import type { QueryResult } from '@/api/types/query.types';
+import type { QueryOptions, QueryResult } from '@/api/types/query.types';
 import { requireDatabase, requireServerEntry } from './data';
-import { ASSISTANT_MODELS, requireAssistantLogin } from './assistant';
+import {
+  ASSISTANT_MODELS,
+  assistantQuotaExhausted,
+  requireAssistantLogin,
+  spendAssistantQuota,
+} from './assistant';
+import { SAAS_DATABASE } from './data/tenants';
 import type { MockHandler } from './handlers';
 
 /**
@@ -23,8 +30,15 @@ import type { MockHandler } from './handlers';
  * - pede escrita ("apagar", "excluir", "delete", "insert", "cadastrar",
  *   "atualizar") → código, nunca executado;
  * - menciona "erro" → a primeira tentativa falha no preflight e a correção
- *   passa (o ciclo do C-11);
- * - o resto → consulta sobre a primeira tabela do database.
+ *   passa (o ciclo do C-11); "esgot" → todas falham e o limite esgota (RN-24);
+ * - "lista"/"todos" → listagem de 450 linhas, paginada pelo `assistant_execute`;
+ * - "espera"/"lento" → rate limit (`waiting` de 3 s) antes da tentativa;
+ * - "falha" → o provedor falha (`failed`, `ASSISTANT_PROVIDER_ERROR`);
+ * - "cota" → gasta a cota inteira: daí em diante, `quota_exceeded`;
+ * - o resto → contagem da primeira tabela do database.
+ *
+ * Como na API real, o `delta` é o JSON da resposta em pedaços. No database
+ * `saas` (5.000 schemas) o contexto sai recortado (`truncated`).
  *
  * A execução automática segue a preferência salva (`assistantAutoExecute`):
  * ligada, vem o resultado; desligada, só o plano. As conversas ficam em
@@ -101,6 +115,16 @@ function outputFor(question: string, table: string): ModelOutput {
       clarificationQuestion: null,
     };
   }
+  if (/lista|todos|todas/.test(text)) {
+    return {
+      kind: 'query',
+      language: 'sql',
+      query: `SELECT id, nome, email\nFROM "${table}"\nORDER BY id`,
+      explanation: `Lista as linhas de ${table}, da mais antiga para a mais nova.`,
+      assumptions: ['"nome" e "email" são as colunas que interessam'],
+      clarificationQuestion: null,
+    };
+  }
   return {
     kind: 'query',
     language: 'sql',
@@ -111,15 +135,101 @@ function outputFor(question: string, table: string): ModelOutput {
   };
 }
 
-function resultFor(): QueryResult {
+/** Linhas de uma listagem ("lista", "todos"): o bastante para paginar */
+const LIST_ROWS = 450;
+const PAGE_LIMIT = 200;
+
+/** Contagem (1 linha) ou uma listagem paginada por `offset`/`limit` */
+function resultFor(query: string, offset: number, limit: number): QueryResult {
+  if (/count\(/i.test(query)) {
+    return {
+      columns: [{ name: 'total', typeName: 'int8', typeOid: 20 }],
+      rows: offset === 0 ? [['1284']] : [],
+      rowCount: offset === 0 ? 1 : 0,
+      totalCount: null,
+      hasMore: false,
+      executionTimeMs: 12,
+      editableInfo: null,
+    };
+  }
+  const end = Math.min(LIST_ROWS, offset + limit);
+  const rows: (string | null)[][] = [];
+  for (let id = offset + 1; id <= end; id += 1) {
+    rows.push([
+      String(id),
+      `Cliente ${id}`,
+      id % 7 === 0 ? null : `c${id}@exemplo.com`,
+    ]);
+  }
   return {
-    columns: [{ name: 'total', typeName: 'int8', typeOid: 20 }],
-    rows: [['1284']],
-    rowCount: 1,
+    columns: [
+      { name: 'id', typeName: 'int4', typeOid: 23 },
+      { name: 'nome', typeName: 'text', typeOid: 25 },
+      { name: 'email', typeName: 'text', typeOid: 25 },
+    ],
+    rows,
+    rowCount: rows.length,
     totalCount: null,
-    hasMore: false,
-    executionTimeMs: 12,
+    hasMore: end < LIST_ROWS,
+    executionTimeMs: 18,
     editableInfo: null,
+  };
+}
+
+/** O outcome que o app mandaria à API por tentativa */
+function outcome(
+  guardReason: string | null,
+  autoExecute: boolean,
+  extra: { preflight?: string; rowCount?: number } = {},
+): AttemptOutcome {
+  const skipped = {
+    ran: false,
+    ok: null,
+    failureClass: null,
+    errorSanitized: null,
+    durationMs: null,
+  };
+  if (guardReason) {
+    return {
+      guard: { allowed: false, reason: guardReason },
+      preflight: skipped,
+      execution: skipped,
+      rowCount: null,
+      autoExecute,
+      userEdited: false,
+    };
+  }
+  const preflight = extra.preflight
+    ? {
+        ran: true,
+        ok: false,
+        failureClass: 'unknown_object' as const,
+        errorSanitized: extra.preflight,
+        durationMs: 4,
+      }
+    : {
+        ran: true,
+        ok: true,
+        failureClass: null,
+        errorSanitized: null,
+        durationMs: 4,
+      };
+  const executed = extra.rowCount !== undefined;
+  return {
+    guard: { allowed: true, reason: null },
+    preflight,
+    execution: executed
+      ? {
+          ran: true,
+          ok: true,
+          failureClass: null,
+          errorSanitized: null,
+          durationMs: 12,
+        }
+      : skipped,
+    rowCount: executed ? (extra.rowCount ?? null) : null,
+    autoExecute,
+    userEdited: false,
   };
 }
 
@@ -162,7 +272,8 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
     conversationId,
   }: Args): AssistantConversation => {
     requireAssistantLogin();
-    return requireConversation(conversationId as string);
+    // Cópia, como o IPC: a conversa em memória continua mudando depois
+    return structuredClone(requireConversation(conversationId as string));
   },
 
   [RustCommand.AssistantConversationCreate]: ({
@@ -202,6 +313,10 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
     const conversation = requireConversation(conversationId as string);
     const text = String(question ?? '').trim();
     if (!text) throw 'Invalid query: Empty question';
+    if (/cota/i.test(text)) spendAssistantQuota(Number.MAX_SAFE_INTEGER);
+    if (assistantQuotaExhausted()) {
+      throw 'Assistant quota_exceeded: participant token quota exhausted';
+    }
     const entry = requireServerEntry(serverId as number);
     const table =
       requireDatabase(entry, database as string).tables[0]?.name ?? 'items';
@@ -210,42 +325,82 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
     const emit = (event: AssistantTurnEvent) => channel?.onmessage(event);
     const running = { cancelled: false };
     runningTurns.set(clientTurnId as string, running);
+    const auto = autoExecute();
 
     const turnId = nextId();
     const attempts: AssistantAttempt[] = [];
     let status: AssistantTurnStatus = 'answered';
+    let errorCode: string | null = null;
     try {
       emit({ type: 'turnOpened', turnId });
-      emit({ type: 'context', tables: 6, truncated: false });
+      await sleep(STEP_MS / 2);
+      emit({
+        type: 'context',
+        tables: 6,
+        // O saas (5.000 schemas) não cabe: recorte (RN-26)
+        truncated: database === SAAS_DATABASE,
+      });
+
+      if (/espera|lento/i.test(text)) {
+        emit({ type: 'waiting', seconds: 3 });
+        await sleep(3_000);
+      }
 
       const final = outputFor(text, table);
-      // "erro" na pergunta: a primeira tentativa erra a coluna e é corrigida
-      const plan: ModelOutput[] = /erro|error/i.test(text)
-        ? [{ ...final, query: `SELECT nome FROM "${table}"` }, final]
-        : [final];
+      const broken = { ...final, query: `SELECT nome FROM "${table}"` };
+      // "erro": a primeira falha e a correção passa; "esgot": todas falham
+      const plan: ModelOutput[] = /esgot/i.test(text)
+        ? [broken, broken, broken]
+        : /erro|error/i.test(text)
+          ? [broken, final]
+          : [final];
 
-      for (let index = 0; index < plan.length; index += 1) {
+      // Cancelar acorda a espera, como no Rust
+      if (running.cancelled) status = 'cancelled';
+
+      for (
+        let index = 0;
+        index < plan.length && !running.cancelled;
+        index += 1
+      ) {
         const output = plan[index];
         const current = attempt(index, output);
         attempts.push(current);
+        spendAssistantQuota(2_580);
         emit({ type: 'attemptStarted', attemptId: current.id, index });
-        for (const piece of (output.query ?? output.explanation).match(
-          /.{1,12}/g,
-        ) ?? []) {
+        await sleep(STEP_MS);
+
+        if (/falha/i.test(text)) {
+          current.status = 'provider_error';
+          current.output = null;
+          status = 'failed';
+          errorCode = 'ASSISTANT_PROVIDER_ERROR';
+          break;
+        }
+
+        // O delta é o texto cru da saída estruturada: JSON parcial
+        for (const piece of JSON.stringify(output).match(/[\s\S]{1,24}/g) ??
+          []) {
           if (running.cancelled) break;
-          await sleep(STEP_MS / 3);
+          await sleep(STEP_MS / 6);
           emit({ type: 'delta', text: piece });
         }
         if (running.cancelled) {
+          // Sem o `output`, não há resposta: o turno acaba sem consulta
+          current.status = 'cancelled';
+          current.output = null;
           status = 'cancelled';
           break;
         }
         emit({ type: 'output', attemptId: current.id, output });
         status = finishStatus(output);
-        if (output.kind !== 'query') break;
+        if (output.kind !== 'query') {
+          current.outcome = outcome(`kind_${output.kind}`, auto);
+          break;
+        }
 
         await sleep(STEP_MS);
-        if (index < plan.length - 1) {
+        if (output === broken) {
           emit({
             type: 'stageFailed',
             attemptId: current.id,
@@ -253,6 +408,10 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
             failureClass: 'unknown_object',
             message: 'Query error: column "nome" does not exist',
           });
+          current.outcome = outcome(null, auto, {
+            preflight: 'column ? does not exist',
+          });
+          if (index === plan.length - 1) status = 'exhausted';
           continue;
         }
         emit({
@@ -260,13 +419,17 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
           attemptId: current.id,
           plan: { estimatedRows: 1, estimatedCost: 35.5, plan: '[]' },
         });
-        if (autoExecute()) {
+        if (auto) {
           await sleep(STEP_MS);
           if (running.cancelled) {
             status = 'cancelled';
             break;
           }
-          emit({ type: 'result', attemptId: current.id, result: resultFor() });
+          const result = resultFor(output.query ?? '', 0, PAGE_LIMIT);
+          emit({ type: 'result', attemptId: current.id, result });
+          current.outcome = outcome(null, true, { rowCount: result.rowCount });
+        } else {
+          current.outcome = outcome(null, false);
         }
       }
     } finally {
@@ -286,13 +449,13 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
     conversation.updatedAt = now();
     if (!conversation.title) conversation.title = text.slice(0, 60);
 
-    const last = attempts.at(-1);
+    const last = attempts.filter(item => item.output).at(-1);
     return {
       turnId,
       status,
       attemptId: last?.id ?? null,
       output: last?.output ?? null,
-      errorCode: null,
+      errorCode,
     };
   },
 
@@ -304,10 +467,12 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
   },
 
   // Só leitura, como no Rust: o resto é recusado pelo guard
-  [RustCommand.AssistantExecute]: ({ query }: Args): QueryResult => {
-    if (!/^\s*(select|with|values)\b/i.test(String(query ?? ''))) {
+  [RustCommand.AssistantExecute]: ({ query, page }: Args): QueryResult => {
+    const text = String(query ?? '');
+    if (!/^\s*(select|with|values)\b/i.test(text)) {
       throw 'Guard rejected: only read queries (SELECT) are allowed';
     }
-    return resultFor();
+    const { offset = 0, limit = PAGE_LIMIT } = (page ?? {}) as QueryOptions;
+    return resultFor(text, offset, limit);
   },
 };

@@ -77,12 +77,23 @@ e o aceite ficam no `localStorage` (`octapus-mock-assistant`); o reset do painel
 O participante está no modo `free`, então `assistant_models` responde.
 
 Conversas e turnos ([`assistant-turns.ts`](assistant-turns.ts)) ficam em memória. O turno
-emite os mesmos eventos do backend, com pausas: pergunta curta (< 12 caracteres) vira
-esclarecimento; pedido de escrita ("apagar", "excluir", "delete", "insert", "cadastrar",
-"atualizar") vira código, nunca executado; "erro" na pergunta faz a primeira tentativa
-falhar no preflight e a correção passar; o resto conta as linhas da primeira tabela do
-database. Com a execução automática ligada nas Preferências vem o resultado; desligada,
-só o plano. `assistant_turn_cancel` interrompe no meio.
+emite os mesmos eventos do backend, com pausas — o `delta` é o JSON da resposta em
+pedaços, como na API. Pela pergunta:
+
+- curta (< 12 caracteres) → esclarecimento;
+- pedido de escrita ("apagar", "excluir", "delete", "insert", "cadastrar", "atualizar") →
+  código, nunca executado;
+- "erro" → a primeira tentativa falha no preflight e a correção passa; "esgot" → todas
+  falham e o limite esgota;
+- "lista"/"todos" → listagem de 450 linhas, paginada pelo `assistant_execute`;
+- "espera"/"lento" → espera de rate limit (`waiting`, 3 s);
+- "falha" → o provedor falha (`ASSISTANT_PROVIDER_ERROR`);
+- "cota" → gasta a cota inteira (daí em diante, `ASSISTANT_QUOTA_EXCEEDED`; o reset volta);
+- o resto → conta as linhas da primeira tabela do database.
+
+No database `saas` o contexto vem recortado (`truncated`). Com a execução automática
+ligada nas Preferências vem o resultado; desligada, só o plano. `assistant_turn_cancel`
+interrompe no meio.
 
 ## Painel de dev
 

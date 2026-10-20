@@ -64,7 +64,21 @@ export const ASSISTANT_MODELS: AssistantModel[] = [
   },
 ];
 
-const QUOTA = { limitTokens: 500_000, usedTokens: 42_310, reservedTokens: 0 };
+const QUOTA_LIMIT = 500_000;
+const QUOTA_START = 42_310;
+const QUOTA = {
+  limitTokens: QUOTA_LIMIT,
+  usedTokens: QUOTA_START,
+  reservedTokens: 0,
+};
+
+/** Gasta tokens da cota simulada (cada tentativa do turno) */
+export function spendAssistantQuota(tokens: number) {
+  QUOTA.usedTokens = Math.min(QUOTA_LIMIT, QUOTA.usedTokens + tokens);
+}
+
+/** A cota acabou (o turno do mock recusa com `quota_exceeded`) */
+export const assistantQuotaExhausted = () => QUOTA.usedTokens >= QUOTA_LIMIT;
 
 /**
  * O token do app real fica cifrado no SQLite; aqui, o `localStorage` da origin
@@ -96,6 +110,7 @@ function writeSession(session: MockAssistantSession) {
 /** Volta ao "nunca entrou" — o reset do painel */
 export function resetAssistantSession() {
   memorySession = NO_SESSION;
+  QUOTA.usedTokens = QUOTA_START;
   try {
     globalThis.localStorage?.removeItem(SESSION_STORAGE_KEY);
   } catch {
@@ -171,7 +186,7 @@ export const assistantHandlers: Record<string, MockHandler> = {
         currentVersion: TERM.version,
         acceptedVersion: session.acceptedVersion,
       },
-      quota: QUOTA,
+      quota: { ...QUOTA },
     };
   },
 

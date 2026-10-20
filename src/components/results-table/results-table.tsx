@@ -28,6 +28,7 @@ import { ResultsTableRowCell } from './results-table-row-cell/results-table-row-
 import { ResultsTableVertical } from './results-table-vertical/results-table-vertical';
 import { ResultsTableValuePanel } from './results-table-value-panel/results-table-value-panel';
 import { ResultsTableSearch } from './results-table-search/results-table-search';
+import { KEYBOARD_SCOPE_ATTR } from './keyboard-scope';
 import { useGridSearch } from './use-grid-search';
 import type { ValuePanelTarget } from './results-table-value-panel/results-table-value-panel.types';
 
@@ -81,8 +82,12 @@ export const ResultsTable = memo(
     showValuePanel,
     onCloseValuePanel,
     searchScopeId,
+    keyboardScope = false,
     className,
   }: ResultsTableProps) => {
+    // Região de teclado própria: só com várias grades na tela (assistente)
+    const ownScope = keyboardScope ? searchScopeId : null;
+    const scopeProps = ownScope ? { [KEYBOARD_SCOPE_ATTR]: ownScope } : {};
     const containerRef = useRef<HTMLDivElement>(null);
     const [viewMode, setViewMode] = useState<ResultsViewMode>('table');
     const [isExportOpen, setIsExportOpen] = useState(false);
@@ -130,7 +135,7 @@ export const ResultsTable = memo(
       addedCount,
       removedCount,
       pendingCount,
-    } = useResultsTable(rows, columns, editableInfo, onSave);
+    } = useResultsTable(rows, columns, editableInfo, onSave, ownScope);
 
     // Colunas ocultas afetam só a renderização: filtramos quais colunas desenhar
     // e guardamos o índice original de cada uma para ler `row[índiceOriginal]`.
@@ -287,6 +292,7 @@ export const ResultsTable = memo(
 
     const search = useGridSearch({
       scopeId: searchScopeId,
+      keyboardScope: ownScope,
       rows: displayRows,
       columns: visibleColumns,
       columnIndices: visibleColumnIndices,
@@ -468,7 +474,10 @@ export const ResultsTable = memo(
 
     if (displayRows.length === 0) {
       return (
-        <div className={cn('flex h-full flex-col overflow-hidden', className)}>
+        <div
+          {...scopeProps}
+          className={cn('flex h-full flex-col overflow-hidden', className)}
+        >
           <EmptyState className="flex-1 min-h-0" message={emptyMessage} />
           <DataTableStatusBar
             executionTimeMs={executionTimeMs}
@@ -489,7 +498,10 @@ export const ResultsTable = memo(
     }
 
     return (
-      <div className={cn('flex h-full flex-col overflow-hidden', className)}>
+      <div
+        {...scopeProps}
+        className={cn('flex h-full flex-col overflow-hidden', className)}
+      >
         <div className="relative flex-1 min-h-0">
           {/* O grupo existe mesmo com o painel fechado: abrir/fechar só
               acrescenta o irmão, sem remontar a grade (e perder a rolagem). */}

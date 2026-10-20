@@ -386,6 +386,122 @@
   }
 }
 
+/*
+ * Polvo pensando (components/octapus-thinking): indicador de carregamento do
+ * assistente, um dos loops permitidos (DESIGN.md §6). Só transform e opacity;
+ * os pivôs estão em unidades do viewBox do desenho (transform-box: view-box).
+ */
+.octapus-thinking .oct-figure {
+  transform-box: view-box;
+  transform-origin: 430px 520px;
+  animation: oct-sway 2.8s var(--ease-in-out) infinite alternate;
+}
+.octapus-thinking .oct-bob {
+  animation: oct-bob 1.4s var(--ease-in-out) infinite alternate;
+}
+.octapus-thinking .oct-arm {
+  transform-box: view-box;
+  animation: oct-wave 1.4s var(--ease-in-out) infinite alternate;
+}
+.octapus-thinking .oct-arm-a {
+  transform-origin: 225px 440px;
+  --oct-amp: 7deg;
+  animation-delay: -0.1s;
+}
+.octapus-thinking .oct-arm-b {
+  transform-origin: 335px 505px;
+  --oct-amp: -5deg;
+  animation-delay: -0.45s;
+}
+.octapus-thinking .oct-arm-c {
+  transform-origin: 495px 480px;
+  --oct-amp: 5deg;
+  animation-delay: -0.8s;
+}
+.octapus-thinking .oct-arm-d {
+  transform-origin: 600px 340px;
+  --oct-amp: -5deg;
+  animation-delay: -1.15s;
+}
+/* O tentáculo da frente tamborila, de vez em quando: o gesto de pensar */
+.octapus-thinking .oct-tap {
+  transform-box: view-box;
+  transform-origin: 495px 480px;
+  animation: oct-tap 2.8s var(--ease-standard) infinite;
+}
+.octapus-thinking .oct-lid {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scaleY(0);
+  animation: oct-blink 3.6s var(--ease-standard) infinite;
+}
+
+@keyframes oct-sway {
+  from {
+    transform: rotate(-3deg);
+  }
+  to {
+    transform: rotate(3deg);
+  }
+}
+@keyframes oct-bob {
+  from {
+    transform: translateY(6px);
+  }
+  to {
+    transform: translateY(-10px);
+  }
+}
+@keyframes oct-wave {
+  from {
+    transform: rotate(calc(var(--oct-amp) * -1));
+  }
+  to {
+    transform: rotate(var(--oct-amp));
+  }
+}
+@keyframes oct-tap {
+  0%,
+  60%,
+  72%,
+  84%,
+  100% {
+    transform: rotate(0deg);
+  }
+  66%,
+  78% {
+    transform: rotate(-9deg);
+  }
+}
+@keyframes oct-blink {
+  0%,
+  90%,
+  100% {
+    transform: scaleY(0);
+  }
+  94% {
+    transform: scaleY(1);
+  }
+}
+@keyframes oct-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.55;
+  }
+}
+
+/* Movimento reduzido: nada gira nem desliza; o polvo só pulsa (é informação) */
+@media (prefers-reduced-motion: reduce) {
+  .octapus-thinking * {
+    animation: none !important;
+  }
+  .octapus-thinking {
+    animation: oct-pulse 1.4s var(--ease-in-out) infinite alternate;
+  }
+}
+
 /* Barra de rolagem fina nas listas virtualizadas (árvore, grade, paleta). */
 @utility scrollbar-thin {
   scrollbar-width: thin;

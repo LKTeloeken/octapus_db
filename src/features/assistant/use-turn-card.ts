@@ -1,0 +1,189 @@
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { useCallback, useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
+import type { QueryResult } from '@/api/types/query.types';
+import { useExecuteAssistantQuery } from '@/queries/use-assistant-conversations';
+import {
+  useAssistantStore,
+  type AssistantTarget,
+} from '@/stores/assistant-store';
+import { useTabsStore } from '@/stores/tabs-store';
+import type { ConversationTurn } from './use-conversation-view';
+
+/** Linhas por página do resultado (o backend corta em 1.000) */
+export const RESULT_PAGE_SIZE = 200;
+
+const messageOf = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
+/**
+ * Como a consulta da resposta está, para o selo e as ações. Nunca "executada"
+ * sem o resultado ou o registro do outcome (RN-21).
+ */
+export type QueryState =
+  | 'executed'
+  /** Rodou dentro do turno (histórico): o resultado não fica guardado */
+  | 'executed-earlier'
+  | 'executing'
+  /** Modo de revisão: espera o Executar (RN-13) */
+  | 'review'
+  | 'failed'
+  | 'not-executed';
+
+export const useTurnCard = ({
+  turn,
+  target,
+  flat,
+}: {
+  turn: ConversationTurn;
+  target: AssistantTarget | null;
+  flat: boolean;
+}) => {
+  const { view, schemas } = turn;
+  const attemptId = view.attemptId;
+  const run = useAssistantStore(state =>
+    attemptId ? state.runs[attemptId] : undefined,
+  );
+  const patchRun = useAssistantStore(state => state.patchRun);
+  const openQueryTab = useTabsStore(state => state.openQueryTab);
+  const executeQuery = useExecuteAssistantQuery();
+
+  const generated = view.output?.query ?? '';
+  // A consulta da revisão é editável; começa como o modelo gerou
+  const [draft, setDraft] = useState(generated);
+  useEffect(() => {
+    if (!view.streaming) setDraft(generated);
+  }, [generated, view.streaming]);
+
+  const isQuery = view.output?.kind === 'query';
+  const searchPath = flat ? null : (schemas[0] ?? null);
+
+  let queryState: QueryState = 'not-executed';
+  if (run?.result) queryState = 'executed';
+  else if (run?.executing) queryState = 'executing';
+  else if (view.executedInTurn) queryState = 'executed-earlier';
+  else if (view.outcome === 'running' && view.phase === 'executing') {
+    queryState = 'executing';
+  } else if (
+    view.failure ||
+    view.outcome === 'failed' ||
+    view.outcome === 'exhausted'
+  ) {
+    queryState = 'failed';
+  } else if (isQuery && view.outcome === 'answered') queryState = 'review';
+
+  const runQuery = useCallback(
+    async (query: string) => {
+      if (!target || !attemptId || !query.trim()) return;
+      const userEdited = query !== generated;
+      patchRun(attemptId, { executing: true, error: null });
+      try {
+        const result = await executeQuery.mutateAsync({
+          serverId: target.serverId,
+          database: target.database,
+          query,
+          page: {
+            limit: RESULT_PAGE_SIZE,
+            offset: 0,
+            countTotal: false,
+            schema: searchPath,
+          },
+          // Só a revisão desta sessão completa o outcome da tentativa: o
+          // plano chegou ao vivo e a execução automática não rodou
+          attemptId: run?.plan && !view.executedInTurn ? attemptId : null,
+          userEdited,
+        });
+        patchRun(attemptId, {
+          executing: false,
+          result,
+          query,
+          userEdited,
+        });
+      } catch (error) {
+        patchRun(attemptId, { executing: false, error: messageOf(error) });
+      }
+    },
+    [
+      target,
+      attemptId,
+      generated,
+      patchRun,
+      executeQuery,
+      searchPath,
+      run?.plan,
+      view.executedInTurn,
+    ],
+  );
+
+  const loadMore = useCallback(async () => {
+    if (!run?.result || !target || !attemptId) return;
+    const current = run.result;
+    if (!current.hasMore || run.loadingMore) return;
+    patchRun(attemptId, { loadingMore: true });
+    try {
+      const page = await executeQuery.mutateAsync({
+        serverId: target.serverId,
+        database: target.database,
+        query: run.query ?? generated,
+        page: {
+          limit: RESULT_PAGE_SIZE,
+          offset: current.rows.length,
+          countTotal: false,
+          schema: searchPath,
+        },
+        userEdited: run.userEdited,
+      });
+      const merged: QueryResult = {
+        ...current,
+        rows: [...current.rows, ...page.rows],
+        rowCount: current.rowCount + page.rowCount,
+        hasMore: page.hasMore,
+        executionTimeMs: page.executionTimeMs,
+      };
+      patchRun(attemptId, { loadingMore: false, result: merged });
+    } catch (error) {
+      patchRun(attemptId, { loadingMore: false });
+      toast.error(messageOf(error));
+    }
+  }, [run, target, attemptId, patchRun, executeQuery, generated, searchPath]);
+
+  /** C-10: a consulta (ou o código) numa aba de query, para ajustar e rodar */
+  const openInEditor = useCallback(
+    (text: string) => {
+      if (!target || !text.trim()) return;
+      openQueryTab({
+        serverId: target.serverId,
+        database: target.database,
+        schema: searchPath,
+        title: 'Assistente',
+        content: text,
+      });
+    },
+    [openQueryTab, target, searchPath],
+  );
+
+  const copy = useCallback(async (text: string) => {
+    try {
+      await writeText(text);
+      toast.success('Copiado.');
+    } catch (error) {
+      toast.error(messageOf(error));
+    }
+  }, []);
+
+  return {
+    view,
+    run: run ?? null,
+    queryState,
+    isQuery,
+    draft,
+    setDraft,
+    edited: draft !== generated,
+    canExecute: !!target && !!attemptId && !run?.executing,
+    runQuery,
+    loadMore,
+    openInEditor,
+    copy,
+    canOpenInEditor: !!target,
+  };
+};

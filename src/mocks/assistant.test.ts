@@ -17,6 +17,7 @@ import type {
   AssistantTurnEvent,
   AssistantTurnFinish,
 } from '@/api/types/assistant.types';
+import type { QueryResult } from '@/api/types/query.types';
 import { resetAssistantSession } from './assistant';
 import { resetAssistantConversations } from './assistant-turns';
 import { useMockStore } from './mock-store';
@@ -142,7 +143,7 @@ describe('assistente no mock', () => {
           onmessage: (event: AssistantTurnEvent) => events.push(event),
         },
       })) as AssistantTurnFinish;
-      return { finish, types: events.map(event => event.type) };
+      return { finish, events, types: events.map(event => event.type) };
     }
 
     async function conversation() {
@@ -174,6 +175,15 @@ describe('assistente no mock', () => {
       })) as AssistantConversation;
       expect(saved.turns).toHaveLength(1);
       expect(saved.turns[0].attempts[0].output?.kind).toBe('query');
+    });
+
+    it('o delta é o JSON da resposta em pedaços, como na API', async () => {
+      const { id } = await conversation();
+      const { finish, events } = await ask(id, 'quantos itens no estoque?');
+      const raw = events
+        .map(event => (event.type === 'delta' ? event.text : ''))
+        .join('');
+      expect(JSON.parse(raw)).toEqual(finish.output);
     });
 
     it('correção depois do erro, código e esclarecimento', async () => {
@@ -216,8 +226,19 @@ describe('assistente no mock', () => {
 
     it('execução manual só aceita leitura', async () => {
       await expect(
-        route(RustCommand.AssistantExecute, { query: 'SELECT 1', page: {} }),
+        route(RustCommand.AssistantExecute, {
+          query: 'SELECT count(*) FROM t',
+          page: {},
+        }),
       ).resolves.toMatchObject({ rowCount: 1 });
+      // Listagem: páginas pelo offset (C-09)
+      const second = (await route(RustCommand.AssistantExecute, {
+        query: 'SELECT id FROM t',
+        page: { offset: 400, limit: 200 },
+      })) as QueryResult;
+      expect(second.rows).toHaveLength(50);
+      expect(second.hasMore).toBe(false);
+      expect(second.editableInfo).toBeNull();
       await expect(
         route(RustCommand.AssistantExecute, {
           query: 'DELETE FROM t',

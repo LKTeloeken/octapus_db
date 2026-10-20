@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 import {
   catalogChildren,
+  catalogComplete,
   catalogCompareSchemas,
   catalogDiagnostics,
   catalogOpen,
@@ -90,6 +91,34 @@ export function catalogChildrenQuery(
     // até a nova chegar, sem piscar o nó
     placeholderData: keepPreviousData,
     ...fromEvents,
+  });
+}
+
+/** Quantos nomes um `catalog_complete` devolve (a key não leva o limite) */
+export const CATALOG_COMPLETE_LIMIT = 50;
+
+/**
+ * Completar por prefixo, numa fatia: sem `schema`, os schemas; com ele, as
+ * relações dele (no catálogo sem schema, `FLAT_SCHEMA`). Para autocomplete —
+ * nunca a estrutura inteira.
+ */
+export function catalogCompleteQuery(
+  serverId: number,
+  database: string,
+  schema: string | null,
+  prefix: string,
+) {
+  return queryOptions({
+    queryKey: queryKeys.catalogComplete(serverId, database, schema, prefix),
+    queryFn: () =>
+      catalogComplete(
+        serverId,
+        database,
+        schema,
+        prefix,
+        CATALOG_COMPLETE_LIMIT,
+      ),
+    staleTime: 30 * 1000,
   });
 }
 

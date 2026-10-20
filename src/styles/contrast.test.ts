@@ -156,6 +156,34 @@ function pairs(): Pair[] {
       TEXT_AA,
     );
 
+    // Assistente: avisos (recorte, código não executado, falha) em --fg sobre
+    // o -soft, ícone no sólido; menção (fundo --active) no campo e na pergunta
+    for (const semantic of ['info', 'warning', 'danger']) {
+      const notice = composite(t('surface-1'), t(`${semantic}-soft`));
+      add('--fg', t('fg'), `surface-1 + ${semantic}-soft`, notice, TEXT_AA);
+      add(
+        `--${semantic}`,
+        t(semantic),
+        `surface-1 + ${semantic}-soft`,
+        notice,
+        ICON_AA,
+      );
+    }
+    add(
+      '--fg',
+      t('fg'),
+      'surface-1 + field + active',
+      composite(t('surface-1'), t('field'), t('active')),
+      TEXT_AA,
+    );
+    add(
+      '--fg',
+      t('fg'),
+      'surface-1 + active + hover',
+      composite(t('surface-1'), t('active'), t('hover')),
+      TEXT_AA,
+    );
+
     // §2.2: branco sobre os preenchimentos (botão primário, hover do destrutivo)
     add('branco', WHITE, '--iris', t('iris'), TEXT_AA);
     add('branco', WHITE, '--iris-hover', t('iris-hover'), TEXT_AA);

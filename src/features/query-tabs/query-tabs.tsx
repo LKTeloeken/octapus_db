@@ -1,5 +1,6 @@
 import {
   Add01Icon,
+  AiChat02Icon,
   Cancel01Icon,
   CommandIcon,
   Search01Icon,
@@ -34,7 +35,24 @@ export const QueryTabs = memo(() => {
     closeTab,
     newQueryTab,
     openPalette,
+    assistantAvailable,
+    assistantOpen,
+    toggleAssistant,
   } = useQueryTabs();
+
+  const assistantButton = assistantAvailable && (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-pressed={assistantOpen}
+      className="shrink-0 gap-2 border border-line pr-1.5 pl-2.5 text-small text-fg-subtle"
+      onClick={toggleAssistant}
+    >
+      <HugeiconsIcon icon={AiChat02Icon} className="size-3.5" />
+      Assistente
+      <Kbd>{shortcut('J')}</Kbd>
+    </Button>
+  );
 
   if (tabs.length === 0) {
     const emptyState = (
@@ -43,11 +61,20 @@ export const QueryTabs = memo(() => {
         title="Nenhuma aba aberta"
         description="Abra uma tabela na árvore ao lado ou busque por ela na paleta de comandos."
         action={
-          <Button variant="outline" size="sm" onClick={openPalette}>
-            <HugeiconsIcon icon={Search01Icon} />
-            Buscar tabelas
-            <Kbd>{shortcut('K')}</Kbd>
-          </Button>
+          <>
+            <Button variant="outline" size="sm" onClick={openPalette}>
+              <HugeiconsIcon icon={Search01Icon} />
+              Buscar tabelas
+              <Kbd>{shortcut('K')}</Kbd>
+            </Button>
+            {assistantAvailable && !assistantOpen && (
+              <Button variant="outline" size="sm" onClick={toggleAssistant}>
+                <HugeiconsIcon icon={AiChat02Icon} />
+                Perguntar ao assistente
+                <Kbd>{shortcut('J')}</Kbd>
+              </Button>
+            )}
+          </>
         }
       />
     );
@@ -139,6 +166,8 @@ export const QueryTabs = memo(() => {
         </Tooltip>
 
         <span className="flex-1" />
+
+        {assistantButton}
 
         <Button
           variant="ghost"
