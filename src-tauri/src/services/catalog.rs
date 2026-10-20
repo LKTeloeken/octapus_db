@@ -24,8 +24,8 @@ use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 
 use crate::catalog::{
     common_relations, compare_schemas, stable_hash, Catalog, CatalogKey, CatalogSource,
-    CatalogStore, LoadState, Loaded, SchemaComparison, SearchHit, SourceCanceller, Strategy,
-    SyncEvent, SyncReport,
+    CatalogStore, ForeignKey, LoadState, Loaded, RelationDetail, SchemaComparison, SearchHit,
+    SourceCanceller, Strategy, SyncEvent, SyncReport,
 };
 use crate::error::{Error, Result};
 use crate::models::{
@@ -491,6 +491,41 @@ impl CatalogService {
             *lane = None;
         }
         Ok(compare_schemas(base, &base_tables, other, &other_tables, &result?))
+    }
+
+    /// Chaves estrangeiras com uma ponta em `of` e as duas em `scope`, pela
+    /// faixa de prioridade (contexto do assistente).
+    pub async fn foreign_keys(
+        &self,
+        entry: &Arc<CatalogEntry>,
+        scope: &[(String, String)],
+        of: &[(String, String)],
+    ) -> Result<Vec<ForeignKey>> {
+        entry.touch();
+        let mut lane = entry.priority_lane.lock().await;
+        let source = open_lane(entry, &mut lane).await?;
+        let result = source.foreign_keys(scope, of).await;
+        if result.is_err() && source.is_closed() {
+            *lane = None;
+        }
+        result
+    }
+
+    /// Colunas e comentários das relações escolhidas, pela faixa de prioridade
+    /// (contexto do assistente).
+    pub async fn relation_details(
+        &self,
+        entry: &Arc<CatalogEntry>,
+        relations: &[(String, String)],
+    ) -> Result<Vec<RelationDetail>> {
+        entry.touch();
+        let mut lane = entry.priority_lane.lock().await;
+        let source = open_lane(entry, &mut lane).await?;
+        let result = source.relation_details(relations).await;
+        if result.is_err() && source.is_closed() {
+            *lane = None;
+        }
+        result
     }
 
     /// Recarrega um schema (refresh manual): continua visível com o conteúdo

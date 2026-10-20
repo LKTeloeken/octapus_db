@@ -156,6 +156,9 @@ listagem inteira (com o tamanho de cada tabela) levava o backend ao OOM.
   schema tirado de tipos e defaults (a sequência de cada tenant não é diferença). Fontes
   sem schema respondem `UnsupportedType`.
 
+As fontes também respondem, só para as relações pedidas, `foreign_keys` e
+`relation_details` (contexto do assistente, ver §4 "Assistente de consulta").
+
 **Para mexer:** consulta nova → método em `Catalog` (`catalog/query.rs`) + comando em
 `commands/catalog.rs`; banco novo → implementar `CatalogSource` e incluir em
 `adapters::has_catalog`/`create_catalog_source`. Nada de voltar a listar a estrutura
@@ -747,7 +750,32 @@ segura sozinha (os testes rodam cada executor com o guard desligado):
   gerada (nome de coluna, literal da pergunta); no SQLite, o que vem depois do `: `
   também. No máximo 2.000 caracteres.
 - `assistant::read_only::execute` junta guard e executor (e o `preflight`, guard e plano)
-  — é o que o orquestrador do turno chama. E2E: `cargo test --lib read_only -- --include-ignored`
+  — é o que o orquestrador do turno chama.
+
+**Contexto da estrutura** (`assistant/schema_context.rs`, RN-26): o DDL que vai ao modelo
+com a pergunta, sem nunca carregar a estrutura inteira.
+
+- **Quais relações:** `Catalog::context_candidates` (Rust puro, `catalog/query.rs` e
+  `catalog/context.rs`) ranqueia as relações dos schemas da conversa pelo casamento léxico
+  dos nomes com a pergunta e o histórico (que pesa metade): minúsculas sem acento,
+  singular aproximado, partes de `snake_case`/`camelCase`, nome inteiro > parte > prefixo
+  comum de 5 letras (`eventos` acha `event_log`). Até 30 candidatas vão todas; acima
+  disso, as 10 melhores mais as vizinhas pelas chaves estrangeiras (`with_neighbors`), até 30.
+- **Da fonte, só das escolhidas** (`CatalogSource::foreign_keys` e `relation_details`,
+  pela faixa de prioridade do `CatalogService`): chaves estrangeiras entre relações do
+  escopo (no Postgres pelo índice de `conrelid`, com teto de 1.000) e colunas com tipo,
+  nulo, chave primária e comentários. Mongo e Redis: `UNSUPPORTED_TYPE`.
+- **Formato:** `CREATE TABLE "schema"."tabela" (…)` com `NOT NULL`, `PRIMARY KEY`,
+  `REFERENCES` (compostas numa linha própria), views como `CREATE VIEW`, em ordem de
+  schema e nome. Nomes sempre entre aspas (caractere de controle vira `\u{…}`) e
+  comentários entre `«»` numa linha, cortados em 200 caracteres — dado, nunca instrução
+  (RN-22).
+- **Orçamento:** um oitavo do `contextWindow` do modelo, entre 1.000 e 16.000 tokens
+  (estimativa: 4 caracteres por token). As escolhidas entram por prioridade; a primeira
+  entra mesmo grande, com colunas cortadas; as que sobram vão só pelo nome numa última
+  linha, com espaço reservado. Qualquer corte liga `truncated` (`schemaTruncated`).
+- Desempenho: `context_candidates` está no `perf::catalog_core` (p95 ≈ 0,1 ms num tenant
+  do catálogo de 5.000 × 150). E2E: `cargo test --lib read_only -- --include-ignored`
   (Postgres dos e2e; o SQLite usa arquivo temporário).
 
 ### Diagnóstico

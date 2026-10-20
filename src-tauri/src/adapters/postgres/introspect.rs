@@ -29,8 +29,9 @@ use tokio_postgres::types::{ToSql, Type};
 use tokio_postgres::{Client, Row};
 
 use crate::catalog::{
-    Catalog, CatalogSource, ColumnSpec, LoadState, NameScope, RelKind, RelationColumns,
-    SchemaDiff, SchemaHeader, SourceCanceller, Strategy, SyncEvent, SyncReport, TableRecord,
+    Catalog, CatalogSource, ColumnDetail, ColumnSpec, ForeignKey, LoadState, NameScope, RelKind,
+    RelationColumns, RelationDetail, SchemaDiff, SchemaHeader, SourceCanceller, Strategy,
+    SyncEvent, SyncReport, TableRecord,
 };
 use crate::error::{Error, Result};
 use crate::models::Server;
@@ -214,6 +215,69 @@ impl Sql {
 /// (`tenant_1.status`), e isso não é diferença.
 fn unqualified(expr: &str, schema: &str) -> String {
     format!("replace(replace({expr}, quote_ident({schema}) || '.', ''), {schema} || '.', '')")
+}
+
+/// Relações de pares (schema, tabela) num CTE: `$a` e `$b` são os arrays.
+fn pairs_cte(name: &str, schemas: &str, tables: &str) -> String {
+    format!(
+        "{name} AS (
+           SELECT c.oid FROM unnest({schemas}::text[], {tables}::text[]) AS p(s, t)
+           JOIN pg_namespace n ON n.nspname = p.s
+           JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = p.t)"
+    )
+}
+
+/// Chaves estrangeiras entre as relações do escopo (`$1`, `$2`) com uma ponta
+/// nas escolhidas (`$3`, `$4`). O `conrelid IN scope` usa o índice do
+/// `pg_constraint` — nunca uma varredura pelas chaves do banco inteiro.
+fn foreign_keys_sql() -> String {
+    let column_names = |key: &str, rel: &str| {
+        format!(
+            "ARRAY(SELECT a.attname::text FROM unnest(con.{key}) WITH ORDINALITY AS k(attnum, ord)
+                   JOIN pg_attribute a ON a.attrelid = con.{rel} AND a.attnum = k.attnum
+                   ORDER BY k.ord)"
+        )
+    };
+    format!(
+        "WITH {scope}, {chosen}
+         SELECT n.nspname::text, c.relname::text, {from},
+                rn.nspname::text, rc.relname::text, {to}
+         FROM pg_constraint con
+         JOIN pg_class c ON c.oid = con.conrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         JOIN pg_class rc ON rc.oid = con.confrelid
+         JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+         WHERE con.contype = 'f'
+           AND con.conrelid IN (SELECT oid FROM scope)
+           AND con.confrelid IN (SELECT oid FROM scope)
+           AND (con.conrelid IN (SELECT oid FROM chosen) OR con.confrelid IN (SELECT oid FROM chosen))
+         ORDER BY n.nspname, c.relname, con.conname
+         LIMIT {FOREIGN_KEYS_CAP}",
+        scope = pairs_cte("scope", "$1", "$2"),
+        chosen = pairs_cte("chosen", "$3", "$4"),
+        from = column_names("conkey", "conrelid"),
+        to = column_names("confkey", "confrelid"),
+    )
+}
+
+/// Teto de chaves estrangeiras por pedido (uma tabela central num banco grande
+/// pode ser apontada por centenas)
+const FOREIGN_KEYS_CAP: usize = 1000;
+
+/// Colunas, chave primária e comentários de pares (schema, tabela).
+fn relation_details_sql() -> String {
+    let data_type = unqualified("format_type(a.atttypid, a.atttypmod)", "n.nspname");
+    format!(
+        "SELECT p.s, p.t, obj_description(c.oid, 'pg_class'), a.attname::text, {data_type},
+                NOT a.attnotnull, coalesce(a.attnum = ANY(i.indkey::int2[]), false),
+                col_description(c.oid, a.attnum)
+         FROM unnest($1::text[], $2::text[]) AS p(s, t)
+         JOIN pg_namespace n ON n.nspname = p.s
+         JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = p.t
+         JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+         LEFT JOIN pg_index i ON i.indrelid = c.oid AND i.indisprimary
+         ORDER BY p.s, p.t, a.attnum"
+    )
 }
 
 /// Colunas de pares (schema, tabela) — `$1` e `$2`, na mesma posição.
@@ -800,6 +864,83 @@ impl Introspector {
         Ok(columns)
     }
 
+    /// Chaves estrangeiras entre as relações do escopo, com uma ponta em `of`.
+    pub async fn foreign_keys(
+        &mut self,
+        scope: &[(String, String)],
+        of: &[(String, String)],
+    ) -> Result<Vec<ForeignKey>> {
+        if scope.is_empty() || of.is_empty() {
+            return Ok(Vec::new());
+        }
+        let split = |pairs: &[(String, String)]| -> (Vec<String>, Vec<String>) {
+            pairs.iter().cloned().unzip()
+        };
+        let (scope_schemas, scope_tables) = split(scope);
+        let (of_schemas, of_tables) = split(of);
+        let rows = self
+            .read_rows(
+                &foreign_keys_sql(),
+                &[
+                    (&scope_schemas as &(dyn ToSql + Sync), Type::TEXT_ARRAY),
+                    (&scope_tables as &(dyn ToSql + Sync), Type::TEXT_ARRAY),
+                    (&of_schemas as &(dyn ToSql + Sync), Type::TEXT_ARRAY),
+                    (&of_tables as &(dyn ToSql + Sync), Type::TEXT_ARRAY),
+                ],
+            )
+            .await?;
+
+        rows.iter()
+            .map(|row| {
+                Ok(ForeignKey {
+                    schema: row.try_get(0)?,
+                    table: row.try_get(1)?,
+                    columns: row.try_get(2)?,
+                    ref_schema: row.try_get(3)?,
+                    ref_table: row.try_get(4)?,
+                    ref_columns: row.try_get(5)?,
+                })
+            })
+            .collect()
+    }
+
+    /// Colunas, chave primária e comentários das relações, na ordem pedida.
+    pub async fn relation_details(&mut self, relations: &[(String, String)]) -> Result<Vec<RelationDetail>> {
+        if relations.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (schemas, tables): (Vec<String>, Vec<String>) = relations.iter().cloned().unzip();
+        let rows = self
+            .read_rows(
+                &relation_details_sql(),
+                &[
+                    (&schemas as &(dyn ToSql + Sync), Type::TEXT_ARRAY),
+                    (&tables as &(dyn ToSql + Sync), Type::TEXT_ARRAY),
+                ],
+            )
+            .await?;
+
+        let mut by_key: HashMap<(String, String), RelationDetail> = HashMap::new();
+        for row in &rows {
+            let key: (String, String) = (row.try_get(0)?, row.try_get(1)?);
+            let comment: Option<String> = row.try_get(2)?;
+            let detail = by_key.entry(key.clone()).or_insert_with(|| RelationDetail {
+                schema: key.0.clone(),
+                table: key.1.clone(),
+                comment,
+                columns: Vec::new(),
+            });
+            detail.columns.push(ColumnDetail {
+                name: row.try_get(3)?,
+                data_type: row.try_get(4)?,
+                nullable: row.try_get(5)?,
+                primary_key: row.try_get(6)?,
+                comment: row.try_get(7)?,
+            });
+        }
+        Ok(relations.iter().filter_map(|key| by_key.remove(key)).collect())
+    }
+
     /// Linhas de uma consulta ao catálogo, na transação só-leitura de sempre.
     async fn read_rows(&mut self, sql: &str, params: &[(&(dyn ToSql + Sync), Type)]) -> Result<Vec<Row>> {
         self.cancelled.store(false, Ordering::SeqCst);
@@ -874,6 +1015,18 @@ impl CatalogSource for Introspector {
 
     async fn relation_columns(&mut self, relations: &[(String, String)]) -> Result<RelationColumns> {
         Introspector::relation_columns(self, relations).await
+    }
+
+    async fn foreign_keys(
+        &mut self,
+        scope: &[(String, String)],
+        of: &[(String, String)],
+    ) -> Result<Vec<ForeignKey>> {
+        Introspector::foreign_keys(self, scope, of).await
+    }
+
+    async fn relation_details(&mut self, relations: &[(String, String)]) -> Result<Vec<RelationDetail>> {
+        Introspector::relation_details(self, relations).await
     }
 
     fn canceller(&self) -> Box<dyn SourceCanceller> {

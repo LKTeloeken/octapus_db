@@ -13,8 +13,8 @@ use parking_lot::{Mutex, RwLock};
 use rusqlite::{Connection, InterruptHandle, OptionalExtension};
 
 use crate::catalog::{
-    sync_flat, Catalog, CatalogSource, RelKind, SourceCanceller, SyncEvent, SyncReport,
-    TableRecord, FLAT_SCHEMA,
+    sync_flat, Catalog, CatalogSource, ColumnDetail, ForeignKey, RelKind, RelationDetail,
+    SourceCanceller, SyncEvent, SyncReport, TableRecord, FLAT_SCHEMA,
 };
 use crate::error::{Error, Result};
 use crate::models::Server;
@@ -112,6 +112,95 @@ fn table_size(conn: &Connection, database: &str, table: &str) -> rusqlite::Resul
     .map(Option::flatten)
 }
 
+/// Todas as chaves estrangeiras do arquivo, numa consulta (`pragma_foreign_key_list`
+/// de cada tabela). Banco local e pequeno: filtrar depois sai mais barato que
+/// uma consulta por tabela. `to` nulo = a chave primária da referenciada.
+fn read_foreign_keys(conn: &Connection, database: &str) -> rusqlite::Result<Vec<ForeignKey>> {
+    let schema = quote_ident(database);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT m.name, f.id, f.\"table\", f.\"from\", f.\"to\"
+         FROM {schema}.sqlite_schema AS m, pragma_foreign_key_list(m.name, ?1) AS f
+         WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'
+         ORDER BY m.name, f.id, f.seq"
+    ))?;
+    let rows = stmt.query_map([database], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, Option<String>>(4)?,
+        ))
+    })?;
+
+    let mut keys: Vec<ForeignKey> = Vec::new();
+    let mut current: Option<(String, i64)> = None;
+    let mut missing_to = false;
+    for row in rows {
+        let (table, id, ref_table, from, to) = row?;
+        if current.as_ref() != Some(&(table.clone(), id)) {
+            if missing_to {
+                if let Some(last) = keys.last_mut() {
+                    last.ref_columns.clear();
+                }
+            }
+            missing_to = false;
+            current = Some((table.clone(), id));
+            keys.push(ForeignKey {
+                schema: FLAT_SCHEMA.to_string(),
+                table,
+                columns: Vec::new(),
+                ref_schema: FLAT_SCHEMA.to_string(),
+                ref_table,
+                ref_columns: Vec::new(),
+            });
+        }
+        let key = keys.last_mut().expect("chave aberta acima");
+        key.columns.push(from);
+        match to {
+            Some(to) => key.ref_columns.push(to),
+            None => missing_to = true,
+        }
+    }
+    if missing_to {
+        if let Some(last) = keys.last_mut() {
+            last.ref_columns.clear();
+        }
+    }
+    Ok(keys)
+}
+
+/// Colunas de cada relação pedida (`pragma_table_info`), na ordem pedida. O
+/// SQLite não tem comentários.
+fn read_details(conn: &Connection, database: &str, tables: &[String]) -> rusqlite::Result<Vec<RelationDetail>> {
+    let mut stmt = conn.prepare(
+        "SELECT name, type, \"notnull\", pk FROM pragma_table_info(?1, ?2) ORDER BY cid",
+    )?;
+    let mut details = Vec::with_capacity(tables.len());
+    for table in tables {
+        let columns = stmt
+            .query_map([table.as_str(), database], |row| {
+                Ok(ColumnDetail {
+                    name: row.get(0)?,
+                    data_type: row.get(1)?,
+                    nullable: row.get::<_, i64>(2)? == 0,
+                    primary_key: row.get::<_, i64>(3)? > 0,
+                    comment: None,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if !columns.is_empty() {
+            details.push(RelationDetail {
+                schema: FLAT_SCHEMA.to_string(),
+                table: table.clone(),
+                comment: None,
+                columns,
+            });
+        }
+    }
+    Ok(details)
+}
+
 struct SqliteCanceller(Arc<InterruptHandle>);
 
 #[async_trait]
@@ -150,6 +239,34 @@ impl CatalogSource for SqliteSource {
             .with_conn(move |conn, database| table_size(conn, database, &table))
             .await
             .unwrap_or(None))
+    }
+
+    async fn foreign_keys(
+        &mut self,
+        scope: &[(String, String)],
+        of: &[(String, String)],
+    ) -> Result<Vec<ForeignKey>> {
+        if scope.is_empty() || of.is_empty() {
+            return Ok(Vec::new());
+        }
+        let all = self.with_conn(read_foreign_keys).await?;
+        let scope: std::collections::HashSet<&str> = scope.iter().map(|(_, table)| table.as_str()).collect();
+        let of: std::collections::HashSet<&str> = of.iter().map(|(_, table)| table.as_str()).collect();
+        Ok(all
+            .into_iter()
+            .filter(|key| scope.contains(key.table.as_str()) && scope.contains(key.ref_table.as_str()))
+            .filter(|key| of.contains(key.table.as_str()) || of.contains(key.ref_table.as_str()))
+            .collect())
+    }
+
+    async fn relation_details(&mut self, relations: &[(String, String)]) -> Result<Vec<RelationDetail>> {
+        let tables: Vec<String> = relations
+            .iter()
+            .filter(|(schema, _)| schema == FLAT_SCHEMA)
+            .map(|(_, table)| table.clone())
+            .collect();
+        self.with_conn(move |conn, database| read_details(conn, database, &tables))
+            .await
     }
 
     fn canceller(&self) -> Box<dyn SourceCanceller> {

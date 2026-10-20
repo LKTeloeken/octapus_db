@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::mem::size_of;
 
 use super::base::{Catalog, SchemaEntry};
+use super::context::{question_terms, score_name, Candidate};
 use super::drift::DriftLens;
 use super::model::{
     CatalogNode, CatalogPath, CatalogStats, LoadState, NodeKind, Page, RelKind, Resolution,
@@ -266,6 +267,47 @@ impl Catalog {
         Resolution::NotFound
     }
 
+    /// As relações dos `schemas` como candidatas ao contexto do assistente, da
+    /// mais parecida com a pergunta para a menos (empate: schema e nome, o que
+    /// deixa o resultado determinístico). Partições ficam de fora — o pai as
+    /// representa — e schemas não carregados não entram (quem chama garante a
+    /// carga antes). O histórico da conversa pesa metade da pergunta atual.
+    pub fn context_candidates(&self, schemas: &[&str], question: &str, history: &[&str]) -> Vec<Candidate> {
+        let current: HashSet<String> = question_terms(question).into_iter().collect();
+        let past: HashSet<String> = history
+            .iter()
+            .flat_map(|text| question_terms(text))
+            .filter(|term| !current.contains(term))
+            .collect();
+
+        let mut seen = HashSet::new();
+        let mut candidates = Vec::new();
+        for &schema in schemas {
+            if !seen.insert(schema) {
+                continue;
+            }
+            let Some(shape) = self.shape_of(schema) else {
+                continue;
+            };
+            for table in shape.tables.iter().filter(|table| table.parent.is_none()) {
+                let name = self.names.resolve(table.name);
+                candidates.push(Candidate {
+                    schema: schema.to_string(),
+                    table: name.to_string(),
+                    kind: table.kind,
+                    score: score_name(name, &current) * 2 + score_name(name, &past),
+                });
+            }
+        }
+        candidates.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| a.schema.cmp(&b.schema))
+                .then_with(|| a.table.cmp(&b.table))
+        });
+        candidates
+    }
+
     /// Quantos schemas usam algum dos formatos, com os primeiros em ordem de nome.
     pub(super) fn schemas_using(&self, shapes: &[ShapeId], sample_size: usize) -> SchemaGroup {
         let total = shapes
@@ -281,6 +323,11 @@ impl Catalog {
             .map(|(name, _)| name.to_string())
             .collect();
         SchemaGroup { total, sample }
+    }
+
+    /// Quantos schemas o database tem, se a lista já é conhecida (camada 0).
+    pub fn schema_count(&self) -> Option<usize> {
+        self.knows_schemas().then_some(self.schemas.len())
     }
 
     pub fn stats(&self) -> CatalogStats {
@@ -547,5 +594,35 @@ mod tests {
         assert_eq!(other.items[0].name, "public");
         // Grupo que sumiu (o catálogo mudou): o nó não existe mais
         assert!(catalog.children(&CatalogPath::ShapeSchemas("ffff".into()), None, 0, 10).is_none());
+    }
+
+    #[test]
+    fn context_candidates_rank_by_the_question_and_skip_partitions() {
+        let catalog = sample_catalog();
+
+        let ranked = catalog.context_candidates(&["tenant_001", "public"], "total dos pedidos (orders)", &[]);
+        let names: Vec<_> = ranked.iter().map(|c| (c.schema.as_str(), c.table.as_str())).collect();
+        assert_eq!(
+            names,
+            [
+                ("tenant_001", "orders"),
+                ("tenant_001", "order_totals"),
+                ("public", "plans"),
+                ("tenant_001", "customers"),
+            ]
+        );
+        assert!(ranked[0].score > ranked[1].score && ranked[1].score > 0);
+        assert_eq!(ranked[2].score, 0);
+
+        // O histórico ajuda, com metade do peso
+        let with_history =
+            catalog.context_candidates(&["tenant_001"], "e o total?", &["quais os clientes (customers)?"]);
+        assert_eq!(with_history[0].table, "customers");
+
+        // Partições ficam de fora; schema não carregado não entra. "eventos"
+        // acha `event_log` pelo prefixo comum (pergunta em português, nome em inglês)
+        let events = catalog.context_candidates(&["events", "tenant_003", "nope"], "eventos", &[]);
+        let names: Vec<_> = events.iter().map(|c| c.table.as_str()).collect();
+        assert_eq!(names, ["event_log", "Orders"]);
     }
 }

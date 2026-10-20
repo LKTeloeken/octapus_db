@@ -27,6 +27,9 @@ const CHILDREN_P95: Duration = Duration::from_millis(5);
 /// Busca ≤ 30 ms de ponta a ponta; o IPC de 50 resultados custa ~1 ms
 const SEARCH_P95: Duration = Duration::from_millis(25);
 const RESOLVE_P95: Duration = Duration::from_millis(1);
+/// Escolher as relações do contexto do assistente (B4): roda uma vez por
+/// pergunta, antes de ir ao banco — muito abaixo do tempo do modelo
+const CONTEXT_P95: Duration = Duration::from_millis(5);
 /// Abrir com cache em disco ≤ 100 ms (multi-tenant)
 const LOAD_MULTI_TENANT: Duration = Duration::from_millis(100);
 const MEMORY_MULTI_TENANT: usize = 50 * 1024 * 1024;
@@ -274,6 +277,29 @@ fn exercise(catalog: &Catalog, work: Workload) {
         catalog.complete_tables(schema, "ord", 50).unwrap();
     });
     record_timing(report, "complete_tables: prefixo num schema", &timing, json!({}));
+
+    // Contexto do assistente: as relações de um schema (e o `public`)
+    // ranqueadas contra a pergunta e o histórico
+    let questions = [
+        "quantos pedidos (orders) por cliente no último mês?",
+        "invoices history of each customer",
+        "pagamentos pendentes",
+    ];
+    let history = ["quais clientes compraram mais?", "e os produtos?"];
+    let mut candidates = 0;
+    let (timing, _) = sample(2_000, |i| {
+        let schema = &schemas[(i * 7_919) % schemas.len()];
+        candidates = catalog
+            .context_candidates(&[schema.as_str(), "public"], questions[i % questions.len()], &history)
+            .len();
+    });
+    record_timing(
+        report,
+        "context_candidates: um schema + public",
+        &timing,
+        json!({ "candidates": candidates }),
+    );
+    assert!(timing.p95 <= CONTEXT_P95, "context_candidates p95 {:?}", timing.p95);
 
     let start = Instant::now();
     let drift = catalog.drift();

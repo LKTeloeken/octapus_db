@@ -9,6 +9,7 @@ use parking_lot::RwLock;
 
 use super::base::Catalog;
 use super::columns::RelationColumns;
+use super::context::{ForeignKey, RelationDetail};
 use super::model::{LoadState, SchemaDiff, SchemaHeader, TableRecord};
 use crate::error::{Error, Result};
 
@@ -78,6 +79,28 @@ pub trait CatalogSource: Send {
     async fn relation_columns(&mut self, _relations: &[(String, String)]) -> Result<RelationColumns> {
         Err(Error::UnsupportedType(
             "comparing schemas is only available for PostgreSQL".into(),
+        ))
+    }
+
+    /// Chaves estrangeiras com pelo menos uma ponta em `of` e as duas em
+    /// `scope` (as candidatas do contexto do assistente): os vizinhos das
+    /// tabelas escolhidas, sem sair dos schemas pedidos.
+    async fn foreign_keys(
+        &mut self,
+        _scope: &[(String, String)],
+        _of: &[(String, String)],
+    ) -> Result<Vec<ForeignKey>> {
+        Err(Error::UnsupportedType(
+            "foreign keys are only read for SQL databases".into(),
+        ))
+    }
+
+    /// Colunas (tipo, nulo, chave primária, comentário) e o comentário de cada
+    /// relação pedida, na ordem pedida — só das escolhidas para o contexto do
+    /// assistente, nunca da estrutura inteira.
+    async fn relation_details(&mut self, _relations: &[(String, String)]) -> Result<Vec<RelationDetail>> {
+        Err(Error::UnsupportedType(
+            "relation details are only read for SQL databases".into(),
         ))
     }
 

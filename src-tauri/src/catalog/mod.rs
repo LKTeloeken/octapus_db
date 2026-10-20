@@ -11,6 +11,7 @@
 
 mod base;
 mod columns;
+mod context;
 mod drift;
 mod interner;
 mod model;
@@ -26,6 +27,7 @@ mod proptests;
 
 pub use base::Catalog;
 pub use columns::{common_relations, compare_schemas, RelationColumns};
+pub use context::{with_neighbors, Candidate, ColumnDetail, ForeignKey, RelationDetail};
 pub use model::{
     CatalogNode, CatalogPath, CatalogStats, ColumnSpec, DriftReport, LoadState, NodeKind, Page,
     RelKind, Resolution, SchemaComparison, SchemaDiff, SchemaHeader, SearchHit, ShapeGroup,

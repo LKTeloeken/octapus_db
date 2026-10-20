@@ -14,6 +14,7 @@ mod error;
 pub mod failure;
 pub mod guard;
 pub mod read_only;
+pub mod schema_context;
 
 use std::sync::OnceLock;
 
