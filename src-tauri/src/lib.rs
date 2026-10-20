@@ -1,4 +1,5 @@
 mod adapters;
+mod assistant;
 mod catalog;
 mod commands;
 mod error;
@@ -177,6 +178,14 @@ pub fn run() {
             commands::restore_inspect,
             commands::restore_preview,
             commands::restore_start,
+            // Assistente de consulta (cliente da API do assistente)
+            commands::assistant_status,
+            commands::assistant_redeem,
+            commands::assistant_logout,
+            commands::assistant_me,
+            commands::assistant_consent_current,
+            commands::assistant_consent_accept,
+            commands::assistant_models,
             // Auto-update pelo canal beta (o estável usa o `check` do plugin)
             #[cfg(desktop)]
             commands::check_beta_update,

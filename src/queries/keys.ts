@@ -33,6 +33,24 @@ export const queryKeys = {
 
   settings: ['settings'] as const,
 
+  /**
+   * Assistente de consulta — prefixo de tudo dele. Fica **fora** do
+   * `PERSISTED_DOMAINS` (query-provider.tsx): nada do assistente vai para o
+   * disco do app (RN-01).
+   */
+  assistant: ['assistant'] as const,
+
+  assistantStatus: ['assistant', 'status'] as const,
+
+  /** Prefixo do que depende do login (participante, termo, modelos) */
+  assistantSession: ['assistant', 'session'] as const,
+
+  assistantMe: ['assistant', 'session', 'me'] as const,
+
+  assistantConsent: ['assistant', 'session', 'consent'] as const,
+
+  assistantModels: ['assistant', 'session', 'models'] as const,
+
   /** Ferramentas do Postgres — prefixo, invalidado ao trocar a pasta */
   pgTools: ['pgTools'] as const,
 

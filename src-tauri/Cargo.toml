@@ -84,6 +84,12 @@ hashbrown = { version = "0.15", default-features = false }
 # Já era dependência transitiva — mesma versão do lockfile.
 futures-util = "0.3"
 
+# HTTP: canal beta do updater (commands/updater.rs, API do GitHub) e cliente
+# da API do assistente (assistant/client.rs). Mesmas versões e features que o
+# plugin do updater já usa — nenhuma crate nova.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
+semver = "1"
+
 # Log do app em arquivo (pasta de logs do SO, com rotação) — ver lib.rs
 log = "0.4"
 tauri-plugin-log = "2"
@@ -91,10 +97,6 @@ tauri-plugin-log = "2"
 # Auto-update (só desktop; o updater não existe em mobile)
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
-# Canal beta (commands/updater.rs): listar as releases na API do GitHub. Mesmas
-# versões e features que o plugin do updater já usa — nenhuma crate nova.
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
-semver = "1"
 
 # macOS: esconder os botões nativos da barra (o front desenha os seus).
 # Mesmas versões que o Tauri já usa, para não duplicar crates.

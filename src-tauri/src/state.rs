@@ -1,6 +1,7 @@
 use parking_lot::Mutex;
 use rusqlite::Connection;
 
+use crate::assistant::AssistantService;
 use crate::services::backup::BackupService;
 use crate::services::connection_import::ConnectionImportService;
 use crate::services::{CatalogService, ConnectionService, QueryService, StructureService};
@@ -27,6 +28,9 @@ pub struct AppState {
 
     /// Prévia da importação de conexões de outros apps — ver services/connection_import/
     pub imports: ConnectionImportService,
+
+    /// Cliente da API do assistente de consulta — ver assistant/
+    pub assistant: AssistantService,
 }
 
 impl AppState {
@@ -39,6 +43,7 @@ impl AppState {
             catalog: CatalogService::default(),
             backups: BackupService::default(),
             imports: ConnectionImportService::default(),
+            assistant: AssistantService::from_env(),
         }
     }
 }

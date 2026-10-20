@@ -1,3 +1,4 @@
+pub mod assistant;
 pub mod server_groups;
 pub mod servers;
 pub mod session;

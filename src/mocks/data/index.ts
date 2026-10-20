@@ -33,6 +33,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsSchemaCompare: true,
     supportsBackup: true,
     supportsAtomicSave: true,
+    supportsAssistant: true,
+    queryLanguage: 'sql',
   },
   mongodb: {
     hasSchemas: false,
@@ -47,6 +49,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsSchemaCompare: false,
     supportsBackup: false,
     supportsAtomicSave: true,
+    supportsAssistant: false,
+    queryLanguage: 'mongo',
   },
   redis: {
     hasSchemas: false,
@@ -61,6 +65,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsSchemaCompare: false,
     supportsBackup: false,
     supportsAtomicSave: false,
+    supportsAssistant: false,
+    queryLanguage: 'redis_plan',
   },
   sqlite: {
     hasSchemas: false,
@@ -75,6 +81,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsSchemaCompare: false,
     supportsBackup: false,
     supportsAtomicSave: true,
+    supportsAssistant: true,
+    queryLanguage: 'sql',
   },
 };
 

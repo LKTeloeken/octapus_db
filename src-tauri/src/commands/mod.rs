@@ -1,3 +1,4 @@
+mod assistant;
 mod backup;
 mod browse;
 mod catalog;
@@ -14,6 +15,7 @@ mod structure;
 #[cfg(desktop)]
 mod updater;
 
+pub use assistant::*;
 pub use backup::*;
 pub use browse::*;
 pub use catalog::*;

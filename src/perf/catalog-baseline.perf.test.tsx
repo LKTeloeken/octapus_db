@@ -79,6 +79,8 @@ const CAPABILITIES: AdapterCapabilities = {
   supportsSchemaCompare: true,
   supportsBackup: true,
   supportsAtomicSave: true,
+  supportsAssistant: true,
+  queryLanguage: 'sql',
 };
 
 const COLUMNS: ColumnInfo[] = [

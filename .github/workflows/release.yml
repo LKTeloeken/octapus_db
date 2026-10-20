@@ -132,6 +132,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # URL da API do assistente, embutida no binário (src-tauri/build.rs e
+          # assistant/config.rs). Sem a variável do repositório, o app sai sem
+          # assistente e o resto funciona igual.
+          OCTAPUS_ASSISTANT_URL: ${{ vars.OCTAPUS_ASSISTANT_URL }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: octapus-db v__VERSION__

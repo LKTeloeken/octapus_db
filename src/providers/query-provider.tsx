@@ -6,8 +6,11 @@ import type { ReactNode } from 'react';
 
 export const STRUCTURE_STALE_TIME_MS = 24 * 60 * 60 * 1000;
 
-/** Only metadata-shaped queries go to disk — table data is always live */
-const PERSISTED_DOMAINS = new Set([
+/**
+ * Only metadata-shaped queries go to disk — table data is always live. Nada do
+ * assistente entra aqui (RN-01): ver `queries/assistant-keys.test.ts`.
+ */
+export const PERSISTED_DOMAINS: ReadonlySet<string> = new Set([
   'servers',
   'capabilities',
   'databases',
@@ -46,8 +49,10 @@ export const QueryProvider = ({ children }: { children: ReactNode }) => {
         // que ficava aqui (dezenas de MB num banco multi-tenant) é descartada.
         // `server-groups-v1`: `Server` ganhou o `groupId` (grupos da sidebar).
         // `ssl-capabilities-v1`: `Server` trocou `sslEnabled` por `sslMode` e
-        // `AdapterCapabilities` ganhou as flags de catálogo, estrutura e backup
-        buster: 'ssl-capabilities-v1',
+        // `AdapterCapabilities` ganhou as flags de catálogo, estrutura e backup.
+        // `assistant-capabilities-v1`: `AdapterCapabilities` ganhou
+        // `supportsAssistant` e `queryLanguage`
+        buster: 'assistant-capabilities-v1',
         dehydrateOptions: {
           shouldDehydrateQuery: query =>
             query.state.status === 'success' &&

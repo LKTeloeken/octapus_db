@@ -17,4 +17,9 @@ betaUpdates: boolean,
  * Pasta do `pg_dump`/`pg_restore`/`psql` escolhida pelo usuário; `None`
  * = detectar sozinho (ver `services/backup/tools.rs`).
  */
-pgToolsDir: string | null, };
+pgToolsDir: string | null, 
+/**
+ * O assistente executa sozinho a consulta de leitura que gerou. Desligado,
+ * ela fica para revisão com o botão Executar (RN-13).
+ */
+assistantAutoExecute: boolean, };

@@ -50,6 +50,29 @@ pub struct AdapterCapabilities {
     /// depende da topologia: replica set/mongos usa transação; num standalone
     /// as etapas valem uma a uma (com aviso no log), como nas chamadas separadas.
     pub supports_atomic_save: bool,
+
+    /// O assistente de consulta atende este banco (a tela e os comandos
+    /// `assistant_*` de turno). Postgres e SQLite no piloto; Mongo e Redis
+    /// entram com as partes B8 e B9.
+    pub supports_assistant: bool,
+
+    /// Em que o assistente escreve a consulta deste banco — o `language` da
+    /// saída do modelo no contrato da API (`output.schema.json`).
+    pub query_language: QueryLanguage,
+}
+
+/// Linguagem da consulta gerada pelo assistente.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryLanguage {
+    /// SQL (Postgres e SQLite seguem o mesmo caminho)
+    Sql,
+    /// Operação declarativa do Mongo (`mongo-operation.schema.json`)
+    Mongo,
+    /// Plano de passos do Redis (`redis-plan.schema.json`): o modelo não vê
+    /// chaves nem valores (RN-09)
+    RedisPlan,
 }
 
 /// As capabilities de um tipo de banco — a tabela do `get_db_capabilities`.
@@ -76,6 +99,8 @@ impl AdapterCapabilities {
             supports_schema_compare: true,
             supports_backup: true,
             supports_atomic_save: true,
+            supports_assistant: true,
+            query_language: QueryLanguage::Sql,
         }
     }
 
@@ -93,6 +118,8 @@ impl AdapterCapabilities {
             supports_schema_compare: false,
             supports_backup: false,
             supports_atomic_save: true,
+            supports_assistant: false,
+            query_language: QueryLanguage::Mongo,
         }
     }
 
@@ -110,6 +137,8 @@ impl AdapterCapabilities {
             supports_schema_compare: false,
             supports_backup: false,
             supports_atomic_save: false,
+            supports_assistant: false,
+            query_language: QueryLanguage::RedisPlan,
         }
     }
 
@@ -128,6 +157,8 @@ impl AdapterCapabilities {
             supports_schema_compare: false,
             supports_backup: false,
             supports_atomic_save: true,
+            supports_assistant: true,
+            query_language: QueryLanguage::Sql,
         }
     }
 
@@ -190,5 +221,18 @@ mod tests {
         }
         assert_eq!(AdapterCapabilities::all().len(), 4);
         assert!(AdapterCapabilities::for_db_type(DatabaseType::Mysql).is_none());
+    }
+
+    #[test]
+    fn sql_language_matches_the_sql_editor() {
+        for entry in AdapterCapabilities::all() {
+            let caps = entry.capabilities;
+            assert_eq!(
+                caps.query_language == QueryLanguage::Sql,
+                caps.supports_sql,
+                "{:?}",
+                entry.db_type
+            );
+        }
     }
 }

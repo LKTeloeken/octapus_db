@@ -92,6 +92,15 @@ export enum RustCommand {
   RestorePreview = 'restore_preview',
   RestoreStart = 'restore_start',
 
+  // Assistente de consulta (cliente da API do assistente)
+  AssistantStatus = 'assistant_status',
+  AssistantRedeem = 'assistant_redeem',
+  AssistantLogout = 'assistant_logout',
+  AssistantMe = 'assistant_me',
+  AssistantConsentCurrent = 'assistant_consent_current',
+  AssistantConsentAccept = 'assistant_consent_accept',
+  AssistantModels = 'assistant_models',
+
   // Auto-update pelo canal beta (o estável usa o `check` do plugin)
   CheckBetaUpdate = 'check_beta_update',
 }

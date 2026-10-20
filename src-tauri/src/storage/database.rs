@@ -50,6 +50,16 @@ pub fn init_storage<P: AsRef<Path>>(db_path: P) -> Result<Connection> {
             key     TEXT PRIMARY KEY,
             value   TEXT NOT NULL
         );
+
+        -- Sessão do assistente de consulta: o token do participante, cifrado
+        -- pelo vault, e a URL da API que o emitiu. Linha única; é a única
+        -- coisa do assistente que vai para o disco (RN-01).
+        CREATE TABLE IF NOT EXISTS assistant_session (
+            id          INTEGER PRIMARY KEY CHECK (id = 1),
+            api_url     TEXT NOT NULL,
+            token       TEXT NOT NULL,
+            created_at  INTEGER NOT NULL
+        );
         "#,
     )?;
 

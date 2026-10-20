@@ -23,6 +23,21 @@ describe('toBackendError', () => {
     });
   });
 
+  it('erros do assistente levam o código da API', () => {
+    expect(toBackendError('Assistant not configured').code).toBe(
+      'ASSISTANT_NOT_CONFIGURED',
+    );
+    expect(toBackendError('Assistant unauthorized: not signed in').code).toBe(
+      'ASSISTANT_UNAUTHORIZED',
+    );
+    expect(
+      toBackendError('Assistant model_selection_forbidden: not free').code,
+    ).toBe('ASSISTANT_MODEL_SELECTION_FORBIDDEN');
+    expect(
+      toBackendError('Assistant unavailable: connection refused').code,
+    ).toBe('ASSISTANT_UNAVAILABLE');
+  });
+
   it('aceita Error lançado por engano num handler', () => {
     expect(toBackendError(new Error('Invalid state: x')).code).toBe(
       'INVALID_STATE',

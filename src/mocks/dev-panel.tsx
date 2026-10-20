@@ -4,9 +4,11 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { mockCatalog } from './catalog';
 import { resetDataset } from './data';
+import { resetAssistantSession } from './assistant';
 import {
   DEFAULT_ERROR_MESSAGE,
   useMockStore,
+  type AssistantMockMode,
   type FailMode,
 } from './mock-store';
 
@@ -14,6 +16,12 @@ const FAIL_MODES: { value: FailMode; label: string }[] = [
   { value: 'off', label: 'nunca' },
   { value: 'next', label: 'próximo' },
   { value: 'always', label: 'sempre' },
+];
+
+const ASSISTANT_MODES: { value: AssistantMockMode; label: string }[] = [
+  { value: 'normal', label: 'no ar' },
+  { value: 'not-configured', label: 'sem URL' },
+  { value: 'offline', label: 'fora' },
 ];
 
 /**
@@ -45,17 +53,20 @@ const ExpandedPanel = ({ onClose }: { onClose: () => void }) => {
   const errorMessage = useMockStore(state => state.errorMessage);
   const emptyMode = useMockStore(state => state.emptyMode);
   const updateAvailable = useMockStore(state => state.updateAvailable);
+  const assistantMode = useMockStore(state => state.assistantMode);
 
   const setLatency = useMockStore(state => state.setLatency);
   const setFailMode = useMockStore(state => state.setFailMode);
   const setErrorMessage = useMockStore(state => state.setErrorMessage);
   const setEmptyMode = useMockStore(state => state.setEmptyMode);
   const setUpdateAvailable = useMockStore(state => state.setUpdateAvailable);
+  const setAssistantMode = useMockStore(state => state.setAssistantMode);
 
   /** Os dados vivem em memória; recarregar é o jeito mais honesto de zerar. */
   const resetData = () => {
     resetDataset();
     mockCatalog.reset();
+    resetAssistantSession();
     window.location.reload();
   };
 
@@ -130,6 +141,26 @@ const ExpandedPanel = ({ onClose }: { onClose: () => void }) => {
         checked={updateAvailable}
         onChange={setUpdateAvailable}
       />
+
+      <Field label="API do assistente">
+        <div className="flex gap-1">
+          {ASSISTANT_MODES.map(mode => (
+            <button
+              key={mode.value}
+              type="button"
+              onClick={() => setAssistantMode(mode.value)}
+              className={cn(
+                'flex-1 rounded border border-line px-1.5 py-1 transition-colors',
+                assistantMode === mode.value
+                  ? 'bg-iris text-white border-iris'
+                  : 'hover:bg-hover',
+              )}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+      </Field>
 
       <Button
         variant="outline"

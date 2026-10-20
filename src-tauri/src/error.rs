@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::assistant::AssistantError;
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum Error {
@@ -33,6 +35,12 @@ pub enum Error {
     /// arquivos, API do updater. A mensagem já é escrita para o usuário, então
     /// sai sem prefixo.
     External(String),
+
+    /// Assistente de consulta sem a URL da API (`assistant/config.rs`).
+    AssistantNotConfigured,
+    /// API do assistente fora do ar ou erro devolvido por ela
+    /// (`assistant/error.rs`): vira um código `ASSISTANT_*`.
+    Assistant(AssistantError),
 }
 
 impl fmt::Display for Error {
@@ -51,11 +59,21 @@ impl fmt::Display for Error {
             Self::UnsupportedDatabase(msg) => write!(f, "Unsupported database: {msg}"),
             Self::UnsupportedType(msg) => write!(f, "Unsupported type: {msg}"),
             Self::External(msg) => f.write_str(msg),
+            Self::AssistantNotConfigured => write!(f, "Assistant not configured"),
+            Self::Assistant(error) => {
+                write!(f, "Assistant {}: {}", error.code.api_name(), error.message)
+            }
         }
     }
 }
 
 impl std::error::Error for Error {}
+
+impl From<AssistantError> for Error {
+    fn from(e: AssistantError) -> Self {
+        Error::Assistant(e)
+    }
+}
 
 // Conversion traits
 impl From<rusqlite::Error> for Error {
@@ -156,6 +174,8 @@ impl Error {
             Self::UnsupportedDatabase(_) => "UNSUPPORTED_DATABASE",
             Self::UnsupportedType(_) => "UNSUPPORTED_TYPE",
             Self::External(_) => "EXTERNAL_ERROR",
+            Self::AssistantNotConfigured => "ASSISTANT_NOT_CONFIGURED",
+            Self::Assistant(error) => error.code.app_code(),
         }
     }
 }

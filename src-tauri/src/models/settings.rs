@@ -15,6 +15,9 @@ pub struct AppSettings {
     /// Pasta do `pg_dump`/`pg_restore`/`psql` escolhida pelo usuário; `None`
     /// = detectar sozinho (ver `services/backup/tools.rs`).
     pub pg_tools_dir: Option<String>,
+    /// O assistente executa sozinho a consulta de leitura que gerou. Desligado,
+    /// ela fica para revisão com o botão Executar (RN-13).
+    pub assistant_auto_execute: bool,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -23,6 +26,7 @@ impl Default for AppSettings {
         Self {
             beta_updates: false,
             pg_tools_dir: None,
+            assistant_auto_execute: false,
         }
     }
 }

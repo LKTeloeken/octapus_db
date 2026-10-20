@@ -41,6 +41,10 @@ tsconfig.tsbuildinfo
 
 .env*
 
+# Config local do Cargo (URL da API do assistente para o tauri dev) — o
+# src-tauri/.cargo/config.toml continua versionado
+/.cargo/
+
 # Medições de desempenho (perf/catalog): dados brutos de cada máquina, regerados
 # pelos testes `perf::` e `pnpm perf:front` — os relatórios (*.md) ficam versionados
 perf/catalog/results/

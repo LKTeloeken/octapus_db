@@ -1,3 +1,4 @@
+pub mod assistant;
 pub mod backup;
 pub mod browse;
 pub mod capabilities;
@@ -8,6 +9,7 @@ pub mod server;
 pub mod settings;
 pub mod structure;
 
+pub use assistant::*;
 pub use backup::*;
 pub use browse::*;
 pub use capabilities::*;

@@ -176,7 +176,9 @@ implementa) nem de pedir `pg_total_relation_size`/`$collStats` em massa.
   `POOL_EXHAUSTED`, `CONNECTION_TIMEOUT`, `QUERY_ERROR`, `INVALID_QUERY`, `NOT_FOUND`,
   `ALREADY_EXISTS`, `INVALID_STATE`, `CANCELLED`, `UNSUPPORTED_DATABASE`,
   `UNSUPPORTED_TYPE` ou `EXTERNAL_ERROR` (falha fora dos bancos — `pg_dump`, arquivo,
-  updater —, com a mensagem sem prefixo). Rejeições do próprio Tauri (argumento que
+  updater —, com a mensagem sem prefixo). O assistente acrescenta
+  `ASSISTANT_NOT_CONFIGURED` e os códigos da API dele como `ASSISTANT_*` (ver
+  "Assistente de consulta" no §4). Rejeições do próprio Tauri (argumento que
   não desserializa, comando inexistente) e dos plugins continuam sendo string.
   Sempre use `try/catch`.
 
@@ -460,6 +462,8 @@ interface AdapterCapabilities {
   supportsSchemaCompare: boolean; // só Postgres (catalog_compare_schemas)
   supportsBackup: boolean;      // só Postgres (pg_dump/pg_restore)
   supportsAtomicSave: boolean;  // Postgres/Mongo/SQLite (save_row_changes); Mongo só é atômico em replica set
+  supportsAssistant: boolean;   // Postgres e SQLite (piloto); Mongo e Redis entram nas partes B8/B9
+  queryLanguage: 'sql' | 'mongo' | 'redis_plan'; // o que o assistente gera para o banco
 }
 ```
 
@@ -668,6 +672,43 @@ tabela `app_settings` do `app.db`. Configuração nova = campo no struct, com o 
 nunca foi salvo (ou ficou ilegível) volta com o padrão. O tema **não** mora aqui: fica
 no `ui-store` (localStorage), lido antes da primeira pintura. `pgToolsDir` é a pasta das
 ferramentas do Postgres (`null` = detectar sozinho — ver Backup e restauração).
+`assistantAutoExecute` (desligado por padrão, RN-13): o assistente executa sozinho a
+consulta de leitura que gerou; desligado, ela fica para revisão.
+
+### Assistente de consulta (API do assistente)
+
+| Comando | Args | Retorno |
+|---|---|---|
+| `assistant_status` | — | `AssistantStatus` `{ configured, online, loggedIn, minAppVersion, updateRequired }` — nunca rejeita por causa da API |
+| `assistant_redeem` | `{ inviteCode, deviceLabel? }` | `AssistantParticipant` `{ id, label }` |
+| `assistant_logout` | — | `void` (só apaga o token local; a API não tem logout) |
+| `assistant_me` | — | `AssistantMe` (participante, `modelSelection`, versões do termo, cota) |
+| `assistant_consent_current` | — | `AssistantConsentTerm` `{ version, body (Markdown), publishedAt }` |
+| `assistant_consent_accept` | `{ version }` | `void`; versão que não é a vigente → `ASSISTANT_CONFLICT` |
+| `assistant_models` | — | `AssistantModel[]` — só no modo `free` (senão `ASSISTANT_MODEL_SELECTION_FORBIDDEN`) |
+
+O app fala com a API intermediária do TCC (octapus-assistant-api, contrato 1.4.0 em
+`contract/` daquele repositório), que chama os provedores de modelo e registra o
+experimento; o loop do assistente roda aqui. Módulo `assistant/`:
+
+- **URL** (`config.rs`): `OCTAPUS_ASSISTANT_URL` no ambiente do app; sem ela, o valor do
+  build (`option_env!`; o `build.rs` recompila quando a variável muda, e o `release.yml`
+  passa `vars.OCTAPUS_ASSISTANT_URL`). `https`, ou `http` só em localhost. Sem URL o
+  assistente fica desligado (`ASSISTANT_NOT_CONFIGURED`) e o resto do app não muda. O
+  pacote Nix não recebe a variável, então sai sem assistente.
+- **Cliente** (`client.rs`): o `reqwest` do projeto (rustls), Bearer com o token do
+  participante, timeout de 20 s (5 s no health check). Erro da API (`{ error: { code,
+  message } }`) vira `Error::Assistant` com o código `ASSISTANT_<CODE>` (`error.rs`);
+  corpo fora do contrato (proxy) decide pelo status; rede/DNS/tempo esgotado e o
+  `unavailable` da API viram `ASSISTANT_UNAVAILABLE` (C-19). O `Retry-After` de um 429
+  fica no erro (`retry_after`), para o orquestrador esperar.
+- **Token** (`storage/repositories/assistant.rs`): tabela `assistant_session` (linha
+  única) com o token **cifrado pelo vault** e a URL da API que o emitiu — token de outra
+  URL não é usado, para nunca ir a outro host. É a única coisa do assistente em disco
+  (RN-01). Sem token, os comandos autenticados respondem `ASSISTANT_UNAUTHORIZED`; um
+  401 da API (convite revogado) apaga o token.
+- **Log:** só ids (participante), códigos de erro e eventos (login, termo aceito, API
+  fora) — nunca pergunta, estrutura, consulta, mensagem da API ou token.
 
 ### Diagnóstico
 

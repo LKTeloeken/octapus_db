@@ -3,6 +3,14 @@ import { persist } from 'zustand/middleware';
 
 export type FailMode = 'off' | 'next' | 'always';
 
+/**
+ * Como a API do assistente responde: no ar, build sem URL
+ * (`ASSISTANT_NOT_CONFIGURED`) ou fora do ar (`ASSISTANT_UNAVAILABLE`). O
+ * estado "sem consentimento" vem do próprio fluxo: entrar com um convite
+ * deixa o termo pendente.
+ */
+export type AssistantMockMode = 'normal' | 'not-configured' | 'offline';
+
 export const DEFAULT_ERROR_MESSAGE =
   'Connection error: connection refused (mock)';
 
@@ -15,6 +23,7 @@ interface MockState {
   emptyMode: boolean;
   /** `plugin:updater|check` devolve um update fake */
   updateAvailable: boolean;
+  assistantMode: AssistantMockMode;
   panelOpen: boolean;
 
   setLatency: (ms: number) => void;
@@ -22,6 +31,7 @@ interface MockState {
   setErrorMessage: (message: string) => void;
   setEmptyMode: (enabled: boolean) => void;
   setUpdateAvailable: (enabled: boolean) => void;
+  setAssistantMode: (mode: AssistantMockMode) => void;
   setPanelOpen: (open: boolean) => void;
 
   /**
@@ -39,6 +49,7 @@ export const useMockStore = create<MockState>()(
       errorMessage: DEFAULT_ERROR_MESSAGE,
       emptyMode: false,
       updateAvailable: false,
+      assistantMode: 'normal',
       panelOpen: false,
 
       setLatency: latencyMs => set({ latencyMs }),
@@ -46,6 +57,7 @@ export const useMockStore = create<MockState>()(
       setErrorMessage: errorMessage => set({ errorMessage }),
       setEmptyMode: emptyMode => set({ emptyMode }),
       setUpdateAvailable: updateAvailable => set({ updateAvailable }),
+      setAssistantMode: assistantMode => set({ assistantMode }),
       setPanelOpen: panelOpen => set({ panelOpen }),
 
       consumeFailure: () => {
@@ -64,6 +76,7 @@ export const useMockStore = create<MockState>()(
         errorMessage: state.errorMessage,
         emptyMode: state.emptyMode,
         updateAvailable: state.updateAvailable,
+        assistantMode: state.assistantMode,
         panelOpen: state.panelOpen,
       }),
     },

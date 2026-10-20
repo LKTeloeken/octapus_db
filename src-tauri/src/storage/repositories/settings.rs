@@ -65,6 +65,7 @@ mod tests {
         let storage = memory_storage();
         assert_eq!(load(&storage).unwrap(), AppSettings::default());
         assert!(!load(&storage).unwrap().beta_updates);
+        assert!(!load(&storage).unwrap().assistant_auto_execute);
     }
 
     #[test]
@@ -73,6 +74,7 @@ mod tests {
         let settings = AppSettings {
             beta_updates: true,
             pg_tools_dir: Some("/opt/homebrew/bin".into()),
+            assistant_auto_execute: true,
         };
 
         save(&storage, &settings).unwrap();

@@ -1,4 +1,8 @@
-import type { BackendError, BackendErrorCode } from '@/api/types/error.types';
+import {
+  ASSISTANT_API_ERROR_CODES,
+  type BackendError,
+  type BackendErrorCode,
+} from '@/api/types/error.types';
 
 /**
  * Prefixos do `Display` de `Error` (src-tauri/src/error.rs). Os handlers lançam
@@ -17,6 +21,13 @@ const PREFIXES: [string, BackendErrorCode][] = [
   ['Operation cancelled', 'CANCELLED'],
   ['Unsupported database:', 'UNSUPPORTED_DATABASE'],
   ['Unsupported type:', 'UNSUPPORTED_TYPE'],
+  ['Assistant not configured', 'ASSISTANT_NOT_CONFIGURED'],
+  // `Assistant <código da API>: …` — `ASSISTANT_UNAUTHORIZED` sai de
+  // "Assistant unauthorized: …"
+  ...ASSISTANT_API_ERROR_CODES.map((code): [string, BackendErrorCode] => [
+    `Assistant ${code.slice('ASSISTANT_'.length).toLowerCase()}:`,
+    code,
+  ]),
 ];
 
 /**

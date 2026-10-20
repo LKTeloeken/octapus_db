@@ -76,6 +76,11 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
 | `use-apply-row-edits` | `save_row_changes` (tudo numa transação) e `apply_row_edits` / `insert_rows` / `delete_rows` |
 | `use-write-export-file` | `write_export_file` (exportação da grade) |
 | `use-structure-change` | `preview_structure_change` (prévia do SQL) e `apply_structure_change` (DDL da árvore) |
+| `use-assistant-status` | `assistant_status` (configurado, online, logado) |
+| `use-assistant-session` | `assistant_redeem` / `assistant_logout` |
+| `use-assistant-me` | `assistant_me`; `consentPending` e `quotaRemaining` |
+| `use-assistant-consent` | `assistant_consent_current` e `assistant_consent_accept` (recarrega o termo no `ASSISTANT_CONFLICT`) |
+| `use-assistant-models` | `assistant_models` (só no modo `free`) |
 
 - **Query keys** centralizadas em [queries/keys.ts](src/queries/keys.ts). Mutações
   invalidam a key da tabela afetada → refetch automático.
@@ -85,6 +90,11 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
   [providers/query-provider.tsx](src/providers/query-provider.tsx)
   (`refetchOnWindowFocus: false`, `retry: 1`). O `buster` sobe quando o formato do cache
   persistido muda (`catalog-v1` descartou a estrutura inteira que os Postgres guardavam).
+- **Assistente:** keys sob `['assistant', …]`, **fora** do `PERSISTED_DOMAINS` — nada do
+  assistente vai para o disco (RN-01; `queries/assistant-keys.test.ts`). O que depende do
+  login fica sob `['assistant', 'session']`: um `ASSISTANT_UNAUTHORIZED` (o backend já
+  apagou o token) remove esse prefixo e refaz o status (`queries/assistant-errors.ts`).
+  Só `ASSISTANT_UNAVAILABLE` ganha nova tentativa.
 
 ### Zustand — `src/stores/`
 Só estado de **UI**, nada que o backend possa fornecer:
@@ -297,6 +307,9 @@ produção — inclusive o `Channel` de mensagens e o plugin de updater.
 - Catálogo simulado em `src/mocks/catalog.ts` (sincroniza em camadas emitindo
   `catalog-event`, carga prioritária, busca agrupada, grupos por formato, escopo,
   diagnóstico) e eventos globais em `src/mocks/events.ts`.
+- API do assistente simulada em `src/mocks/assistant.ts`: o painel escolhe "no ar",
+  "sem URL" (`ASSISTANT_NOT_CONFIGURED`) ou "fora" (`ASSISTANT_UNAVAILABLE`); entrar com
+  um convite (8+ caracteres; `REVOG…` é recusado) deixa o termo pendente até o aceite.
 
 **Regra de manutenção:** comando novo no backend ⇒ handler novo em
 `src/mocks/handlers.ts`, na mesma lista do `RustCommand`. Sem handler o mock rejeita

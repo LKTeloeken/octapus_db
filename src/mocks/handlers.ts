@@ -71,6 +71,7 @@ import { parseScope } from './scope';
 import { mockEmit, registerListener, unregisterListener } from './events';
 import { useMockStore } from './mock-store';
 import { MOCK_IMPORT_SOURCES, mockImportFixtures } from './data/imports';
+import { assistantHandlers } from './assistant';
 
 type Args = Record<string, unknown>;
 export type MockHandler = (args: Args) => unknown | Promise<unknown>;
@@ -614,7 +615,11 @@ const sessionHandlers: Record<string, MockHandler> = {
 // ── Preferências do app ─────────────────────────────────────────────────────
 
 const SETTINGS_STORAGE_KEY = 'octapus-mock-settings';
-const DEFAULT_SETTINGS: AppSettings = { betaUpdates: false, pgToolsDir: null };
+const DEFAULT_SETTINGS: AppSettings = {
+  betaUpdates: false,
+  pgToolsDir: null,
+  assistantAutoExecute: false,
+};
 
 const settingsHandlers: Record<string, MockHandler> = {
   // Mesma regra do Rust: o que nunca foi salvo volta com o padrão
@@ -1418,5 +1423,6 @@ export const handlers: Record<string, MockHandler> = {
   ...pgToolsHandlers,
   ...backupHandlers,
   ...queryHandlers,
+  ...assistantHandlers,
   ...pluginHandlers,
 };

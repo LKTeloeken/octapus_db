@@ -66,11 +66,21 @@ Eventos globais (`listen` do `@tauri-apps/api/event`) passam por
 [`events.ts`](events.ts): `plugin:event|listen` registra o callback e `mockEmit(evento,
 payload)` o dispara. O reset do painel também zera o catálogo.
 
+## Assistente de consulta
+
+[`assistant.ts`](assistant.ts) simula a API do assistente. O painel escolhe o estado dela:
+**no ar**, **sem URL** (`ASSISTANT_NOT_CONFIGURED`, o build sem
+`OCTAPUS_ASSISTANT_URL`) ou **fora** (`ASSISTANT_UNAVAILABLE`). O "sem consentimento"
+vem do fluxo: qualquer convite com 8+ caracteres entra (um que comece com `REVOG` é
+recusado como revogado) e o termo fica pendente até `assistant_consent_accept`. O login
+e o aceite ficam no `localStorage` (`octapus-mock-assistant`); o reset do painel apaga.
+O participante está no modo `free`, então `assistant_models` responde.
+
 ## Painel de dev
 
 Badge `MOCK` no canto inferior direito. Controla latência, injeção de erro
 (`nunca` / `próximo` / `sempre`, com mensagem editável), respostas vazias (para desenhar
-empty states), update fake e reset do dataset. A config fica em `localStorage`
+empty states), update fake, o estado da API do assistente e reset do dataset. A config fica em `localStorage`
 (`octapus-mock`); só o modo de falha não sobrevive ao reload, de propósito.
 
 ## Receitas
