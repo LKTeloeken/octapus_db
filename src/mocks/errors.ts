@@ -21,6 +21,7 @@ const PREFIXES: [string, BackendErrorCode][] = [
   ['Operation cancelled', 'CANCELLED'],
   ['Unsupported database:', 'UNSUPPORTED_DATABASE'],
   ['Unsupported type:', 'UNSUPPORTED_TYPE'],
+  ['Guard rejected:', 'GUARD_REJECTED'],
   ['Assistant not configured', 'ASSISTANT_NOT_CONFIGURED'],
   // `Assistant <código da API>: …` — `ASSISTANT_UNAUTHORIZED` sai de
   // "Assistant unauthorized: …"

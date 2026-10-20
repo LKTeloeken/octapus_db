@@ -36,6 +36,10 @@ pub enum Error {
     /// sai sem prefixo.
     External(String),
 
+    /// O guard do assistente recusou a consulta antes de ela ir ao banco
+    /// (`assistant/guard/`): escrita, mais de um statement, função proibida…
+    GuardRejected(String),
+
     /// Assistente de consulta sem a URL da API (`assistant/config.rs`).
     AssistantNotConfigured,
     /// API do assistente fora do ar ou erro devolvido por ela
@@ -59,6 +63,7 @@ impl fmt::Display for Error {
             Self::UnsupportedDatabase(msg) => write!(f, "Unsupported database: {msg}"),
             Self::UnsupportedType(msg) => write!(f, "Unsupported type: {msg}"),
             Self::External(msg) => f.write_str(msg),
+            Self::GuardRejected(msg) => write!(f, "Guard rejected: {msg}"),
             Self::AssistantNotConfigured => write!(f, "Assistant not configured"),
             Self::Assistant(error) => {
                 write!(f, "Assistant {}: {}", error.code.api_name(), error.message)
@@ -174,6 +179,7 @@ impl Error {
             Self::UnsupportedDatabase(_) => "UNSUPPORTED_DATABASE",
             Self::UnsupportedType(_) => "UNSUPPORTED_TYPE",
             Self::External(_) => "EXTERNAL_ERROR",
+            Self::GuardRejected(_) => "GUARD_REJECTED",
             Self::AssistantNotConfigured => "ASSISTANT_NOT_CONFIGURED",
             Self::Assistant(error) => error.code.app_code(),
         }

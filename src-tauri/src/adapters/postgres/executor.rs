@@ -22,9 +22,18 @@ const COUNT_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Removes a query_id → backend PID entry when the execution finishes,
 /// including early returns and cancelled/failed queries.
-struct PidGuard<'a> {
+pub(super) struct PidGuard<'a> {
     registry: &'a QueryRegistry,
     query_id: String,
+}
+
+impl<'a> PidGuard<'a> {
+    pub(super) fn new(registry: &'a QueryRegistry, query_id: &str) -> Self {
+        Self {
+            registry,
+            query_id: query_id.to_string(),
+        }
+    }
 }
 
 impl Drop for PidGuard<'_> {
@@ -595,7 +604,7 @@ fn is_select_query(query: &str) -> bool {
 }
 
 /// Builds column metadata from a prepared statement (names + original types).
-fn columns_from_statement(stmt: &Statement) -> Vec<QueryColumnInfo> {
+pub(super) fn columns_from_statement(stmt: &Statement) -> Vec<QueryColumnInfo> {
     stmt.columns()
         .iter()
         .map(|c| QueryColumnInfo {

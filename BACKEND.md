@@ -175,7 +175,8 @@ implementa) nem de pedir `pg_total_relation_size`/`$collStats` em massa.
   `"Connection error: ..."`); `code` é um de `STORAGE_ERROR`, `CONNECTION_ERROR`,
   `POOL_EXHAUSTED`, `CONNECTION_TIMEOUT`, `QUERY_ERROR`, `INVALID_QUERY`, `NOT_FOUND`,
   `ALREADY_EXISTS`, `INVALID_STATE`, `CANCELLED`, `UNSUPPORTED_DATABASE`,
-  `UNSUPPORTED_TYPE` ou `EXTERNAL_ERROR` (falha fora dos bancos — `pg_dump`, arquivo,
+  `UNSUPPORTED_TYPE`, `GUARD_REJECTED` (o guard do assistente recusou a consulta) ou
+  `EXTERNAL_ERROR` (falha fora dos bancos — `pg_dump`, arquivo,
   updater —, com a mensagem sem prefixo). O assistente acrescenta
   `ASSISTANT_NOT_CONFIGURED` e os códigos da API dele como `ASSISTANT_*` (ver
   "Assistente de consulta" no §4). Rejeições do próprio Tauri (argumento que
@@ -709,6 +710,32 @@ experimento; o loop do assistente roda aqui. Módulo `assistant/`:
   401 da API (convite revogado) apaga o token.
 - **Log:** só ids (participante), códigos de erro e eventos (login, termo aceito, API
   fora) — nunca pergunta, estrutura, consulta, mensagem da API ou token.
+
+**Execução só-leitura** (RN-16). A consulta gerada passa por duas barreiras, e a do banco
+segura sozinha (os testes rodam cada executor com o guard desligado):
+
+- **Guard** (`assistant/guard/sql.rs`, Rust puro sobre o `sqlparser`, falha fechado): a
+  consulta precisa parsear e ser exatamente um statement `Query`; uma varredura dos tokens
+  recusa, em qualquer profundidade, `INSERT`/`UPDATE`/`DELETE`/`MERGE` (CTE que modifica
+  dados), `INTO`, `FOR UPDATE/SHARE`, identificador `U&"…"` e funções da denylist — o que a
+  transação `READ ONLY` não impede: sessões (`pg_terminate_backend`, `set_config`), lock
+  consultivo, arquivos do servidor, `dblink`, SQL dinâmico (`query_to_xml`), sequências,
+  `lo_*`; no SQLite, `load_extension`/`readfile`/`writefile`. O que o parser não entende
+  (ex.: `TABLE t`) é recusado. Recusa → `GUARD_REJECTED`; Mongo e Redis ainda sem guard →
+  `UNSUPPORTED_TYPE`.
+- **Executor** (`DatabaseAdapter::execute_read_only(op, page)`, `ReadOnlyOp` em
+  `adapters/read_only.rs`): a consulta vai dentro de `SELECT … FROM (\n…\n)` com
+  `LIMIT`/`OFFSET` da página (teto de 1.000 linhas, `ReadOnlyLimits`) e o resultado nunca é
+  editável. **Postgres:** conexão do pool presa à operação, `BEGIN READ ONLY`, `SET LOCAL`
+  de `statement_timeout` (30 s), `lock_timeout` (2 s) e `search_path`, protocolo estendido
+  (um statement só: `COMMIT; DROP …` não passa), cada coluna em `::text` e `ROLLBACK`
+  sempre; `queryId` liga o `cancel_query`. **SQLite:** `PRAGMA query_only` durante a
+  execução (restaurado no fim), um statement só (o `prepare` do rusqlite ignoraria o resto
+  em silêncio, então o texto passa pelo `Batch`) e um vigia que interrompe a consulta no
+  tempo limite.
+- `assistant::read_only::execute` junta os dois (guard, depois o adapter) — é o que o
+  orquestrador do turno chama. E2E: `cargo test --lib read_only -- --include-ignored`
+  (Postgres dos e2e; o SQLite usa arquivo temporário).
 
 ### Diagnóstico
 

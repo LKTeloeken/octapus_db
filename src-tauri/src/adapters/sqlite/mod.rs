@@ -3,6 +3,7 @@ mod ddl;
 mod executor;
 pub(crate) mod introspect;
 mod metadata;
+mod read_only;
 mod util;
 
 use std::path::Path;
@@ -12,7 +13,7 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use rusqlite::{Connection, OpenFlags};
 
-use crate::adapters::DatabaseAdapter;
+use crate::adapters::{DatabaseAdapter, ReadOnlyLimits, ReadOnlyOp};
 use crate::error::{Error, Result};
 use crate::models::*;
 
@@ -122,6 +123,21 @@ impl DatabaseAdapter for SqliteAdapter {
 
         self.with_conn(move |conn| executor::execute_query(conn, &query, options, &database))
             .await
+    }
+
+    async fn execute_read_only(&self, op: &ReadOnlyOp, page: QueryOptions) -> Result<QueryResult> {
+        let ReadOnlyOp::Sql(sql) = op else {
+            return Err(Error::UnsupportedType(format!(
+                "SQLite runs SQL, not {:?}",
+                op.language()
+            )));
+        };
+        let sql = sql.clone();
+
+        self.with_conn(move |conn| {
+            read_only::execute(conn, &sql, &page, &ReadOnlyLimits::default())
+        })
+        .await
     }
 
     async fn fetch_table_data(&self, request: TableDataRequest) -> Result<QueryResult> {

@@ -11,6 +11,8 @@
 mod client;
 mod config;
 mod error;
+pub mod guard;
+pub mod read_only;
 
 use std::sync::OnceLock;
 

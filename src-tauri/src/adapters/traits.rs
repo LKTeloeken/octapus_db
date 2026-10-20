@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::adapters::MessageSink;
+use crate::adapters::{MessageSink, ReadOnlyOp};
 use crate::error::{Error, Result};
 use crate::models::{
     AdapterCapabilities, ColumnInfo, DatabaseInfo, DatabaseStructure, EditableInfo, IndexInfo,
@@ -54,6 +54,18 @@ pub trait DatabaseAdapter: Send + Sync {
         _sink: Option<Arc<dyn MessageSink>>,
     ) -> Result<QueryResult> {
         self.execute_query(query, options).await
+    }
+
+    /// Executa uma operação de leitura do assistente sem que nada possa
+    /// escrever no banco, nem se o guard deixar passar uma escrita: um
+    /// statement só, transação `READ ONLY` (ou `query_only`), tempo e linhas
+    /// com teto (`ReadOnlyLimits`). Pagina pelo `limit`/`offset` da página;
+    /// o resultado nunca é editável (RN-16).
+    async fn execute_read_only(&self, op: &ReadOnlyOp, _page: QueryOptions) -> Result<QueryResult> {
+        Err(Error::UnsupportedType(format!(
+            "Read-only execution of {:?} is not supported for this database",
+            op.language()
+        )))
     }
 
     /// Browse a table's data with server-side pagination, sorting and

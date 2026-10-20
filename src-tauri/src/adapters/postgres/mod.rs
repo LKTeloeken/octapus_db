@@ -7,6 +7,7 @@ mod tls_e2e;
 mod executor;
 mod metadata;
 mod notices;
+mod read_only;
 mod util;
 
 use std::collections::HashMap;
@@ -17,7 +18,7 @@ use deadpool_postgres::Pool;
 
 use crate::error::{Error, Result};
 use crate::models::*;
-use crate::adapters::{DatabaseAdapter, MessageSink, PoolStats};
+use crate::adapters::{DatabaseAdapter, MessageSink, PoolStats, ReadOnlyLimits, ReadOnlyOp};
 
 use self::notices::NoticeHub;
 
@@ -78,6 +79,23 @@ impl DatabaseAdapter for PostgresAdapter {
             &self.active_queries,
             &self.notice_hub,
             sink,
+        )
+        .await
+    }
+
+    async fn execute_read_only(&self, op: &ReadOnlyOp, page: QueryOptions) -> Result<QueryResult> {
+        let ReadOnlyOp::Sql(sql) = op else {
+            return Err(Error::UnsupportedType(format!(
+                "Postgres runs SQL, not {:?}",
+                op.language()
+            )));
+        };
+        read_only::execute(
+            &self.pool,
+            sql,
+            &page,
+            &ReadOnlyLimits::default(),
+            &self.active_queries,
         )
         .await
     }

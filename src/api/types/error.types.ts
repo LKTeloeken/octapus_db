@@ -39,6 +39,8 @@ export type BackendErrorCode =
   | 'UNSUPPORTED_DATABASE'
   | 'UNSUPPORTED_TYPE'
   | 'EXTERNAL_ERROR'
+  /** O guard do assistente recusou a consulta antes de ela ir ao banco */
+  | 'GUARD_REJECTED'
   /** Build sem a URL da API do assistente */
   | 'ASSISTANT_NOT_CONFIGURED'
   | AssistantApiErrorCode;

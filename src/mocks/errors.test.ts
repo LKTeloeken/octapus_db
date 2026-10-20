@@ -11,6 +11,9 @@ describe('toBackendError', () => {
       'NOT_FOUND',
     );
     expect(toBackendError('Operation cancelled').code).toBe('CANCELLED');
+    expect(
+      toBackendError('Guard rejected: only one statement is allowed').code,
+    ).toBe('GUARD_REJECTED');
     expect(toBackendError('Connection timed out').code).toBe(
       'CONNECTION_TIMEOUT',
     );
