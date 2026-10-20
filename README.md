@@ -1,36 +1,73 @@
 # octapus_db
 
-Cliente de banco de dados **desktop**, multi-banco, construído com **Tauri 2 + React 19**.
-Conecta em **PostgreSQL, MongoDB e Redis** atrás de uma interface única: árvore de
-estrutura, editor de queries, navegação de tabelas com paginação/ordenação/filtro
-no servidor e edição inline de linhas — os três bancos expõem **os mesmos comandos**.
+Cliente de banco de dados **desktop**, multi-banco, construído com **Tauri 2 + Rust +
+React 19**. Conecta em **PostgreSQL, MongoDB, SQLite e Redis** atrás de uma interface única:
+árvore de estrutura, editor de queries, navegação de tabelas com paginação/ordenação/filtro
+no servidor e edição inline de linhas.
 
-> Status: em desenvolvimento. MySQL e SQLite estão previstos (retornam "coming soon").
+Leve e rápido: sem JVM e sem Chromium embutido — usa o webview do sistema. O instalador tem
+~9 MB no Windows e ~13 MB no macOS; o app abre a janela em ~0,35 s e fica em ~125 MB de
+RAM parado (macOS, M3 Pro, somando os processos do WebKit).
+
+> Status: em desenvolvimento ativo (1.1 em beta). MySQL está previsto.
 
 ## Funcionalidades
 
-- **Multi-banco** — Postgres, MongoDB e Redis com a mesma UI; o que muda por banco
-  é decidido por `get_capabilities` (esconde nível schema, editor SQL, etc.).
-- **Conexão lazy** — não há "abrir conexão"; qualquer comando conecta sob demanda e
-  o pool fica em cache por `(servidor, database)`.
-- **Sidebar em árvore** — bancos → schemas → tabelas/collections → colunas, carregados
-  incrementalmente.
-- **Editor de queries** — sintaxe nativa por banco (SQL / shell Mongo / comandos Redis),
-  com CodeMirror, paginação e cancelamento.
+### Bancos e conexões
+- **Multi-banco** — Postgres, MongoDB, SQLite e Redis com a mesma UI, cada um na sintaxe
+  nativa (SQL, shell do Mongo, comandos Redis); o que muda por banco é decidido por
+  `get_capabilities`.
+- **Conexão lazy** — não há "abrir conexão"; qualquer comando conecta sob demanda e o pool
+  fica em cache por `(servidor, database)`. SSL/TLS e URI de conexão.
+- **Importar conexões** de DBeaver, pgAdmin, TablePlus, DataGrip, Beekeeper Studio ou de
+  uma URL colada — com revisão antes de gravar.
+- **Grupos de servidores** e **escopo** por servidor: databases e schemas visíveis por
+  padrão (`*`, `?` e `!` para excluir).
+- **Senhas criptografadas** — cofre próprio (AES-256-GCM, chave presa ao dispositivo); sem
+  prompts do SO e comportamento idêntico nos 3 sistemas.
+- **Sessão restaurada** — abas e contexto voltam ao reabrir o app.
+
+### Bancos multi-tenant (milhares de schemas)
+- **Catálogo de metadados no backend** — a estrutura é sincronizada em camadas e entregue
+  em fatias; a árvore é virtualizada, com janela, **filtro** (`/`) e "carregar mais" —
+  fluida com 5.000 schemas e 750 mil tabelas.
+- **Agrupar por formato** — schemas com a mesma estrutura viram um grupo ("Formato
+  principal", "Variação" com as tabelas que faltam, "Outros schemas").
+- **Aviso de drift** — destaca o tenant cuja estrutura diverge dos demais.
+- **Comparar schemas** — tabelas e colunas que só um tem, ou com tipo/nulo/default
+  diferente.
+
+### Consultar e editar
+- **Command palette** (`Cmd/Ctrl+K`) — busca no catálogo; a mesma tabela em vários schemas
+  vira um grupo ("orders em 5.000 schemas") e `Tab` fixa um schema.
+- **Editor de queries** — CodeMirror com autocomplete SQL ciente do schema, paginação e
+  cancelamento.
 - **Browse de tabela** — paginação, ordenação e filtros montados e validados no backend
   (sem SQL no front, sem injection).
+- **Grade virtualizada** (linhas e colunas), visão vertical e busca na grade.
 - **Edição inline + inserção/remoção de linhas** — alterações ficam pendentes (verde =
-  nova, vermelho = removida, amarelo = editada) e só são aplicadas ao salvar.
-- **Command palette** (`Cmd/Ctrl+K`) para navegação rápida.
-- **Senhas criptografadas** — cofre próprio (AES-256-GCM, chave presa ao dispositivo);
-  sem prompts do SO e comportamento idêntico nos 3 sistemas.
+  nova, vermelho = removida, amarelo = editada) e só são aplicadas ao salvar (`Cmd/Ctrl+S`).
+- **Painel de valor** (`Cmd/Ctrl+I` ou `F7`) — ver e editar a célula como JSON, XML, HTML,
+  texto ou binário.
+- **Exportar** resultados em CSV, JSON ou SQL.
+
+### Estrutura e manutenção
+- **Editor de estrutura** (Postgres e SQLite) — criar, renomear e excluir tabelas e
+  colunas pela árvore, sempre com prévia do SQL que vai rodar.
+- **Backup e restauração do Postgres** — `pg_dump`/`pg_restore` com prévia do comando,
+  progresso, log e cancelamento; detecta as ferramentas instaladas.
+
+### App
+- **Temas claro e escuro** (design system Ink, contraste AA).
+- **Atualização automática**, com canal beta opcional.
+- **macOS, Windows e Linux** (`.dmg`, `.exe`, `.deb`, `.rpm`, AppImage) e pacote Nix.
 
 ## Stack
 
 | Camada | Tecnologia |
 |---|---|
 | Shell desktop | Tauri 2 (Rust) |
-| Backend | Rust — tokio, deadpool-postgres, mongodb, redis, rusqlite, keyring |
+| Backend | Rust — tokio, deadpool-postgres, mongodb, redis, rusqlite, aes-gcm |
 | Frontend | React 19 + TypeScript + Vite 6 |
 | Estilo | Tailwind CSS v4 + Radix UI (padrão shadcn) |
 | Estado do servidor | TanStack Query (React Query) v5 + persistência em IndexedDB |
@@ -56,7 +93,12 @@ O endereço antigo (`github:LKTeloeken/octapus_db`, sem `/nix`) ficou congelado 
 Para desenvolver, o flake da `main` traz o devShell com Rust, pnpm e as libs do WebKit —
 `nix develop`, ou automático via `direnv` (o `.envrc` já está no repositório).
 
-## Começando
+## Instalar
+
+Baixe o instalador da sua plataforma nas
+[releases](https://github.com/LKTeloeken/octapus_db/releases).
+
+## Começando (desenvolvimento)
 
 ### Pré-requisitos
 - **Node** + **pnpm**
@@ -140,9 +182,10 @@ reinstalar à mão. A branch `nix` se atualiza quando a versão nova é publicad
 │   └── providers/       # QueryProvider (React Query + persistência)
 ├── src-tauri/src/       # Backend Rust (ver BACKEND.md)
 │   ├── commands/        # handlers #[tauri::command]
-│   ├── adapters/        # DatabaseAdapter: postgres | mongo | redisdb
-│   ├── services/        # ConnectionService (cache de pools), QueryService…
-│   ├── storage/         # SQLite local + secrets (keychain)
+│   ├── adapters/        # DatabaseAdapter: postgres | mongo | sqlite | redisdb
+│   ├── catalog/         # catálogo de metadados (Rust puro)
+│   ├── services/        # ConnectionService, CatalogService, backup, importação…
+│   ├── storage/         # SQLite local + cofre de senhas (vault)
 │   └── models/          # tipos serializados para o front
 ├── nix/                 # pacote Nix congelado (o atual vive na branch `nix`)
 └── .claude/             # instruções de trabalho para o agente (ver CLAUDE.md)
