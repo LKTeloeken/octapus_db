@@ -1,12 +1,12 @@
 # Metadados do .deb publicado no GitHub Releases que nix/package.nix reempacota.
 # Gerado por nix/update-release.sh — não edite à mão.
 {
-  version = "1.1.0-beta.10";
+  version = "1.1.0-beta.11";
 
   bundles = {
     x86_64-linux = {
       arch = "amd64";
-      hash = "sha256-dEcqm+eogCxTZ5G5j8nMJ/k2YABX4DC+Wy8YyTkGvXM=";
+      hash = "sha256-M2cfu2ozpjAnr7GqMQYPFj07wzduSKptLILwtTuxADo=";
     };
   };
 }
