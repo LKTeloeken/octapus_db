@@ -11,6 +11,9 @@
 //!   comentar o resto;
 //! - **tempo com teto:** o SQLite não tem `statement_timeout`, então um vigia
 //!   interrompe a consulta (`sqlite3_interrupt`) quando o tempo acaba.
+//!
+//! O preflight (`explain`) roda `EXPLAIN QUERY PLAN` sob as mesmas barreiras:
+//! compilar a consulta já acha tabela, coluna ou função inexistente.
 
 use std::sync::mpsc;
 use std::time::Instant;
@@ -19,7 +22,7 @@ use rusqlite::{Batch, Connection, ErrorCode, Statement};
 
 use crate::adapters::{ReadOnlyLimits, STATEMENT_TIMEOUT_MESSAGE};
 use crate::error::{Error, Result};
-use crate::models::{QueryColumnInfo, QueryOptions, QueryResult};
+use crate::models::{QueryColumnInfo, QueryOptions, QueryResult, ReadOnlyPlan};
 
 use super::util::{db_err, storage_class_name, value_to_string};
 
@@ -39,6 +42,33 @@ pub fn execute(
     let paged = format!("SELECT * FROM (\n{sql}\n) LIMIT {} OFFSET {offset}", limit + 1);
 
     query_only(conn, |conn| with_deadline(conn, limits, |conn| read_page(conn, &paged, limit)))
+}
+
+/// O plano da consulta, sem executá-la. O SQLite não estima linhas nem custo:
+/// o plano é um passo por linha (`SCAN users`, `SEARCH orders USING INDEX …`).
+pub fn explain(conn: &Connection, sql: &str, limits: &ReadOnlyLimits) -> Result<ReadOnlyPlan> {
+    let sql = crate::adapters::trim_statement(sql);
+    if sql.is_empty() {
+        return Err(Error::InvalidQuery("Empty query".into()));
+    }
+    let explain = format!("EXPLAIN QUERY PLAN SELECT * FROM (\n{sql}\n)");
+
+    query_only(conn, |conn| {
+        with_deadline(conn, limits, |conn| {
+            let mut stmt = prepare_single(conn, &explain)?;
+            // Colunas: id, parent, notused, detail
+            let steps = stmt
+                .query_map([], |row| row.get::<_, String>(3))
+                .map_err(interrupted_or_db_err)?
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(interrupted_or_db_err)?;
+            Ok(ReadOnlyPlan {
+                estimated_rows: None,
+                estimated_cost: None,
+                plan: steps.join("\n"),
+            })
+        })
+    })
 }
 
 /// Roda `work` com `PRAGMA query_only` ligado e devolve o valor anterior no
@@ -150,16 +180,18 @@ fn prepare_single<'conn>(conn: &'conn Connection, sql: &str) -> Result<Statement
     Ok(stmt)
 }
 
-/// O `sqlite3_interrupt` chega como `OperationInterrupted`; o resto segue o
-/// `db_err` do adapter.
+/// O `sqlite3_interrupt` chega como `OperationInterrupted`. Erro de compilação
+/// sai só com a mensagem do SQLite: o rusqlite acrescentaria a consulta
+/// inteira (`… in <sql> at offset N`). O resto segue o `db_err` do adapter.
 fn interrupted_or_db_err(error: rusqlite::Error) -> Error {
-    match &error {
+    match error {
         rusqlite::Error::SqliteFailure(failure, _)
             if failure.code == ErrorCode::OperationInterrupted =>
         {
             Error::Query("interrupted".into())
         }
-        _ => db_err(error),
+        rusqlite::Error::SqlInputError { msg, .. } => Error::Query(msg),
+        error => db_err(error),
     }
 }
 
@@ -275,6 +307,34 @@ mod tests {
         let error = result.unwrap_err().to_string();
         assert!(error.contains("readonly"), "{error}");
         assert_eq!(user_count(&conn), 25);
+        assert_eq!(query_only_flag(&conn), 0);
+
+        drop(conn);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn explain_finds_unknown_columns_without_running() {
+        let (conn, path) = fixture("explain");
+
+        let plan = explain(&conn, "SELECT name FROM users WHERE id = 3", &ReadOnlyLimits::default())
+            .unwrap();
+        assert!(plan.plan.contains("users"), "{}", plan.plan);
+        assert_eq!(plan.estimated_rows, None);
+
+        let error = explain(&conn, "SELECT nome FROM users", &ReadOnlyLimits::default())
+            .unwrap_err();
+        assert_eq!(error.to_string(), "Query error: no such column: nome");
+
+        // Uma consulta infinita só é planejada, nunca roda
+        let started = Instant::now();
+        explain(
+            &conn,
+            "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT max(x) FROM c",
+            &ReadOnlyLimits::default(),
+        )
+        .unwrap();
+        assert!(started.elapsed() < Duration::from_secs(1));
         assert_eq!(query_only_flag(&conn), 0);
 
         drop(conn);

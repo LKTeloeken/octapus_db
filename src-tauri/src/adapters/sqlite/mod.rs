@@ -140,6 +140,19 @@ impl DatabaseAdapter for SqliteAdapter {
         .await
     }
 
+    async fn explain_read_only(&self, op: &ReadOnlyOp, _page: QueryOptions) -> Result<ReadOnlyPlan> {
+        let ReadOnlyOp::Sql(sql) = op else {
+            return Err(Error::UnsupportedType(format!(
+                "SQLite runs SQL, not {:?}",
+                op.language()
+            )));
+        };
+        let sql = sql.clone();
+
+        self.with_conn(move |conn| read_only::explain(conn, &sql, &ReadOnlyLimits::default()))
+            .await
+    }
+
     async fn fetch_table_data(&self, request: TableDataRequest) -> Result<QueryResult> {
         let database = self.database.clone();
 

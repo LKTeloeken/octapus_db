@@ -16,6 +16,13 @@ pub enum Error {
     // Query errors
     Query(String),
     InvalidQuery(String),
+    /// Erro do banco numa consulta do assistente, com o SQLSTATE do Postgres
+    /// para classificar e sanitizar a falha (`assistant/failure.rs`). Para o
+    /// front é igual ao `Query`: mesmo código, mesma mensagem.
+    DbQuery {
+        sql_state: String,
+        message: String,
+    },
 
     // Resource errors
     NotFound(String),
@@ -54,7 +61,9 @@ impl fmt::Display for Error {
             Self::Connection(msg) => write!(f, "Connection error: {msg}"),
             Self::PoolExhausted => write!(f, "Connection pool exhausted"),
             Self::ConnectionTimeout => write!(f, "Connection timed out"),
-            Self::Query(msg) => write!(f, "Query error: {msg}"),
+            Self::Query(msg) | Self::DbQuery { message: msg, .. } => {
+                write!(f, "Query error: {msg}")
+            }
             Self::InvalidQuery(msg) => write!(f, "Invalid query: {msg}"),
             Self::NotFound(msg) => write!(f, "Not found: {msg}"),
             Self::AlreadyExists(msg) => write!(f, "Already exists: {msg}"),
@@ -170,7 +179,7 @@ impl Error {
             Self::Connection(_) => "CONNECTION_ERROR",
             Self::PoolExhausted => "POOL_EXHAUSTED",
             Self::ConnectionTimeout => "CONNECTION_TIMEOUT",
-            Self::Query(_) => "QUERY_ERROR",
+            Self::Query(_) | Self::DbQuery { .. } => "QUERY_ERROR",
             Self::InvalidQuery(_) => "INVALID_QUERY",
             Self::NotFound(_) => "NOT_FOUND",
             Self::AlreadyExists(_) => "ALREADY_EXISTS",

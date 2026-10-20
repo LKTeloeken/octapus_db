@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use rusqlite::types::Value;
-use rusqlite::{params_from_iter, Connection, Transaction};
+use rusqlite::{params_from_iter, Batch, Connection, Transaction};
 use sqlparser::ast::{GroupByExpr, SetExpr, Statement as SqlStatement, TableFactor};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
@@ -30,6 +30,41 @@ pub fn execute_query(
         return Err(Error::InvalidQuery("Empty query".into()));
     }
 
+    // O `prepare` do rusqlite compila só o primeiro statement e ignora o resto
+    // em silêncio; o `Batch` compila um por vez, sem executar, e mostra se sobrou
+    // texto depois dele.
+    let mut batch = Batch::new(conn, trimmed);
+    let returns_rows = match batch.next().map_err(db_err)? {
+        Some(first) => first.column_count() > 0,
+        None => false,
+    };
+
+    // Statement sem colunas não devolve linhas (INSERT/UPDATE/DDL no editor
+    // livre). Nesse caso o texto original roda inteiro por `execute_statement`,
+    // que aceita script com vários comandos.
+    if !returns_rows {
+        let statement = execute_statement(conn, trimmed)?;
+
+        return Ok(QueryResult {
+            columns: vec![],
+            rows: vec![],
+            row_count: 0,
+            total_count: None,
+            has_more: false,
+            execution_time_ms: statement.execution_time_ms,
+            editable_info: None,
+        });
+    }
+
+    // Query que devolve linhas roda sozinha: o "carregar mais" e o COUNT do
+    // rodapé reexecutam o texto, e uma escrita no meio do script rodaria de
+    // novo a cada página. O segundo statement só é compilado, nunca executado.
+    if batch.next().map_err(db_err)?.is_some() {
+        return Err(Error::InvalidQuery(
+            "A query that returns rows must be run on its own, not as part of a script".into(),
+        ));
+    }
+
     // Só o que tem corpo de SELECT pode entrar numa subquery para paginar; um
     // PRAGMA devolve linhas mas quebraria dentro do `SELECT * FROM (...)`.
     let wrappable = is_wrappable(trimmed);
@@ -52,24 +87,6 @@ pub fn execute_query(
 
     let start = Instant::now();
     let mut stmt = conn.prepare(&exec_query).map_err(db_err)?;
-
-    // Statement sem colunas não devolve linhas (INSERT/UPDATE/DDL no editor
-    // livre). Nesse caso o texto original roda inteiro por `execute_statement`,
-    // que aceita script com vários comandos — o `prepare` pararia no primeiro.
-    if stmt.column_count() == 0 {
-        drop(stmt);
-        let statement = execute_statement(conn, trimmed)?;
-
-        return Ok(QueryResult {
-            columns: vec![],
-            rows: vec![],
-            row_count: 0,
-            total_count: None,
-            has_more: false,
-            execution_time_ms: statement.execution_time_ms,
-            editable_info: None,
-        });
-    }
 
     let mut columns: Vec<QueryColumnInfo> = stmt
         .columns()
@@ -506,6 +523,90 @@ fn single_source_table(sql: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixture() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
+             INSERT INTO users (name) VALUES ('ana'), ('bia');",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn user_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn script_starting_with_a_select_is_refused_without_running_anything() {
+        let conn = fixture();
+
+        for options in [
+            QueryOptions::default(),
+            QueryOptions {
+                unlimited: true,
+                ..Default::default()
+            },
+        ] {
+            let error = execute_query(
+                &conn,
+                "SELECT * FROM users; DELETE FROM users",
+                options,
+                "main",
+            )
+            .unwrap_err();
+
+            assert!(matches!(error, Error::InvalidQuery(_)), "{error:?}");
+        }
+
+        // O `prepare` sozinho mostraria o SELECT e descartaria o DELETE em silêncio
+        assert_eq!(user_count(&conn), 2);
+    }
+
+    #[test]
+    fn select_followed_only_by_semicolons_and_comments_still_runs() {
+        let conn = fixture();
+
+        // Sem paginação: a subquery do LIMIT não aguenta o `;` nem o comentário
+        // que sobram no texto, mas o que se quer aqui é que eles não contem como
+        // um segundo statement.
+        let result = execute_query(
+            &conn,
+            "SELECT * FROM users; ; -- fim",
+            QueryOptions {
+                unlimited: true,
+                ..Default::default()
+            },
+            "main",
+        )
+        .unwrap();
+
+        assert_eq!(result.row_count, 2);
+    }
+
+    #[test]
+    fn write_scripts_still_run_whole() {
+        let conn = fixture();
+
+        // O segundo comando depende do primeiro: compilar o script inteiro
+        // antes de rodar falharia com "no such table".
+        execute_query(
+            &conn,
+            "CREATE TABLE tags (name TEXT); INSERT INTO tags VALUES ('x');
+             INSERT INTO users (name) VALUES ('caio');",
+            QueryOptions::default(),
+            "main",
+        )
+        .unwrap();
+
+        assert_eq!(user_count(&conn), 3);
+        let tags: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tags", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(tags, 1);
+    }
 
     #[test]
     fn only_select_shaped_queries_are_paginated() {

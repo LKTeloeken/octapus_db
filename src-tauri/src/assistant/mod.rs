@@ -11,6 +11,7 @@
 mod client;
 mod config;
 mod error;
+pub mod failure;
 pub mod guard;
 pub mod read_only;
 

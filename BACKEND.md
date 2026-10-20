@@ -733,8 +733,21 @@ segura sozinha (os testes rodam cada executor com o guard desligado):
   execução (restaurado no fim), um statement só (o `prepare` do rusqlite ignoraria o resto
   em silêncio, então o texto passa pelo `Batch`) e um vigia que interrompe a consulta no
   tempo limite.
-- `assistant::read_only::execute` junta os dois (guard, depois o adapter) — é o que o
-  orquestrador do turno chama. E2E: `cargo test --lib read_only -- --include-ignored`
+- **Preflight** (`DatabaseAdapter::explain_read_only`, `assistant::read_only::preflight`):
+  as mesmas barreiras, com `EXPLAIN (FORMAT JSON)` sem `ANALYZE` no Postgres (devolve
+  `ReadOnlyPlan` com linhas e custo estimados) e `EXPLAIN QUERY PLAN` no SQLite (só os
+  passos). Acha tabela, coluna ou tipo errado sem executar nada.
+- **Falha da consulta** (`assistant/failure.rs`), o que vai para a API no outcome e na
+  correção: `classify` dá a `FailureClass` do contrato pelo SQLSTATE do Postgres (o
+  caminho só-leitura devolve `Error::DbQuery { sqlState, message }`, que para o front é
+  igual ao `QUERY_ERROR`) ou pela mensagem do SQLite; `None` = o erro não é da consulta
+  (conexão, cancelamento) e o turno para. `sanitize` (RN-10) manda só o SQLSTATE e a
+  mensagem principal — nunca `DETAIL`, `HINT` ou `WHERE` — com cada trecho entre aspas e
+  cada número trocados por `?`, exceto o que aparece como token na própria consulta
+  gerada (nome de coluna, literal da pergunta); no SQLite, o que vem depois do `: `
+  também. No máximo 2.000 caracteres.
+- `assistant::read_only::execute` junta guard e executor (e o `preflight`, guard e plano)
+  — é o que o orquestrador do turno chama. E2E: `cargo test --lib read_only -- --include-ignored`
   (Postgres dos e2e; o SQLite usa arquivo temporário).
 
 ### Diagnóstico

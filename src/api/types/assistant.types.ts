@@ -7,3 +7,5 @@ export type { AssistantModelSelection } from './generated/AssistantModelSelectio
 export type { AssistantParticipant } from './generated/AssistantParticipant';
 export type { AssistantQuota } from './generated/AssistantQuota';
 export type { AssistantStatus } from './generated/AssistantStatus';
+export type { FailureClass } from './generated/FailureClass';
+export type { ReadOnlyPlan } from './generated/ReadOnlyPlan';

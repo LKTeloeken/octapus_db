@@ -9,15 +9,21 @@
 //! - **dentro de uma subquery** (`SELECT … FROM (\n…\n) AS __q`), que só aceita
 //!   consulta: `INSERT … RETURNING` e CTE que modifica dados nem parseiam ali.
 //!   As quebras de linha impedem que um `--` no fim comente o resto.
+//!
+//! O preflight (`explain`) usa as mesmas barreiras e roda `EXPLAIN (FORMAT
+//! JSON)` sem `ANALYZE`: o planejador acha coluna ou tabela inexistente sem
+//! executar nada. Os erros do servidor saem como `Error::DbQuery`, com o
+//! SQLSTATE para o assistente classificar (`assistant/failure.rs`).
 
 use std::time::Instant;
 
 use deadpool_postgres::Pool;
+use tokio_postgres::types::{FromSql, Type};
 use tokio_postgres::Transaction;
 
 use crate::adapters::ReadOnlyLimits;
 use crate::error::{Error, Result};
-use crate::models::{QueryOptions, QueryResult};
+use crate::models::{QueryOptions, QueryResult, ReadOnlyPlan};
 
 use super::executor::{columns_from_statement, extract_text_rows_typed, PidGuard};
 use super::util::quote_ident;
@@ -48,24 +54,42 @@ pub async fn execute(
         None => None,
     };
 
-    let tx = client.build_transaction().read_only(true).start().await?;
+    let tx = client.build_transaction().read_only(true).start().await.map_err(db_error)?;
     let result = run(&tx, sql, page, limits).await;
-    // Nada desta transação vale, nem quando deu certo. Se a falha derrubou a
-    // conexão, o deadpool a descarta na volta ao pool.
-    let rollback = tx.rollback().await;
-    let result = result?;
-    rollback?;
-    Ok(result)
+    finish(tx, result).await
 }
 
-async fn run(
-    tx: &Transaction<'_>,
+/// O plano da consulta, sem executá-la: `EXPLAIN (FORMAT JSON)` dentro das
+/// mesmas barreiras da execução.
+pub async fn explain(
+    pool: &Pool,
     sql: &str,
     page: &QueryOptions,
     limits: &ReadOnlyLimits,
-) -> Result<QueryResult> {
-    // SET LOCAL: valem só nesta transação. O texto é todo nosso (números e um
-    // identificador escapado), nunca da consulta.
+) -> Result<ReadOnlyPlan> {
+    let sql = crate::adapters::trim_statement(sql);
+    if sql.is_empty() {
+        return Err(Error::InvalidQuery("Empty query".into()));
+    }
+
+    let mut client = pool.get().await?;
+    let tx = client.build_transaction().read_only(true).start().await.map_err(db_error)?;
+    let result = run_explain(&tx, sql, page, limits).await;
+    finish(tx, result).await
+}
+
+/// Nada desta transação vale, nem quando deu certo. Se a falha derrubou a
+/// conexão, o deadpool a descarta na volta ao pool.
+async fn finish<T>(tx: deadpool_postgres::Transaction<'_>, result: Result<T>) -> Result<T> {
+    let rollback = tx.rollback().await.map_err(db_error);
+    let value = result?;
+    rollback?;
+    Ok(value)
+}
+
+/// SET LOCAL: valem só nesta transação. O texto é todo nosso (números e um
+/// identificador escapado), nunca da consulta.
+async fn apply_limits(tx: &Transaction<'_>, page: &QueryOptions, limits: &ReadOnlyLimits) -> Result<()> {
     let mut settings = format!(
         "SET LOCAL statement_timeout = {}; SET LOCAL lock_timeout = {};",
         limits.statement_timeout.as_millis(),
@@ -74,17 +98,41 @@ async fn run(
     if let Some(schema) = page.schema.as_deref() {
         settings.push_str(&format!(" SET LOCAL search_path TO {}, public;", quote_ident(schema)));
     }
-    tx.batch_execute(&settings).await?;
+    tx.batch_execute(&settings).await.map_err(db_error)
+}
+
+/// Erro do servidor com o SQLSTATE (só a mensagem principal: `DETAIL`,
+/// `HINT` e `WHERE` ficam de fora, é onde os valores aparecem — RN-10).
+fn db_error(error: tokio_postgres::Error) -> Error {
+    match error.as_db_error() {
+        Some(db) => Error::DbQuery {
+            sql_state: db.code().code().to_string(),
+            message: db.message().to_string(),
+        },
+        None => error.into(),
+    }
+}
+
+async fn run(
+    tx: &Transaction<'_>,
+    sql: &str,
+    page: &QueryOptions,
+    limits: &ReadOnlyLimits,
+) -> Result<QueryResult> {
+    apply_limits(tx, page, limits).await?;
 
     // Colunas e tipos reais da consulta, sem executar nada
-    let probe = tx.prepare(&format!("SELECT * FROM (\n{sql}\n) AS __q")).await?;
+    let probe = tx
+        .prepare(&format!("SELECT * FROM (\n{sql}\n) AS __q"))
+        .await
+        .map_err(db_error)?;
     let columns = columns_from_statement(&probe);
 
     let (limit, offset) = limits.page(page.limit, page.offset);
     let paged = paged_text_query(sql, columns.len(), limit, offset);
 
     let started = Instant::now();
-    let rows = tx.query(&paged, &[]).await?;
+    let rows = tx.query(&paged, &[]).await.map_err(db_error)?;
     let execution_time_ms = started.elapsed().as_millis() as u64;
 
     let has_more = rows.len() as i64 > limit;
@@ -100,6 +148,58 @@ async fn run(
         // O resultado do assistente nunca é editável (RN-16)
         editable_info: None,
     })
+}
+
+async fn run_explain(
+    tx: &Transaction<'_>,
+    sql: &str,
+    page: &QueryOptions,
+    limits: &ReadOnlyLimits,
+) -> Result<ReadOnlyPlan> {
+    apply_limits(tx, page, limits).await?;
+
+    // Dentro da subquery, como na execução: só consulta entra, e um
+    // `ANALYZE` no começo do texto não vira `EXPLAIN ANALYZE`
+    let row = tx
+        .query_one(
+            &format!("EXPLAIN (FORMAT JSON) SELECT * FROM (\n{sql}\n) AS __q"),
+            &[],
+        )
+        .await
+        .map_err(db_error)?;
+    let JsonText(plan) = row.try_get(0).map_err(db_error)?;
+    Ok(plan_estimate(plan))
+}
+
+/// O `EXPLAIN (FORMAT JSON)` devolve uma coluna `json`, que o tokio-postgres
+/// não lê como `String` sem a feature do serde. No protocolo binário o `json`
+/// é o próprio texto.
+struct JsonText(String);
+
+impl<'a> FromSql<'a> for JsonText {
+    fn from_sql(
+        _: &Type,
+        raw: &'a [u8],
+    ) -> std::result::Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        Ok(Self(std::str::from_utf8(raw)?.to_string()))
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        *ty == Type::JSON
+    }
+}
+
+/// `[{"Plan": {"Total Cost": …, "Plan Rows": …}}]` → a estimativa da raiz.
+fn plan_estimate(plan: String) -> ReadOnlyPlan {
+    let root = serde_json::from_str::<serde_json::Value>(&plan)
+        .ok()
+        .and_then(|value| value.get(0)?.get("Plan").cloned());
+    let number = |key: &str| root.as_ref().and_then(|root| root.get(key)?.as_f64());
+    ReadOnlyPlan {
+        estimated_rows: number("Plan Rows"),
+        estimated_cost: number("Total Cost"),
+        plan,
+    }
 }
 
 /// A página com cada coluna em `::text`: o Postgres renderiza o valor (como
@@ -138,6 +238,18 @@ mod tests {
             paged_text_query("SELECT", 0, 5, 0),
             "SELECT  FROM (\nSELECT\n) AS __q LIMIT 6 OFFSET 0"
         );
+    }
+
+    #[test]
+    fn plan_estimate_reads_the_root_node() {
+        let plan = r#"[{"Plan": {"Node Type": "Seq Scan", "Total Cost": 35.5, "Plan Rows": 2550}}]"#;
+        let estimate = plan_estimate(plan.into());
+        assert_eq!(estimate.estimated_rows, Some(2550.0));
+        assert_eq!(estimate.estimated_cost, Some(35.5));
+        assert_eq!(estimate.plan, plan);
+
+        let unknown = plan_estimate("not json".into());
+        assert_eq!((unknown.estimated_rows, unknown.estimated_cost), (None, None));
     }
 
     #[test]

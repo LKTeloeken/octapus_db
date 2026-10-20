@@ -100,6 +100,16 @@ impl DatabaseAdapter for PostgresAdapter {
         .await
     }
 
+    async fn explain_read_only(&self, op: &ReadOnlyOp, page: QueryOptions) -> Result<ReadOnlyPlan> {
+        let ReadOnlyOp::Sql(sql) = op else {
+            return Err(Error::UnsupportedType(format!(
+                "Postgres runs SQL, not {:?}",
+                op.language()
+            )));
+        };
+        read_only::explain(&self.pool, sql, &page, &ReadOnlyLimits::default()).await
+    }
+
     async fn apply_row_edits(
         &self,
         editable: &EditableInfo,

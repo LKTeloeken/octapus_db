@@ -6,7 +6,8 @@ use crate::adapters::{MessageSink, ReadOnlyOp};
 use crate::error::{Error, Result};
 use crate::models::{
     AdapterCapabilities, ColumnInfo, DatabaseInfo, DatabaseStructure, EditableInfo, IndexInfo,
-    QueryOptions, QueryResult, RowChanges, RowEdit, RowInsert, SchemaInfo, StatementResult,
+    QueryOptions, QueryResult, ReadOnlyPlan, RowChanges, RowEdit, RowInsert, SchemaInfo,
+    StatementResult,
     StructureChange, TableDataRequest, TableInfo,
 };
 
@@ -64,6 +65,17 @@ pub trait DatabaseAdapter: Send + Sync {
     async fn execute_read_only(&self, op: &ReadOnlyOp, _page: QueryOptions) -> Result<QueryResult> {
         Err(Error::UnsupportedType(format!(
             "Read-only execution of {:?} is not supported for this database",
+            op.language()
+        )))
+    }
+
+    /// O plano de uma operação de leitura, sem executá-la (preflight do
+    /// assistente): pega tabela, coluna ou tipo errado antes de rodar, com as
+    /// mesmas barreiras do [`DatabaseAdapter::execute_read_only`]. Da página
+    /// só vale o `schema`.
+    async fn explain_read_only(&self, op: &ReadOnlyOp, _page: QueryOptions) -> Result<ReadOnlyPlan> {
+        Err(Error::UnsupportedType(format!(
+            "Read-only preflight of {:?} is not supported for this database",
             op.language()
         )))
     }

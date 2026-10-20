@@ -110,3 +110,19 @@ pub struct AssistantModel {
     /// Tokens de contexto, para o orçamento da estrutura (RN-26).
     pub context_window: i64,
 }
+
+/// O plano de uma consulta do assistente, sem executá-la (preflight): o
+/// `EXPLAIN (FORMAT JSON)` do Postgres ou o `EXPLAIN QUERY PLAN` do SQLite.
+/// Fica no app — vai para a tela de revisão, nunca para a API.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadOnlyPlan {
+    /// Linhas que o planejador espera devolver (Postgres)
+    pub estimated_rows: Option<f64>,
+    /// Custo total estimado, na unidade do planejador (Postgres)
+    pub estimated_cost: Option<f64>,
+    /// O plano como o banco descreve: JSON no Postgres, uma linha por passo
+    /// no SQLite
+    pub plan: String,
+}

@@ -6,9 +6,29 @@ use std::time::Instant;
 
 use crate::adapters::{DatabaseAdapter, ReadOnlyOp};
 use crate::error::Result;
-use crate::models::{DatabaseType, QueryOptions, QueryResult};
+use crate::models::{DatabaseType, QueryOptions, QueryResult, ReadOnlyPlan};
 
 use super::guard;
+
+/// O preflight: o guard e depois o plano da consulta, sem executá-la. Uma
+/// falha aqui (coluna que não existe, tipo errado) já vai para a correção.
+#[allow(dead_code)] // chamada pelo orquestrador do turno (B6)
+pub async fn preflight(
+    adapter: &dyn DatabaseAdapter,
+    db_type: DatabaseType,
+    op: &ReadOnlyOp,
+    page: QueryOptions,
+) -> Result<ReadOnlyPlan> {
+    guard::check(op, db_type)?;
+
+    let started = Instant::now();
+    let result = adapter.explain_read_only(op, page).await;
+    match &result {
+        Ok(_) => log::info!("assistente: preflight ok em {} ms", started.elapsed().as_millis()),
+        Err(error) => log::info!("assistente: preflight falhou ({})", error.code()),
+    }
+    result
+}
 
 #[allow(dead_code)] // chamada pelo orquestrador do turno (B6)
 pub async fn execute(
@@ -37,6 +57,8 @@ pub async fn execute(
 /// testes de cada executor (`adapters/*/read_only.rs`) cobrem o banco sozinho.
 #[cfg(test)]
 mod e2e {
+    use std::time::Instant;
+
     use super::*;
     use crate::adapters::postgres::PostgresAdapter;
     use crate::adapters::sqlite::SqliteAdapter;
@@ -110,6 +132,66 @@ mod e2e {
         let _ = std::fs::remove_file(path);
     }
 
+    /// Preflight acha o erro sem executar, e nenhum valor do banco sai no erro
+    /// sanitizado (RN-10).
+    async fn assert_preflight_and_canaries(adapter: &PostgresAdapter) {
+        use crate::assistant::failure::{classify, sanitize, FailureClass};
+
+        let pg = DatabaseType::Postgres;
+        let sql = |text: &str| ReadOnlyOp::Sql(text.into());
+        adapter
+            .execute_transaction(vec![
+                "CREATE TABLE secrets (label text, born text, data text)".into(),
+                "INSERT INTO secrets VALUES ('CANARY_7f3a', '2026-13-45', '{\"k\": CANARY_9b1c}')"
+                    .into(),
+                "CREATE FUNCTION sneaky_write() RETURNS int LANGUAGE sql VOLATILE \
+                 AS $$ INSERT INTO users (name) VALUES ('sneaky') RETURNING id $$"
+                    .into(),
+            ])
+            .await
+            .unwrap();
+
+        let plan = preflight(adapter, pg, &sql("SELECT name FROM users WHERE id > 1"), QueryOptions::default())
+            .await
+            .unwrap();
+        assert!(plan.estimated_rows.is_some() && plan.estimated_cost.is_some(), "{plan:?}");
+
+        // Coluna inexistente: o planejador acha, nada roda
+        let query = "SELECT nome FROM users";
+        let error = preflight(adapter, pg, &sql(query), QueryOptions::default()).await.unwrap_err();
+        assert_eq!(classify(&error), Some(FailureClass::UnknownObject));
+        assert_eq!(
+            sanitize(&error, query).as_deref(),
+            Some("42703: column \"nome\" does not exist")
+        );
+
+        // Função que escreve e consulta lenta: planejar não executa
+        let started = Instant::now();
+        preflight(adapter, pg, &sql("SELECT sneaky_write(), pg_catalog.now()"), QueryOptions::default())
+            .await
+            .unwrap();
+        assert!(started.elapsed().as_secs() < 2);
+        let names = execute(adapter, pg, &sql("SELECT count(*) FROM users WHERE name = 'sneaky'"), QueryOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(names.rows[0][0].as_deref(), Some("0"));
+
+        // Valores do banco no erro: nenhum sai
+        for (query, class) in [
+            ("SELECT label::int FROM secrets", FailureClass::TypeMismatch),
+            ("SELECT born::date FROM secrets", FailureClass::TypeMismatch),
+            ("SELECT data::json FROM secrets", FailureClass::TypeMismatch),
+            ("SELECT label::uuid FROM secrets", FailureClass::TypeMismatch),
+        ] {
+            let error = execute(adapter, pg, &sql(query), QueryOptions::default()).await.unwrap_err();
+            assert_eq!(classify(&error), Some(class), "{query}: {error}");
+            let sanitized = sanitize(&error, query).unwrap();
+            for canary in ["CANARY_7f3a", "CANARY_9b1c", "2026-13-45"] {
+                assert!(!sanitized.contains(canary), "{canary} vazou em: {sanitized}");
+            }
+        }
+    }
+
     /// Postgres dos e2e (localhost:5432, postgres/1234).
     /// `cargo test --lib assistant::read_only -- --ignored`
     #[tokio::test]
@@ -133,6 +215,7 @@ mod e2e {
             .unwrap();
 
         assert_guarded(&adapter, DatabaseType::Postgres).await;
+        assert_preflight_and_canaries(&adapter).await;
         // O guard recusa o que a transação READ ONLY deixaria passar
         let error = execute(
             &adapter,
