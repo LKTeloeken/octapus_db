@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import type { DatabaseType } from '@/api/types/server.types';
+import { forgetEditorDocument } from '@/components/query-editor/query-editor/use-code-mirror-view';
 import { useServers } from '@/queries/use-servers';
 import { useCommandPaletteStore } from '@/stores/command-palette-store';
 import { useGridSearchStore } from '@/stores/grid-search-store';
@@ -34,6 +35,7 @@ export const useQueryTabs = () => {
       closeTabInStore(id);
       clearRun(id); // drop the ephemeral editor result of the closed tab
       clearGridSearch(id);
+      forgetEditorDocument(id); // texto, seleção e undo guardados do editor
     },
     [closeTabInStore, clearRun, clearGridSearch],
   );
