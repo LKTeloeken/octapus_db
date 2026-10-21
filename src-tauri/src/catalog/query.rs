@@ -13,6 +13,11 @@ use super::shape::{Shape, ShapeId, ShapeTable};
 /// Quantos schemas de exemplo acompanham um resultado agrupado.
 pub(super) const SAMPLE_SIZE: usize = 3;
 
+/// Bônus no ranking do contexto para a relação citada com `@` numa pergunta
+/// anterior da conversa: passa à frente do que só casou pelo histórico, mas
+/// um nome inteiro na pergunta atual (30) ainda vence.
+pub const PREFERRED_SCORE: u32 = 20;
+
 /// Filtro "contém" sem diferenciar maiúsculas (o campo de filtro da árvore).
 pub(super) struct Needle {
     lower: String,
@@ -267,12 +272,50 @@ impl Catalog {
         Resolution::NotFound
     }
 
+    /// O schema `name` como está no catálogo: o nome exato ou, sem ele, o único
+    /// que só muda nas maiúsculas. `None` = não existe (ou a lista de schemas
+    /// ainda não chegou). Confere as menções com `@` do assistente.
+    pub fn find_schema(&self, name: &str) -> Option<String> {
+        if self.schemas.contains_key(name) {
+            return Some(name.to_string());
+        }
+        let lower = name.to_lowercase();
+        let mut folded = self.schemas.keys().filter(|schema| schema.to_lowercase() == lower);
+        match (folded.next(), folded.next()) {
+            (Some(schema), None) => Some(schema.to_string()),
+            _ => None,
+        }
+    }
+
+    /// A relação `table` de um schema carregado, partições incluídas, como está
+    /// no catálogo: o nome exato ou, sem ele, a grafia que só muda nas
+    /// maiúsculas. `None` = não existe ou o schema não foi carregado.
+    pub fn find_relation(&self, schema: &str, table: &str) -> Option<(String, RelKind)> {
+        let shape = self.shape_of(schema)?;
+        let exact = self.names.get(table);
+        exact
+            .into_iter()
+            .chain(self.names.get_folded(table).into_iter().filter(|&sym| Some(sym) != exact))
+            .find_map(|sym| {
+                let name = self.names.resolve(sym);
+                shape.find(&self.names, name).map(|found| (name.to_string(), found.kind))
+            })
+    }
+
     /// As relações dos `schemas` como candidatas ao contexto do assistente, da
     /// mais parecida com a pergunta para a menos (empate: schema e nome, o que
     /// deixa o resultado determinístico). Partições ficam de fora — o pai as
     /// representa — e schemas não carregados não entram (quem chama garante a
-    /// carga antes). O histórico da conversa pesa metade da pergunta atual.
-    pub fn context_candidates(&self, schemas: &[&str], question: &str, history: &[&str]) -> Vec<Candidate> {
+    /// carga antes). O histórico da conversa pesa metade da pergunta atual, e
+    /// as relações citadas com `@` em perguntas anteriores (`preferred`) ganham
+    /// [`PREFERRED_SCORE`] a mais.
+    pub fn context_candidates(
+        &self,
+        schemas: &[&str],
+        question: &str,
+        history: &[&str],
+        preferred: &[(String, String)],
+    ) -> Vec<Candidate> {
         let current: HashSet<String> = question_terms(question).into_iter().collect();
         let past: HashSet<String> = history
             .iter()
@@ -291,11 +334,14 @@ impl Catalog {
             };
             for table in shape.tables.iter().filter(|table| table.parent.is_none()) {
                 let name = self.names.resolve(table.name);
+                let cited = preferred.iter().any(|(s, t)| s == schema && t == name);
                 candidates.push(Candidate {
                     schema: schema.to_string(),
                     table: name.to_string(),
                     kind: table.kind,
-                    score: score_name(name, &current) * 2 + score_name(name, &past),
+                    score: score_name(name, &current) * 2
+                        + score_name(name, &past)
+                        + if cited { PREFERRED_SCORE } else { 0 },
                 });
             }
         }
@@ -600,7 +646,7 @@ mod tests {
     fn context_candidates_rank_by_the_question_and_skip_partitions() {
         let catalog = sample_catalog();
 
-        let ranked = catalog.context_candidates(&["tenant_001", "public"], "total dos pedidos (orders)", &[]);
+        let ranked = catalog.context_candidates(&["tenant_001", "public"], "total dos pedidos (orders)", &[], &[]);
         let names: Vec<_> = ranked.iter().map(|c| (c.schema.as_str(), c.table.as_str())).collect();
         assert_eq!(
             names,
@@ -616,13 +662,54 @@ mod tests {
 
         // O histórico ajuda, com metade do peso
         let with_history =
-            catalog.context_candidates(&["tenant_001"], "e o total?", &["quais os clientes (customers)?"]);
+            catalog.context_candidates(&["tenant_001"], "e o total?", &["quais os clientes (customers)?"], &[]);
         assert_eq!(with_history[0].table, "customers");
 
         // Partições ficam de fora; schema não carregado não entra. "eventos"
         // acha `event_log` pelo prefixo comum (pergunta em português, nome em inglês)
-        let events = catalog.context_candidates(&["events", "tenant_003", "nope"], "eventos", &[]);
+        let events = catalog.context_candidates(&["events", "tenant_003", "nope"], "eventos", &[], &[]);
         let names: Vec<_> = events.iter().map(|c| c.table.as_str()).collect();
         assert_eq!(names, ["event_log", "Orders"]);
+
+        // Citada com @ numa pergunta anterior: passa à frente do que só casou
+        // pelo histórico, mas não do nome inteiro da pergunta atual
+        let preferred = [("tenant_001".to_string(), "order_totals".to_string())];
+        let history = ["quais os clientes (customers)?"];
+        let plain = catalog.context_candidates(&["tenant_001"], "e os pedidos (orders)?", &history, &[]);
+        let names: Vec<_> = plain.iter().map(|c| c.table.as_str()).collect();
+        assert_eq!(names, ["orders", "customers", "order_totals"]);
+        let cited = catalog.context_candidates(&["tenant_001"], "e os pedidos (orders)?", &history, &preferred);
+        let names: Vec<_> = cited.iter().map(|c| c.table.as_str()).collect();
+        assert_eq!(names, ["orders", "order_totals", "customers"]);
+    }
+
+    #[test]
+    fn finds_mentioned_schemas_and_relations_by_exact_or_folded_name() {
+        let catalog = sample_catalog();
+        assert_eq!(catalog.find_schema("tenant_002").as_deref(), Some("tenant_002"));
+        assert_eq!(catalog.find_schema("TENANT_002").as_deref(), Some("tenant_002"));
+        assert_eq!(catalog.find_schema("tenant_999"), None);
+
+        assert_eq!(
+            catalog.find_relation("tenant_001", "orders"),
+            Some(("orders".to_string(), RelKind::Table))
+        );
+        // O nome exato vence; sem ele, a grafia que só muda nas maiúsculas
+        assert_eq!(
+            catalog.find_relation("events", "Orders"),
+            Some(("Orders".to_string(), RelKind::Table))
+        );
+        assert_eq!(
+            catalog.find_relation("events", "orders"),
+            Some(("Orders".to_string(), RelKind::Table))
+        );
+        assert_eq!(
+            catalog.find_relation("tenant_001", "ORDER_TOTALS"),
+            Some(("order_totals".to_string(), RelKind::View))
+        );
+        // Partição dá para citar; schema não carregado e nome inexistente não
+        assert!(catalog.find_relation("events", "event_log_p1").is_some());
+        assert_eq!(catalog.find_relation("tenant_003", "orders"), None);
+        assert_eq!(catalog.find_relation("tenant_001", "nope"), None);
     }
 }

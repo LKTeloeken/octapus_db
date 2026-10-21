@@ -283,6 +283,8 @@ mod e2e {
                 question: "quantos usuários há?",
                 history: &[],
                 context_window: 200_000,
+                mentions: &[],
+                past_mentions: &[],
             },
         )
         .await

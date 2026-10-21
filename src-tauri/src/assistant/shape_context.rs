@@ -4,7 +4,8 @@
 //!
 //! As coleções vêm do ranking do catálogo (`Catalog::context_candidates`,
 //! como no SQL), e só as primeiras [`MAX_COLLECTIONS`] são amostradas — nunca
-//! o database inteiro. Não há valor nenhum no texto (RN-08): só caminhos,
+//! o database inteiro. As citadas com `@` na pergunta entram sempre, fora
+//! desse limite (até [`MAX_CITED`]), e o orçamento as encurta sem tirá-las. Não há valor nenhum no texto (RN-08): só caminhos,
 //! tipos BSON e a % de presença. Os nomes vêm do banco e são dado (RN-22),
 //! sempre entre aspas duplas, como no DDL.
 //!
@@ -24,37 +25,55 @@ use crate::catalog::{Candidate, CollectionShape, RelKind, FLAT_SCHEMA};
 use crate::error::Result;
 use crate::services::{CatalogEntry, CatalogService};
 
-use super::schema_context::{budget_tokens, estimate_tokens, others_line, qualified, quote_ident, ContextRequest, SchemaContext};
+use super::schema_context::{
+    budget_tokens, estimate_tokens, mention_of, others_line, qualified, quote_ident, share_room, ContextRequest,
+    MentionReport, SchemaContext, MAX_CITED,
+};
 
 /// Coleções amostradas por turno, no máximo: cada uma é um `$sample`.
 pub const MAX_COLLECTIONS: usize = 12;
 
 const HEADER: &str = "-- MongoDB";
 
-/// Escolhe as coleções pelo ranking, amostra cada uma e monta o texto.
+/// Escolhe as coleções (as citadas e as do ranking), amostra cada uma e
+/// monta o texto. `cited`: as coleções citadas, já conferidas no catálogo;
+/// `preferred`: as que ganham prioridade no ranking.
 pub async fn build(
     catalogs: &CatalogService,
     entry: &Arc<CatalogEntry>,
-    request: ContextRequest<'_>,
+    request: &ContextRequest<'_>,
+    cited: &[(String, String)],
+    preferred: &[(String, String)],
 ) -> Result<SchemaContext> {
     let schemas = [FLAT_SCHEMA.to_string()];
     catalogs.ensure_schemas(entry, &schemas).await?;
     let candidates = {
         let catalog = entry.read();
         let history: Vec<&str> = request.history.iter().map(String::as_str).collect();
-        catalog.context_candidates(&[FLAT_SCHEMA], request.question, &history)
+        catalog.context_candidates(&[FLAT_SCHEMA], request.question, &history, preferred)
     };
 
-    // Com a pergunta casando, as que casaram primeiro; sem casar, por nome
-    let chosen: Vec<String> = candidates
+    // As citadas primeiro; depois, com a pergunta casando, as que casaram, e
+    // sem casar, por nome
+    let cited: Vec<String> = cited
         .iter()
-        .take(MAX_COLLECTIONS)
-        .map(|candidate| candidate.table.clone())
+        .filter(|(schema, _)| schema == FLAT_SCHEMA)
+        .map(|(_, collection)| collection.clone())
         .collect();
+    let mut chosen: Vec<String> = cited.iter().take(MAX_CITED).cloned().collect();
+    chosen.extend(
+        candidates
+            .iter()
+            .filter(|candidate| !chosen.contains(&candidate.table))
+            .take(MAX_COLLECTIONS)
+            .map(|candidate| candidate.table.clone())
+            .collect::<Vec<_>>(),
+    );
     let shapes = catalogs.infer_shape(entry, &chosen).await?;
     let context = render(&ShapeRender {
         candidates: &candidates,
         chosen: &chosen,
+        cited: &cited,
         shapes: &shapes,
         budget_tokens: budget_tokens(request.context_window),
     });
@@ -72,17 +91,22 @@ pub async fn build(
 pub struct ShapeRender<'a> {
     /// Todas as candidatas, na ordem do ranking
     pub candidates: &'a [Candidate],
-    /// As amostradas, por prioridade (o orçamento corta do fim)
+    /// As amostradas, por prioridade: as citadas primeiro, e o orçamento corta
+    /// as outras do fim
     pub chosen: &'a [String],
+    /// Coleções citadas com `@`: as [`MAX_CITED`] primeiras nunca saem
+    /// inteiras (perdem campos antes)
+    pub cited: &'a [String],
     /// Os formatos que chegaram (a amostra que falhou fica de fora)
     pub shapes: &'a [CollectionShape],
     pub budget_tokens: usize,
 }
 
-/// O texto dentro do orçamento, com a mesma regra do DDL: as escolhidas
-/// entram por prioridade enquanto couberem (a primeira entra mesmo grande,
-/// com os campos cortados), as outras vão só pelo nome, e a saída fica em
-/// ordem de nome.
+/// O texto dentro do orçamento, com a mesma regra do DDL: as citadas dividem
+/// o espaço e perdem campos se preciso, as outras escolhidas entram por
+/// prioridade enquanto couberem (sem citada, a primeira entra mesmo grande,
+/// com os campos cortados), as que sobram vão só pelo nome, e a saída fica
+/// em ordem de nome.
 pub fn render(input: &ShapeRender<'_>) -> SchemaContext {
     let budget_chars = input.budget_tokens * 4;
     let reserve = if input.candidates.len() > input.chosen.len().min(1) {
@@ -101,13 +125,43 @@ pub fn render(input: &ShapeRender<'_>) -> SchemaContext {
     let shapes: HashMap<&str, &CollectionShape> =
         input.shapes.iter().map(|shape| (shape.collection.as_str(), shape)).collect();
 
+    let kind_of = |name: &str| kinds.get(name).copied().unwrap_or(RelKind::Table);
+
+    // As citadas: encurtadas, nunca cortadas inteiras
+    let required: Vec<&CollectionShape> = input
+        .cited
+        .iter()
+        .take(MAX_CITED)
+        .filter_map(|name| shapes.get(name.as_str()).copied())
+        .collect();
+    let full: Vec<String> = required
+        .iter()
+        .map(|shape| render_collection(shape, kind_of(&shape.collection), None))
+        .collect();
+    let (texts, cost) = share_room(&full, collections_chars.saturating_sub(used), |index, room| {
+        let shape = required[index];
+        fit_fields(shape, kind_of(&shape.collection), room)
+    });
+    used += cost;
     let mut included: Vec<(&str, String)> = Vec::new();
+    let mut shortened: HashSet<&str> = HashSet::new();
     let mut cut = false;
+    for (shape, (text, fitted)) in required.iter().zip(texts) {
+        if fitted {
+            shortened.insert(shape.collection.as_str());
+        }
+        cut |= fitted || shape.truncated;
+        included.push((shape.collection.as_str(), text));
+    }
+
     for name in input.chosen {
+        if included.iter().any(|(included, _)| *included == name.as_str()) {
+            continue;
+        }
         let Some(shape) = shapes.get(name.as_str()) else {
             continue;
         };
-        let kind = kinds.get(name.as_str()).copied().unwrap_or(RelKind::Table);
+        let kind = kind_of(name);
         let full = render_collection(shape, kind, None);
         let cost = full.chars().count() + 1;
         if used + cost <= collections_chars {
@@ -141,11 +195,20 @@ pub fn render(input: &ShapeRender<'_>) -> SchemaContext {
         text.push_str(&line);
     }
 
+    // Citadas encurtadas ou sem vaga (a amostra que falhou, a que passou do teto)
+    let mut report = MentionReport::default();
+    for name in input.cited {
+        if shortened.contains(name.as_str()) || !with_fields.contains(name.as_str()) {
+            report.shortened.push(mention_of(FLAT_SCHEMA, Some(name)));
+        }
+    }
+
     SchemaContext {
         tables: included.len(),
-        truncated: cut || !others.is_empty(),
+        truncated: cut || !others.is_empty() || !report.shortened.is_empty(),
         tokens_estimate: estimate_tokens(&text),
         ddl: text,
+        mentions: report,
     }
 }
 
@@ -257,6 +320,7 @@ mod tests {
         render(&ShapeRender {
             candidates: &candidates,
             chosen: &chosen,
+            cited: &[],
             shapes: &shapes,
             budget_tokens,
         })
@@ -300,6 +364,7 @@ mod tests {
         let context = render(&ShapeRender {
             candidates: &candidates,
             chosen: &chosen,
+            cited: &[],
             shapes: &shapes,
             budget_tokens: 4_000,
         });
@@ -307,6 +372,39 @@ mod tests {
         assert!(context.ddl.contains("more fields exist"), "{}", context.ddl);
         // A amostra que falhou: a coleção existe, sem campos
         assert!(context.ddl.ends_with("-- Other collections (fields not shown): \"audit\""), "{}", context.ddl);
+    }
+
+    #[test]
+    fn tight_budget_shortens_a_cited_collection_instead_of_dropping_it() {
+        let (candidates, shapes) = shop();
+        let cited = ["orders".to_string()];
+        // A citada é a última do ranking aqui; mesmo assim entra primeiro
+        let chosen = ["active_customers".to_string(), "audit".to_string(), "orders".to_string()];
+        let context = render(&ShapeRender {
+            candidates: &candidates,
+            chosen: &chosen,
+            cited: &cited,
+            shapes: &shapes,
+            budget_tokens: 25,
+        });
+        assert!(context.ddl.contains("collection \"orders\" (100 sampled documents):"), "{}", context.ddl);
+        assert!(context.ddl.contains("more field(s)"), "{}", context.ddl);
+        assert!(context.truncated);
+        assert_eq!(context.mentions.shortened.len(), 1);
+        assert_eq!(context.mentions.shortened[0].schema, None);
+        assert_eq!(context.mentions.shortened[0].table.as_deref(), Some("orders"));
+
+        // Citada cuja amostra falhou: avisada como encurtada
+        let without_orders: Vec<_> = shapes.iter().filter(|shape| shape.collection != "orders").cloned().collect();
+        let context = render(&ShapeRender {
+            candidates: &candidates,
+            chosen: &chosen,
+            cited: &cited,
+            shapes: &without_orders,
+            budget_tokens: 4_000,
+        });
+        assert_eq!(context.mentions.shortened.len(), 1);
+        assert!(context.truncated);
     }
 }
 
@@ -384,6 +482,8 @@ mod e2e {
                 question: "total dos orders por status",
                 history: &[],
                 context_window: 200_000,
+                mentions: &[],
+                past_mentions: &[],
             },
         )
         .await
@@ -397,6 +497,38 @@ mod e2e {
         // 21 coleções, 12 amostradas: as outras vão pelo nome
         assert_eq!(context.tables, MAX_COLLECTIONS);
         assert!(context.truncated);
+        for canary in ["CANARY", "canary", "exemplo.com"] {
+            assert!(!context.ddl.contains(canary), "{canary} vazou: {}", context.ddl);
+        }
+
+        // Citada fora das 12 do ranking: amostrada e no texto; a inexistente
+        // vira aviso. A citada em pergunta anterior ganha prioridade
+        let mention = |name: &str| crate::models::AssistantMention {
+            schema: None,
+            table: Some(name.into()),
+        };
+        let mentions = [mention("noise_19"), mention("ghost")];
+        let past = [mention("noise_18")];
+        let context = super::super::schema_context::build(
+            &service,
+            &entry,
+            DatabaseType::Mongodb,
+            ContextRequest {
+                schemas: &schemas,
+                question: "total dos orders por status, com @noise_19 e @ghost",
+                history: &[],
+                context_window: 200_000,
+                mentions: &mentions,
+                past_mentions: &past,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(context.ddl.contains("collection \"noise_19\" (1 sampled document):"), "{}", context.ddl);
+        assert!(context.ddl.contains("collection \"noise_18\" (1 sampled document):"), "{}", context.ddl);
+        assert_eq!(context.tables, MAX_COLLECTIONS + 1);
+        assert_eq!(context.mentions.missing, [mention("ghost")]);
+        assert!(context.mentions.shortened.is_empty());
         for canary in ["CANARY", "canary", "exemplo.com"] {
             assert!(!context.ddl.contains(canary), "{canary} vazou: {}", context.ddl);
         }

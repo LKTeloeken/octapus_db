@@ -1,6 +1,7 @@
 import type {
   AssistantAttempt,
   AssistantFeedback,
+  AssistantMention,
   AssistantStage,
   AssistantTurn,
   FailureClass,
@@ -10,6 +11,7 @@ import type { PartialModelOutput } from '@/lib/assistant/partial-output';
 import type {
   LiveAttempt,
   LiveTurn,
+  TurnContext,
   TurnPhase,
 } from '@/lib/assistant/turn-reducer';
 
@@ -62,6 +64,10 @@ export interface TurnView {
   failedAttempts: FailedAttemptView[];
   /** Recorte da estrutura (RN-26); `null` = não se sabe (histórico) */
   truncated: boolean | null;
+  /** Citadas com `@` que não existem no banco (aviso) */
+  missingMentions: AssistantMention[];
+  /** Citadas que entraram encurtadas no recorte */
+  shortenedMentions: AssistantMention[];
   /**
    * A consulta rodou dentro do turno: o `result` chegou (ao vivo) ou o outcome
    * registrou a execução com sucesso (histórico). Nunca por inferência (RN-21).
@@ -153,6 +159,8 @@ export function liveTurnView(turn: LiveTurn): TurnView {
         failure: liveFailure(attempt),
       })),
     truncated: turn.context?.truncated ?? null,
+    missingMentions: turn.context?.missingMentions ?? [],
+    shortenedMentions: turn.context?.shortenedMentions ?? [],
     executedInTurn: shown?.executed ?? false,
     recordedRowCount: null,
     errorCode: turn.error?.code ?? turn.finish?.errorCode ?? null,
@@ -245,9 +253,10 @@ export function attemptFailure(
   return null;
 }
 
+/** `context`: o que o turno desta sessão soube da estrutura (a API não guarda) */
 export function serverTurnView(
   turn: AssistantTurn,
-  truncated: boolean | null,
+  context: TurnContext | null,
 ): TurnView {
   const attempts = [...turn.attempts].sort((a, b) => a.index - b.index);
   const shown = attempts.filter(attempt => attempt.output).at(-1) ?? null;
@@ -276,7 +285,9 @@ export function serverTurnView(
         query: attempt.output?.query ?? null,
         failure: attemptFailure(attempt),
       })),
-    truncated,
+    truncated: context?.truncated ?? null,
+    missingMentions: context?.missingMentions ?? [],
+    shortenedMentions: context?.shortenedMentions ?? [],
     executedInTurn: execution?.ran === true && execution.ok === true,
     recordedRowCount:
       execution?.ran === true && execution.ok === true

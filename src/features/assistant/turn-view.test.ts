@@ -36,7 +36,13 @@ describe('reduceTurn', () => {
   it('mostra a resposta parcial e troca pela final no output', () => {
     let turn = run(startTurn('c1', 'quantos?', true), [
       { type: 'turnOpened', turnId: 't1' },
-      { type: 'context', tables: 4, truncated: true },
+      {
+        type: 'context',
+        tables: 4,
+        truncated: true,
+        missingMentions: [{ schema: 'public', table: 'ghost' }],
+        shortenedMentions: [{ schema: 'public', table: null }],
+      },
       { type: 'attemptStarted', attemptId: 'a1', index: 0 },
       ...streamOf(QUERY).slice(0, 6),
     ]);
@@ -45,6 +51,10 @@ describe('reduceTurn', () => {
     expect(view.phase).toBe('generating');
     expect(QUERY.query?.startsWith(view.output?.query ?? 'x')).toBe(true);
     expect(view.truncated).toBe(true);
+    expect(view.missingMentions).toEqual([
+      { schema: 'public', table: 'ghost' },
+    ]);
+    expect(view.shortenedMentions).toEqual([{ schema: 'public', table: null }]);
 
     turn = run(turn, [{ type: 'output', attemptId: 'a1', output: QUERY }]);
     view = liveTurnView(turn);
@@ -318,9 +328,17 @@ describe('serverTurnView', () => {
           }),
         ],
       }),
-      false,
+      {
+        tables: 3,
+        truncated: false,
+        missingMentions: [{ schema: null, table: 'ghost' }],
+        shortenedMentions: [],
+      },
     );
     expect(view.attemptId).toBe('a2');
+    // O contexto da sessão volta à visão do histórico
+    expect(view.truncated).toBe(false);
+    expect(view.missingMentions).toEqual([{ schema: null, table: 'ghost' }]);
     expect(view.failedAttempts).toHaveLength(1);
     expect(view.failedAttempts[0].failure).toMatchObject({
       stage: 'preflight',

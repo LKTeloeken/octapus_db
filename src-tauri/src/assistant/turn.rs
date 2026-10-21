@@ -153,6 +153,8 @@ pub async fn run_turn(
     emit(AssistantTurnEvent::Context {
         tables: setup.schema.tables as u32,
         truncated: setup.schema.truncated,
+        missing_mentions: setup.schema.mentions.missing.clone(),
+        shortened_mentions: setup.schema.mentions.shortened.clone(),
     });
     log::info!("assistente: turno {} aberto", turn.id);
 
@@ -707,6 +709,7 @@ mod tests {
                 tables: 1,
                 truncated: false,
                 tokens_estimate: 4,
+                mentions: Default::default(),
             },
             history: vec![],
             context_window: 200_000,

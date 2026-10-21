@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { ReadOnlyPlan } from '@/api/types/assistant.types';
 import type { QueryResult } from '@/api/types/query.types';
-import type { LiveTurn } from '@/lib/assistant/turn-reducer';
+import type { LiveTurn, TurnContext } from '@/lib/assistant/turn-reducer';
 
 /**
  * Estado de tela do assistente: o painel, as abas de conversa, o turno ao vivo
@@ -63,8 +63,11 @@ interface AssistantState {
   live: Record<string, LiveTurn>;
   /** Por `attemptId` */
   runs: Record<string, AttemptRun>;
-  /** Recorte da estrutura de cada turno (RN-26), pelo `turnId` */
-  truncatedTurns: Record<string, boolean>;
+  /**
+   * O contexto de cada turno desta sessão (recorte da RN-26, menções que não
+   * existem ou foram encurtadas), pelo `turnId` — a API não guarda isso
+   */
+  turnContexts: Record<string, TurnContext>;
   /** Pedido de foco no campo da pergunta (abrir pelo atalho, nova aba) */
   focusRequest: number;
 
@@ -91,7 +94,7 @@ interface AssistantState {
   setLive: (tabId: string, turn: LiveTurn | null) => void;
   updateLive: (tabId: string, update: (turn: LiveTurn) => LiveTurn) => void;
   patchRun: (attemptId: string, patch: Partial<AttemptRun>) => void;
-  setTurnTruncated: (turnId: string, truncated: boolean) => void;
+  setTurnContext: (turnId: string, context: TurnContext) => void;
   requestFocus: () => void;
 }
 
@@ -122,7 +125,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   activeTabId: null,
   live: {},
   runs: {},
-  truncatedTurns: {},
+  turnContexts: {},
   focusRequest: 0,
 
   openPanel: target => {
@@ -286,9 +289,9 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
     }));
   },
 
-  setTurnTruncated: (turnId, truncated) => {
+  setTurnContext: (turnId, context) => {
     set(state => ({
-      truncatedTurns: { ...state.truncatedTurns, [turnId]: truncated },
+      turnContexts: { ...state.turnContexts, [turnId]: context },
     }));
   },
 

@@ -112,6 +112,7 @@ pub fn render(sample: &KeyPatterns, ranked: &[&KeyPattern], budget_tokens: usize
         truncated: !others.is_empty() || sample.omitted > 0 || !sample.complete(),
         tokens_estimate: estimate_tokens(&text),
         ddl: text,
+        mentions: Default::default(),
     }
 }
 

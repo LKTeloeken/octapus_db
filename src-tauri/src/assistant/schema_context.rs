@@ -12,13 +12,19 @@
 //!
 //! O Mongo não tem colunas nem chaves estrangeiras: as coleções escolhidas
 //! vão com o formato inferido de uma amostra (`shape_context.rs`).
+//!
+//! Menções com `@` na pergunta atual são obrigatórias: conferidas no catálogo
+//! ([`confirm`]), as relações citadas entram primeiro e fora dos limites do
+//! ranking, e o orçamento as encurta (menos colunas) mas não as tira. O
+//! `@schema` sozinho põe o schema no escopo e a lista dos nomes das relações
+//! dele no texto. As citadas em perguntas anteriores só ganham prioridade.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::catalog::{with_neighbors, Candidate, ForeignKey, RelKind, RelationDetail, FLAT_SCHEMA};
+use crate::catalog::{with_neighbors, Candidate, ForeignKey, RelKind, RelationDetail, Resolution, FLAT_SCHEMA};
 use crate::error::Result;
-use crate::models::DatabaseType;
+use crate::models::{AssistantMention, DatabaseType};
 use crate::services::{CatalogEntry, CatalogService};
 
 /// Relações com colunas no contexto, no máximo.
@@ -26,6 +32,10 @@ pub const MAX_TABLES: usize = 30;
 /// Num banco com mais candidatas que [`MAX_TABLES`]: quantas o ranking escolhe
 /// antes de completar com as vizinhas pelas chaves estrangeiras.
 pub const SEED_TABLES: usize = 10;
+/// Relações citadas com `@` que têm vaga garantida, no máximo; as seguintes só
+/// ganham prioridade no ranking — uma pergunta colada com centenas de menções
+/// não vira a estrutura inteira.
+pub const MAX_CITED: usize = 30;
 /// Comentário mais longo que isto é cortado.
 const COMMENT_MAX_CHARS: usize = 200;
 
@@ -52,6 +62,18 @@ pub struct SchemaContext {
     pub truncated: bool,
     /// `schemaTokensEstimate`
     pub tokens_estimate: usize,
+    /// O que aconteceu com as menções da pergunta (aviso na tela)
+    pub mentions: MentionReport,
+}
+
+/// As menções com `@` da pergunta atual que a tela precisa avisar.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MentionReport {
+    /// Não existem no banco (como foram digitadas)
+    pub missing: Vec<AssistantMention>,
+    /// Entraram encurtadas: sem algumas colunas (ou campos), ou o schema sem a
+    /// lista inteira das relações
+    pub shortened: Vec<AssistantMention>,
 }
 
 pub struct ContextRequest<'a> {
@@ -63,48 +85,173 @@ pub struct ContextRequest<'a> {
     pub history: &'a [String],
     /// `contextWindow` do modelo da conversa
     pub context_window: i64,
+    /// Menções da pergunta atual: entram obrigatoriamente
+    pub mentions: &'a [AssistantMention],
+    /// Menções das perguntas anteriores: só prioridade no ranking
+    pub past_mentions: &'a [AssistantMention],
 }
 
-/// Monta o contexto pelo catálogo do database: carrega os schemas pedidos se
-/// preciso, escolhe as relações e lê colunas e chaves só delas.
+/// Menções conferidas no catálogo, com os nomes como estão no banco.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Confirmed {
+    /// Relações citadas, na ordem do texto, sem repetir
+    pub relations: Vec<(String, String)>,
+    /// Schemas citados sozinhos (`@schema`)
+    pub schemas: Vec<String>,
+    /// As que não existem, como foram digitadas
+    pub missing: Vec<AssistantMention>,
+}
+
+/// Confere nomes de estrutura vindos de fora (a pergunta; mais tarde, o
+/// modelo pedindo mais estrutura) sem confiar no que foi digitado: carrega só
+/// os schemas do escopo e os citados, e acha cada nome no catálogo — o exato
+/// ou o que só muda nas maiúsculas. `@tabela` sem schema é procurada pelos
+/// schemas do escopo, na ordem, como no `search_path`.
+pub async fn confirm(
+    catalogs: &CatalogService,
+    entry: &Arc<CatalogEntry>,
+    scope: &[String],
+    mentions: &[AssistantMention],
+) -> Result<Confirmed> {
+    // O schema de cada menção como está no catálogo; sem a lista de schemas
+    // ainda, o nome digitado (a carga diz se ele existe)
+    let schemas: Vec<Option<String>> = {
+        let catalog = entry.read();
+        mentions
+            .iter()
+            .map(|mention| {
+                let typed = mention.schema.as_deref()?;
+                catalog
+                    .find_schema(typed)
+                    .or_else(|| (!catalog.knows_schemas()).then(|| typed.to_string()))
+            })
+            .collect()
+    };
+    let mut load: Vec<String> = scope.to_vec();
+    for schema in schemas.iter().flatten() {
+        push_unique(&mut load, schema.clone());
+    }
+    catalogs.ensure_schemas(entry, &load).await?;
+
+    let catalog = entry.read();
+    let search_path: Vec<&str> = scope.iter().map(String::as_str).collect();
+    let mut confirmed = Confirmed::default();
+    for (mention, schema) in mentions.iter().zip(&schemas) {
+        // (schema, relação) como estão no catálogo; relação `None` = o schema
+        let found: Option<(String, Option<String>)> = match (mention.table.as_deref(), schema) {
+            (None, Some(schema)) => catalog.schema_state(schema).map(|_| (schema.clone(), None)),
+            (Some(table), Some(schema)) => catalog
+                .find_relation(schema, table)
+                .map(|(name, _)| (schema.clone(), Some(name))),
+            (Some(table), None) if mention.schema.is_none() => match catalog.resolve(table, &search_path) {
+                Resolution::Found { schema, table, .. } => Some((schema, Some(table))),
+                _ => None,
+            },
+            _ => None,
+        };
+        match found {
+            Some((schema, Some(table))) => push_unique(&mut confirmed.relations, (schema, table)),
+            Some((schema, None)) => push_unique(&mut confirmed.schemas, schema),
+            None => push_unique(&mut confirmed.missing, mention.clone()),
+        }
+    }
+    Ok(confirmed)
+}
+
+fn push_unique<T: PartialEq>(list: &mut Vec<T>, value: T) {
+    if !list.contains(&value) {
+        list.push(value);
+    }
+}
+
+/// Monta o contexto pelo catálogo do database: confere as menções, carrega os
+/// schemas pedidos se preciso, escolhe as relações (as citadas primeiro) e lê
+/// colunas e chaves só delas.
 pub async fn build(
     catalogs: &CatalogService,
     entry: &Arc<CatalogEntry>,
     db_type: DatabaseType,
     request: ContextRequest<'_>,
 ) -> Result<SchemaContext> {
-    if db_type == DatabaseType::Mongodb {
-        return super::shape_context::build(catalogs, entry, request).await;
+    let cited = confirm(catalogs, entry, request.schemas, request.mentions).await?;
+    let past = confirm(catalogs, entry, request.schemas, request.past_mentions).await?;
+    log::info!(
+        "assistente: {} menção(ões) na pergunta, {} encontrada(s), {} não encontrada(s)",
+        request.mentions.len(),
+        cited.relations.len() + cited.schemas.len(),
+        cited.missing.len()
+    );
+    // Além do teto, a citada vira prioridade no ranking, como as anteriores
+    let required: Vec<(String, String)> = cited.relations.iter().take(MAX_CITED).cloned().collect();
+    let mut preferred: Vec<(String, String)> = cited.relations.iter().skip(MAX_CITED).cloned().collect();
+    for relation in past.relations {
+        push_unique(&mut preferred, relation);
     }
-    catalogs.ensure_schemas(entry, request.schemas).await?;
+
+    let mut context = if db_type == DatabaseType::Mongodb {
+        super::shape_context::build(catalogs, entry, &request, &cited.relations, &preferred).await?
+    } else {
+        relations_context(catalogs, entry, db_type, &request, &cited, &required, &preferred).await?
+    };
+    context.mentions.missing = cited.missing;
+    Ok(context)
+}
+
+/// O DDL das relações escolhidas no SQL: as citadas (`required`) primeiro e
+/// fora dos limites, depois o ranking e as vizinhas pelas chaves.
+async fn relations_context(
+    catalogs: &CatalogService,
+    entry: &Arc<CatalogEntry>,
+    db_type: DatabaseType,
+    request: &ContextRequest<'_>,
+    cited: &Confirmed,
+    required: &[(String, String)],
+    preferred: &[(String, String)],
+) -> Result<SchemaContext> {
+    // O escopo ganha os schemas citados (já carregados pelo `confirm`)
+    let mut schemas: Vec<String> = request.schemas.to_vec();
+    for schema in cited.schemas.iter().chain(required.iter().map(|(schema, _)| schema)) {
+        push_unique(&mut schemas, schema.clone());
+    }
     let (candidates, total_schemas) = {
         let catalog = entry.read();
-        let schemas: Vec<&str> = request.schemas.iter().map(String::as_str).collect();
+        let scope: Vec<&str> = schemas.iter().map(String::as_str).collect();
         let history: Vec<&str> = request.history.iter().map(String::as_str).collect();
         (
-            catalog.context_candidates(&schemas, request.question, &history),
+            catalog.context_candidates(&scope, request.question, &history, preferred),
             catalog.schema_count(),
         )
     };
 
-    let scope: Vec<(String, String)> = candidates.iter().map(Candidate::key).collect();
-    let chosen = if candidates.len() <= MAX_TABLES {
-        scope.clone()
+    let is_required: HashSet<&(String, String)> = required.iter().collect();
+    let ranked: Vec<&Candidate> = candidates
+        .iter()
+        .filter(|candidate| !is_required.contains(&candidate.key()))
+        .collect();
+    let mut chosen: Vec<(String, String)> = required.to_vec();
+    if ranked.len() <= MAX_TABLES {
+        chosen.extend(ranked.iter().map(|candidate| candidate.key()));
     } else {
-        let seeds = seeds(&candidates);
-        let foreign_keys = catalogs.foreign_keys(entry, &scope, &seeds).await?;
-        let allowed: HashSet<(String, String)> = scope.iter().cloned().collect();
-        with_neighbors(&seeds, &foreign_keys, &allowed, MAX_TABLES)
-    };
+        // A citada pode ser partição (fora das candidatas): entra no escopo das chaves
+        let mut scope: Vec<(String, String)> = required.to_vec();
+        scope.extend(ranked.iter().map(|candidate| candidate.key()));
+        let mut start = required.to_vec();
+        start.extend(seeds(&ranked));
+        let foreign_keys = catalogs.foreign_keys(entry, &scope, &start).await?;
+        let allowed: HashSet<(String, String)> = scope.into_iter().collect();
+        chosen = with_neighbors(&start, &foreign_keys, &allowed, required.len() + MAX_TABLES);
+    }
 
     let foreign_keys = catalogs.foreign_keys(entry, &chosen, &chosen).await?;
     let details = catalogs.relation_details(entry, &chosen).await?;
     let context = render(&Render {
         db_type,
-        schemas: request.schemas,
+        schemas: &schemas,
         total_schemas,
         candidates: &candidates,
         chosen: &chosen,
+        cited: &cited.relations,
+        listed: &cited.schemas,
         details: &details,
         foreign_keys: &foreign_keys,
         budget_tokens: budget_tokens(request.context_window),
@@ -121,15 +268,15 @@ pub async fn build(
 
 /// As primeiras do ranking que casaram com a pergunta; se nenhuma casou, as
 /// primeiras em ordem de nome (o ranking empata e desempata pelo nome).
-fn seeds(candidates: &[Candidate]) -> Vec<(String, String)> {
+fn seeds(candidates: &[&Candidate]) -> Vec<(String, String)> {
     let matched: Vec<_> = candidates
         .iter()
         .filter(|candidate| candidate.score > 0)
         .take(SEED_TABLES)
-        .map(Candidate::key)
+        .map(|candidate| candidate.key())
         .collect();
     if matched.is_empty() {
-        candidates.iter().take(SEED_TABLES).map(Candidate::key).collect()
+        candidates.iter().take(SEED_TABLES).map(|candidate| candidate.key()).collect()
     } else {
         matched
     }
@@ -143,19 +290,31 @@ pub struct Render<'a> {
     pub total_schemas: Option<usize>,
     /// Todas as candidatas, na ordem do ranking
     pub candidates: &'a [Candidate],
-    /// As escolhidas, por prioridade (o orçamento corta do fim)
+    /// As escolhidas, por prioridade: as citadas primeiro, e o orçamento corta
+    /// as outras do fim
     pub chosen: &'a [(String, String)],
+    /// Relações citadas com `@` na pergunta: as [`MAX_CITED`] primeiras nunca
+    /// saem inteiras (perdem colunas antes)
+    pub cited: &'a [(String, String)],
+    /// Schemas citados sozinhos: vai a lista dos nomes das relações deles
+    pub listed: &'a [String],
     pub details: &'a [RelationDetail],
     pub foreign_keys: &'a [ForeignKey],
     pub budget_tokens: usize,
 }
 
-/// O DDL dentro do orçamento. As escolhidas entram por prioridade enquanto
-/// couberem (a primeira entra mesmo grande, com as colunas cortadas); as que
-/// sobram vão só pelo nome, numa linha, para o modelo saber que existem — e
-/// essa linha tem espaço reservado (um quinto do orçamento, até 400
-/// caracteres). A saída fica em ordem de schema e nome: a mesma estrutura dá
-/// o mesmo texto.
+/// O DDL dentro do orçamento, nesta ordem de prioridade:
+///
+/// 1. as citadas, com vaga garantida: dividem o espaço (a menor primeiro) e a
+///    que não cabe inteira perde colunas;
+/// 2. a lista dos nomes das relações de cada schema citado sozinho (até metade
+///    do que sobrou, se há outras relações a mostrar);
+/// 3. as outras escolhidas, enquanto couberem (sem citada, a primeira entra
+///    mesmo grande, com as colunas cortadas);
+/// 4. as que sobram, só pelo nome, numa linha — com espaço reservado (um
+///    quinto do orçamento, até 400 caracteres).
+///
+/// A saída fica em ordem de schema e nome: a mesma estrutura dá o mesmo texto.
 pub fn render(input: &Render<'_>) -> SchemaContext {
     let budget_chars = input.budget_tokens * 4;
     let reserve = if input.candidates.len() > input.chosen.len().min(1) {
@@ -177,40 +336,125 @@ pub fn render(input: &Render<'_>) -> SchemaContext {
         .iter()
         .map(|detail| ((detail.schema.as_str(), detail.table.as_str()), detail))
         .collect();
+    let kind_of = |key: &(&str, &str)| kinds.get(key).copied().unwrap_or(RelKind::Table);
 
+    // 1. As citadas: encurtadas, nunca cortadas inteiras
+    let required: Vec<((&str, &str), &RelationDetail)> = input
+        .cited
+        .iter()
+        .take(MAX_CITED)
+        .filter_map(|(schema, table)| {
+            let key = (schema.as_str(), table.as_str());
+            details.get(&key).map(|detail| (key, *detail))
+        })
+        .collect();
+    let full: Vec<String> = required
+        .iter()
+        .map(|(key, detail)| render_relation(detail, kind_of(key), input.foreign_keys, None))
+        .collect();
+    let (texts, cost) = share_room(&full, tables_chars.saturating_sub(used), |index, room| {
+        let (key, detail) = required[index];
+        fit_columns(detail, kind_of(&key), input.foreign_keys, room)
+    });
+    used += cost;
     let mut included: Vec<(&str, &str, String)> = Vec::new();
-    let mut column_cut = false;
+    let mut shortened: HashSet<(&str, &str)> = HashSet::new();
+    for ((key, _), (text, cut)) in required.iter().zip(texts) {
+        if cut {
+            shortened.insert(*key);
+        }
+        included.push((key.0, key.1, text));
+    }
+    let mut column_cut = !shortened.is_empty();
+
+    // 2. Os schemas citados sozinhos: os nomes das relações deles
+    let with_columns: HashSet<(&str, &str)> = included.iter().map(|(s, t, _)| (*s, *t)).collect();
+    let more_to_show = input
+        .chosen
+        .iter()
+        .any(|(schema, table)| !with_columns.contains(&(schema.as_str(), table.as_str())));
+    let room = tables_chars.saturating_sub(used);
+    let listing_room = if more_to_show { room / 2 } else { room };
+    let listings: Vec<(&str, Vec<String>)> = input
+        .listed
+        .iter()
+        .map(|schema| {
+            let mut names: Vec<&str> = input
+                .candidates
+                .iter()
+                .filter(|candidate| candidate.schema == *schema)
+                .map(|candidate| candidate.table.as_str())
+                .collect();
+            names.sort_unstable();
+            (schema.as_str(), names.into_iter().map(quote_ident).collect())
+        })
+        .collect();
+    let listing_prefix =
+        |schema: &str, names: &[String]| format!("-- Relations in {} ({}): ", quote_ident(schema), names.len());
+    let full_listings: Vec<String> = listings
+        .iter()
+        .map(|(schema, names)| match names.is_empty() {
+            true => format!("-- Schema {} has no relations", quote_ident(schema)),
+            false => name_list(listing_prefix(schema, names), names, usize::MAX).unwrap_or_default(),
+        })
+        .collect();
+    let (listing_texts, cost) = share_room(&full_listings, listing_room, |index, room| {
+        let (schema, names) = &listings[index];
+        if names.is_empty() {
+            return full_listings[index].clone();
+        }
+        name_list(listing_prefix(schema, names), names, room)
+            .unwrap_or_else(|| format!("-- {} relation(s) in {}, names not shown", names.len(), quote_ident(schema)))
+    });
+    used += cost;
+    let mut listing_cut = false;
+    let mut shortened_schemas: HashSet<&str> = HashSet::new();
+    let mut listing_lines: Vec<(&str, String)> = Vec::new();
+    for ((schema, _), (text, cut)) in listings.iter().zip(listing_texts) {
+        if cut {
+            listing_cut = true;
+            shortened_schemas.insert(schema);
+        }
+        listing_lines.push((schema, text));
+    }
+
+    // 3. As outras escolhidas, por prioridade, enquanto couberem
     for (schema, table) in input.chosen {
         let key = (schema.as_str(), table.as_str());
+        if included.iter().any(|(s, t, _)| (*s, *t) == key) {
+            continue;
+        }
         let Some(detail) = details.get(&key) else {
             continue;
         };
-        let kind = kinds.get(&key).copied().unwrap_or(RelKind::Table);
-        let full = render_relation(detail, kind, input.foreign_keys, None);
+        let full = render_relation(detail, kind_of(&key), input.foreign_keys, None);
         let cost = full.chars().count() + 1;
         if used + cost <= tables_chars {
             used += cost;
             included.push((key.0, key.1, full));
         } else if included.is_empty() {
             // Nem a primeira cabe: entra com as colunas que couberem
-            let fitted = fit_columns(detail, kind, input.foreign_keys, tables_chars.saturating_sub(used));
+            let fitted = fit_columns(detail, kind_of(&key), input.foreign_keys, tables_chars.saturating_sub(used));
             used += fitted.chars().count() + 1;
             included.push((key.0, key.1, fitted));
             column_cut = true;
         }
     }
 
+    // 4. As que sobram, pelo nome (as dos schemas listados já estão na lista)
     let with_columns: HashSet<(&str, &str)> = included.iter().map(|(s, t, _)| (*s, *t)).collect();
     let others: Vec<&Candidate> = input
         .candidates
         .iter()
         .filter(|candidate| !with_columns.contains(&(candidate.schema.as_str(), candidate.table.as_str())))
+        .filter(|candidate| !input.listed.contains(&candidate.schema))
         .collect();
     let others_line = others_line(&others, budget_chars.saturating_sub(used), ("tables", "columns"));
 
     included.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    listing_lines.sort_by(|a, b| a.0.cmp(b.0));
     let mut ddl = header;
-    for (_, _, text) in &included {
+    for text in included.iter().map(|(_, _, text)| text).chain(listing_lines.iter().map(|(_, text)| text)) {
         ddl.push('\n');
         ddl.push_str(text);
     }
@@ -219,12 +463,65 @@ pub fn render(input: &Render<'_>) -> SchemaContext {
         ddl.push_str(&line);
     }
 
+    // Citadas encurtadas ou sem vaga (a que passou do teto e não coube)
+    let mut report = MentionReport::default();
+    for (schema, table) in input.cited {
+        let key = (schema.as_str(), table.as_str());
+        if shortened.contains(&key) || !with_columns.contains(&key) {
+            report.shortened.push(mention_of(schema, Some(table)));
+        }
+    }
+    for schema in input.listed {
+        if shortened_schemas.contains(schema.as_str()) {
+            report.shortened.push(mention_of(schema, None));
+        }
+    }
+
     SchemaContext {
         tables: included.len(),
-        truncated: column_cut || !others.is_empty(),
+        truncated: column_cut || listing_cut || !others.is_empty() || !report.shortened.is_empty(),
         tokens_estimate: estimate_tokens(&ddl),
         ddl,
+        mentions: report,
     }
+}
+
+/// A menção de uma relação ou schema como a tela mostra (sem schema no
+/// catálogo sem schema).
+pub(super) fn mention_of(schema: &str, table: Option<&str>) -> AssistantMention {
+    AssistantMention {
+        schema: (schema != FLAT_SCHEMA).then(|| schema.to_string()),
+        table: table.map(str::to_string),
+    }
+}
+
+/// Divide `room` caracteres entre textos que precisam entrar: do menor para o
+/// maior, cada um com a sua parte do que sobrou; o que não cabe inteiro passa
+/// por `fit(índice, espaço)` (menos colunas, menos nomes). Devolve, na ordem
+/// de entrada, cada texto e se ele foi encurtado, e o espaço usado.
+pub(super) fn share_room(
+    full: &[String],
+    room: usize,
+    fit: impl Fn(usize, usize) -> String,
+) -> (Vec<(String, bool)>, usize) {
+    let mut order: Vec<usize> = (0..full.len()).collect();
+    order.sort_by_key(|&index| full[index].chars().count());
+    let mut texts: Vec<(String, bool)> = vec![(String::new(), false); full.len()];
+    let (mut left, mut used) = (room, 0);
+    for (position, &index) in order.iter().enumerate() {
+        let share = left / (full.len() - position);
+        let text = if full[index].chars().count() < share {
+            full[index].clone()
+        } else {
+            fit(index, share.saturating_sub(1))
+        };
+        let cost = text.chars().count() + 1;
+        left = left.saturating_sub(cost);
+        used += cost;
+        let cut = text != full[index];
+        texts[index] = (text, cut);
+    }
+    (texts, used)
 }
 
 fn header(input: &Render<'_>) -> String {
@@ -368,26 +665,38 @@ pub(super) fn others_line(others: &[&Candidate], room: usize, labels: (&str, &st
         return None;
     }
     let (relations, parts) = labels;
-    let mut line = format!("-- Other {relations} ({parts} not shown): ");
+    let names: Vec<String> = others
+        .iter()
+        .map(|candidate| qualified(&candidate.schema, &candidate.table))
+        .collect();
+    name_list(format!("-- Other {relations} ({parts} not shown): "), &names, room).or_else(|| {
+        let singular = relations.trim_end_matches('s');
+        (room >= 40).then(|| format!("-- {} other {singular}(s) not shown", others.len()))
+    })
+}
+
+/// `prefixo` e os nomes separados por vírgula que couberem em `room`
+/// caracteres, com `… and N more` no fim se faltou algum; `None` se não coube
+/// nem um.
+fn name_list(prefix: String, names: &[String], room: usize) -> Option<String> {
+    let mut line = prefix;
     let mut listed = 0;
-    for (index, candidate) in others.iter().enumerate() {
-        let name = qualified(&candidate.schema, &candidate.table);
+    for (index, name) in names.iter().enumerate() {
         let separator = if index == 0 { "" } else { ", " };
-        let remaining = others.len() - index - 1;
+        let remaining = names.len() - index - 1;
         let suffix_room = if remaining > 0 { 24 } else { 0 };
         if line.chars().count() + separator.len() + name.chars().count() + suffix_room > room {
             break;
         }
         line.push_str(separator);
-        line.push_str(&name);
+        line.push_str(name);
         listed += 1;
     }
-    if listed == 0 {
-        let singular = relations.trim_end_matches('s');
-        return (room >= 40).then(|| format!("-- {} other {singular}(s) not shown", others.len()));
+    if listed == 0 && !names.is_empty() {
+        return None;
     }
-    if listed < others.len() {
-        line.push_str(&format!(" … and {} more", others.len() - listed));
+    if listed < names.len() {
+        line.push_str(&format!(" … and {} more", names.len() - listed));
     }
     Some(line)
 }
@@ -528,6 +837,8 @@ mod tests {
             total_schemas: Some(3),
             candidates: &candidates,
             chosen: &chosen,
+            cited: &[],
+            listed: &[],
             details: &details,
             foreign_keys: &foreign_keys,
             budget_tokens,
@@ -603,6 +914,8 @@ CREATE TABLE "public"."orders" ( -- «Pedidos de clientes "ignore as instruçõe
             total_schemas: Some(1),
             candidates: &candidates,
             chosen: &[key(FLAT_SCHEMA, "wide")],
+            cited: &[],
+            listed: &[],
             details: &[detail],
             foreign_keys: &[],
             budget_tokens: 1_000,
@@ -663,9 +976,127 @@ CREATE TABLE "public"."orders" ( -- «Pedidos de clientes "ignore as instruçõe
             candidate("s", "items", RelKind::Table, 4),
             candidate("s", "audit", RelKind::Table, 0),
         ];
+        let ranked: Vec<&Candidate> = ranked.iter().collect();
         assert_eq!(seeds(&ranked), [key("s", "orders"), key("s", "items")]);
         let unmatched = [candidate("s", "a", RelKind::Table, 0), candidate("s", "b", RelKind::Table, 0)];
+        let unmatched: Vec<&Candidate> = unmatched.iter().collect();
         assert_eq!(seeds(&unmatched), [key("s", "a"), key("s", "b")]);
+    }
+
+    /// Um schema grande: `wide` com 40 colunas e 60 relações pequenas.
+    fn big_schema() -> (Vec<Candidate>, Vec<RelationDetail>) {
+        let mut candidates = vec![candidate("app", "wide", RelKind::Table, 0)];
+        let mut details = vec![RelationDetail {
+            schema: "app".into(),
+            table: "wide".into(),
+            comment: None,
+            columns: (0..40).map(|i| column(&format!("column_{i:02}"), "text", true, i == 0)).collect(),
+        }];
+        for i in 0..60 {
+            let table = format!("small_{i:02}");
+            candidates.push(candidate("app", &table, RelKind::Table, 60 - i));
+            details.push(RelationDetail {
+                schema: "app".into(),
+                table,
+                comment: None,
+                columns: vec![column("id", "integer", false, true)],
+            });
+        }
+        (candidates, details)
+    }
+
+    fn render_big(cited: &[(String, String)], listed: &[String], chosen: &[(String, String)], budget: usize) -> SchemaContext {
+        let (candidates, details) = big_schema();
+        render(&Render {
+            db_type: DatabaseType::Postgres,
+            schemas: &["app".to_string()],
+            total_schemas: Some(1),
+            candidates: &candidates,
+            chosen,
+            cited,
+            listed,
+            details: &details,
+            foreign_keys: &[],
+            budget_tokens: budget,
+        })
+    }
+
+    #[test]
+    fn tight_budget_shortens_a_cited_relation_instead_of_dropping_it() {
+        let cited = [key("app", "wide")];
+        // A citada primeiro, depois o ranking (as pequenas)
+        let mut chosen = cited.to_vec();
+        chosen.extend((0..30).map(|i| key("app", &format!("small_{i:02}"))));
+
+        // Com folga: a citada inteira, nada a avisar sobre ela
+        let roomy = render_big(&cited, &[], &chosen, 16_000);
+        assert!(roomy.ddl.contains("  \"column_39\" text\n);"), "{}", roomy.ddl);
+        assert!(roomy.mentions.shortened.is_empty());
+
+        // Apertado: sem a citada, as pequenas do ranking caberiam; com ela, a
+        // citada fica (sem algumas colunas) e as do ranking saem antes
+        let tight = render_big(&cited, &[], &chosen, 120);
+        assert!(tight.ddl.contains("CREATE TABLE \"app\".\"wide\" ("), "{}", tight.ddl);
+        assert!(tight.ddl.contains("more column(s)"), "{}", tight.ddl);
+        assert!(tight.truncated);
+        assert_eq!(
+            tight.mentions.shortened,
+            [AssistantMention {
+                schema: Some("app".into()),
+                table: Some("wide".into())
+            }]
+        );
+        // A mesma entrada dá o mesmo texto, em ordem de nome
+        assert_eq!(render_big(&cited, &[], &chosen, 120), tight);
+        let without = render_big(&[], &[], &chosen[1..], 120);
+        assert!(!without.ddl.contains("CREATE TABLE \"app\".\"wide\""), "{}", without.ddl);
+    }
+
+    #[test]
+    fn many_cited_relations_share_the_budget() {
+        let cited: Vec<_> = (0..8).map(|i| key("app", &format!("small_{i:02}"))).chain([key("app", "wide")]).collect();
+        let context = render_big(&cited, &[], &cited, 250);
+        // Todas entram; a grande é a que perde colunas
+        assert_eq!(context.tables, 9);
+        for (schema, table) in &cited {
+            assert!(context.ddl.contains(&format!("CREATE TABLE \"{schema}\".\"{table}\" (")), "{}", context.ddl);
+        }
+        assert_eq!(context.mentions.shortened.len(), 1);
+        assert_eq!(context.mentions.shortened[0].table.as_deref(), Some("wide"));
+        // Saída em ordem de schema e nome
+        let order: Vec<&str> = context.ddl.lines().filter(|line| line.starts_with("CREATE")).collect();
+        let mut sorted = order.clone();
+        sorted.sort_unstable();
+        assert_eq!(order, sorted);
+    }
+
+    #[test]
+    fn cited_schema_lists_its_relations_within_the_budget() {
+        let listed = ["app".to_string()];
+        let chosen: Vec<_> = (0..5).map(|i| key("app", &format!("small_{i:02}"))).collect();
+
+        // Cabe: todos os nomes, em ordem, e o schema não volta como "outras"
+        let roomy = render_big(&[], &listed, &chosen, 16_000);
+        let listing = roomy.ddl.lines().find(|line| line.starts_with("-- Relations in")).unwrap();
+        assert!(listing.starts_with("-- Relations in \"app\" (61): \"small_00\", \"small_01\""), "{listing}");
+        assert!(listing.ends_with("\"small_59\", \"wide\""), "{listing}");
+        assert!(!roomy.ddl.contains("-- Other tables"), "{}", roomy.ddl);
+        assert!(roomy.mentions.shortened.is_empty());
+
+        // Não cabe: os nomes que couberem, e o aviso de recorte diz qual schema
+        let tight = render_big(&[], &listed, &chosen, 200);
+        let listing = tight.ddl.lines().find(|line| line.starts_with("-- Relations in")).unwrap();
+        assert!(listing.contains(" more"), "{listing}");
+        assert!(tight.truncated);
+        assert_eq!(
+            tight.mentions.shortened,
+            [AssistantMention {
+                schema: Some("app".into()),
+                table: None
+            }]
+        );
+        // As do ranking ainda entram com o resto do espaço
+        assert!(tight.ddl.contains("CREATE TABLE \"app\".\"small_00\""), "{}", tight.ddl);
     }
 }
 
@@ -718,6 +1149,8 @@ mod e2e {
             question,
             history: &[],
             context_window: 200_000,
+            mentions: &[],
+            past_mentions: &[],
         }
     }
 
@@ -753,6 +1186,93 @@ mod e2e {
         assert!(context.ddl.contains("  \"product_id\" INTEGER REFERENCES \"products\""), "{}", context.ddl);
         assert!(context.ddl.contains("  PRIMARY KEY (\"order_id\", \"line\")"), "{}", context.ddl);
         assert!(context.ddl.contains("CREATE VIEW \"big_orders\" ("), "{}", context.ddl);
+
+        drop(entry);
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_file(path);
+    }
+
+    fn mention(schema: Option<&str>, table: Option<&str>) -> AssistantMention {
+        AssistantMention {
+            schema: schema.map(str::to_string),
+            table: table.map(str::to_string),
+        }
+    }
+
+    /// SQLite com a loja e `noise` tabelas de ruído.
+    async fn sqlite_shop(label: &str, noise: usize) -> (CatalogService, Arc<CatalogEntry>, std::path::PathBuf, std::path::PathBuf) {
+        let path = std::env::temp_dir().join(format!("octapus_db_schema_context_{label}.db"));
+        let _ = std::fs::remove_file(&path);
+        let noise: String = (0..noise)
+            .map(|i| format!("CREATE TABLE noise_{i:03} (id INTEGER PRIMARY KEY, value TEXT);"))
+            .collect();
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute_batch(&format!("{SHOP}{noise}"))
+            .unwrap();
+        let server = server(DatabaseType::Sqlite, Some(path.to_string_lossy().into_owned()));
+        let (service, entry, dir) = open(server, "main", label).await;
+        (service, entry, dir, path)
+    }
+
+    #[tokio::test]
+    async fn e2e_sqlite_cited_tables_always_enter_the_context() {
+        let (service, entry, dir, path) = sqlite_shop("cited", 600).await;
+        let schemas = [FLAT_SCHEMA.to_string()];
+
+        // `noise_577` fica fora das 30 do ranking ("pedidos" casa com a loja);
+        // citada, entra. `NOISE_123` só muda na caixa; `ghost` não existe
+        let mentions = [
+            mention(None, Some("noise_577")),
+            mention(None, Some("NOISE_123")),
+            mention(None, Some("ghost")),
+        ];
+        let past = [mention(None, Some("noise_301"))];
+        let context = build(
+            &service,
+            &entry,
+            DatabaseType::Sqlite,
+            ContextRequest {
+                mentions: &mentions,
+                past_mentions: &past,
+                ..request(&schemas, "total dos pedidos (orders) de @noise_577 e @NOISE_123 e @ghost")
+            },
+        )
+        .await
+        .unwrap();
+
+        for table in ["noise_577", "noise_123"] {
+            assert!(context.ddl.contains(&format!("CREATE TABLE \"{table}\" (")), "{table} faltou:\n{}", context.ddl);
+        }
+        // O ranking completa depois das citadas
+        assert!(context.tables > 3, "{}", context.ddl);
+        // A citada em pergunta anterior ganha prioridade no ranking
+        assert!(context.ddl.contains("CREATE TABLE \"noise_301\" ("), "{}", context.ddl);
+        assert_eq!(context.mentions.missing, [mention(None, Some("ghost"))]);
+        assert!(context.mentions.shortened.is_empty(), "{:?}", context.mentions);
+        assert!(context.tables <= MAX_TABLES + 2);
+
+        // Sem citar, `noise_577` não entraria
+        let plain = build(&service, &entry, DatabaseType::Sqlite, request(&schemas, "total dos pedidos (orders)"))
+            .await
+            .unwrap();
+        assert!(!plain.ddl.contains("CREATE TABLE \"noise_577\""), "{}", plain.ddl);
+
+        // Orçamento mínimo (janela pequena): a citada continua, encurtada se preciso
+        let small = build(
+            &service,
+            &entry,
+            DatabaseType::Sqlite,
+            ContextRequest {
+                mentions: &mentions[..1],
+                context_window: 4_000,
+                ..request(&schemas, "total dos pedidos (orders) de @noise_577")
+            },
+        )
+        .await
+        .unwrap();
+        assert!(small.ddl.contains("CREATE TABLE \"noise_577\" ("), "{}", small.ddl);
+        assert!(small.truncated);
 
         drop(entry);
         let _ = std::fs::remove_dir_all(dir);
@@ -860,6 +1380,85 @@ mod e2e {
         assert!(context.ddl.contains("  \"total\" numeric(10,2) -- «Com impostos»"), "{}", context.ddl);
         // FK para outro schema do escopo; nada do outro tenant
         assert!(context.ddl.contains("REFERENCES \"public\".\"plans\" (\"id\")"), "{}", context.ddl);
+        assert!(!context.ddl.contains("tenant_001"), "{}", context.ddl);
+
+        drop(entry);
+        drop(service);
+        let _ = std::fs::remove_dir_all(dir);
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
+    }
+
+    /// Muitos tenants e um schema grande: a citada de outro tenant entra, o
+    /// `@schema` grande vai com os nomes que couberem, a inexistente vira aviso.
+    /// `cargo test --lib schema_context -- --ignored`
+    #[tokio::test]
+    #[ignore]
+    async fn e2e_postgres_mentions_in_a_large_database() {
+        use crate::adapters::postgres::PostgresAdapter;
+        use crate::adapters::DatabaseAdapter;
+
+        const DATABASE: &str = "octapus_db_e2e_schema_mentions";
+        let pg = server(DatabaseType::Postgres, None);
+        let admin = PostgresAdapter::new(&pg, "postgres").unwrap();
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
+        admin.execute_statement(&format!("CREATE DATABASE {DATABASE}")).await.unwrap();
+        let setup = PostgresAdapter::new(&pg, DATABASE).unwrap();
+        let mut statements = vec!["CREATE TABLE public.plans (id serial PRIMARY KEY, name text)".to_string()];
+        for i in 0..300 {
+            let tenant = format!("tenant_{i:03}");
+            statements.extend([
+                format!("CREATE SCHEMA {tenant}"),
+                format!("CREATE TABLE {tenant}.customers (id serial PRIMARY KEY, name text)"),
+                format!("CREATE TABLE {tenant}.orders (id serial PRIMARY KEY, customer_id int REFERENCES {tenant}.customers, total numeric)"),
+            ]);
+        }
+        statements.push("CREATE SCHEMA warehouse".into());
+        statements.extend((0..400).map(|i| format!("CREATE TABLE warehouse.stock_{i:03} (id int PRIMARY KEY, qty int)")));
+        setup.execute_transaction(statements).await.unwrap();
+        drop(setup);
+
+        let (service, entry, dir) = open(pg.clone(), DATABASE, "postgres-mentions").await;
+        let schemas = ["public".to_string()];
+        let mention = |schema: &str, table: Option<&str>| AssistantMention {
+            schema: Some(schema.into()),
+            table: table.map(str::to_string),
+        };
+        let mentions = [
+            mention("tenant_250", Some("ORDERS")),
+            mention("warehouse", None),
+            mention("tenant_999", Some("orders")),
+            mention("tenant_001", Some("nope")),
+        ];
+        let context = build(
+            &service,
+            &entry,
+            DatabaseType::Postgres,
+            ContextRequest {
+                mentions: &mentions,
+                context_window: 16_000,
+                ..request(&schemas, "total por cliente de @tenant_250.ORDERS e o estoque de @warehouse")
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(context.ddl.contains("CREATE TABLE \"tenant_250\".\"orders\" ("), "{}", context.ddl);
+        assert!(context.ddl.starts_with("-- PostgreSQL. Schemas: \"public\", \"warehouse\", \"tenant_250\""), "{}", context.ddl);
+        let listing = context.ddl.lines().find(|line| line.starts_with("-- Relations in \"warehouse\" (400): ")).unwrap();
+        assert!(listing.contains("\"stock_000\""), "{listing}");
+        // Orçamento de 2.000 tokens: os 400 nomes não cabem
+        assert!(listing.contains(" more"), "{listing}");
+        assert!(context.truncated);
+        assert_eq!(context.mentions.shortened, [mention("warehouse", None)]);
+        assert_eq!(context.mentions.missing, [mentions[2].clone(), mentions[3].clone()]);
+        assert!(context.tokens_estimate <= 2_000, "{}", context.tokens_estimate);
+        // Nenhum outro tenant entrou
         assert!(!context.ddl.contains("tenant_001"), "{}", context.ddl);
 
         drop(entry);

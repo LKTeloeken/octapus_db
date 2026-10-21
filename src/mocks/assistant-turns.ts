@@ -6,6 +6,7 @@ import type {
   AssistantConversationPage,
   AssistantConversationSummary,
   AssistantFeedbackInput,
+  AssistantMention,
   AssistantTurn,
   AssistantTurnEvent,
   AssistantTurnFinish,
@@ -14,6 +15,7 @@ import type {
   ModelOutput,
 } from '@/api/types/assistant.types';
 import type { QueryLanguage } from '@/api/types/capabilities.types';
+import { FLAT_SCHEMA } from '@/api/types/catalog.types';
 import type { QueryOptions, QueryResult } from '@/api/types/query.types';
 import {
   commentTooLong,
@@ -32,6 +34,7 @@ import {
   requireAssistantLogin,
   spendAssistantQuota,
 } from './assistant';
+import { mockCatalog } from './catalog';
 import { SAAS_DATABASE } from './data/tenants';
 import type { MockHandler } from './handlers';
 
@@ -65,6 +68,11 @@ import type { MockHandler } from './handlers';
  * Como na API real, o `delta` é o JSON da resposta em pedaços. No database
  * `saas` (5.000 schemas) o contexto sai recortado (`truncated`).
  *
+ * As menções com `@` (`mentions`) são conferidas no catálogo do mock, como no
+ * backend: a que não existe volta em `missingMentions`; o `@schema` com mais
+ * de [`LISTED_RELATIONS`] relações volta em `shortenedMentions` (a lista dos
+ * nomes não coube inteira).
+ *
  * A execução automática segue a preferência salva (`assistantAutoExecute`):
  * ligada, vem o resultado; desligada, só o plano. As conversas ficam em
  * memória (somem no reload), como o histórico que no app real mora na API.
@@ -72,7 +80,41 @@ import type { MockHandler } from './handlers';
 
 type Args = Record<string, unknown>;
 
+/** As menções da pergunta conferidas no catálogo do mock (sem catálogo: nada) */
+function checkMentions(
+  serverId: number,
+  database: string,
+  mentions: AssistantMention[],
+  schemas: string[],
+): { missing: AssistantMention[]; shortened: AssistantMention[] } {
+  const caps = CAPABILITIES[requireServerEntry(serverId).server.dbType];
+  if (!caps.hasCatalog || mentions.length === 0) {
+    return { missing: [], shortened: [] };
+  }
+  const searchPath = caps.hasSchemas
+    ? schemas.length > 0
+      ? schemas
+      : ['public']
+    : [FLAT_SCHEMA];
+  const checks = mockCatalog.confirmMentions(
+    serverId,
+    database,
+    mentions,
+    searchPath,
+  );
+  return {
+    missing: checks.filter(check => !check.found).map(check => check.mention),
+    shortened: checks.flatMap(({ found }) =>
+      found && found.table === null && found.size > LISTED_RELATIONS
+        ? [{ schema: found.schema, table: null }]
+        : [],
+    ),
+  };
+}
+
 const STEP_MS = 180;
+/** Relações de um `@schema` que cabem na lista do contexto simulado */
+const LISTED_RELATIONS = 40;
 const SETTINGS_STORAGE_KEY = 'octapus-mock-settings';
 
 const conversations = new Map<string, AssistantConversation>();
@@ -605,6 +647,8 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
     conversationId,
     question,
     clientTurnId,
+    schemas,
+    mentions,
     onEvent,
   }: Args): Promise<AssistantTurnFinish> => {
     requireAssistantLogin();
@@ -619,6 +663,12 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
     const table =
       requireDatabase(entry, database as string).tables[0]?.name ?? 'items';
     const language = languageFor(serverId);
+    const { missing, shortened } = checkMentions(
+      serverId as number,
+      database as string,
+      (mentions as AssistantMention[] | null) ?? [],
+      (schemas as string[] | null) ?? [],
+    );
 
     const channel = onEvent as Channel<AssistantTurnEvent> | undefined;
     const emit = (event: AssistantTurnEvent) => channel?.onmessage(event);
@@ -637,7 +687,9 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
         type: 'context',
         tables: 6,
         // O saas (5.000 schemas) não cabe: recorte (RN-26)
-        truncated: database === SAAS_DATABASE,
+        truncated: database === SAAS_DATABASE || shortened.length > 0,
+        missingMentions: missing,
+        shortenedMentions: shortened,
       });
 
       if (/espera|lento/i.test(text)) {

@@ -1,4 +1,5 @@
 import type {
+  AssistantMention,
   AssistantStage,
   AssistantTurnEvent,
   AssistantTurnFinish,
@@ -55,13 +56,24 @@ export interface LiveAttempt {
   executed: boolean;
 }
 
+/** O que o evento `context` disse da estrutura enviada ao modelo */
+export interface TurnContext {
+  tables: number;
+  /** Recorte da estrutura (RN-26) */
+  truncated: boolean;
+  /** Citadas com `@` que não existem no banco */
+  missingMentions: AssistantMention[];
+  /** Citadas que entraram encurtadas (sem algumas colunas ou nomes) */
+  shortenedMentions: AssistantMention[];
+}
+
 export interface LiveTurn {
   clientTurnId: string;
   question: string;
   autoExecute: boolean;
   turnId: string | null;
   phase: TurnPhase;
-  context: { tables: number; truncated: boolean } | null;
+  context: TurnContext | null;
   attempts: LiveAttempt[];
   /** Fim da espera do rate limit (epoch ms) */
   waitUntil: number | null;
@@ -116,7 +128,12 @@ export function reduceTurn(
     case 'context':
       return {
         ...turn,
-        context: { tables: event.tables, truncated: event.truncated },
+        context: {
+          tables: event.tables,
+          truncated: event.truncated,
+          missingMentions: event.missingMentions,
+          shortenedMentions: event.shortenedMentions,
+        },
         phase: 'generating',
       };
 

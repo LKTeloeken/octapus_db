@@ -17,6 +17,7 @@ import {
   type SchemaDrift,
   type ShapeGroup,
 } from '@/api/types/catalog.types';
+import type { AssistantMention } from '@/api/types/assistant.types';
 import type { TableType } from '@/api/types/structure.types';
 import { fuzzyMatch } from '@/lib/fuzzy';
 import {
@@ -64,6 +65,18 @@ interface Shape {
   names?: Map<string, NameEntry>;
   /** Montado no primeiro pedido de grupos por formato */
   grouping?: Grouping;
+}
+
+/** Uma menção conferida: `found` com o nome como está no catálogo, ou `null` */
+export interface MentionCheck {
+  mention: AssistantMention;
+  found: {
+    schema: string;
+    /** `null` = o schema inteiro */
+    table: string | null;
+    /** Relações do schema citado sozinho */
+    size: number;
+  } | null;
 }
 
 /** Os formatos do database: o molde, as variações e o resto */
@@ -679,6 +692,58 @@ async function complete(
     .map(relation => relationNode(relations, relation));
 }
 
+/** Como o `schema_context::confirm` do backend: cada menção conferida no catálogo */
+function confirmMentions(
+  serverId: number,
+  database: string,
+  mentions: AssistantMention[],
+  searchPath: string[],
+): MentionCheck[] {
+  const { shape } = context(serverId, database);
+  const findSchema = (name: string) => {
+    if (shape.relations(name)) return name;
+    const folded = shape.schemas.filter(
+      schema => schema.toLowerCase() === name.toLowerCase(),
+    );
+    return folded.length === 1 ? folded[0] : null;
+  };
+  const findRelation = (schema: string, table: string) => {
+    const relations = shape.relations(schema) ?? [];
+    return (
+      relations.find(relation => relation.name === table) ??
+      relations.find(
+        relation => relation.name.toLowerCase() === table.toLowerCase(),
+      ) ??
+      null
+    );
+  };
+
+  return mentions.map(mention => {
+    if (mention.schema === null) {
+      if (mention.table === null) return { mention, found: null };
+      const resolved = resolve(serverId, database, mention.table, searchPath);
+      return {
+        mention,
+        found:
+          resolved.status === 'found'
+            ? { schema: resolved.schema, table: resolved.table, size: 0 }
+            : null,
+      };
+    }
+    const schema = findSchema(mention.schema);
+    if (!schema) return { mention, found: null };
+    if (mention.table === null) {
+      const size = shape.relations(schema)?.length ?? 0;
+      return { mention, found: { schema, table: null, size } };
+    }
+    const relation = findRelation(schema, mention.table);
+    return {
+      mention,
+      found: relation ? { schema, table: relation.name, size: 0 } : null,
+    };
+  });
+}
+
 function drift(serverId: number, database: string): CatalogDriftReport {
   const { shape } = context(serverId, database);
   const db = requireDatabase(requireServerEntry(serverId), database);
@@ -851,6 +916,15 @@ export const mockCatalog = {
       table as string,
       searchPath as string[],
     );
+  },
+
+  confirmMentions(
+    serverId: number,
+    database: string,
+    mentions: AssistantMention[],
+    searchPath: string[],
+  ): MentionCheck[] {
+    return confirmMentions(serverId, database, mentions, searchPath);
   },
 
   complete({ serverId, database, schema, prefix, limit }: Args) {

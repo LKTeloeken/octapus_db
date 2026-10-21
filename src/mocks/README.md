@@ -91,7 +91,10 @@ pedaços, como na API. Pela pergunta:
 - "cota" → gasta a cota inteira (daí em diante, `ASSISTANT_QUOTA_EXCEEDED`; o reset volta);
 - o resto → conta as linhas da primeira tabela do database.
 
-No database `saas` o contexto vem recortado (`truncated`). Com a execução automática
+No database `saas` o contexto vem recortado (`truncated`). As menções `@` são conferidas
+no catálogo do mock: a que não existe (`@tenant_99999.orders`) aparece como aviso, e um
+`@schema` com mais de 40 relações (`@tenant_00042`) volta como encurtado no aviso de
+recorte. Com a execução automática
 ligada nas Preferências vem o resultado; desligada, só o plano. `assistant_turn_cancel`
 interrompe no meio.
 

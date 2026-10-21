@@ -215,6 +215,7 @@ mod tests {
             ddl,
             tables: 1,
             truncated,
+            mentions: Default::default(),
         }
     }
 

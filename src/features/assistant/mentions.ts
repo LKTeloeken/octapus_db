@@ -9,7 +9,11 @@
  *
  * O texto da menção vai junto na pergunta: é nome de estrutura, que pode sair
  * do app (RN-07), e reforça o casamento léxico que escolhe as tabelas (B4).
+ * Além disso, toda relação ou schema citado na pergunta atual entra
+ * obrigatoriamente no contexto (`conversationMentions`).
  */
+
+import type { AssistantMention } from '@/api/types/assistant.types';
 
 export interface Mention {
   /** Posição do `@` */
@@ -113,6 +117,46 @@ export function conversationSchemas(
   }
   pushUnique(schemas, defaultSchema ?? 'public');
   return schemas;
+}
+
+const sameMention = (a: AssistantMention, b: AssistantMention) =>
+  a.schema === b.schema && a.table === b.table;
+
+const uniqueMentions = (texts: string[], flat: boolean) => {
+  const list: AssistantMention[] = [];
+  for (const text of texts) {
+    for (const { schema, table } of parseMentions(text, flat)) {
+      const mention = { schema, table };
+      if (!list.some(other => sameMention(other, mention))) list.push(mention);
+    }
+  }
+  return list;
+};
+
+/**
+ * As `mentions` e `pastMentions` do `assistant_turn_ask`, sem repetir: as
+ * citadas na pergunta atual entram obrigatoriamente no contexto da estrutura
+ * (o backend confere cada uma no catálogo); as das perguntas anteriores, da
+ * mais recente para a mais antiga, só ganham prioridade — e não repetem as
+ * atuais.
+ */
+export function conversationMentions(
+  question: string,
+  previousQuestions: string[],
+  flat: boolean,
+): { mentions: AssistantMention[]; pastMentions: AssistantMention[] } {
+  const mentions = uniqueMentions([question], flat);
+  const pastMentions = uniqueMentions(
+    [...previousQuestions].reverse(),
+    flat,
+  ).filter(past => !mentions.some(current => sameMention(current, past)));
+  return { mentions, pastMentions };
+}
+
+/** Uma menção como o texto a escreve: `@schema.tabela`, `@schema`, `@tabela` */
+export function mentionLabel({ schema, table }: AssistantMention): string {
+  const parts = [schema, table].filter((part): part is string => part !== null);
+  return `@${parts.map(quoteIdent).join('.')}`;
 }
 
 /** Destaque das menções no campo (o `@` e o nome, sem o caractere antes) */

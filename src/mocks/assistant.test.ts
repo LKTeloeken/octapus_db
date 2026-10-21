@@ -149,6 +149,73 @@ describe('assistente no mock', () => {
       return { finish, events, types: events.map(event => event.type) };
     }
 
+    /** O evento `context` de um turno com menções */
+    async function contextOf(
+      serverId: number,
+      database: string,
+      mentions: { schema: string | null; table: string | null }[],
+      schemas: string[] | null,
+    ) {
+      const { id } = (await route(RustCommand.AssistantConversationCreate, {
+        serverId,
+        modelId: null,
+        title: null,
+      })) as AssistantConversationSummary;
+      const events: AssistantTurnEvent[] = [];
+      await route(RustCommand.AssistantTurnAsk, {
+        serverId,
+        database,
+        conversationId: id,
+        question: 'quantos registros?',
+        clientTurnId: `turn-${serverId}-${database}`,
+        schemas,
+        mentions,
+        pastMentions: null,
+        onEvent: {
+          onmessage: (event: AssistantTurnEvent) => events.push(event),
+        },
+      });
+      return events.find(event => event.type === 'context');
+    }
+
+    it('menções: a inexistente vira aviso; o @schema grande, recorte', async () => {
+      const context = await contextOf(
+        1,
+        'saas',
+        [
+          { schema: 'tenant_00042', table: 'orders' },
+          { schema: 'TENANT_00042', table: null },
+          { schema: 'tenant_99999', table: 'orders' },
+          { schema: 'public', table: 'ghost' },
+        ],
+        ['tenant_00042', 'public'],
+      );
+      expect(context).toMatchObject({
+        truncated: true,
+        missingMentions: [
+          { schema: 'tenant_99999', table: 'orders' },
+          { schema: 'public', table: 'ghost' },
+        ],
+        shortenedMentions: [{ schema: 'tenant_00042', table: null }],
+      });
+    });
+
+    it('menções sem schema (SQLite): pelo nome, sem diferenciar caixa', async () => {
+      const context = await contextOf(
+        3,
+        'main',
+        [
+          { schema: null, table: 'NOTAS' },
+          { schema: null, table: 'fantasma' },
+        ],
+        null,
+      );
+      expect(context).toMatchObject({
+        missingMentions: [{ schema: null, table: 'fantasma' }],
+        shortenedMentions: [],
+      });
+    });
+
     async function conversation() {
       return (await route(RustCommand.AssistantConversationCreate, {
         serverId: 1,

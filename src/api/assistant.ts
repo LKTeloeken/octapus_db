@@ -8,6 +8,7 @@ import type {
   AssistantConversationSummary,
   AssistantFeedbackInput,
   AssistantMe,
+  AssistantMention,
   AssistantModel,
   AssistantParticipant,
   AssistantStatus,
@@ -102,6 +103,10 @@ export interface AskAssistantInput {
   clientTurnId: string;
   /** Schemas da conversa (Postgres); vazio = `public` */
   schemas?: string[];
+  /** Citadas com `@` na pergunta: entram obrigatoriamente no contexto */
+  mentions?: AssistantMention[];
+  /** Citadas nas perguntas anteriores: só ganham prioridade */
+  pastMentions?: AssistantMention[];
 }
 
 /**
@@ -117,6 +122,8 @@ export function askAssistant(
   return call<AssistantTurnFinish>(RustCommand.AssistantTurnAsk, {
     ...input,
     schemas: input.schemas ?? null,
+    mentions: input.mentions ?? null,
+    pastMentions: input.pastMentions ?? null,
     onEvent: channel,
   });
 }

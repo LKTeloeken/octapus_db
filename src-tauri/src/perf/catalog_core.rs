@@ -290,7 +290,7 @@ fn exercise(catalog: &Catalog, work: Workload) {
     let (timing, _) = sample(2_000, |i| {
         let schema = &schemas[(i * 7_919) % schemas.len()];
         candidates = catalog
-            .context_candidates(&[schema.as_str(), "public"], questions[i % questions.len()], &history)
+            .context_candidates(&[schema.as_str(), "public"], questions[i % questions.len()], &history, &[])
             .len();
     });
     record_timing(

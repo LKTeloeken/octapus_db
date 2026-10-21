@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  conversationMentions,
   conversationSchemas,
   MENTION_HIGHLIGHT,
   mentionDraft,
+  mentionLabel,
   parseMentions,
   quoteIdent,
   unquoteIdent,
@@ -94,6 +96,50 @@ describe('conversationSchemas', () => {
 
   it('sem schema, nada (o backend usa o schema sem nome)', () => {
     expect(conversationSchemas('@orders', [], null, true)).toEqual([]);
+  });
+});
+
+describe('conversationMentions', () => {
+  it('as da pergunta atual são obrigatórias; as anteriores, sem repetir', () => {
+    expect(
+      conversationMentions(
+        'total de @vendas.pedidos por @tenant_7 e @vendas.pedidos',
+        ['@public.users', 'e @vendas.pedidos? e @"Vendas"."Itens 2025"'],
+        false,
+      ),
+    ).toEqual({
+      mentions: [
+        { schema: 'vendas', table: 'pedidos' },
+        { schema: 'tenant_7', table: null },
+      ],
+      // Da mais recente para a mais antiga, sem as que já estão na atual
+      pastMentions: [
+        { schema: 'Vendas', table: 'Itens 2025' },
+        { schema: 'public', table: 'users' },
+      ],
+    });
+  });
+
+  it('sem schema (SQLite, Mongo): só a tabela', () => {
+    expect(conversationMentions('@orders e @"Order Items"', [], true)).toEqual({
+      mentions: [
+        { schema: null, table: 'orders' },
+        { schema: null, table: 'Order Items' },
+      ],
+      pastMentions: [],
+    });
+  });
+});
+
+describe('mentionLabel', () => {
+  it('escreve como o texto da menção', () => {
+    expect(mentionLabel({ schema: 'vendas', table: 'pedidos' })).toBe(
+      '@vendas.pedidos',
+    );
+    expect(mentionLabel({ schema: 'tenant_7', table: null })).toBe('@tenant_7');
+    expect(mentionLabel({ schema: null, table: 'Order Items' })).toBe(
+      '@"Order Items"',
+    );
   });
 });
 

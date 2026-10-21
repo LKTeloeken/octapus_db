@@ -15,6 +15,7 @@ import {
   type AssistantTarget,
 } from '@/stores/assistant-store';
 import { useTabsStore } from '@/stores/tabs-store';
+import { mentionLabel } from './mentions';
 import type { ConversationTurn } from './use-conversation-view';
 
 /** Linhas por página do resultado (o backend corta em 1.000) */
@@ -218,5 +219,9 @@ export const useTurnCard = ({
         isQuery ? draft : (view.output?.query ?? ''),
       ),
     nouns: relationNouns(queryLanguage),
+    /** Citadas com @ que não existem, como o texto as escreve (`@a.b`) */
+    missingMentions: view.missingMentions.map(mentionLabel),
+    /** Citadas que entraram encurtadas no recorte */
+    shortenedMentions: view.shortenedMentions.map(mentionLabel),
   };
 };

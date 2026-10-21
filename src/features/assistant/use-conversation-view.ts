@@ -27,7 +27,7 @@ import {
   useAssistantStore,
   type ConversationTab,
 } from '@/stores/assistant-store';
-import { conversationSchemas } from './mentions';
+import { conversationMentions, conversationSchemas } from './mentions';
 import { liveTurnView, serverTurnView, type TurnView } from './turn-view';
 
 /** Um turno na tela, com o que a execução precisa saber dele */
@@ -63,8 +63,8 @@ function turnEventHandler(tabId: string) {
         error: null,
       });
     }
-    if (event.type === 'context' && turn?.turnId) {
-      store.setTurnTruncated(turn.turnId, event.truncated);
+    if (event.type === 'context' && turn?.turnId && turn.context) {
+      store.setTurnContext(turn.turnId, turn.context);
     }
   };
 }
@@ -102,7 +102,7 @@ export const useConversationView = ({
 
   const conversation = useAssistantConversation(tab.conversationId);
   const live = useAssistantStore(state => state.live[tab.id] ?? null);
-  const truncatedTurns = useAssistantStore(state => state.truncatedTurns);
+  const turnContexts = useAssistantStore(state => state.turnContexts);
 
   const store = useAssistantStore.getState;
   const onEvent = useMemo(() => turnEventHandler(tab.id), [tab.id]);
@@ -130,7 +130,7 @@ export const useConversationView = ({
       view:
         live && live.turnId === turn.id
           ? { ...liveTurnView(live), feedback: turn.feedback }
-          : serverTurnView(turn, truncatedTurns[turn.id] ?? null),
+          : serverTurnView(turn, turnContexts[turn.id] ?? null),
       schemas: conversationSchemas(
         turn.question,
         previousQuestions.slice(0, index),
@@ -153,7 +153,7 @@ export const useConversationView = ({
       });
     }
     return list;
-  }, [serverTurns, previousQuestions, truncatedTurns, live, target, flat]);
+  }, [serverTurns, previousQuestions, turnContexts, live, target, flat]);
 
   const running = !!live && live.phase !== 'finished';
   const quotaLeft = quotaRemaining(me);
@@ -216,6 +216,10 @@ export const useConversationView = ({
         question,
         clientTurnId,
         schemas: flat ? undefined : schemas,
+        // Sem catálogo (Redis) não há o que citar
+        ...(mentions
+          ? conversationMentions(question, previousQuestions, flat)
+          : {}),
       });
       mine(turn => finishTurn(turn, finish));
     } catch (error) {
@@ -228,6 +232,7 @@ export const useConversationView = ({
     blockedReason,
     previousQuestions,
     flat,
+    mentions,
     store,
     settings?.assistantAutoExecute,
     create,

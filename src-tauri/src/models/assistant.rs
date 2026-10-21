@@ -443,6 +443,19 @@ pub struct AssistantConversationPage {
 // desfecho que o comando devolve
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Uma menção com `@` na pergunta (`@schema.tabela`, `@schema`, `@tabela`).
+/// A relação citada entra obrigatoriamente no contexto da estrutura; a que não
+/// existe volta na tela como aviso, com o nome como foi digitado.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantMention {
+    /// `None` no catálogo sem schema (SQLite, Mongo)
+    pub schema: Option<String>,
+    /// `None` quando a menção é do schema inteiro
+    pub table: Option<String>,
+}
+
 /// O andamento de um turno, para a tela acompanhar.
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
@@ -451,9 +464,17 @@ pub enum AssistantTurnEvent {
     /// O turno existe no servidor
     #[serde(rename_all = "camelCase")]
     TurnOpened { turn_id: String },
-    /// A estrutura que vai ao modelo (RN-26: `truncated` = recorte)
+    /// A estrutura que vai ao modelo (RN-26: `truncated` = recorte).
+    /// `missingMentions`: as citadas com `@` que não existem no banco;
+    /// `shortenedMentions`: as citadas que entraram encurtadas (sem algumas
+    /// colunas, ou o schema sem a lista inteira das relações).
     #[serde(rename_all = "camelCase")]
-    Context { tables: u32, truncated: bool },
+    Context {
+        tables: u32,
+        truncated: bool,
+        missing_mentions: Vec<AssistantMention>,
+        shortened_mentions: Vec<AssistantMention>,
+    },
     #[serde(rename_all = "camelCase")]
     AttemptStarted { attempt_id: String, index: i64 },
     /// Texto parcial do modelo, só para mostrar progresso

@@ -60,12 +60,22 @@ export function TurnCard({
         <QuestionText text={view.question} flat={flat} />
       </div>
 
+      {card.missingMentions.length > 0 && (
+        <Notice tone="warning">
+          Não encontrei no banco: {card.missingMentions.join(', ')}. O
+          assistente respondeu sem{' '}
+          {card.missingMentions.length > 1 ? 'elas' : 'ela'}.
+        </Notice>
+      )}
+
       {view.truncated &&
         (mentions ? (
           <Notice tone="info">
             A estrutura do banco é grande: o assistente viu só um recorte das{' '}
-            {card.nouns.many}. Cite as {card.nouns.many} com @ para garantir que
-            entrem.
+            {card.nouns.many}.{' '}
+            {card.shortenedMentions.length > 0
+              ? `Entraram encurtadas (sem algumas colunas ou nomes): ${card.shortenedMentions.join(', ')}.`
+              : `Cite as ${card.nouns.many} com @ para garantir que entrem.`}
           </Notice>
         ) : (
           <Notice tone="info">

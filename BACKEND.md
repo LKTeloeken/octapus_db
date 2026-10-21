@@ -695,7 +695,7 @@ consulta de leitura que gerou; desligado, ela fica para revisão.
 | `assistant_conversations` | `{ cursor? }` | `AssistantConversationPage` (mais recentes primeiro) |
 | `assistant_conversation` | `{ conversationId }` | `AssistantConversation` (turnos, tentativas, outcome, avaliação) |
 | `assistant_conversation_create` | `{ serverId, modelId?, title? }` | `AssistantConversationSummary` — paradigma do banco do servidor; o modelo fica fixo |
-| `assistant_turn_ask` | `{ serverId, database, conversationId, question, clientTurnId, schemas?, onEvent: Channel }` | `AssistantTurnFinish`; o andamento chega pelo canal (`AssistantTurnEvent`) |
+| `assistant_turn_ask` | `{ serverId, database, conversationId, question, clientTurnId, schemas?, mentions?, pastMentions?, onEvent: Channel }` | `AssistantTurnFinish`; o andamento chega pelo canal (`AssistantTurnEvent`). `mentions`/`pastMentions`: `AssistantMention[]` (`{ schema, table }`, `null` = sem schema / o schema inteiro) |
 | `assistant_turn_cancel` | `{ clientTurnId }` | `boolean` (`false` = já terminou) |
 | `assistant_execute` | `{ serverId, database, query, page, attemptId?, userEdited }` | `QueryResult` — execução manual, sempre só-leitura |
 | `assistant_feedback_set` | `{ turnId, feedback: AssistantFeedbackInput }` (`{ rating, reasons, comment, attemptId }`) | `void` — avalia o turno (👍/👎, B11); repetir sobrescreve |
@@ -868,13 +868,26 @@ com a pergunta, sem nunca carregar a estrutura inteira.
   singular aproximado, partes de `snake_case`/`camelCase`, nome inteiro > parte > prefixo
   comum de 5 letras (`eventos` acha `event_log`). Até 30 candidatas vão todas; acima
   disso, as 10 melhores mais as vizinhas pelas chaves estrangeiras (`with_neighbors`), até 30.
+- **Menções `@` são obrigatórias:** o `assistant_turn_ask` recebe as relações e schemas
+  citados na pergunta (`mentions`) e nas anteriores (`pastMentions`). `schema_context::confirm`
+  confere cada nome no catálogo sem confiar no que foi digitado (`Catalog::find_schema` e
+  `find_relation`: o exato ou o que só muda nas maiúsculas; `@tabela` sem schema pelo
+  `Catalog::resolve` nos schemas do escopo) e carrega só os schemas citados. A que não
+  existe não derruba o turno: volta em `missingMentions` no evento `context`. As citadas
+  da pergunta atual (até `MAX_CITED` = 30) entram primeiro em `chosen`, **fora** de
+  `SEED_TABLES`/`MAX_TABLES`; as vizinhas e o ranking completam depois. O `@schema`
+  sozinho entra no escopo e põe a lista dos nomes das relações dele no texto
+  (`-- Relations in "s" (N): …`). As citadas em perguntas anteriores (e as que passam do
+  teto) só ganham `PREFERRED_SCORE` (20) no ranking. `confirm` serve a qualquer lista de
+  nomes vinda de fora (o modelo pedindo mais estrutura, mais adiante). Log: só contagens.
 - **Da fonte, só das escolhidas** (`CatalogSource::foreign_keys` e `relation_details`,
   pela faixa de prioridade do `CatalogService`): chaves estrangeiras entre relações do
   escopo (no Postgres pelo índice de `conrelid`, com teto de 1.000) e colunas com tipo,
   nulo, chave primária e comentários. Mongo e Redis: `UNSUPPORTED_TYPE`.
 - **Mongo** (`assistant/shape_context.rs`): sem colunas nem chaves estrangeiras. As
   coleções vêm do mesmo ranking (`context_candidates` no `FLAT_SCHEMA`) e só as 12
-  primeiras são amostradas por `CatalogSource::infer_shape`: um `$sample` de 100
+  primeiras são amostradas — mais as citadas com `@`, sempre amostradas e fora desse
+  limite — por `CatalogSource::infer_shape`: um `$sample` de 100
   documentos por coleção, na conexão dedicada do catálogo (duas por vez, `maxTimeMS` de
   3 s; a que falha fica só pelo nome). `shape::infer` tira caminhos aninhados
   (`customer.name`, `items[].sku`), os tipos BSON vistos e a % de presença, e **descarta
@@ -906,9 +919,15 @@ com a pergunta, sem nunca carregar a estrutura inteira.
   comentários entre `«»` numa linha, cortados em 200 caracteres — dado, nunca instrução
   (RN-22).
 - **Orçamento:** um oitavo do `contextWindow` do modelo, entre 1.000 e 16.000 tokens
-  (estimativa: 4 caracteres por token). As escolhidas entram por prioridade; a primeira
-  entra mesmo grande, com colunas cortadas; as que sobram vão só pelo nome numa última
-  linha, com espaço reservado. Qualquer corte liga `truncated` (`schemaTruncated`).
+  (estimativa: 4 caracteres por token). Ordem: (1) as citadas, que **nunca saem
+  inteiras** — dividem o espaço (`share_room`, a menor primeiro) e a que não cabe perde
+  colunas (`fit_columns`; no Mongo, campos); (2) a lista de cada `@schema` (até metade
+  do que sobrou, se há outras relações a mostrar; não cabendo, os nomes que couberem
+  com `… and N more`); (3) as outras escolhidas por prioridade (sem citada, a primeira
+  entra mesmo grande, com colunas cortadas); (4) as que sobram só pelo nome numa última
+  linha, com espaço reservado. Qualquer corte liga `truncated` (`schemaTruncated`), e as
+  citadas encurtadas voltam em `shortenedMentions` no evento `context`. A saída fica em
+  ordem de schema e nome: a mesma estrutura dá o mesmo texto.
 - Desempenho: `context_candidates` está no `perf::catalog_core` (p95 ≈ 0,1 ms num tenant
   do catálogo de 5.000 × 150).
 

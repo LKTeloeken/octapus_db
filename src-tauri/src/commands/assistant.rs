@@ -16,7 +16,7 @@ use crate::assistant::{key_context, prompts, read_only, ApiClient, AssistantCode
 use crate::catalog::FLAT_SCHEMA;
 use crate::error::{Error, Result};
 use crate::models::{
-    AdapterCapabilities, AssistantConsentTerm, AssistantConversation, AssistantConversationPage,
+    AdapterCapabilities, AssistantConsentTerm, AssistantMention, AssistantConversation, AssistantConversationPage,
     AssistantConversationSummary, AssistantFeedbackInput, AssistantMe, AssistantModel,
     AssistantParticipant, AssistantStatus, AssistantTurnEvent, AssistantTurnFinish, AssistantTurnStatus,
     AssistantTurnSummary, AttemptOutcome, DatabaseType, QueryLanguage, QueryOptions, QueryResult,
@@ -172,7 +172,11 @@ pub async fn assistant_conversation_create(
 /// Pergunta: roda o turno inteiro (B6) e manda o andamento pelo `onEvent`.
 /// `clientTurnId` (UUID do front) torna a abertura idempotente e identifica o
 /// turno para o `assistant_turn_cancel`. `schemas`: os da conversa no
-/// Postgres (o primeiro vai no `search_path`); vazio = `public`.
+/// Postgres (o primeiro vai no `search_path`); vazio = `public`. `mentions`:
+/// as relações e schemas citados com `@` na pergunta, que entram
+/// obrigatoriamente no contexto (as que não existem voltam como aviso no
+/// evento `context`); `pastMentions`: as das perguntas anteriores, que só
+/// ganham prioridade.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn assistant_turn_ask(
@@ -183,6 +187,8 @@ pub async fn assistant_turn_ask(
     question: String,
     client_turn_id: String,
     schemas: Option<Vec<String>>,
+    mentions: Option<Vec<AssistantMention>>,
+    past_mentions: Option<Vec<AssistantMention>>,
     on_event: Channel<AssistantTurnEvent>,
 ) -> Result<AssistantTurnFinish> {
     let question = question.trim().to_string();
@@ -208,6 +214,8 @@ pub async fn assistant_turn_ask(
         }
 
         let schemas = conversation_schemas(db_type, schemas);
+        let mentions = clean_mentions(mentions);
+        let past_mentions = clean_mentions(past_mentions);
         let history = turn::history_from(&conversation);
         let past_questions: Vec<String> = history.iter().map(|turn| turn.question.clone()).collect();
         let context_window = conversation.summary.model.context_window;
@@ -223,6 +231,8 @@ pub async fn assistant_turn_ask(
                 question: &question,
                 history: &past_questions,
                 context_window,
+                mentions: &mentions,
+                past_mentions: &past_mentions,
             },
         )
         .await?;
@@ -471,6 +481,21 @@ fn conversation_schemas(db_type: DatabaseType, requested: Option<Vec<String>>) -
         schemas.push("public".to_string());
     }
     schemas
+}
+
+/// As menções como chegaram do front, sem nome vazio (vira `None`) nem as
+/// que ficaram sem nome nenhum.
+fn clean_mentions(mentions: Option<Vec<AssistantMention>>) -> Vec<AssistantMention> {
+    let non_empty = |name: Option<String>| name.filter(|name| !name.is_empty());
+    mentions
+        .unwrap_or_default()
+        .into_iter()
+        .map(|mention| AssistantMention {
+            schema: non_empty(mention.schema),
+            table: non_empty(mention.table),
+        })
+        .filter(|mention| mention.schema.is_some() || mention.table.is_some())
+        .collect()
 }
 
 fn not_signed_in() -> Error {
@@ -725,6 +750,17 @@ mod e2e {
         structure: Structure<'_>,
         question: &str,
     ) -> (AssistantTurnFinish, Vec<String>) {
+        ask_with(participant, db, structure, question, &[]).await
+    }
+
+    /// [`ask`] com as menções `@` da pergunta
+    pub(super) async fn ask_with(
+        participant: &Participant,
+        db: &AdapterDatabase,
+        structure: Structure<'_>,
+        question: &str,
+        mentions: &[AssistantMention],
+    ) -> (AssistantTurnFinish, Vec<String>) {
         let Participant {
             client,
             token,
@@ -742,6 +778,8 @@ mod e2e {
             question,
             history: &past_questions,
             context_window,
+            mentions,
+            past_mentions: &[],
         };
         let schema = match structure {
             Structure::Catalog(catalogs, entry) => schema_context::build(catalogs, entry, db.db_type, request).await,
@@ -897,6 +935,58 @@ mod e2e {
         .await;
         assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
         assert!(events.iter().any(|line| line.starts_with("result: 2 linha")));
+        assert_saved(&participant, 0).await;
+
+        drop(entry);
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// A tabela citada entra no contexto mesmo fora do ranking (o banco tem
+    /// ruído demais para caber), e a menção inexistente vira aviso.
+    #[tokio::test]
+    #[ignore]
+    async fn e2e_real_turn_with_mentions() {
+        let Some(participant) = participant(DatabaseType::Sqlite).await else {
+            return;
+        };
+
+        let path = std::env::temp_dir().join("octapus_db_assistant_mentions_e2e.db");
+        let _ = std::fs::remove_file(&path);
+        let noise: String = (0..120)
+            .map(|i| format!("CREATE TABLE item_log_{i:03} (id INTEGER PRIMARY KEY, item TEXT);"))
+            .collect();
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute_batch(&format!(
+                "{noise}
+                 CREATE TABLE zz_refunds (id INTEGER PRIMARY KEY, amount REAL NOT NULL, reason TEXT);
+                 INSERT INTO zz_refunds (amount, reason) VALUES (10, 'a'), (25.5, 'b'), (4.5, 'c');"
+            ))
+            .unwrap();
+        let server = server(DatabaseType::Sqlite, 0, Some(path.to_string_lossy().into_owned()));
+        let (catalogs, entry, dir) = open_catalog(&server, "main").await;
+        let db = AdapterDatabase {
+            adapter: Arc::new(SqliteAdapter::new(&server, "main").unwrap()),
+            db_type: DatabaseType::Sqlite,
+        };
+
+        let mention = |table: &str| AssistantMention {
+            schema: None,
+            table: Some(table.into()),
+        };
+        let (finish, events) = ask_with(
+            &participant,
+            &db,
+            Structure::Catalog(&catalogs, &entry),
+            "Qual a soma dos valores dos itens em @zz_refunds? Ignore @ghost.",
+            &[mention("zz_refunds"), mention("ghost")],
+        )
+        .await;
+        assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
+        let context = events.iter().find(|line| line.starts_with("Context")).unwrap();
+        assert!(context.contains("missing_mentions: [AssistantMention { schema: None, table: Some(\"ghost\") }]"), "{context}");
+        assert!(events.iter().any(|line| line.starts_with("result: 1 linha")), "{events:?}");
         assert_saved(&participant, 0).await;
 
         drop(entry);

@@ -266,14 +266,20 @@ palette, dentro do `QueryProvider`.
     `@` não completa e a tela não fala em citar), completadas por `catalog_complete` em fatias (nunca a
     estrutura inteira). Viram o `schemas` do turno: os citados na pergunta (o 1º vai no
     `search_path`), depois os das perguntas anteriores (relidos do histórico), depois o
-    schema de onde a conversa abriu ou `public`.
+    schema de onde a conversa abriu ou `public`. Também viram as `mentions` do turno
+    (`conversationMentions`): toda relação ou schema citado na pergunta atual entra
+    obrigatoriamente no contexto (o backend confere no catálogo); os das perguntas
+    anteriores vão em `pastMentions` e só ganham prioridade.
   - **Turno** (`turn-reducer.ts` em `lib/assistant/`, puro): os eventos do canal viram o
     estado ao vivo, guardado por aba no store (trocar de aba não perde nada). O `delta` é o
     JSON parcial do `ModelOutput`; `partial-output.ts` extrai explicação, consulta e
     premissas enquanto chegam, e o `output` troca pela versão conferida. Só fica
     "executada" com o `result` ou o outcome registrado (RN-21).
   - **Resposta** (`turn-view.ts` + `turn-card.tsx`): consulta sempre visível com
-    destaque (RN-18), premissas (RN-20), aviso de recorte (RN-26), aviso de código não
+    destaque (RN-18), premissas (RN-20), aviso de recorte (RN-26, nomeando as citadas
+    que entraram encurtadas — `shortenedMentions`), aviso das citadas que não existem no
+    banco (`missingMentions`; o contexto de cada turno da sessão fica em memória no
+    `turnContexts` do store, porque a API não o guarda), aviso de código não
     executado (RN-14/19), revisão com a estimativa do plano, edição e Executar (RN-13),
     resultado paginado pelo `assistant_execute` na `ResultsTable` sem `editableInfo`
     (RN-16, C-09), "Abrir no editor" (C-10), tentativas que falharam (RN-29), limite

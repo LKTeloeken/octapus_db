@@ -10,6 +10,7 @@ export type { AssistantFeedback } from './generated/AssistantFeedback';
 export type { AssistantFeedbackInput } from './generated/AssistantFeedbackInput';
 export type { AssistantLanguage } from './generated/AssistantLanguage';
 export type { AssistantMe } from './generated/AssistantMe';
+export type { AssistantMention } from './generated/AssistantMention';
 export type { AssistantModel } from './generated/AssistantModel';
 export type { AssistantModelSelection } from './generated/AssistantModelSelection';
 export type { AssistantParticipant } from './generated/AssistantParticipant';
