@@ -1,6 +1,7 @@
 import { Alert02Icon, InformationCircleIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import type { ReactNode } from 'react';
+import type { QueryLanguage } from '@/api/types/capabilities.types';
 import { OctapusAnimated } from '@/components/octapus-animated/octapus-animated';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,7 @@ interface TurnCardProps {
   conversationId: string | null;
   target: AssistantTarget | null;
   flat: boolean;
+  queryLanguage: QueryLanguage | null;
   onCancel: () => void;
   isCancelling: boolean;
 }
@@ -30,10 +32,18 @@ export function TurnCard({
   conversationId,
   target,
   flat,
+  queryLanguage,
   onCancel,
   isCancelling,
 }: TurnCardProps) {
-  const card = useTurnCard({ turn, conversationId, target, flat });
+  const card = useTurnCard({
+    turn,
+    conversationId,
+    target,
+    flat,
+    queryLanguage,
+  });
+
   const { view, run } = card;
   const output = view.output;
   const running = view.outcome === 'running';
@@ -49,8 +59,9 @@ export function TurnCard({
 
       {view.truncated && (
         <Notice tone="info">
-          A estrutura do banco é grande: o assistente viu só um recorte das
-          tabelas. Cite as tabelas com @ para garantir que entrem.
+          A estrutura do banco é grande: o assistente viu só um recorte das{' '}
+          {card.nouns.many}. Cite as {card.nouns.many} com @ para garantir que
+          entrem.
         </Notice>
       )}
 
@@ -114,6 +125,7 @@ export function TurnCard({
       {output?.query != null && output.kind !== 'clarification' && (
         <QueryBlock
           kind={output.kind === 'code' ? 'code' : 'query'}
+          language={queryLanguage}
           text={card.isQuery ? card.draft : output.query}
           onChange={card.setDraft}
           editable={card.queryState === 'review'}

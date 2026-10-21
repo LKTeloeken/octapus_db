@@ -20,6 +20,7 @@ pub mod output;
 pub mod prompts;
 pub mod read_only;
 pub mod schema_context;
+pub mod shape_context;
 mod sse;
 pub mod turn;
 

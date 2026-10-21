@@ -3,6 +3,9 @@ mod command;
 mod executor;
 pub(crate) mod introspect;
 mod metadata;
+pub(crate) mod operation;
+mod read_only;
+pub(crate) mod shape;
 mod types;
 
 use std::time::Duration;
@@ -12,7 +15,7 @@ use mongodb::bson::doc;
 use mongodb::options::{ClientOptions, Credential, ServerAddress, Tls, TlsOptions};
 use mongodb::{Client, Database};
 
-use crate::adapters::DatabaseAdapter;
+use crate::adapters::{DatabaseAdapter, ReadOnlyLimits, ReadOnlyOp};
 use crate::error::{Error, Result};
 use crate::models::*;
 
@@ -100,6 +103,26 @@ impl DatabaseAdapter for MongoAdapter {
         options: QueryOptions,
     ) -> Result<QueryResult> {
         executor::execute_query(&self.db(), &self.database, query, options).await
+    }
+
+    async fn execute_read_only(&self, op: &ReadOnlyOp, page: QueryOptions) -> Result<QueryResult> {
+        let ReadOnlyOp::Mongo(text) = op else {
+            return Err(Error::UnsupportedType(format!(
+                "MongoDB runs only mongo operations read-only, not {:?}",
+                op.language()
+            )));
+        };
+        read_only::execute(&self.db(), text, &page, &ReadOnlyLimits::default()).await
+    }
+
+    async fn explain_read_only(&self, op: &ReadOnlyOp, _page: QueryOptions) -> Result<ReadOnlyPlan> {
+        let ReadOnlyOp::Mongo(text) = op else {
+            return Err(Error::UnsupportedType(format!(
+                "MongoDB plans only mongo operations, not {:?}",
+                op.language()
+            )));
+        };
+        read_only::explain(&self.db(), text, &ReadOnlyLimits::default()).await
     }
 
     async fn fetch_table_data(&self, request: TableDataRequest) -> Result<QueryResult> {

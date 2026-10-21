@@ -3,7 +3,9 @@
 //! A barreira do banco vale sozinha, sem depender do guard
 //! (`assistant/guard/`): um statement só (protocolo estendido no Postgres,
 //! `prepare` no SQLite), transação `READ ONLY` desfeita no fim (Postgres) ou
-//! `PRAGMA query_only` (SQLite), tempo e linhas com teto.
+//! `PRAGMA query_only` (SQLite), tempo e linhas com teto. No Mongo, que não
+//! tem transação de leitura, o comando sai do tipo da operação e o pipeline
+//! que escreve (`$out`/`$merge`) é recusado no executor (`mongo/read_only.rs`).
 
 use std::time::Duration;
 
@@ -12,7 +14,7 @@ use crate::models::QueryLanguage;
 /// Uma operação de leitura, na linguagem do banco (o `language` da saída do
 /// modelo no contrato da API).
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)] // Mongo e RedisPlan entram com as partes B8 e B9
+#[allow(dead_code)] // RedisPlan entra com a parte B9
 pub enum ReadOnlyOp {
     /// Uma consulta SQL (Postgres e SQLite)
     Sql(String),
@@ -23,6 +25,17 @@ pub enum ReadOnlyOp {
 }
 
 impl ReadOnlyOp {
+    /// O texto da consulta gerada, na linguagem do banco (`query_language`
+    /// das capabilities).
+    pub fn new(language: QueryLanguage, text: impl Into<String>) -> Self {
+        let text = text.into();
+        match language {
+            QueryLanguage::Sql => Self::Sql(text),
+            QueryLanguage::Mongo => Self::Mongo(text),
+            QueryLanguage::RedisPlan => Self::RedisPlan(text),
+        }
+    }
+
     pub fn language(&self) -> QueryLanguage {
         match self {
             Self::Sql(_) => QueryLanguage::Sql,

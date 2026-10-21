@@ -231,4 +231,90 @@ mod e2e {
             .await
             .unwrap();
     }
+
+    /// Mongo dos e2e (localhost:27017, sem auth).
+    /// `cargo test --lib assistant::read_only -- --ignored`
+    #[tokio::test]
+    #[ignore = "requires local mongodb on localhost:27017 (no auth)"]
+    async fn e2e_mongo_guard_preflight_and_canaries() {
+        use mongodb::bson::{doc, Document};
+
+        use crate::adapters::mongo::MongoAdapter;
+        use crate::assistant::failure::{classify, sanitize, FailureClass};
+
+        const DATABASE: &str = "octapus_e2e_assistant_guarded";
+        let mongo = DatabaseType::Mongodb;
+        let op = |text: &str| ReadOnlyOp::Mongo(text.into());
+        let mut server = server(mongo, None);
+        server.port = 27017;
+        server.username = String::new();
+        server.password = String::new();
+        let adapter = MongoAdapter::new(&server, DATABASE).await.unwrap();
+
+        let client = mongodb::Client::with_uri_str("mongodb://localhost:27017").await.unwrap();
+        let db = client.database(DATABASE);
+        db.drop().await.unwrap();
+        db.collection::<Document>("users")
+            .insert_many((0..3).map(|i| doc! { "name": format!("user {i}"), "label": "CANARY_7f3a", "born": "2026-13-45" }))
+            .await
+            .unwrap();
+        let count = || async { db.collection::<Document>("users").count_documents(doc! {}).await.unwrap() };
+
+        // Escritas e JavaScript param no guard
+        for text in [
+            r#"{"collection":"users","operation":"aggregate","pipeline":[{"$out":"copied"}]}"#,
+            r#"{"collection":"users","operation":"aggregate","pipeline":[{"$merge":{"into":"users"}}]}"#,
+            r#"{"collection":"users","operation":"deleteMany","filter":{}}"#,
+            r#"{"collection":"users","operation":"find","filter":{"$where":"sleep(1000) || true"}}"#,
+            r#"{"collection":"users","operation":"aggregate","pipeline":[{"$currentOp":{}}]}"#,
+        ] {
+            let error = execute(&adapter, mongo, &op(text), QueryOptions::default()).await.unwrap_err();
+            assert_eq!(error.code(), "GUARD_REJECTED", "{text}");
+        }
+        assert_eq!(count().await, 3);
+        assert_eq!(db.list_collection_names().await.unwrap(), ["users"]);
+
+        // Preflight: coleção que não existe e operador desconhecido, sem rodar
+        let query = r#"{"collection":"usuarios","operation":"find"}"#;
+        let error = preflight(&adapter, mongo, &op(query), QueryOptions::default()).await.unwrap_err();
+        assert_eq!(classify(&error), Some(FailureClass::UnknownObject));
+        assert_eq!(
+            sanitize(&error, query).as_deref(),
+            Some("NamespaceNotFound (26): collection \"usuarios\" does not exist")
+        );
+        let query = r#"{"collection":"users","operation":"find","filter":{"name":{"$likee":"a"}}}"#;
+        let error = preflight(&adapter, mongo, &op(query), QueryOptions::default()).await.unwrap_err();
+        assert_eq!(classify(&error), Some(FailureClass::Syntax), "{error:?}");
+        assert!(sanitize(&error, query).unwrap().contains("$likee"));
+
+        // Valores do banco no erro: nenhum sai
+        for query in [
+            r#"{"collection":"users","operation":"aggregate","pipeline":[{"$project":{"n":{"$toInt":"$label"}}}]}"#,
+            r#"{"collection":"users","operation":"aggregate","pipeline":[{"$project":{"d":{"$dateFromString":{"dateString":"$born"}}}}]}"#,
+            r#"{"collection":"users","operation":"aggregate","pipeline":[{"$project":{"o":{"$toObjectId":"$label"}}}]}"#,
+            r#"{"collection":"users","operation":"aggregate","pipeline":[{"$project":{"x":{"$add":["$label",1]}}}]}"#,
+        ] {
+            let error = execute(&adapter, mongo, &op(query), QueryOptions::default()).await.unwrap_err();
+            let class = classify(&error);
+            assert!(matches!(class, Some(FailureClass::TypeMismatch | FailureClass::Syntax | FailureClass::RuntimeError)), "{query}: {error:?}");
+            let sanitized = sanitize(&error, query).unwrap();
+            for canary in ["CANARY_7f3a", "2026-13-45", "user 0"] {
+                assert!(!sanitized.contains(canary), "{canary} vazou em: {sanitized}");
+            }
+        }
+
+        // A leitura passa e a página respeita o teto
+        let read = execute(
+            &adapter,
+            mongo,
+            &op(r#"{"collection":"users","operation":"find","sort":{"name":1},"projection":{"_id":0,"name":1}}"#),
+            QueryOptions { limit: 2, ..QueryOptions::default() },
+        )
+        .await
+        .unwrap();
+        assert_eq!((read.row_count, read.has_more), (2, true));
+        assert_eq!(read.rows[0][0].as_deref(), Some("user 0"));
+
+        db.drop().await.unwrap();
+    }
 }

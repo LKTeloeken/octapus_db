@@ -13,13 +13,19 @@ import type {
   AttemptOutcome,
   ModelOutput,
 } from '@/api/types/assistant.types';
+import type { QueryLanguage } from '@/api/types/capabilities.types';
 import type { QueryOptions, QueryResult } from '@/api/types/query.types';
 import {
   commentTooLong,
   FEEDBACK_COMMENT_MAX,
   normalizeFeedback,
 } from '@/lib/assistant/feedback';
-import { requireDatabase, requireServerEntry } from './data';
+import {
+  CAPABILITIES,
+  findServerEntry,
+  requireDatabase,
+  requireServerEntry,
+} from './data';
 import {
   ASSISTANT_MODELS,
   assistantQuotaExhausted,
@@ -43,6 +49,10 @@ import type { MockHandler } from './handlers';
  * - "falha" → o provedor falha (`failed`, `ASSISTANT_PROVIDER_ERROR`);
  * - "cota" → gasta a cota inteira: daí em diante, `quota_exceeded`;
  * - o resto → contagem da primeira tabela do database.
+ *
+ * No Mongo (`queryLanguage: 'mongo'` das capabilities) as respostas são a
+ * operação do contrato em JSON (`find`, `aggregate`, `countDocuments`) e o
+ * código vem como comando do shell; o "erro" lê uma coleção que não existe.
  *
  * A avaliação (👍/👎) segue as regras da A8: termo aceito, turno com
  * tentativa concluída, comentário até 2000 caracteres. Para ver o "desfazer"
@@ -92,11 +102,25 @@ function autoExecute(): boolean {
   }
 }
 
-function paradigmFor(serverId: number): 'postgres' | 'sqlite' {
+type Paradigm = 'postgres' | 'sqlite' | 'mongodb';
+
+/** Como o `assistant_db_type` do Rust: decide pelas capabilities */
+function paradigmFor(serverId: number): Paradigm {
   const { dbType } = requireServerEntry(serverId).server;
-  if (dbType === 'postgres' || dbType === 'sqlite') return dbType;
-  throw `Unsupported type: the assistant does not support ${dbType} yet`;
+  if (!CAPABILITIES[dbType].supportsAssistant) {
+    throw `Unsupported type: the assistant does not support ${dbType} yet`;
+  }
+  return dbType as Paradigm;
 }
+
+/** Sem servidor (testes antigos do mock), SQL */
+function languageFor(serverId: unknown): QueryLanguage {
+  const entry =
+    typeof serverId === 'number' ? findServerEntry(serverId) : undefined;
+  return entry ? CAPABILITIES[entry.server.dbType].queryLanguage : 'sql';
+}
+
+const mongoOp = (fields: Record<string, unknown>) => JSON.stringify(fields);
 
 function requireConversation(id: string): AssistantConversation {
   const conversation = conversations.get(id);
@@ -112,8 +136,13 @@ function requireTurn(turnId: string): AssistantTurn {
   throw 'Assistant not_found: turn not found';
 }
 
-function outputFor(question: string, table: string): ModelOutput {
+function outputFor(
+  question: string,
+  table: string,
+  language: QueryLanguage,
+): ModelOutput {
   const text = question.toLowerCase();
+  const mongo = language === 'mongo';
   if (question.trim().length < 12) {
     return {
       kind: 'clarification',
@@ -121,14 +150,16 @@ function outputFor(question: string, table: string): ModelOutput {
       query: null,
       explanation: '',
       assumptions: [],
-      clarificationQuestion: `Sobre qual tabela é a pergunta? Por exemplo, "${table}".`,
+      clarificationQuestion: `Sobre qual ${mongo ? 'coleção' : 'tabela'} é a pergunta? Por exemplo, "${table}".`,
     };
   }
   if (/apag|exclu|delet|insert|cadastr|atualiz/.test(text)) {
     return {
       kind: 'code',
-      language: 'sql',
-      query: `DELETE FROM "${table}" WHERE id = 1`,
+      language,
+      query: mongo
+        ? `db.${table}.deleteOne({ _id: 1 })`
+        : `DELETE FROM "${table}" WHERE id = 1`,
       explanation: 'Remove a linha de id 1. O assistente não executa código.',
       assumptions: ['"id" identifica a linha'],
       clarificationQuestion: null,
@@ -137,8 +168,15 @@ function outputFor(question: string, table: string): ModelOutput {
   if (/lista|todos|todas/.test(text)) {
     return {
       kind: 'query',
-      language: 'sql',
-      query: `SELECT id, nome, email\nFROM "${table}"\nORDER BY id`,
+      language,
+      query: mongo
+        ? mongoOp({
+            collection: table,
+            operation: 'find',
+            projection: { nome: 1, email: 1 },
+            sort: { _id: 1 },
+          })
+        : `SELECT id, nome, email\nFROM "${table}"\nORDER BY id`,
       explanation: `Lista as linhas de ${table}, da mais antiga para a mais nova.`,
       assumptions: ['"nome" e "email" são as colunas que interessam'],
       clarificationQuestion: null,
@@ -146,8 +184,10 @@ function outputFor(question: string, table: string): ModelOutput {
   }
   return {
     kind: 'query',
-    language: 'sql',
-    query: `SELECT count(*) AS total FROM "${table}"`,
+    language,
+    query: mongo
+      ? mongoOp({ collection: table, operation: 'countDocuments', filter: {} })
+      : `SELECT count(*) AS total FROM "${table}"`,
     explanation: `Conta as linhas de ${table}.`,
     assumptions: ['Todas as linhas contam, sem filtro de data'],
     clarificationQuestion: null,
@@ -159,7 +199,13 @@ const LIST_ROWS = 450;
 const PAGE_LIMIT = 200;
 
 /** Contagem (1 linha) ou uma listagem paginada por `offset`/`limit` */
-function resultFor(query: string, offset: number, limit: number): QueryResult {
+function resultFor(
+  query: string,
+  offset: number,
+  limit: number,
+  language: QueryLanguage = 'sql',
+): QueryResult {
+  if (language === 'mongo') return mongoResultFor(query, offset, limit);
   if (/count\(/i.test(query)) {
     return {
       columns: [{ name: 'total', typeName: 'int8', typeOid: 20 }],
@@ -193,6 +239,72 @@ function resultFor(query: string, offset: number, limit: number): QueryResult {
     executionTimeMs: 18,
     editableInfo: null,
   };
+}
+
+/** O mesmo, com a cara do Mongo: `count` ou documentos com `_id` */
+function mongoResultFor(
+  query: string,
+  offset: number,
+  limit: number,
+): QueryResult {
+  if (/"countDocuments"/.test(query)) {
+    return {
+      columns: [{ name: 'count', typeName: 'long', typeOid: null }],
+      rows: offset === 0 ? [['1284']] : [],
+      rowCount: offset === 0 ? 1 : 0,
+      totalCount: null,
+      hasMore: false,
+      executionTimeMs: 9,
+      editableInfo: null,
+    };
+  }
+  const end = Math.min(LIST_ROWS, offset + limit);
+  const rows: (string | null)[][] = [];
+  for (let id = offset + 1; id <= end; id += 1) {
+    rows.push([
+      `66f1c0de${id.toString(16).padStart(16, '0')}`,
+      `Cliente ${id}`,
+      id % 7 === 0 ? null : `c${id}@exemplo.com`,
+    ]);
+  }
+  return {
+    columns: [
+      { name: '_id', typeName: 'objectId', typeOid: null },
+      { name: 'nome', typeName: 'string', typeOid: null },
+      { name: 'email', typeName: 'string', typeOid: null },
+    ],
+    rows,
+    rowCount: rows.length,
+    totalCount: null,
+    hasMore: end < LIST_ROWS,
+    executionTimeMs: 14,
+    editableInfo: null,
+  };
+}
+
+/** Estágios e operadores que o guard do Mongo recusa (`guard/mongo.rs`) */
+const MONGO_FORBIDDEN = [
+  '$out',
+  '$merge',
+  '$where',
+  '$function',
+  '$accumulator',
+];
+
+/** O guard do Mongo, simplificado: a operação do contrato e só leitura */
+function mongoGuard(text: string): string | null {
+  let op: { operation?: unknown };
+  try {
+    op = JSON.parse(text);
+  } catch {
+    return 'the operation is not a valid mongo-operation JSON';
+  }
+  const operations = ['find', 'aggregate', 'countDocuments', 'distinct'];
+  if (typeof op.operation !== 'string' || !operations.includes(op.operation)) {
+    return `operation ${JSON.stringify(op.operation)} is not allowed: use find, aggregate, countDocuments or distinct`;
+  }
+  const found = MONGO_FORBIDDEN.find(key => text.includes(`"${key}":`));
+  return found ? `${found} is not allowed` : null;
 }
 
 /** O outcome que o app mandaria à API por tentativa */
@@ -339,6 +451,7 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
     const entry = requireServerEntry(serverId as number);
     const table =
       requireDatabase(entry, database as string).tables[0]?.name ?? 'items';
+    const language = languageFor(serverId);
 
     const channel = onEvent as Channel<AssistantTurnEvent> | undefined;
     const emit = (event: AssistantTurnEvent) => channel?.onmessage(event);
@@ -365,8 +478,14 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
         await sleep(3_000);
       }
 
-      const final = outputFor(text, table);
-      const broken = { ...final, query: `SELECT nome FROM "${table}"` };
+      const final = outputFor(text, table, language);
+      const broken =
+        language === 'mongo'
+          ? {
+              ...final,
+              query: mongoOp({ collection: 'pedidos', operation: 'find' }),
+            }
+          : { ...final, query: `SELECT nome FROM "${table}"` };
       // "erro": a primeira falha e a correção passa; "esgot": todas falham
       const plan: ModelOutput[] = /esgot/i.test(text)
         ? [broken, broken, broken]
@@ -425,10 +544,16 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
             attemptId: current.id,
             stage: 'preflight',
             failureClass: 'unknown_object',
-            message: 'Query error: column "nome" does not exist',
+            message:
+              language === 'mongo'
+                ? 'Query error: collection "pedidos" does not exist'
+                : 'Query error: column "nome" does not exist',
           });
           current.outcome = outcome(null, auto, {
-            preflight: 'column ? does not exist',
+            preflight:
+              language === 'mongo'
+                ? 'NamespaceNotFound (26): collection "pedidos" does not exist'
+                : 'column ? does not exist',
           });
           if (index === plan.length - 1) status = 'exhausted';
           continue;
@@ -436,7 +561,11 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
         emit({
           type: 'plan',
           attemptId: current.id,
-          plan: { estimatedRows: 1, estimatedCost: 35.5, plan: '[]' },
+          // O Mongo não estima: só o caminho do plano vencedor
+          plan:
+            language === 'mongo'
+              ? { estimatedRows: null, estimatedCost: null, plan: 'COLLSCAN' }
+              : { estimatedRows: 1, estimatedCost: 35.5, plan: '[]' },
         });
         if (auto) {
           await sleep(STEP_MS);
@@ -444,7 +573,7 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
             status = 'cancelled';
             break;
           }
-          const result = resultFor(output.query ?? '', 0, PAGE_LIMIT);
+          const result = resultFor(output.query ?? '', 0, PAGE_LIMIT, language);
           emit({ type: 'result', attemptId: current.id, result });
           current.outcome = outcome(null, true, { rowCount: result.rowCount });
         } else {
@@ -522,12 +651,20 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
   },
 
   // Só leitura, como no Rust: o resto é recusado pelo guard
-  [RustCommand.AssistantExecute]: ({ query, page }: Args): QueryResult => {
+  [RustCommand.AssistantExecute]: ({
+    serverId,
+    query,
+    page,
+  }: Args): QueryResult => {
     const text = String(query ?? '');
-    if (!/^\s*(select|with|values)\b/i.test(text)) {
+    const language = languageFor(serverId);
+    if (language === 'mongo') {
+      const rejected = mongoGuard(text);
+      if (rejected) throw `Guard rejected: ${rejected}`;
+    } else if (!/^\s*(select|with|values)\b/i.test(text)) {
       throw 'Guard rejected: only read queries (SELECT) are allowed';
     }
     const { offset = 0, limit = PAGE_LIMIT } = (page ?? {}) as QueryOptions;
-    return resultFor(text, offset, limit);
+    return resultFor(text, offset, limit, language);
   },
 };

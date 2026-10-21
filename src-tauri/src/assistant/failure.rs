@@ -41,6 +41,7 @@ pub fn classify(error: &Error) -> Option<FailureClass> {
     match error {
         Error::GuardRejected(_) => Some(FailureClass::GuardRejected),
         Error::DbQuery { sql_state, message } => Some(classify_postgres(sql_state, message)),
+        Error::MongoQuery { code, message, .. } => Some(classify_mongo(*code, message)),
         Error::Query(message) => Some(classify_message(message)),
         Error::InvalidQuery(message) if message.contains("only one statement") => {
             Some(FailureClass::GuardRejected)
@@ -77,6 +78,36 @@ fn classify_postgres(sql_state: &str, message: &str) -> FailureClass {
         // coluna ambígua, janela…)
         state if state.starts_with("42") => FailureClass::Syntax,
         _ => FailureClass::RuntimeError,
+    }
+}
+
+/// Mongo: pelo código do servidor (`error_codes.yml` do MongoDB), e pela
+/// mensagem nos códigos genéricos (`Location<n>`) de cada operador.
+fn classify_mongo(code: i32, message: &str) -> FailureClass {
+    match code {
+        // MaxTimeMSExpired, ExceededTimeLimit
+        50 | 262 => FailureClass::Timeout,
+        // NamespaceNotFound (também o do preflight, coleção que não existe)
+        26 => FailureClass::UnknownObject,
+        // Unauthorized, erro do Atlas (permissão)
+        13 | 8000 => FailureClass::RuntimeError,
+        // TypeMismatch, ConversionFailure ($toInt, $convert…)
+        14 | 241 => FailureClass::TypeMismatch,
+        // BadValue, FailedToParse, InvalidOptions, InvalidPipelineOperator,
+        // estágio desconhecido ou mal formado, colisão de caminhos, FieldPath
+        2 | 9 | 72 | 168 | 15952 | 16410 | 16411 | 16412 | 17276 | 28646 | 31249 | 31250 | 31253
+        | 31254 | 40323 | 40324 | 40352 | 40353 => FailureClass::Syntax,
+        _ => {
+            let message = message.to_ascii_lowercase();
+            let any = |needles: &[&str]| needles.iter().any(|needle| message.contains(needle));
+            if any(&["can't convert", "cannot convert", "only supports", "unsupported conversion", "failed to parse number", "failed to parse objectid"]) {
+                FailureClass::TypeMismatch
+            } else if any(&["unrecognized", "unknown operator", "unknown top level operator", "unknown expression", "unknown argument", "unknown group operator", "invalid", "fieldpath", "path collision", "expected"]) {
+                FailureClass::Syntax
+            } else {
+                FailureClass::RuntimeError
+            }
+        }
     }
 }
 
@@ -117,7 +148,16 @@ fn classify_message(message: &str) -> FailureClass {
 /// caso não é dado do banco. `None` para erros que não são da consulta.
 pub fn sanitize(error: &Error, query: &str) -> Option<String> {
     let (sql_state, message) = match error {
-        Error::DbQuery { sql_state, message } => (Some(sql_state.as_str()), message.as_str()),
+        Error::DbQuery { sql_state, message } => (Some(sql_state.clone()), message.as_str()),
+        // Mongo: o código vem no lugar do SQLSTATE (`BadValue (2): …`)
+        Error::MongoQuery { code, code_name, message } => (
+            Some(if code_name.is_empty() {
+                code.to_string()
+            } else {
+                format!("{code_name} ({code})")
+            }),
+            message.as_str(),
+        ),
         // Mensagens do próprio guard: texto nosso, com no máximo um nome de
         // função tirado da consulta
         Error::GuardRejected(message) | Error::InvalidQuery(message) | Error::Query(message) => {
@@ -126,7 +166,7 @@ pub fn sanitize(error: &Error, query: &str) -> Option<String> {
         _ => return None,
     };
 
-    let known = query_tokens(query);
+    let known = known_tokens(query);
     let message = scrub(message, &known);
     let sanitized = match sql_state {
         Some(state) => format!("{state}: {message}"),
@@ -134,6 +174,45 @@ pub fn sanitize(error: &Error, query: &str) -> Option<String> {
         None => scrub_tail(&message, &known),
     };
     Some(truncate_chars(&sanitized, SANITIZED_MAX_CHARS))
+}
+
+/// Os tokens da consulta, em minúsculas: da operação JSON do Mongo (chaves,
+/// textos e números) ou do SQL.
+fn known_tokens(query: &str) -> Vec<String> {
+    match serde_json::from_str::<serde_json::Value>(query) {
+        Ok(value @ serde_json::Value::Object(_)) => {
+            let mut tokens = Vec::new();
+            json_tokens(&value, &mut tokens);
+            tokens
+        }
+        _ => query_tokens(query),
+    }
+}
+
+/// Chaves e textos entram inteiros, sem o `$` de caminho (`"$total"` →
+/// `total`) e por partes (`customer.name` → `customer`, `name`).
+fn json_tokens(value: &serde_json::Value, tokens: &mut Vec<String>) {
+    use serde_json::Value;
+
+    let push_text = |text: &str, tokens: &mut Vec<String>| {
+        let lower = text.to_lowercase();
+        let bare = lower.trim_start_matches('$').to_string();
+        tokens.extend(bare.split('.').filter(|part| !part.is_empty()).map(str::to_owned));
+        tokens.push(bare);
+        tokens.push(lower);
+    };
+    match value {
+        Value::Object(fields) => {
+            for (key, value) in fields {
+                push_text(key, tokens);
+                json_tokens(value, tokens);
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|item| json_tokens(item, tokens)),
+        Value::String(text) => push_text(text, tokens),
+        Value::Number(number) => tokens.push(number.to_string()),
+        Value::Bool(_) | Value::Null => {}
+    }
 }
 
 /// Os tokens da consulta (identificadores, literais e números), em minúsculas.
@@ -181,9 +260,20 @@ fn scrub(message: &str, known: &[String]) -> String {
     while i < chars.len() {
         let c = chars[i];
 
-        // Trecho entre aspas: até a aspa que fecha (ou o fim, sem vazar nada)
-        if c == '"' || c == '\'' {
-            let close = chars[i + 1..].iter().position(|&next| next == c).map(|p| i + 1 + p);
+        // Apóstrofo no meio da palavra (`can't`, `$arrayElemAt's`): não abre
+        // trecho entre aspas
+        let is_word = |c: char| c.is_alphanumeric() || c == '_';
+        let apostrophe = c == '\''
+            && i > 0
+            && is_word(chars[i - 1])
+            && chars.get(i + 1).is_some_and(|next| next.is_alphabetic());
+
+        // Trecho entre aspas: até a aspa que fecha (ou o fim, sem vazar nada).
+        // Uma aspa colada numa palavra não fecha: o valor pode ter aspas
+        // dentro (`"ab"CANARY"`), e o resto dele vazaria
+        if (c == '"' || c == '\'') && !apostrophe {
+            let close = (i + 1..chars.len())
+                .find(|&j| chars[j] == c && !chars.get(j + 1).is_some_and(|&next| is_word(next)));
             let inner_end = close.unwrap_or(chars.len());
             let inner: String = chars[i + 1..inner_end].iter().collect();
             out.push(c);
@@ -499,6 +589,88 @@ mod tests {
         assert_eq!(
             sanitize(&pg("XX000", "linha um\nlinha dois"), "SELECT 1").as_deref(),
             Some("XX000: linha um linha dois")
+        );
+    }
+
+    #[test]
+    fn quotes_inside_values_do_not_leak_the_rest() {
+        // O valor tem aspas dentro: a aspa colada no resto não fecha o trecho
+        assert_eq!(
+            sanitize(&pg("22P02", "invalid input syntax for type integer: \"ab\"CANARY_7f3a\""), "SELECT 1").as_deref(),
+            Some("22P02: invalid input syntax for type integer: \"?\"")
+        );
+        assert_eq!(
+            sanitize(&pg("22P02", "invalid input value for enum e: 'O'Brien'"), "SELECT 1").as_deref(),
+            Some("22P02: invalid input value for enum e: '?'")
+        );
+    }
+
+    // ── Mongo ───────────────────────────────────────────────────────────────
+
+    fn mongo(code: i32, code_name: &str, message: &str) -> Error {
+        Error::MongoQuery {
+            code,
+            code_name: code_name.into(),
+            message: message.into(),
+        }
+    }
+
+    #[test]
+    fn mongo_errors_by_code() {
+        use FailureClass::*;
+        let cases = [
+            (50, "MaxTimeMSExpired", "operation exceeded time limit", Timeout),
+            (26, "NamespaceNotFound", "collection \"pedidos\" does not exist", UnknownObject),
+            (2, "BadValue", "unknown operator: $bogus", Syntax),
+            (40324, "Location40324", "Unrecognized pipeline stage name: '$matc'", Syntax),
+            (168, "InvalidPipelineOperator", "Unrecognized expression '$sumx'", Syntax),
+            (241, "ConversionFailure", "Failed to parse number 'abc' in $convert with no onError value", TypeMismatch),
+            (14, "TypeMismatch", "$add only supports numeric or date types, not string", TypeMismatch),
+            (16020, "Location16020", "Expression $toLower takes exactly 1 arguments. 2 were passed in.", RuntimeError),
+            (28651, "Location28651", "can't convert from BSON type string to Date", TypeMismatch),
+            (16608, "Location16608", "can't $divide by zero", RuntimeError),
+            (13, "Unauthorized", "not authorized on shop to execute command", RuntimeError),
+        ];
+        for (code, name, message, expected) in cases {
+            assert_eq!(classify(&mongo(code, name, message)), Some(expected), "{code} {message}");
+        }
+    }
+
+    /// RN-10 no Mongo: valores do banco nunca saem; o que veio da operação
+    /// (coleção, operador, campo, literal da pergunta) pode voltar.
+    #[test]
+    fn mongo_values_never_leave() {
+        let query = r#"{"collection":"orders","operation":"aggregate","pipeline":[
+            {"$match":{"status":"pago"}},{"$project":{"n":{"$toInt":"$label"}}}]}"#;
+        let errors = [
+            mongo(241, "ConversionFailure", "Failed to parse number 'CANARY_7f3a' in $convert with no onError value: Did not consume whole string."),
+            mongo(241, "ConversionFailure", "Failed to parse objectId 'ana@example.com' in $convert with no onError value"),
+            mongo(9, "FailedToParse", "Error parsing date string '2026-13-45'; 0: passing a time zone identifier"),
+            mongo(2, "BadValue", "value \"s3cr3t\" is invalid, found 48213"),
+            mongo(241, "ConversionFailure", "Failed to parse number 'ab'CANARY_7f3a' in $convert"),
+        ];
+        for error in errors {
+            let sanitized = sanitize(&error, query).unwrap();
+            for canary in CANARIES {
+                assert!(!sanitized.contains(canary), "{canary} vazou em: {sanitized}");
+            }
+        }
+
+        assert_eq!(
+            sanitize(&mongo(26, "NamespaceNotFound", "collection \"orders\" does not exist"), query).as_deref(),
+            Some("NamespaceNotFound (26): collection \"orders\" does not exist")
+        );
+        assert_eq!(
+            sanitize(&mongo(168, "InvalidPipelineOperator", "Unrecognized expression '$toInt'"), query).as_deref(),
+            Some("InvalidPipelineOperator (168): Unrecognized expression '$toInt'")
+        );
+        assert_eq!(
+            sanitize(&mongo(2, "BadValue", "$arrayElemAt's first argument must be an array, but is 'label'"), query).as_deref(),
+            Some("BadValue (2): $arrayElemAt's first argument must be an array, but is 'label'")
+        );
+        assert_eq!(
+            sanitize(&mongo(2, "", "enum value 'pago' is invalid"), query).as_deref(),
+            Some("2: enum value 'pago' is invalid")
         );
     }
 

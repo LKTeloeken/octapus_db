@@ -95,6 +95,12 @@ No database `saas` o contexto vem recortado (`truncated`). Com a execução auto
 ligada nas Preferências vem o resultado; desligada, só o plano. `assistant_turn_cancel`
 interrompe no meio.
 
+No Mongo ("Catálogo (Atlas)", `queryLanguage: 'mongo'`) as mesmas perguntas respondem com
+a operação do contrato em JSON (`countDocuments`, `find` com ordem e projeção), o código
+vem como comando do shell e o "erro" lê a coleção `pedidos`, que não existe. A execução
+manual recusa o que o guard do Mongo recusaria (`$out`, `$merge`, `$where`…, operação de
+escrita, texto que não é a operação).
+
 ## Painel de dev
 
 Badge `MOCK` no canto inferior direito. Controla latência, injeção de erro

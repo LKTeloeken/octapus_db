@@ -41,6 +41,30 @@ pub struct RelationDetail {
     pub columns: Vec<ColumnDetail>,
 }
 
+/// Um campo de uma coleção, inferido da amostra (Mongo). Só o caminho, os
+/// tipos BSON e a presença: nenhum valor (RN-08).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldShape {
+    /// Caminho com `.` entre os níveis e `[]` nos elementos de array
+    /// (`items[].sku`); chave que parece dado vira `{key}`
+    pub path: String,
+    /// Tipos vistos, do mais comum para o menos (`string`, `null`…)
+    pub types: Vec<&'static str>,
+    /// % dos documentos da amostra que têm o campo (1 a 100)
+    pub presence: u8,
+}
+
+/// O formato de uma coleção, pela amostra aleatória (`$sample`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectionShape {
+    pub collection: String,
+    /// Documentos lidos na amostra
+    pub sampled: usize,
+    pub fields: Vec<FieldShape>,
+    /// Campos demais: ficaram os mais presentes
+    pub truncated: bool,
+}
+
 /// Uma relação candidata, com a pontuação contra a pergunta.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Candidate {

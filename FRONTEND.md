@@ -255,7 +255,7 @@ palette, dentro do `QueryProvider`.
   - **Alvo**: servidor (só os com `supportsAssistant`) e database; abrir o catálogo
     conecta. Modelo só no modo `free`, antes da 1ª pergunta; cota no rodapé (RN-23).
   - **Menções `@`** (`mentions.ts`, `mention-completion.ts`): `@schema.tabela` no
-    Postgres, `@tabela` no SQLite, completadas por `catalog_complete` em fatias (nunca a
+    Postgres, `@tabela` no SQLite e `@coleção` no Mongo, completadas por `catalog_complete` em fatias (nunca a
     estrutura inteira). Viram o `schemas` do turno: os citados na pergunta (o 1º vai no
     `search_path`), depois os das perguntas anteriores (relidos do histórico), depois o
     schema de onde a conversa abriu ou `public`.
@@ -270,6 +270,14 @@ palette, dentro do `QueryProvider`.
     resultado paginado pelo `assistant_execute` na `ResultsTable` sem `editableInfo`
     (RN-16, C-09), "Abrir no editor" (C-10), tentativas que falharam (RN-29), limite
     esgotado com a última consulta (RN-24) e cancelar (C-18, também `Esc` no campo).
+  - **Linguagem do banco** (`queryLanguage` das capabilities, nunca o `dbType`): no
+    Mongo (B8) a consulta é a operação do contrato em JSON. `lib/assistant/query-text.ts`
+    (puro) a indenta para leitura — é esse texto que vai à revisão e ao Executar —, a
+    converte no comando do shell do editor ao "Abrir no editor" (`find` com ordem,
+    salto ou limite vira `aggregate`, que o editor aceita) e dá os rótulos
+    tabela/coleção. O destaque usa o dialeto `mongo`; a revisão mostra o caminho do
+    plano (`Plano: IXSCAN …`), já que o Mongo não estima linhas. O código do Mongo vem
+    como comando do shell e passa como está.
   - **Avaliação** (B11; `turn-feedback.tsx` + `use-turn-feedback.ts`, transições puras em
     `lib/assistant/feedback.ts`): abaixo de cada turno terminado com resposta na tela e
     já no histórico do servidor, 👍 e 👎 como botões de alternar (`aria-pressed`, rótulo
@@ -367,7 +375,9 @@ produção — inclusive o `Channel` de mensagens e o plugin de updater.
   "sem URL" (`ASSISTANT_NOT_CONFIGURED`) ou "fora" (`ASSISTANT_UNAVAILABLE`); entrar com
   um convite (8+ caracteres; `REVOG…` é recusado) deixa o termo pendente até o aceite.
   A avaliação (`src/mocks/assistant-turns.ts`) segue as regras da API; para ver o
-  "desfazer" da tela, ligue "Falhar comando: próximo" no painel e clique em 👍/👎.
+  "desfazer" da tela, ligue "Falhar comando: próximo" no painel e clique em 👍/👎. No
+  servidor Mongo ("Catálogo (Atlas)", database `catalogo`) os turnos devolvem a
+  operação em JSON e a execução manual passa por um guard simplificado.
 
 **Regra de manutenção:** comando novo no backend ⇒ handler novo em
 `src/mocks/handlers.ts`, na mesma lista do `RustCommand`. Sem handler o mock rejeita

@@ -157,7 +157,8 @@ listagem inteira (com o tamanho de cada tabela) levava o backend ao OOM.
   sem schema respondem `UnsupportedType`.
 
 As fontes também respondem, só para as relações pedidas, `foreign_keys` e
-`relation_details` (contexto do assistente, ver §4 "Assistente de consulta").
+`relation_details` (SQL) e `infer_shape` (Mongo: formato por `$sample`) — contexto do
+assistente, ver §4 "Assistente de consulta".
 
 **Para mexer:** consulta nova → método em `Catalog` (`catalog/query.rs`) + comando em
 `commands/catalog.rs`; banco novo → implementar `CatalogSource` e incluir em
@@ -741,8 +742,8 @@ segura sozinha (os testes rodam cada executor com o guard desligado):
   transação `READ ONLY` não impede: sessões (`pg_terminate_backend`, `set_config`), lock
   consultivo, arquivos do servidor, `dblink`, SQL dinâmico (`query_to_xml`), sequências,
   `lo_*`; no SQLite, `load_extension`/`readfile`/`writefile`. O que o parser não entende
-  (ex.: `TABLE t`) é recusado. Recusa → `GUARD_REJECTED`; Mongo e Redis ainda sem guard →
-  `UNSUPPORTED_TYPE`.
+  (ex.: `TABLE t`) é recusado. Recusa → `GUARD_REJECTED`; o Redis ainda sem guard →
+  `UNSUPPORTED_TYPE`. O guard do Mongo está em "MongoDB" logo abaixo.
 - **Executor** (`DatabaseAdapter::execute_read_only(op, page)`, `ReadOnlyOp` em
   `adapters/read_only.rs`): a consulta vai dentro de `SELECT … FROM (\n…\n)` com
   `LIMIT`/`OFFSET` da página (teto de 1.000 linhas, `ReadOnlyLimits`) e o resultado nunca é
@@ -767,7 +768,43 @@ segura sozinha (os testes rodam cada executor com o guard desligado):
   gerada (nome de coluna, literal da pergunta); no SQLite, o que vem depois do `: `
   também. No máximo 2.000 caracteres.
 - `assistant::read_only::execute` junta guard e executor (e o `preflight`, guard e plano)
-  — é o que o orquestrador do turno chama.
+  — é o que o orquestrador do turno chama. A operação vem como `ReadOnlyOp::new(language,
+  texto)`, com a `queryLanguage` das capabilities do banco.
+
+**MongoDB** (B8). A consulta é a operação do contrato (`mongo-operation.schema.json`): um
+JSON com `collection`, `operation` (`find`, `aggregate`, `countDocuments`, `distinct`) e
+os campos de cada uma, valores em Extended JSON relaxado. O parse é estrito
+(`adapters/mongo/operation.rs`: campo desconhecido, tipo errado ou campo que não serve
+para a operação é recusado) e é o mesmo para o guard e para o executor. O `kind: code` do
+Mongo vem como comando do shell (`db.x.updateMany(…)`) e nunca roda.
+
+- **Guard** (`assistant/guard/mongo.rs`, falha fechado): operação de leitura pelo mesmo
+  `MongoCommand::is_write` do editor; estágios do pipeline por **allowlist**, também nos
+  sub-pipelines de `$lookup`, `$unionWith` e `$facet` (`$out`/`$merge` escrevem; os de
+  administração, como `$currentOp`, `$collStats`, `$changeStream`, e estágio
+  desconhecido ficam de fora); `$where`, `$function`, `$accumulator` e valor BSON de
+  código em qualquer profundidade; coleções `system.*`, com `$` ou de outro database
+  (`from: {db, coll}`). As mensagens nunca repetem valor do filtro.
+- **Executor** (`adapters/mongo/read_only.rs`): o Mongo não tem transação de leitura,
+  então o comando sai do tipo da operação (nada de texto do shell) e um pipeline com
+  `$out`/`$merge` é recusado ali mesmo, sem o guard. `maxTimeMS` de 30 s em todo comando
+  (mais 5 s de teto no app), página por `skip`/`limit` dentro do `skip`/`limit` que o
+  modelo pediu (`find`) ou por `$skip`/`$limit` no fim do pipeline, teto de 1.000
+  documentos, resultado sem `editableInfo`. O cancelamento larga a operação (o driver não
+  tem cancel request) e o servidor para no `maxTimeMS`.
+- **Preflight:** confere que as coleções lidas existem (no Mongo, ler coleção que não
+  existe devolve vazio, sem erro: o preflight responde `NamespaceNotFound`) e roda
+  `explain` com `verbosity: "queryPlanner"`, que planeja sem executar. O `ReadOnlyPlan`
+  traz só o caminho do plano vencedor (`IXSCAN status_1 → FETCH`), sem estimativa.
+- **Falha:** os erros do servidor saem como `Error::MongoQuery { code, codeName, message }`
+  (`QUERY_ERROR` para o front). `classify` decide pelo código (50/262 tempo, 26 objeto,
+  14/241 tipo, `BadValue`/`FailedToParse`/estágio desconhecido sintaxe) e, nos códigos
+  genéricos de cada operador, pela mensagem. `sanitize` manda `CodeName (n): mensagem`
+  com a mesma troca por `?`, e os tokens conhecidos vêm do JSON da operação (chaves,
+  textos sem o `$`, partes de caminho, números). Aspa colada numa palavra (apóstrofo,
+  aspa dentro do valor) não abre nem fecha o trecho — o que vale também para o SQL.
+- **Estrutura** (`adapters/mongo/shape.rs` + `assistant/shape_context.rs`): ver o
+  contexto da estrutura abaixo.
 
 **Contexto da estrutura** (`assistant/schema_context.rs`, RN-26): o DDL que vai ao modelo
 com a pergunta, sem nunca carregar a estrutura inteira.
@@ -782,6 +819,19 @@ com a pergunta, sem nunca carregar a estrutura inteira.
   pela faixa de prioridade do `CatalogService`): chaves estrangeiras entre relações do
   escopo (no Postgres pelo índice de `conrelid`, com teto de 1.000) e colunas com tipo,
   nulo, chave primária e comentários. Mongo e Redis: `UNSUPPORTED_TYPE`.
+- **Mongo** (`assistant/shape_context.rs`): sem colunas nem chaves estrangeiras. As
+  coleções vêm do mesmo ranking (`context_candidates` no `FLAT_SCHEMA`) e só as 12
+  primeiras são amostradas por `CatalogSource::infer_shape`: um `$sample` de 100
+  documentos por coleção, na conexão dedicada do catálogo (duas por vez, `maxTimeMS` de
+  3 s; a que falha fica só pelo nome). `shape::infer` tira caminhos aninhados
+  (`customer.name`, `items[].sku`), os tipos BSON vistos e a % de presença, e **descarta
+  os documentos ali mesmo** (RN-08). Chave que parece dado vira `{key}`: pelo formato
+  (número, UUID, ObjectId/hex, e-mail, data, mais de 64 caracteres) ou pelo uso (objeto
+  com mais de 20 chaves, cada uma em menos da metade dos documentos, é mapa). Até 120
+  campos por coleção (ficam os mais presentes), 6 níveis. Formato:
+  `collection "orders" (100 sampled documents):` e uma linha por campo
+  (`"items[].qty" int|double 100%`), no mesmo orçamento e com a mesma linha final
+  (`-- Other collections (fields not shown): …`). O `list_columns` da árvore não muda.
 - **Formato:** `CREATE TABLE "schema"."tabela" (…)` com `NOT NULL`, `PRIMARY KEY`,
   `REFERENCES` (compostas numa linha própria), views como `CREATE VIEW`, em ordem de
   schema e nome. Nomes sempre entre aspas (caractere de controle vira `\u{…}`) e
@@ -796,7 +846,8 @@ com a pergunta, sem nunca carregar a estrutura inteira.
 
 **Prompts, mensagens e resposta** (B5):
 
-- **Prompts** em `src-tauri/prompts/<paradigma>-v<n>.txt` (`postgres-v1`, `sqlite-v1`),
+- **Prompts** em `src-tauri/prompts/<paradigma>-v<n>.txt` (`postgres-v1`, `sqlite-v1`,
+  `mongodb-v1`),
   embutidos com `include_str!` (`assistant/prompts.rs`). A API confere o SHA-256 dos bytes
   exatos da mensagem `system` contra o prompt registrado com o mesmo id: registre **o
   próprio arquivo** no dashboard (Prompts → enviar arquivo, com o paradigma). Texto
@@ -849,7 +900,8 @@ só-leitura; com `attemptId`, a primeira página completa o outcome guardado em 
 (nunca em disco) e manda de novo. E2E com a API de verdade (gasta tokens):
 `OCTAPUS_E2E_ASSISTANT_URL=… OCTAPUS_E2E_INVITE=… cargo test --lib
 commands::assistant::e2e -- --ignored --nocapture`. E2E: `cargo test --lib read_only -- --include-ignored`
-  (Postgres dos e2e; o SQLite usa arquivo temporário).
+  (Postgres e Mongo dos e2e; o SQLite usa arquivo temporário) e `cargo test --lib
+  shape_context -- --ignored` (contexto do Mongo com canários).
 
 ### Diagnóstico
 

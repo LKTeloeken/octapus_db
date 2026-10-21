@@ -233,7 +233,7 @@ pub async fn assistant_turn_ask(
             question: question.clone(),
             prompt,
             db_type,
-            expected_language: QueryLanguage::Sql,
+            expected_language: query_language(db_type),
             schema,
             history,
             context_window,
@@ -297,7 +297,7 @@ pub async fn assistant_execute(
 ) -> Result<QueryResult> {
     let db_type = assistant_db_type(&state, server_id)?;
     let adapter = connect_adapter(&state, server_id, &database).await?;
-    let op = ReadOnlyOp::Sql(query.clone());
+    let op = ReadOnlyOp::new(query_language(db_type), query.clone());
     let offset = page.offset;
 
     let started = std::time::Instant::now();
@@ -411,8 +411,13 @@ fn assistant_db_type(state: &State<'_, AppState>, server_id: i64) -> Result<Data
     Ok(db_type)
 }
 
-/// Os schemas da conversa: no SQLite, o schema sem nome; no Postgres, os
-/// pedidos (sem repetir) ou o `public`.
+/// Em que linguagem o assistente escreve para o banco (capabilities).
+fn query_language(db_type: DatabaseType) -> QueryLanguage {
+    AdapterCapabilities::for_db_type(db_type).map_or(QueryLanguage::Sql, |caps| caps.query_language)
+}
+
+/// Os schemas da conversa: no SQLite e no Mongo, o schema sem nome; no
+/// Postgres, os pedidos (sem repetir) ou o `public`.
 fn conversation_schemas(db_type: DatabaseType, requested: Option<Vec<String>>) -> Vec<String> {
     if db_type != DatabaseType::Postgres {
         return vec![FLAT_SCHEMA.to_string()];

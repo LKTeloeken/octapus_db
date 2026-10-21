@@ -7,29 +7,38 @@
 //! coleções em que tem permissão). O tamanho fica para a coleção aberta
 //! (`$collStats`); em massa ele custava 49 s para 5.000 coleções em rede
 //! remota (`perf/catalog/BASELINE.md`, H8).
+//!
+//! O formato das coleções para o assistente (`infer_shape`) também vem daqui,
+//! na mesma conexão dedicada: uma amostra `$sample` por coleção escolhida,
+//! com `maxTimeMS`, e os documentos descartados assim que o formato sai
+//! (`shape.rs`, RN-08).
 
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use futures_util::TryStreamExt;
+use futures_util::{StreamExt, TryStreamExt};
 use mongodb::bson::{doc, Document};
 use mongodb::{Client, Database};
 use parking_lot::RwLock;
 use tokio::sync::Notify;
 
 use crate::catalog::{
-    stable_hash, sync_flat, Catalog, CatalogSource, RelKind, SourceCanceller, SyncEvent,
-    SyncReport, TableRecord, FLAT_SCHEMA,
+    stable_hash, sync_flat, Catalog, CatalogSource, CollectionShape, RelKind, SourceCanceller,
+    SyncEvent, SyncReport, TableRecord, FLAT_SCHEMA,
 };
 use crate::error::{Error, Result};
 use crate::models::Server;
 
 use super::metadata::collection_size;
+use super::shape::{self, SAMPLE_SIZE};
 
 /// Conexões do cliente dedicado: uma faixa faz uma operação por vez
 const POOL_SIZE: u32 = 2;
+/// Tempo de servidor de uma amostra (`maxTimeMS`): numa view cara, a coleção
+/// fica de fora do contexto em vez de segurar o turno.
+const SAMPLE_TIME: Duration = Duration::from_secs(3);
 
 pub struct MongoSource {
     client: Client,
@@ -101,6 +110,35 @@ impl MongoSource {
     }
 }
 
+/// Amostra aleatória da coleção → formato. `None` quando a amostra falha
+/// (tempo, permissão): o erro vai para o log só pelo código.
+async fn sample_shape(db: &Database, collection: &str) -> Option<CollectionShape> {
+    let sample = async {
+        let mut cursor = db
+            .collection::<Document>(collection)
+            .aggregate(vec![doc! { "$sample": { "size": SAMPLE_SIZE } }])
+            .max_time(SAMPLE_TIME)
+            .batch_size(SAMPLE_SIZE as u32)
+            .await?;
+        let mut docs = Vec::new();
+        while let Some(document) = cursor.try_next().await? {
+            docs.push(document);
+            if docs.len() as i64 >= SAMPLE_SIZE {
+                break;
+            }
+        }
+        Ok::<_, mongodb::error::Error>(docs)
+    };
+    match sample.await {
+        // Os documentos morrem aqui: só o formato segue
+        Ok(docs) => Some(shape::infer(collection, &docs)),
+        Err(error) => {
+            log::info!("catálogo mongo: amostra de coleção falhou ({})", Error::from(error).code());
+            None
+        }
+    }
+}
+
 /// `{ name, type }` do `listCollections` → relação. Views viram view; coleção
 /// comum e timeseries, tabela.
 fn collection_record(spec: &Document) -> Option<TableRecord> {
@@ -164,6 +202,20 @@ impl CatalogSource for MongoSource {
 
     async fn relation_size(&mut self, _schema: &str, table: &str) -> Result<Option<i64>> {
         Ok(collection_size(&self.db(), table).await)
+    }
+
+    async fn infer_shape(&mut self, collections: &[String]) -> Result<Vec<CollectionShape>> {
+        let db = self.db();
+        let work = async {
+            // Duas amostras por vez (as conexões do cliente), na ordem pedida
+            let samples: Vec<_> = collections.iter().map(|collection| sample_shape(&db, collection)).collect();
+            let shapes: Vec<Option<CollectionShape>> = futures_util::stream::iter(samples)
+                .buffered(POOL_SIZE as usize)
+                .collect()
+                .await;
+            Ok(shapes.into_iter().flatten().collect())
+        };
+        self.cancellable(work).await
     }
 
     fn canceller(&self) -> Box<dyn SourceCanceller> {

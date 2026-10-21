@@ -42,16 +42,23 @@ const SQLITE_V1: Prompt = Prompt {
     text: include_str!("../../prompts/sqlite-v1.txt"),
 };
 
+const MONGODB_V1: Prompt = Prompt {
+    version: "mongodb-v1",
+    paradigm: "mongodb",
+    text: include_str!("../../prompts/mongodb-v1.txt"),
+};
+
 /// Todos os prompts que este build conhece.
 #[cfg(test)]
-pub const ALL: [Prompt; 2] = [POSTGRES_V1, SQLITE_V1];
+pub const ALL: [Prompt; 3] = [POSTGRES_V1, SQLITE_V1, MONGODB_V1];
 
 /// O prompt em uso para o banco. `None` = o assistente ainda não atende o
-/// paradigma (Mongo e Redis entram com as partes B8 e B9).
+/// paradigma (o Redis entra com a parte B9).
 pub fn for_db(db_type: DatabaseType) -> Option<Prompt> {
     match db_type {
         DatabaseType::Postgres => Some(POSTGRES_V1),
         DatabaseType::Sqlite => Some(SQLITE_V1),
+        DatabaseType::Mongodb => Some(MONGODB_V1),
         _ => None,
     }
 }
@@ -74,9 +81,10 @@ mod tests {
     /// Os hashes registrados (ou a registrar) no dashboard. Mudou o texto?
     /// Este teste falha: crie uma versão nova do arquivo em vez de editar a
     /// antiga — a API recusaria o texto editado com `prompt_not_registered`.
-    const REGISTERED: [(&str, &str); 2] = [
+    const REGISTERED: [(&str, &str); 3] = [
         ("postgres-v1", "283ab7d457abafce41bcb2795c8fe5ae71810da48d7ec3d2bee5c551ec653755"),
         ("sqlite-v1", "6a46cc1011b1a10a7eeb20d5e0601adbb8ba38ec78a78b92038dbc13f3fca73c"),
+        ("mongodb-v1", "7d7e35fe891ba078e5f741deaec9aa58fd427666c9dad05da88caa54341dfb0e"),
     ];
 
     #[test]
@@ -105,7 +113,8 @@ mod tests {
         }
         assert_eq!(for_db(DatabaseType::Postgres).unwrap().paradigm, "postgres");
         assert_eq!(for_db(DatabaseType::Sqlite).unwrap().paradigm, "sqlite");
-        assert!(for_db(DatabaseType::Mongodb).is_none());
+        assert_eq!(for_db(DatabaseType::Mongodb).unwrap().paradigm, "mongodb");
+        assert!(for_db(DatabaseType::Redis).is_none());
         assert_eq!(paradigm(DatabaseType::Mongodb), Some("mongodb"));
     }
 }

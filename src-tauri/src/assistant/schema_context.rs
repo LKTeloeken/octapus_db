@@ -9,6 +9,9 @@
 //! Nomes e comentários vêm do banco do usuário e são **dado**, nunca instrução
 //! (RN-22): nomes sempre entre aspas duplas (escapadas), comentários entre
 //! `«` e `»`, numa linha só. O prompt da B5 explica a convenção ao modelo.
+//!
+//! O Mongo não tem colunas nem chaves estrangeiras: as coleções escolhidas
+//! vão com o formato inferido de uma amostra (`shape_context.rs`).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -70,6 +73,9 @@ pub async fn build(
     db_type: DatabaseType,
     request: ContextRequest<'_>,
 ) -> Result<SchemaContext> {
+    if db_type == DatabaseType::Mongodb {
+        return super::shape_context::build(catalogs, entry, request).await;
+    }
     catalogs.ensure_schemas(entry, request.schemas).await?;
     let (candidates, total_schemas) = {
         let catalog = entry.read();
@@ -200,7 +206,7 @@ pub fn render(input: &Render<'_>) -> SchemaContext {
         .iter()
         .filter(|candidate| !with_columns.contains(&(candidate.schema.as_str(), candidate.table.as_str())))
         .collect();
-    let others_line = others_line(&others, budget_chars.saturating_sub(used));
+    let others_line = others_line(&others, budget_chars.saturating_sub(used), ("tables", "columns"));
 
     included.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
     let mut ddl = header;
@@ -355,13 +361,14 @@ fn fit_columns(detail: &RelationDetail, kind: RelKind, foreign_keys: &[ForeignKe
 }
 
 /// `-- Other tables (columns not shown): "a", "b" … and N more` dentro do
-/// espaço que sobrou; `None` sem outras ou sem espaço nem para uma.
-fn others_line(others: &[&Candidate], room: usize) -> Option<String> {
+/// espaço que sobrou; `None` sem outras ou sem espaço nem para uma. `labels`:
+/// o nome das relações e das partes delas (`("collections", "fields")`).
+pub(super) fn others_line(others: &[&Candidate], room: usize, labels: (&str, &str)) -> Option<String> {
     if others.is_empty() {
         return None;
     }
-    let prefix = "-- Other tables (columns not shown): ";
-    let mut line = prefix.to_string();
+    let (relations, parts) = labels;
+    let mut line = format!("-- Other {relations} ({parts} not shown): ");
     let mut listed = 0;
     for (index, candidate) in others.iter().enumerate() {
         let name = qualified(&candidate.schema, &candidate.table);
@@ -376,7 +383,8 @@ fn others_line(others: &[&Candidate], room: usize) -> Option<String> {
         listed += 1;
     }
     if listed == 0 {
-        return (room >= 40).then(|| format!("-- {} other table(s) not shown", others.len()));
+        let singular = relations.trim_end_matches('s');
+        return (room >= 40).then(|| format!("-- {} other {singular}(s) not shown", others.len()));
     }
     if listed < others.len() {
         line.push_str(&format!(" … and {} more", others.len() - listed));
@@ -394,7 +402,7 @@ fn reference(fk: &ForeignKey) -> String {
     }
 }
 
-fn qualified(schema: &str, table: &str) -> String {
+pub(super) fn qualified(schema: &str, table: &str) -> String {
     if schema == FLAT_SCHEMA {
         quote_ident(table)
     } else {
@@ -405,7 +413,7 @@ fn qualified(schema: &str, table: &str) -> String {
 /// Identificador entre aspas duplas (as de dentro dobradas) e numa linha só:
 /// caractere de controle vira `\u{…}`, para um nome não quebrar a estrutura
 /// do texto nem se passar por instrução.
-fn quote_ident(name: &str) -> String {
+pub(super) fn quote_ident(name: &str) -> String {
     format!("\"{}\"", clean(name).replace('"', "\"\""))
 }
 

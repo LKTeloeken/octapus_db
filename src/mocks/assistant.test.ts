@@ -250,6 +250,66 @@ describe('assistente no mock', () => {
       ).rejects.toMatchObject({ code: 'GUARD_REJECTED' });
     });
 
+    it('Mongo: operação do contrato, código do shell e guard na execução', async () => {
+      const mongo = (await route(RustCommand.AssistantConversationCreate, {
+        serverId: 2,
+        modelId: null,
+        title: null,
+      })) as AssistantConversationSummary;
+      expect(mongo.paradigm).toBe('mongodb');
+
+      const events: AssistantTurnEvent[] = [];
+      const finish = (await route(RustCommand.AssistantTurnAsk, {
+        serverId: 2,
+        database: 'catalogo',
+        conversationId: mongo.id,
+        question: 'quantos produtos existem no catálogo?',
+        clientTurnId: 'turn-mongo',
+        onEvent: {
+          onmessage: (event: AssistantTurnEvent) => events.push(event),
+        },
+      })) as AssistantTurnFinish;
+      expect(finish.status).toBe('answered');
+      expect(finish.output?.language).toBe('mongo');
+      expect(JSON.parse(finish.output?.query ?? '')).toMatchObject({
+        collection: 'produtos',
+        operation: 'countDocuments',
+      });
+
+      const code = (await route(RustCommand.AssistantTurnAsk, {
+        serverId: 2,
+        database: 'catalogo',
+        conversationId: mongo.id,
+        question: 'apagar o primeiro produto da lista',
+        clientTurnId: 'turn-mongo-2',
+      })) as AssistantTurnFinish;
+      expect(code.output?.query).toMatch(/^db\.produtos\.deleteOne/);
+
+      const page = { offset: 0, limit: 200 };
+      const listed = (await route(RustCommand.AssistantExecute, {
+        serverId: 2,
+        query: JSON.stringify({ collection: 'produtos', operation: 'find' }),
+        page,
+      })) as QueryResult;
+      expect(listed.columns[0]).toMatchObject({
+        name: '_id',
+        typeName: 'objectId',
+      });
+      for (const query of [
+        JSON.stringify({
+          collection: 'produtos',
+          operation: 'aggregate',
+          pipeline: [{ $out: 'x' }],
+        }),
+        JSON.stringify({ collection: 'produtos', operation: 'deleteMany' }),
+        'db.produtos.find({})',
+      ]) {
+        await expect(
+          route(RustCommand.AssistantExecute, { serverId: 2, query, page }),
+        ).rejects.toMatchObject({ code: 'GUARD_REJECTED' });
+      }
+    });
+
     it('avaliação: grava, troca, remove e volta na conversa', async () => {
       const { id } = await conversation();
       const { finish } = await ask(id, 'quantos itens existem no estoque?');

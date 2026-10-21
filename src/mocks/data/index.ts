@@ -49,7 +49,7 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsSchemaCompare: false,
     supportsBackup: false,
     supportsAtomicSave: true,
-    supportsAssistant: false,
+    supportsAssistant: true,
     queryLanguage: 'mongo',
   },
   redis: {

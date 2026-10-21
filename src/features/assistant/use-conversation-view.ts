@@ -19,6 +19,7 @@ import {
   useCreateAssistantConversation,
 } from '@/queries/use-assistant-conversations';
 import { useDbCapabilities } from '@/queries/use-capabilities';
+import { relationNouns } from '@/lib/assistant/query-text';
 import { isFlatCatalog, useCatalogStatus } from '@/queries/use-catalog';
 import { useServers } from '@/queries/use-servers';
 import { useSettings } from '@/queries/use-settings';
@@ -87,6 +88,8 @@ export const useConversationView = ({
   const server = servers?.find(item => item.id === target?.serverId) ?? null;
   const caps = server ? capsByType[server.dbType] : undefined;
   const flat = isFlatCatalog(caps);
+  // Em que o assistente escreve para este banco (SQL, operação Mongo…)
+  const queryLanguage = caps?.queryLanguage ?? null;
 
   // Abrir o catálogo conecta o database e deixa as menções prontas
   const catalog = useCatalogStatus(target?.serverId, target?.database, {
@@ -237,6 +240,8 @@ export const useConversationView = ({
     target,
     server,
     flat,
+    queryLanguage,
+    nouns: relationNouns(queryLanguage),
     catalogError: catalog.isError,
     conversation: conversation.data ?? null,
     // Na 1ª pergunta a conversa acabou de nascer: o turno ao vivo já está na tela

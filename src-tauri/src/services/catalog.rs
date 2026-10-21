@@ -24,7 +24,7 @@ use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 
 use crate::catalog::{
     common_relations, compare_schemas, stable_hash, Catalog, CatalogKey, CatalogSource,
-    CatalogStore, ForeignKey, LoadState, Loaded, RelationDetail, SchemaComparison, SearchHit,
+    CatalogStore, CollectionShape, ForeignKey, LoadState, Loaded, RelationDetail, SchemaComparison, SearchHit,
     SourceCanceller, Strategy, SyncEvent, SyncReport,
 };
 use crate::error::{Error, Result};
@@ -522,6 +522,19 @@ impl CatalogService {
         let mut lane = entry.priority_lane.lock().await;
         let source = open_lane(entry, &mut lane).await?;
         let result = source.relation_details(relations).await;
+        if result.is_err() && source.is_closed() {
+            *lane = None;
+        }
+        result
+    }
+
+    /// O formato das coleções escolhidas (Mongo), pela faixa de prioridade
+    /// (contexto do assistente).
+    pub async fn infer_shape(&self, entry: &Arc<CatalogEntry>, collections: &[String]) -> Result<Vec<CollectionShape>> {
+        entry.touch();
+        let mut lane = entry.priority_lane.lock().await;
+        let source = open_lane(entry, &mut lane).await?;
+        let result = source.infer_shape(collections).await;
         if result.is_err() && source.is_closed() {
             *lane = None;
         }

@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 
 use super::base::Catalog;
 use super::columns::RelationColumns;
-use super::context::{ForeignKey, RelationDetail};
+use super::context::{CollectionShape, ForeignKey, RelationDetail};
 use super::model::{LoadState, SchemaDiff, SchemaHeader, TableRecord};
 use crate::error::{Error, Result};
 
@@ -101,6 +101,16 @@ pub trait CatalogSource: Send {
     async fn relation_details(&mut self, _relations: &[(String, String)]) -> Result<Vec<RelationDetail>> {
         Err(Error::UnsupportedType(
             "relation details are only read for SQL databases".into(),
+        ))
+    }
+
+    /// O formato de cada coleção pedida (Mongo), por uma amostra aleatória
+    /// de documentos, na ordem pedida; a que falhou (tempo, permissão) fica
+    /// de fora. Os valores ficam na fonte (RN-08): sai só caminho, tipo e
+    /// presença. Só das escolhidas para o contexto do assistente.
+    async fn infer_shape(&mut self, _collections: &[String]) -> Result<Vec<CollectionShape>> {
+        Err(Error::UnsupportedType(
+            "shapes are only inferred for document databases".into(),
         ))
     }
 

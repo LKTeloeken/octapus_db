@@ -97,7 +97,8 @@ export function ConversationView({
               Pergunte sobre o banco
             </p>
             <p className="text-body text-fg-muted">
-              Em português ou inglês. Cite tabelas com @ — por exemplo,
+              Em português ou inglês. Cite {conversation.nouns.many} com @ — por
+              exemplo,
               {conversation.flat ? ' @pedidos' : ' @public.pedidos'}. O modelo
               vê só a estrutura, nunca os dados.
             </p>
@@ -111,6 +112,7 @@ export function ConversationView({
                 conversationId={conversation.conversation?.id ?? null}
                 target={conversation.target}
                 flat={conversation.flat}
+                queryLanguage={conversation.queryLanguage}
                 onCancel={conversation.cancelTurn}
                 isCancelling={conversation.isCancelling}
               />
@@ -131,7 +133,8 @@ export function ConversationView({
             completionSource={composer.completionSource}
             mentionPattern={composer.mentionPattern}
             placeholderText={
-              conversation.blockedReason ?? 'Pergunte algo… (@ cita uma tabela)'
+              conversation.blockedReason ??
+              `Pergunte algo… (@ cita uma ${conversation.nouns.one})`
             }
             disabled={!!conversation.blockedReason}
             focusRequest={conversation.focusRequest}

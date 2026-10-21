@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip/tooltip';
 import type { ReadOnlyPlan } from '@/api/types/assistant.types';
+import type { QueryLanguage } from '@/api/types/capabilities.types';
 import type { QueryState } from './use-turn-card';
 
 const STATE_BADGE: Record<
@@ -30,6 +31,8 @@ const numberFormat = new Intl.NumberFormat('pt-BR', {
 interface QueryBlockProps {
   /** `code` = código que nunca é executado (RN-14) */
   kind: 'query' | 'code';
+  /** Linguagem do banco: decide o destaque de sintaxe */
+  language: QueryLanguage | null;
   text: string;
   onChange?: (text: string) => void;
   /** Editável só na revisão (RN-13) */
@@ -51,6 +54,7 @@ interface QueryBlockProps {
  */
 export function QueryBlock({
   kind,
+  language,
   text,
   onChange,
   editable,
@@ -102,7 +106,7 @@ export function QueryBlock({
       <QueryEditor
         value={text}
         onChange={onChange ?? (() => {})}
-        dialect="postgres"
+        dialect={language === 'mongo' ? 'mongo' : 'postgres'}
         readOnly={!editable}
         height="auto"
         maxHeight="240px"
@@ -118,7 +122,10 @@ export function QueryBlock({
                 (plan.estimatedCost != null
                   ? `, custo ${numberFormat.format(plan.estimatedCost)}`
                   : '')
-              : 'Revise a consulta antes de executar.'}
+              : language === 'mongo' && plan?.plan
+                ? // O Mongo não estima linhas: o caminho do plano (índice ou varredura)
+                  `Plano: ${plan.plan}`
+                : 'Revise a consulta antes de executar.'}
           </span>
           <Button size="xs" onClick={onExecute} disabled={!canExecute}>
             <HugeiconsIcon icon={PlayIcon} />

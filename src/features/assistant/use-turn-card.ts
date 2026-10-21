@@ -1,7 +1,13 @@
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
+import type { QueryLanguage } from '@/api/types/capabilities.types';
 import type { QueryResult } from '@/api/types/query.types';
+import {
+  editorText,
+  formatQueryText,
+  relationNouns,
+} from '@/lib/assistant/query-text';
 import { useExecuteAssistantQuery } from '@/queries/use-assistant-conversations';
 import {
   useAssistantStore,
@@ -35,11 +41,14 @@ export const useTurnCard = ({
   conversationId,
   target,
   flat,
+  queryLanguage,
 }: {
   turn: ConversationTurn;
   conversationId: string | null;
   target: AssistantTarget | null;
   flat: boolean;
+  /** Linguagem do banco (capabilities): no Mongo, a operação em JSON */
+  queryLanguage: QueryLanguage | null;
 }) => {
   const { view, schemas } = turn;
   const attemptId = view.attemptId;
@@ -50,7 +59,8 @@ export const useTurnCard = ({
   const openQueryTab = useTabsStore(state => state.openQueryTab);
   const executeQuery = useExecuteAssistantQuery();
 
-  const generated = view.output?.query ?? '';
+  // Indentada para ler (no Mongo, o JSON da operação); é esta que roda
+  const generated = formatQueryText(queryLanguage, view.output?.query ?? '');
   // A consulta da revisão é editável; começa como o modelo gerou
   const [draft, setDraft] = useState(generated);
   useEffect(() => {
@@ -158,10 +168,11 @@ export const useTurnCard = ({
         database: target.database,
         schema: searchPath,
         title: 'Assistente',
-        content: text,
+        // No Mongo, o comando que o editor roda (`db.<coleção>.find(…)`)
+        content: editorText(queryLanguage, text),
       });
     },
-    [openQueryTab, target, searchPath],
+    [openQueryTab, target, searchPath, queryLanguage],
   );
 
   const copy = useCallback(async (text: string) => {
@@ -200,5 +211,6 @@ export const useTurnCard = ({
     openInEditor,
     copy,
     canOpenInEditor: !!target,
+    nouns: relationNouns(queryLanguage),
   };
 };

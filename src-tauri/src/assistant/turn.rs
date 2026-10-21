@@ -314,7 +314,7 @@ async fn run_query(
     emit: &(dyn Fn(AssistantTurnEvent) + Send + Sync),
     cancel: &CancelFlag,
 ) -> QueryEnd {
-    let op = ReadOnlyOp::Sql(query.to_string());
+    let op = ReadOnlyOp::new(setup.expected_language, query);
     let mut outcome = AttemptOutcome {
         guard: GuardResult {
             allowed: true,
@@ -630,6 +630,7 @@ mod tests {
         /// A execução fica pendurada até o cancelamento
         hang: bool,
         executed: Mutex<Vec<String>>,
+        languages: Mutex<Vec<QueryLanguage>>,
         cancelled: Mutex<Vec<String>>,
         released: tokio::sync::Notify,
     }
@@ -648,8 +649,9 @@ mod tests {
         }
 
         async fn execute(&self, op: &ReadOnlyOp, _: QueryOptions) -> Result<QueryResult> {
-            let ReadOnlyOp::Sql(sql) = op else { unreachable!() };
-            self.executed.lock().push(sql.clone());
+            let (ReadOnlyOp::Sql(text) | ReadOnlyOp::Mongo(text) | ReadOnlyOp::RedisPlan(text)) = op;
+            self.executed.lock().push(text.clone());
+            self.languages.lock().push(op.language());
             if self.hang {
                 self.released.notified().await;
                 return Err(Error::Query("canceling statement due to user request".into()));
@@ -740,6 +742,47 @@ mod tests {
     }
 
     // ── Casos ───────────────────────────────────────────────────────────────
+
+    /// Mongo: a operação vai como `ReadOnlyOp::Mongo`; o guard recusa o
+    /// `$out` e a correção leva a mensagem dele ao modelo.
+    #[tokio::test]
+    async fn mongo_turn_guards_then_runs_the_operation() {
+        let mongo = |query: &str| {
+            let mut value = output("query", Some(query));
+            value["language"] = json!("mongo");
+            value
+        };
+        let write = r#"{"collection":"orders","operation":"aggregate","pipeline":[{"$out":"copy"}]}"#;
+        let read = r#"{"collection":"orders","operation":"countDocuments","filter":{}}"#;
+        let api = FakeApi::new(vec![
+            // SQL numa conversa de Mongo: fora do contrato no app
+            Scripted::Output(output("query", Some("SELECT count(*) FROM orders"))),
+            Scripted::Output(mongo(write)),
+            Scripted::Output(mongo(read)),
+        ]);
+        let db = FakeDb::default();
+        let mut setup = setup(true);
+        setup.prompt = prompts::for_db(DatabaseType::Mongodb).unwrap();
+        setup.db_type = DatabaseType::Mongodb;
+        setup.expected_language = QueryLanguage::Mongo;
+
+        let run = run(&api, &db, &setup, &CancelFlag::default()).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Answered);
+        assert_eq!(*db.executed.lock(), [read]);
+        assert_eq!(*db.languages.lock(), [QueryLanguage::Mongo]);
+        let outcomes = api.outcomes.lock();
+        assert_eq!(outcomes[0].1.guard.reason.as_deref(), Some("invalid_output"));
+        assert_eq!(outcomes[1].1.guard.reason.as_deref(), Some("write_stage"));
+        assert!(outcomes[2].1.execution.ok == Some(true));
+        let requests = api.requests.lock();
+        assert_eq!(requests[0].prompt_version, "mongodb-v1");
+        let correction = &requests[2].messages.last().unwrap().content;
+        assert!(
+            correction.contains("class=\"guard_rejected\">\n$out writes to the database and is not allowed"),
+            "{correction}"
+        );
+    }
 
     #[tokio::test]
     async fn answers_and_executes_with_auto_execute() {
