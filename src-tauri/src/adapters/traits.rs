@@ -82,9 +82,12 @@ pub trait DatabaseAdapter: Send + Sync {
     }
 
     /// Os padrões de nomenclatura das chaves de uma amostra, com o `TYPE` de
-    /// cada um (Redis, o contexto do assistente). Nenhuma chave completa nem
-    /// valor sai daqui (RN-09): só o padrão generalizado.
-    async fn sample_key_patterns(&self) -> Result<KeyPatterns> {
+    /// cada um (Redis, o contexto do assistente). Com `pattern` (um `MATCH`
+    /// de `patterns::prefix_match`), só as chaves que casam — o pedido de
+    /// estrutura do modelo. Nenhuma chave completa nem valor sai daqui
+    /// (RN-09): só o padrão generalizado.
+    async fn sample_key_patterns(&self, pattern: Option<&str>) -> Result<KeyPatterns> {
+        let _ = pattern;
         Err(Error::UnsupportedType(
             "key patterns are only sampled for key-value databases".into(),
         ))

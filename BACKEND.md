@@ -701,7 +701,7 @@ consulta de leitura que gerou; desligado, ela fica para revisão.
 | `assistant_feedback_set` | `{ turnId, feedback: AssistantFeedbackInput }` (`{ rating, reasons, comment, attemptId }`) | `void` — avalia o turno (👍/👎, B11); repetir sobrescreve |
 | `assistant_feedback_clear` | `{ turnId }` | `void` — remove a avaliação (sem avaliação não é erro) |
 
-O app fala com a API intermediária do TCC (octapus-assistant-api, contrato 1.4.0 em
+O app fala com a API intermediária do TCC (octapus-assistant-api, contrato 1.5.0 em
 `contract/` daquele repositório), que chama os provedores de modelo e registra o
 experimento; o loop do assistente roda aqui. Módulo `assistant/`:
 
@@ -933,8 +933,11 @@ com a pergunta, sem nunca carregar a estrutura inteira.
 
 **Prompts, mensagens e resposta** (B5):
 
-- **Prompts** em `src-tauri/prompts/<paradigma>-v<n>.txt` (`postgres-v1`, `sqlite-v1`,
-  `mongo-v1`, `redis-v1`),
+- **Prompts** em `src-tauri/prompts/<paradigma>-v<n>.txt`. Em uso, os `-v2`
+  (`postgres-v2`, `sqlite-v2`, `mongo-v2`, `redis-v2`, contrato 1.5.0: pedido de
+  estrutura, resposta em texto sem afirmar o que o modelo não viu, recusa fora do tema);
+  os `-v1` ficam no build e no teste dos hashes (as conversas antigas foram geradas com
+  eles),
   embutidos com `include_str!` (`assistant/prompts.rs`). A API confere o SHA-256 dos bytes
   exatos da mensagem `system` contra o prompt registrado com o mesmo id: registre **o
   próprio arquivo** no dashboard (Prompts → enviar arquivo, com o paradigma). Texto
@@ -945,21 +948,26 @@ com a pergunta, sem nunca carregar a estrutura inteira.
 - **Mensagens** (`assistant/messages.rs`, `attempt_request`): a `system` (nada variável vai
   nela); os turnos anteriores (`<question>` + o JSON da resposta), os mais recentes que
   cabem em metade do orçamento da estrutura (C-12); o turno atual com `<schema>` (ou
-  `<schema truncated="true">`) e `<question>`; em correção, cada tentativa que falhou e
-  um `<previous_attempt_failed stage=… class=…>` com o erro sanitizado (C-11). A última é
-  sempre do usuário. Mudar esse formato também é versão nova do prompt.
+  `<schema truncated="true">`) e `<question>`; depois as rodadas do turno, na ordem
+  (`Round`): em correção, cada tentativa que falhou e um `<previous_attempt_failed
+  stage=… class=…>` com o erro sanitizado (C-11); no pedido de estrutura, o JSON do pedido
+  e um `<requested_structure>` com o que o app achou (`truncated="true"` no recorte,
+  `limit_reached="true"` além do teto). O histórico leva a resposta em texto (o
+  `explanation` do `answer`) e nunca o pedido de estrutura. A última é sempre do usuário. Mudar esse formato também é versão nova do prompt.
 - **Resposta** (`assistant/output.rs`): `ModelOutput` do contrato, conferido de novo no
-  app (os seis campos, as regras de cada `kind`, e a `language` tem que ser a do banco);
-  fora disso é `invalid_output`. Cópia do contrato em `src-tauri/contract/` (os três
-  schemas JSON), com o SHA-256 de cada um fixado em teste para a versão 1.4.0
+  app (os sete campos, as regras de cada `kind`, e a `language` tem que ser a do banco);
+  fora disso é `invalid_output`. O tipo aceita o que uma API mais nova mandar (`kind`
+  desconhecido vira `unknown`, campo a mais é ignorado), para o histórico sempre abrir; quem
+  recusa é o `parse`. Cópia do contrato em `src-tauri/contract/` (os três
+  schemas JSON), com o SHA-256 de cada um fixado em teste para a versão 1.5.0
   (`CONTRACT_VERSION`); com `OCTAPUS_CONTRACT_DIR` apontando para o `contract/` da API, o
   teste compara byte a byte.
 - **Idioma da pergunta** (`assistant/language.rs`, crate `whatlang`): `pt`, `en` ou
   `other`, gravado no turno (C-02).
 
 **O turno** (B6, `assistant/turn.rs`, `run_turn`): uma máquina de estados que depende de
-duas portas — `TurnApi` (a API) e `TurnDatabase` (o banco, só leitura) —, o que deixa os
-testes rodarem com as duas simuladas. O comando `assistant_turn_ask` monta o `TurnSetup`
+três portas — `TurnApi` (a API), `TurnDatabase` (o banco, só leitura) e `TurnStructure`
+(a estrutura que o modelo pede) —, o que deixa os testes rodarem com as três simuladas. O comando `assistant_turn_ask` monta o `TurnSetup`
 (conversa e histórico da API, contexto da estrutura, prompt, preferência de execução
 automática) e liga as portas reais.
 
@@ -967,17 +975,33 @@ automática) e liga as portas reais.
 2. Pede a tentativa: `POST /attempts`, lendo o SSE (`assistant/sse.rs`) com timeout de
    inatividade de 45 s; 429 espera o `Retry-After` (até 3 vezes) e avisa (`waiting`).
 3. Confere a resposta (`output::parse`). `clarification` encerra; `code` é entregue e
-   **nunca** executado (RN-14); saída inválida (da API ou do app) tenta de novo com
+   **nunca** executado (RN-14); `answer` (resposta só em texto) encerra como `replied`,
+   sem tocar no banco; saída inválida (da API ou do app) tenta de novo com
    `previousFailure: invalid_output`.
+   `structure_request`: o modelo lista até 20 nomes e o app busca (`assistant/requested.rs`)
+   — no SQL, cada nome conferido no catálogo pelo `schema_context::confirm` (o das menções
+   `@`; `schema.tabela`, `tabela` no escopo ou `schema.*`) e renderizado pelo mesmo
+   `render`; no Mongo, as coleções confirmadas com o formato inferido; no Redis, os padrões
+   das chaves sob o prefixo, cujo `MATCH` passa antes pela generalização
+   (`patterns::prefix_match`: o modelo não sonda chave nenhuma). Nunca uma consulta
+   escolhida pelo modelo, nunca valor. Os não encontrados voltam numa linha `-- Not
+   found`. A estrutura pedida tem um orçamento próprio por turno, do tamanho do da
+   estrutura (`budget_tokens`), dividido pelas rodadas; o que não cabe é recorte (RN-26),
+   somado ao `schemaTruncated` e ao `schemaTokensEstimate`. É chamada utilitária: até
+   `MAX_STRUCTURE_REQUESTS` (3) por turno não conta como tentativa — nem na API
+   (`TURN_MAX_STRUCTURE_REQUESTS`) —; o seguinte não busca nada, conta, e o modelo recebe
+   `limit_reached`. A tela recebe o evento `structureLookup` (pedidos, achados, não
+   achados) e não o pedido como resposta. Falha do catálogo encerra como `failed`.
 4. `query`: guard → preflight → execução (só com `assistantAutoExecute`; desligada, a
    consulta e o plano ficam para a revisão). Falha da consulta → outcome com a classe e o
    erro sanitizado → nova tentativa com a resposta que falhou e o erro (C-11). Falha que
    não é da consulta (conexão, banco fora) encerra o turno como `failed`.
 5. A API corta em 4 tentativas (`turn_limit_exceeded`; o app tem teto próprio de 6):
    `exhausted`, entregando a última consulta gerada (RN-24).
-6. Cada tentativa com resposta ganha um outcome; o turno termina com `finish`. Para `code`
-   e `clarification` o guard não roda: vai `allowed: false` com o motivo `kind_code` ou
-   `kind_clarification`, separado da recusa de verdade na análise.
+6. Cada tentativa com resposta ganha um outcome; o turno termina com `finish`. Para `code`,
+   `clarification`, `answer` e `structure_request` o guard não roda: vai `allowed: false`
+   com o motivo `kind_<kind>` (`structure_limit` no pedido além do teto), separado da
+   recusa de verdade na análise. No log, só contagens dos nomes pedidos.
 
 Cancelar (`assistant_turn_cancel`, pelo `clientTurnId`) acorda quem está esperando: fecha
 o stream (a API interrompe o provedor e devolve a cota) ou chama o `cancel_query` da
@@ -986,7 +1010,9 @@ manual (`assistant_execute`, revisão e páginas seguintes) passa pelo mesmo cam
 só-leitura; com `attemptId`, a primeira página completa o outcome guardado em memória
 (nunca em disco) e manda de novo. E2E com a API de verdade (gasta tokens):
 `OCTAPUS_E2E_ASSISTANT_URL=… OCTAPUS_E2E_INVITE=… cargo test --lib
-commands::assistant::e2e -- --ignored --nocapture`. E2E: `cargo test --lib read_only -- --include-ignored`
+commands::assistant::e2e -- --ignored --nocapture` (o
+`e2e_real_answers_and_structure_request` cobre a dúvida conceitual, a recusa fora do tema e
+o pedido de estrutura num SQLite de 200 tabelas). E2E: `cargo test --lib read_only -- --include-ignored`
   (Postgres e Mongo dos e2e; o SQLite usa arquivo temporário) e `cargo test --lib
   shape_context -- --ignored` (contexto do Mongo com canários).
 

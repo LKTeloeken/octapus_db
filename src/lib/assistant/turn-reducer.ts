@@ -27,6 +27,8 @@ export type TurnPhase =
   | 'opening'
   /** Esperando o modelo (antes e durante o stream) */
   | 'generating'
+  /** O modelo pediu mais estrutura: o app busca no catálogo e pergunta de novo */
+  | 'structure'
   /** Guard e preflight da consulta gerada */
   | 'checking'
   /** Execução automática (só com `assistantAutoExecute`) */
@@ -42,6 +44,17 @@ export interface AttemptFailure {
   message: string;
 }
 
+/** O que o app achou para um pedido de estrutura do modelo */
+export interface StructureLookup {
+  requested: number;
+  found: number;
+  /** Os não encontrados, como o modelo escreveu */
+  missing: string[];
+  truncated: boolean;
+  /** O teto de pedidos do turno já tinha sido atingido: nada foi buscado */
+  limitReached: boolean;
+}
+
 export interface LiveAttempt {
   attemptId: string;
   index: number;
@@ -54,7 +67,16 @@ export interface LiveAttempt {
   planned: boolean;
   /** Só com o evento `result` */
   executed: boolean;
+  /** A tentativa foi um pedido de estrutura (evento `structureLookup`) */
+  lookup: StructureLookup | null;
 }
+
+/**
+ * Tentativa que é (ou está virando) um pedido de estrutura: chamada
+ * utilitária, não é resposta nem falha
+ */
+export const isStructureAttempt = (attempt: LiveAttempt) =>
+  attempt.lookup !== null || attempt.partial.kind === 'structure_request';
 
 /** O que o evento `context` disse da estrutura enviada ao modelo */
 export interface TurnContext {
@@ -153,6 +175,7 @@ export function reduceTurn(
             failure: null,
             planned: false,
             executed: false,
+            lookup: null,
           },
         ],
       };
@@ -161,13 +184,33 @@ export function reduceTurn(
       const last = turn.attempts.at(-1);
       if (!last || last.output) return turn;
       const raw = last.raw + event.text;
+      const partial = extractPartialOutput(raw);
       return {
         ...turn,
-        phase: 'generating',
-        attempts: [
-          ...turn.attempts.slice(0, -1),
-          { ...last, raw, partial: extractPartialOutput(raw) },
-        ],
+        phase:
+          partial.kind === 'structure_request' ? 'structure' : 'generating',
+        attempts: [...turn.attempts.slice(0, -1), { ...last, raw, partial }],
+      };
+    }
+
+    case 'structureLookup': {
+      const lookup: StructureLookup = {
+        requested: event.requested,
+        found: event.found,
+        missing: event.missing,
+        truncated: event.truncated,
+        limitReached: event.limitReached,
+      };
+      return {
+        ...turn,
+        // Até a próxima tentativa começar
+        phase: 'structure',
+        // A estrutura acrescentada não coube inteira: também é recorte (RN-26)
+        context:
+          turn.context && event.truncated
+            ? { ...turn.context, truncated: true }
+            : turn.context,
+        attempts: patchAttempt(turn, event.attemptId, () => ({ lookup })),
       };
     }
 

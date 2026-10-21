@@ -4,14 +4,18 @@
 //! ```text
 //! abrir o turno ─▶ tentativa (SSE) ─▶ resposta conferida
 //!   clarification ─▶ encerra          code ─▶ entrega, nunca executa (RN-14)
+//!   answer ─▶ encerra (texto, nada executa)
+//!   structure_request ─▶ o app busca os nomes no catálogo ─▶ nova tentativa
+//!                        (não conta no limite, até MAX_STRUCTURE_REQUESTS)
 //!   query ─▶ guard ─▶ preflight ─▶ execução (só com a automática ligada)
 //!            └── falhou: outcome + erro sanitizado ─▶ nova tentativa (C-11)
 //! limite da API (turn_limit_exceeded) ─▶ entrega a última consulta (RN-24)
 //! ```
 //!
-//! Cada tentativa com resposta ganha um outcome na API. O loop depende de duas
-//! portas — a API ([`TurnApi`]) e o banco ([`TurnDatabase`]) —, o que deixa os
-//! testes rodarem com as duas simuladas. Log só com ids, contagens e códigos.
+//! Cada tentativa com resposta ganha um outcome na API. O loop depende de três
+//! portas — a API ([`TurnApi`]), o banco ([`TurnDatabase`]) e a estrutura
+//! pedida pelo modelo ([`TurnStructure`]) —, o que deixa os testes rodarem com
+//! as três simuladas. Log só com ids, contagens e códigos.
 
 use std::time::{Duration, Instant};
 
@@ -23,10 +27,11 @@ use super::error::AssistantCode;
 use super::failure::{classify, sanitize, FailureClass};
 use super::guard;
 use super::language::Language;
-use super::messages::{attempt_request, AttemptRequest, Correction, HistoryTurn};
+use super::messages::{attempt_request, AttemptRequest, Correction, HistoryTurn, Round, StructureReply, StructureRound};
 use super::output::{self, ModelOutput, OutputKind};
 use super::prompts::Prompt;
-use super::schema_context::SchemaContext;
+use super::requested::RequestedStructure;
+use super::schema_context::{budget_tokens, SchemaContext};
 use crate::adapters::ReadOnlyOp;
 use crate::error::{Error, Result};
 use crate::models::{
@@ -38,6 +43,10 @@ use crate::models::{
 /// Teto de tentativas do lado do app: a API corta antes (4 por turno, com as
 /// correções), mas o loop não pode depender só dela.
 const MAX_ATTEMPTS: usize = 6;
+/// Pedidos de estrutura por turno que não contam como tentativa (o mesmo
+/// `TURN_MAX_STRUCTURE_REQUESTS` padrão da API). O seguinte não busca nada,
+/// conta como tentativa e o modelo é avisado de que acabou: sem laço.
+pub const MAX_STRUCTURE_REQUESTS: usize = 3;
 /// Rate limit antes do stream: quantas vezes esperar e tentar de novo.
 const RATE_LIMIT_RETRIES: usize = 3;
 /// Espera sem `Retry-After`.
@@ -79,6 +88,15 @@ pub trait TurnDatabase: Send + Sync {
     async fn cancel(&self, query_id: &str);
 }
 
+/// A estrutura que o modelo pede (`kind: structure_request`), buscada pelo app
+/// só no catálogo ou nos padrões de chave (`requested.rs`): o modelo escolhe
+/// os nomes, nunca a consulta de introspecção.
+#[async_trait]
+pub trait TurnStructure: Send + Sync {
+    /// Os nomes pedidos, dentro de `budget_tokens`.
+    async fn lookup(&self, names: &[String], budget_tokens: usize) -> Result<RequestedStructure>;
+}
+
 /// Tudo que o turno precisa, montado antes (comando `assistant_turn_ask`).
 pub struct TurnSetup {
     pub conversation_id: String,
@@ -99,7 +117,9 @@ pub struct TurnSetup {
 }
 
 /// Os turnos anteriores para o histórico das mensagens (C-12): a pergunta e a
-/// resposta da última tentativa gerada de cada um, na ordem da conversa.
+/// resposta da última tentativa gerada de cada um, na ordem da conversa. O
+/// pedido de estrutura é do meio do turno e não entra; a resposta em texto
+/// entra (é a resposta que a pessoa viu).
 pub fn history_from(conversation: &AssistantConversation) -> Vec<HistoryTurn> {
     conversation
         .turns
@@ -109,9 +129,9 @@ pub fn history_from(conversation: &AssistantConversation) -> Vec<HistoryTurn> {
                 .attempts
                 .iter()
                 .rev()
-                .find(|attempt| attempt.status == AssistantAttemptStatus::Generated)?
-                .output
-                .clone()?;
+                .filter(|attempt| attempt.status == AssistantAttemptStatus::Generated)
+                .filter_map(|attempt| attempt.output.clone())
+                .find(|output| !matches!(output.kind, OutputKind::StructureRequest | OutputKind::Unknown))?;
             Some(HistoryTurn {
                 question: turn.summary.question.clone(),
                 output,
@@ -135,6 +155,7 @@ enum QueryEnd {
 pub async fn run_turn(
     api: &dyn TurnApi,
     db: &dyn TurnDatabase,
+    structure: &dyn TurnStructure,
     setup: &TurnSetup,
     emit: &(dyn Fn(AssistantTurnEvent) + Send + Sync),
     cancel: &CancelFlag,
@@ -158,10 +179,14 @@ pub async fn run_turn(
     });
     log::info!("assistente: turno {} aberto", turn.id);
 
-    let mut corrections: Vec<Correction> = Vec::new();
+    let mut rounds: Vec<Round> = Vec::new();
     let mut last: Option<(String, ModelOutput)> = None;
     let mut retry_invalid = false;
     let mut attempts = 0;
+    let mut structure_requests = 0;
+    // A estrutura pedida tem um orçamento próprio por turno, do tamanho do
+    // da estrutura da pergunta, dividido pelas rodadas
+    let mut requested_tokens = 0;
 
     let (status, error_code) = loop {
         if cancel.is_cancelled() {
@@ -176,7 +201,7 @@ pub async fn run_turn(
             &setup.schema,
             &setup.history,
             &setup.question,
-            &corrections,
+            &rounds,
             setup.context_window,
         );
         if retry_invalid {
@@ -221,6 +246,69 @@ pub async fn run_turn(
             }
         };
         retry_invalid = false;
+
+        if output.kind == OutputKind::StructureRequest {
+            // Chamada utilitária: não vai para a tela como resposta
+            let names = output.structure_request.clone().unwrap_or_default();
+            let reply = if structure_requests < MAX_STRUCTURE_REQUESTS {
+                structure_requests += 1;
+                attempts -= 1;
+                let budget = budget_tokens(setup.context_window).saturating_sub(requested_tokens);
+                match structure.lookup(&names, budget).await {
+                    Ok(found) => {
+                        requested_tokens += found.tokens_estimate;
+                        StructureReply::Found(found)
+                    }
+                    Err(error) => {
+                        report(api, &attempt_id, &not_run("kind_structure_request", setup.auto_execute)).await;
+                        break (AssistantTurnStatus::Failed, Some(error.code().to_string()));
+                    }
+                }
+            } else {
+                StructureReply::LimitReached
+            };
+            let (outcome_reason, event) = match &reply {
+                StructureReply::Found(found) => {
+                    log::info!(
+                        "assistente: tentativa {attempt_id} pediu estrutura: {} nome(s), {} encontrado(s), {} não encontrado(s){}",
+                        found.requested,
+                        found.found,
+                        found.missing.len(),
+                        if found.truncated { ", recortado" } else { "" }
+                    );
+                    (
+                        "kind_structure_request",
+                        AssistantTurnEvent::StructureLookup {
+                            attempt_id: attempt_id.clone(),
+                            requested: found.requested as u32,
+                            found: found.found as u32,
+                            missing: found.missing.clone(),
+                            truncated: found.truncated,
+                            limit_reached: false,
+                        },
+                    )
+                }
+                StructureReply::LimitReached => {
+                    log::info!("assistente: tentativa {attempt_id} pediu estrutura além do teto do turno");
+                    (
+                        "structure_limit",
+                        AssistantTurnEvent::StructureLookup {
+                            attempt_id: attempt_id.clone(),
+                            requested: names.len() as u32,
+                            found: 0,
+                            missing: Vec::new(),
+                            truncated: false,
+                            limit_reached: true,
+                        },
+                    )
+                }
+            };
+            emit(event);
+            report(api, &attempt_id, &not_run(outcome_reason, setup.auto_execute)).await;
+            rounds.push(Round::Structure(StructureRound { output, reply }));
+            continue;
+        }
+
         emit(AssistantTurnEvent::Output {
             attempt_id: attempt_id.clone(),
             output: output.clone(),
@@ -237,6 +325,16 @@ pub async fn run_turn(
                 report(api, &attempt_id, &not_run("kind_code", setup.auto_execute)).await;
                 break (AssistantTurnStatus::CodeDelivered, None);
             }
+            OutputKind::Answer => {
+                // Resposta em texto: nada a executar
+                report(api, &attempt_id, &not_run("kind_answer", setup.auto_execute)).await;
+                break (AssistantTurnStatus::Replied, None);
+            }
+            // O `parse` já recusa os dois
+            OutputKind::StructureRequest | OutputKind::Unknown => {
+                retry_invalid = true;
+                continue;
+            }
             OutputKind::Query => {
                 let query = output.query.clone().unwrap_or_default();
                 match run_query(api, db, setup, &attempt_id, &query, emit, cancel).await {
@@ -245,7 +343,7 @@ pub async fn run_turn(
                     QueryEnd::Failed(code) => break (AssistantTurnStatus::Failed, Some(code)),
                     QueryEnd::Retry(mut correction) => {
                         correction.output = output;
-                        corrections.push(correction);
+                        rounds.push(Round::Correction(correction));
                     }
                 }
             }
@@ -256,7 +354,7 @@ pub async fn run_turn(
         log::warn!("assistente: falha ao encerrar o turno {} ({})", turn.id, error.code());
     }
     log::info!(
-        "assistente: turno {} encerrado ({status:?}, {attempts} tentativa(s))",
+        "assistente: turno {} encerrado ({status:?}, {attempts} tentativa(s), {structure_requests} pedido(s) de estrutura)",
         turn.id
     );
 
@@ -464,6 +562,7 @@ fn placeholder_output() -> ModelOutput {
         explanation: String::new(),
         assumptions: Vec::new(),
         clarification_question: None,
+        structure_request: None,
     }
 }
 
@@ -692,7 +791,56 @@ mod tests {
             "explanation": "Conta os pedidos",
             "assumptions": [],
             "clarificationQuestion": if kind == "clarification" { json!("Qual tabela?") } else { Value::Null },
+            "structureRequest": null,
         })
+    }
+
+    fn structure_request(names: &[&str]) -> Value {
+        json!({
+            "kind": "structure_request", "language": null, "query": null, "explanation": "",
+            "assumptions": [], "clarificationQuestion": null, "structureRequest": names,
+        })
+    }
+
+    fn text_answer(explanation: &str) -> Value {
+        json!({
+            "kind": "answer", "language": null, "query": null, "explanation": explanation,
+            "assumptions": [], "clarificationQuestion": null, "structureRequest": null,
+        })
+    }
+
+    // ── Estrutura simulada ──────────────────────────────────────────────────
+
+    /// Acha os nomes que começam com `sales.`; guarda cada pedido e o
+    /// orçamento que veio.
+    #[derive(Default)]
+    struct FakeStructure {
+        lookups: Mutex<Vec<(Vec<String>, usize)>>,
+        fail: bool,
+    }
+
+    #[async_trait]
+    impl TurnStructure for FakeStructure {
+        async fn lookup(&self, names: &[String], budget_tokens: usize) -> Result<RequestedStructure> {
+            self.lookups.lock().push((names.to_vec(), budget_tokens));
+            if self.fail {
+                return Err(Error::Connection("catalog lane closed".into()));
+            }
+            let (found, missing): (Vec<&String>, Vec<&String>) = names.iter().partition(|name| name.starts_with("sales."));
+            let text = format!(
+                "CREATE TABLE {};\n-- Not found: {}",
+                found.iter().map(|name| name.as_str()).collect::<Vec<_>>().join(", "),
+                missing.iter().map(|name| name.as_str()).collect::<Vec<_>>().join(", ")
+            );
+            Ok(RequestedStructure {
+                tokens_estimate: 1_000,
+                text,
+                requested: names.len(),
+                found: found.len(),
+                missing: missing.into_iter().cloned().collect(),
+                truncated: false,
+            })
+        }
     }
 
     fn setup(auto_execute: bool) -> TurnSetup {
@@ -728,9 +876,13 @@ mod tests {
     }
 
     async fn run(api: &FakeApi, db: &FakeDb, setup: &TurnSetup, cancel: &CancelFlag) -> Run {
+        run_with(api, db, &FakeStructure::default(), setup, cancel).await
+    }
+
+    async fn run_with(api: &FakeApi, db: &FakeDb, structure: &FakeStructure, setup: &TurnSetup, cancel: &CancelFlag) -> Run {
         let events: Arc<Mutex<Vec<AssistantTurnEvent>>> = Arc::default();
         let sink = Arc::clone(&events);
-        let finish = run_turn(api, db, setup, &move |event| sink.lock().push(event), cancel)
+        let finish = run_turn(api, db, structure, setup, &move |event| sink.lock().push(event), cancel)
             .await
             .unwrap();
         let events = events.lock().clone();
@@ -779,7 +931,7 @@ mod tests {
         assert_eq!(outcomes[1].1.guard.reason.as_deref(), Some("write_stage"));
         assert!(outcomes[2].1.execution.ok == Some(true));
         let requests = api.requests.lock();
-        assert_eq!(requests[0].prompt_version, "mongo-v1");
+        assert_eq!(requests[0].prompt_version, "mongo-v2");
         let correction = &requests[2].messages.last().unwrap().content;
         assert!(
             correction.contains("class=\"guard_rejected\">\n$out writes to the database and is not allowed"),
@@ -814,7 +966,7 @@ mod tests {
         assert_eq!(outcomes[0].1.guard.reason.as_deref(), Some("keys"));
         assert!(outcomes[1].1.execution.ok == Some(true));
         let requests = api.requests.lock();
-        assert_eq!(requests[0].prompt_version, "redis-v1");
+        assert_eq!(requests[0].prompt_version, "redis-v2");
         let correction = &requests[1].messages.last().unwrap().content;
         assert!(
             correction.contains("class=\"guard_rejected\">\nKEYS is not allowed: use SCAN with MATCH"),
@@ -881,6 +1033,134 @@ mod tests {
         assert_eq!(run.finish.status, AssistantTurnStatus::Clarification);
         assert_eq!(api.requests.lock().len(), 1);
         assert!(db.executed.lock().is_empty());
+    }
+
+    /// A resposta em texto encerra o turno sem tocar no banco.
+    #[tokio::test]
+    async fn text_answer_ends_the_turn_as_replied() {
+        let api = FakeApi::new(vec![Scripted::Output(text_answer("Um índice B-tree acelera igualdade e intervalo."))]);
+        let db = FakeDb::default();
+
+        let run = run(&api, &db, &setup(true), &CancelFlag::default()).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Replied);
+        assert_eq!(run.finish.output.unwrap().kind, OutputKind::Answer);
+        assert!(db.executed.lock().is_empty());
+        let outcome = &api.outcomes.lock()[0].1;
+        assert_eq!(outcome.guard, GuardResult { allowed: false, reason: Some("kind_answer".into()) });
+        assert!(!outcome.preflight.ran && !outcome.execution.ran);
+        assert_eq!(*api.finished.lock(), Some(AssistantTurnStatus::Replied));
+    }
+
+    /// O pedido de estrutura não conta como tentativa: o app busca os nomes,
+    /// responde ao modelo e pergunta de novo; a tela recebe as contagens, e
+    /// não o pedido como resposta.
+    #[tokio::test]
+    async fn structure_request_looks_up_and_asks_again() {
+        let api = FakeApi::new(vec![
+            Scripted::Output(structure_request(&["sales.orders", "ghost"])),
+            Scripted::Output(output("query", Some("SELECT count(*) FROM sales.orders"))),
+        ]);
+        let db = FakeDb::default();
+        let structure = FakeStructure::default();
+
+        let run = run_with(&api, &db, &structure, &setup(true), &CancelFlag::default()).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Answered);
+        assert_eq!(run.finish.attempt_id.as_deref(), Some("attempt-1"));
+        assert_eq!(*db.executed.lock(), ["SELECT count(*) FROM sales.orders"]);
+        let lookups = structure.lookups.lock();
+        assert_eq!(lookups.len(), 1);
+        assert_eq!(lookups[0].0, ["sales.orders", "ghost"]);
+        assert_eq!(lookups[0].1, budget_tokens(200_000));
+
+        let lookup = run
+            .events
+            .iter()
+            .find_map(|event| match event {
+                AssistantTurnEvent::StructureLookup { attempt_id, requested, found, missing, limit_reached, .. } => {
+                    Some((attempt_id.clone(), *requested, *found, missing.clone(), *limit_reached))
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(lookup, ("attempt-0".into(), 2, 1, vec!["ghost".to_string()], false));
+        // O pedido não vai para a tela como resposta
+        let outputs: Vec<&str> = run
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                AssistantTurnEvent::Output { attempt_id, .. } => Some(attempt_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(outputs, ["attempt-1"]);
+
+        let requests = api.requests.lock();
+        let second = &requests[1];
+        assert_eq!(second.messages.len(), 4);
+        assert!(second.messages[2].content.contains("\"structureRequest\":[\"sales.orders\",\"ghost\"]"));
+        assert!(second.messages[3].content.starts_with("<requested_structure>\nCREATE TABLE sales.orders;\n-- Not found: ghost"));
+        assert_eq!(second.context.schema_tokens_estimate, 4 + 1_000);
+        assert_eq!(second.context.previous_failure, None);
+        let outcomes = api.outcomes.lock();
+        assert_eq!(outcomes[0].1.guard.reason.as_deref(), Some("kind_structure_request"));
+    }
+
+    /// Até o teto, os pedidos não contam; o seguinte não busca nada, conta
+    /// como tentativa e avisa o modelo. O orçamento é dividido pelas rodadas.
+    #[tokio::test]
+    async fn structure_requests_stop_at_the_ceiling() {
+        let mut script: Vec<Scripted> = (0..MAX_STRUCTURE_REQUESTS + 1)
+            .map(|i| Scripted::Output(structure_request(&[&format!("sales.t{i}")])))
+            .collect();
+        script.push(Scripted::Output(output("query", Some("SELECT 1"))));
+        let api = FakeApi::new(script);
+        let structure = FakeStructure::default();
+
+        let run = run_with(&api, &FakeDb::default(), &structure, &setup(true), &CancelFlag::default()).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Answered);
+        let lookups = structure.lookups.lock();
+        assert_eq!(lookups.len(), MAX_STRUCTURE_REQUESTS);
+        let budget = budget_tokens(200_000);
+        let budgets: Vec<usize> = lookups.iter().map(|(_, budget)| *budget).collect();
+        assert_eq!(budgets, [budget, budget - 1_000, budget - 2_000]);
+        let requests = api.requests.lock();
+        let last = requests.last().unwrap().messages.last().unwrap();
+        assert!(last.content.starts_with("<requested_structure limit_reached=\"true\">"), "{}", last.content);
+        assert!(run.events.iter().any(|event| matches!(event, AssistantTurnEvent::StructureLookup { limit_reached: true, .. })));
+        assert_eq!(api.outcomes.lock()[MAX_STRUCTURE_REQUESTS].1.guard.reason.as_deref(), Some("structure_limit"));
+    }
+
+    /// Pedido de estrutura em laço esgota o turno pelo teto do app (sem a API
+    /// cortar antes): os além do teto contam como tentativa.
+    #[tokio::test]
+    async fn endless_structure_requests_exhaust_the_turn() {
+        let script = (0..MAX_STRUCTURE_REQUESTS + MAX_ATTEMPTS)
+            .map(|_| Scripted::Output(structure_request(&["sales.orders"])))
+            .collect();
+        let api = FakeApi::new(script);
+
+        let run = run(&api, &FakeDb::default(), &setup(true), &CancelFlag::default()).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Exhausted);
+        assert_eq!(api.requests.lock().len(), MAX_STRUCTURE_REQUESTS + MAX_ATTEMPTS);
+        assert!(run.finish.output.is_none());
+    }
+
+    #[tokio::test]
+    async fn structure_lookup_failure_fails_the_turn() {
+        let api = FakeApi::new(vec![Scripted::Output(structure_request(&["sales.orders"]))]);
+        let structure = FakeStructure {
+            fail: true,
+            ..FakeStructure::default()
+        };
+
+        let run = run_with(&api, &FakeDb::default(), &structure, &setup(true), &CancelFlag::default()).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Failed);
+        assert_eq!(run.finish.error_code.as_deref(), Some("CONNECTION_ERROR"));
     }
 
     #[tokio::test]
@@ -1036,7 +1316,7 @@ mod tests {
 
         let running = {
             let (api, db, cancel) = (Arc::clone(&api), Arc::clone(&db), cancel.clone());
-            tokio::spawn(async move { run_turn(&*api, &*db, &setup, &|_| {}, &cancel).await })
+            tokio::spawn(async move { run_turn(&*api, &*db, &FakeStructure::default(), &setup, &|_| {}, &cancel).await })
         };
         tokio::time::sleep(Duration::from_millis(20)).await;
         cancel.cancel();
@@ -1058,7 +1338,7 @@ mod tests {
 
         let running = {
             let (api, db, cancel) = (Arc::clone(&api), Arc::clone(&db), cancel.clone());
-            tokio::spawn(async move { run_turn(&*api, &*db, &setup, &|_| {}, &cancel).await })
+            tokio::spawn(async move { run_turn(&*api, &*db, &FakeStructure::default(), &setup, &|_| {}, &cancel).await })
         };
         tokio::time::sleep(Duration::from_millis(20)).await;
         cancel.cancel();
@@ -1078,7 +1358,14 @@ mod tests {
             id: "a".into(),
             index: 0,
             status,
-            output: sql.map(|sql| output::parse(output("query", Some(sql)), QueryLanguage::Sql).unwrap()),
+            output: sql.map(|sql| {
+                let value = match sql {
+                    "?" => structure_request(&["sales.orders"]),
+                    "!" => text_answer("Um índice acelera a busca."),
+                    sql => output("query", Some(sql)),
+                };
+                output::parse(value, QueryLanguage::Sql).unwrap()
+            }),
             usage: None,
             latency_ms: None,
             outcome: None,
@@ -1113,14 +1400,36 @@ mod tests {
                 ]),
                 turn("sem resposta", vec![attempt(AssistantAttemptStatus::ProviderError, None)]),
                 turn("terceira", vec![attempt(AssistantAttemptStatus::Generated, Some("SELECT 3"))]),
+                // O turno que parou depois de um pedido de estrutura fica com
+                // a resposta de antes dele, ou fora
+                turn("quarta", vec![
+                    attempt(AssistantAttemptStatus::Generated, Some("SELECT 4")),
+                    attempt(AssistantAttemptStatus::Generated, Some("?")),
+                ]),
+                turn("só pedido", vec![attempt(AssistantAttemptStatus::Generated, Some("?"))]),
+                turn("o que é índice?", vec![
+                    attempt(AssistantAttemptStatus::Generated, Some("?")),
+                    attempt(AssistantAttemptStatus::Generated, Some("!")),
+                ]),
             ],
         };
 
         let history = history_from(&conversation);
         let pairs: Vec<_> = history
             .iter()
-            .map(|turn| (turn.question.as_str(), turn.output.query.as_deref().unwrap()))
+            .map(|turn| {
+                let answer = turn.output.query.as_deref().unwrap_or(turn.output.explanation.as_str());
+                (turn.question.as_str(), answer)
+            })
             .collect();
-        assert_eq!(pairs, [("primeira", "SELECT 2"), ("terceira", "SELECT 3")]);
+        assert_eq!(
+            pairs,
+            [
+                ("primeira", "SELECT 2"),
+                ("terceira", "SELECT 3"),
+                ("quarta", "SELECT 4"),
+                ("o que é índice?", "Um índice acelera a busca."),
+            ]
+        );
     }
 }

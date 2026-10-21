@@ -1,5 +1,5 @@
 //! Modelos do assistente de consulta que cruzam o IPC. Os que vêm da API
-//! (contrato 1.4.0, `openapi.yaml`) têm os mesmos nomes de campo em camelCase,
+//! (contrato 1.5.0, `openapi.yaml`) têm os mesmos nomes de campo em camelCase,
 //! então o mesmo tipo desserializa a resposta e vai para o front.
 
 use serde::{Deserialize, Serialize};
@@ -128,7 +128,7 @@ pub struct ReadOnlyPlan {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Conversas, turnos e tentativas (contrato 1.4.0): o histórico mora só no
+// Conversas, turnos e tentativas (contrato 1.5.0): o histórico mora só no
 // servidor (C-15). Status desconhecidos de uma API mais nova viram `Unknown`
 // em vez de quebrar a leitura.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,6 +169,8 @@ pub enum AssistantTurnStatus {
     CodeDelivered,
     /// O assistente pediu esclarecimento (C-08)
     Clarification,
+    /// Resposta só em texto, sem consulta (contrato 1.5.0)
+    Replied,
     /// Limite de tentativas atingido (RN-24)
     Exhausted,
     /// Falha que não é do limite (provedor, cota, tempo, banco fora)
@@ -180,7 +182,7 @@ pub enum AssistantTurnStatus {
 }
 
 lenient_deserialize!(AssistantTurnStatus {
-    Open, Answered, CodeDelivered, Clarification, Exhausted, Failed, Cancelled
+    Open, Answered, CodeDelivered, Clarification, Replied, Exhausted, Failed, Cancelled
 } else Unknown);
 
 /// `AttemptStatus` do contrato.
@@ -479,6 +481,20 @@ pub enum AssistantTurnEvent {
     AttemptStarted { attempt_id: String, index: i64 },
     /// Texto parcial do modelo, só para mostrar progresso
     Delta { text: String },
+    /// O modelo pediu mais estrutura (`kind: structure_request`) e o app
+    /// buscou no catálogo: quantos nomes vieram, quantos foram achados e quais
+    /// não (como o modelo escreveu). `truncated`: o que foi achado não coube
+    /// inteiro no orçamento (aviso de recorte, RN-26). `limitReached`: o teto
+    /// de rodadas do turno já tinha sido atingido, e nada foi buscado.
+    #[serde(rename_all = "camelCase")]
+    StructureLookup {
+        attempt_id: String,
+        requested: u32,
+        found: u32,
+        missing: Vec<String>,
+        truncated: bool,
+        limit_reached: bool,
+    },
     /// A resposta conferida da tentativa
     #[serde(rename_all = "camelCase")]
     Output { attempt_id: String, output: crate::assistant::output::ModelOutput },

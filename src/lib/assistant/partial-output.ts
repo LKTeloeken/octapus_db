@@ -26,7 +26,13 @@ export const EMPTY_PARTIAL_OUTPUT: PartialModelOutput = {
   clarificationQuestion: null,
 };
 
-const OUTPUT_KINDS: readonly OutputKind[] = ['query', 'code', 'clarification'];
+const OUTPUT_KINDS: readonly OutputKind[] = [
+  'query',
+  'code',
+  'clarification',
+  'structure_request',
+  'answer',
+];
 
 const STRING_FIELDS = [
   'query',

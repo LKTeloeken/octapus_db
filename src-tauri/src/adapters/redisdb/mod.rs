@@ -158,9 +158,9 @@ impl DatabaseAdapter for RedisAdapter {
         read_only::explain(&mut conn, text, &ReadOnlyLimits::default()).await
     }
 
-    async fn sample_key_patterns(&self) -> Result<KeyPatterns> {
+    async fn sample_key_patterns(&self, pattern: Option<&str>) -> Result<KeyPatterns> {
         let mut conn = self.conn().await?;
-        patterns::sample(&mut conn).await
+        patterns::sample(&mut conn, pattern.unwrap_or("*")).await
     }
 
     async fn fetch_table_data(&self, request: TableDataRequest) -> Result<QueryResult> {

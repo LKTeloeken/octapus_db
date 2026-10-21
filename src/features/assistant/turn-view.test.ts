@@ -21,6 +21,7 @@ const QUERY: ModelOutput = {
   explanation: 'Conta os usuários.',
   assumptions: ['Todos contam'],
   clarificationQuestion: null,
+  structureRequest: null,
 };
 
 const run = (turn: LiveTurn, events: AssistantTurnEvent[], now = 1_000) =>
@@ -364,5 +365,143 @@ describe('serverTurnView', () => {
     expect(
       attemptFailure(attempt({ status: 'invalid_output', output: null })),
     ).toMatchObject({ stage: 'output' });
+  });
+});
+
+const REQUEST: ModelOutput = {
+  kind: 'structure_request',
+  language: null,
+  query: null,
+  explanation: 'Preciso das colunas de pedidos.',
+  assumptions: [],
+  clarificationQuestion: null,
+  structureRequest: ['sales.orders', 'ghost'],
+};
+
+const ANSWER: ModelOutput = {
+  kind: 'answer',
+  language: null,
+  query: null,
+  explanation:
+    'Um índice acelera a busca.\n\n```sql\nCREATE INDEX i ON t (a);\n```',
+  assumptions: [],
+  clarificationQuestion: null,
+  structureRequest: null,
+};
+
+describe('pedido de estrutura e resposta em texto', () => {
+  it('o pedido de estrutura não é resposta nem falha; o recorte avisa', () => {
+    let turn = run(startTurn('c1', 'pedidos por cliente', true), [
+      {
+        type: 'context',
+        tables: 30,
+        truncated: false,
+        missingMentions: [],
+        shortenedMentions: [],
+      },
+      { type: 'attemptStarted', attemptId: 'a1', index: 0 },
+      ...streamOf(REQUEST).slice(0, 8),
+    ]);
+    // O kind já chegou: "Consultando a estrutura…", sem texto parcial na tela
+    expect(turn.phase).toBe('structure');
+    expect(liveTurnView(turn).output).toBeNull();
+
+    turn = run(turn, [
+      ...streamOf(REQUEST).slice(8),
+      {
+        type: 'structureLookup',
+        attemptId: 'a1',
+        requested: 2,
+        found: 1,
+        missing: ['ghost'],
+        truncated: true,
+        limitReached: false,
+      },
+    ]);
+    expect(turn.phase).toBe('structure');
+    let view = liveTurnView(turn);
+    expect(view.output).toBeNull();
+    expect(view.truncated).toBe(true);
+    expect(view.structureLookups).toEqual([
+      { requested: 2, found: 1, missing: ['ghost'], limitReached: false },
+    ]);
+
+    turn = finishTurn(
+      run(turn, [
+        { type: 'attemptStarted', attemptId: 'a2', index: 1 },
+        { type: 'output', attemptId: 'a2', output: QUERY },
+      ]),
+      {
+        turnId: 't1',
+        status: 'answered',
+        attemptId: 'a2',
+        output: QUERY,
+        errorCode: null,
+      },
+    );
+    view = liveTurnView(turn);
+    expect(view.output?.query).toBe(QUERY.query);
+    expect(view.failedAttempts).toEqual([]);
+    expect(view.structureLookups).toHaveLength(1);
+  });
+
+  it('resposta em texto: replied, sem consulta, avaliável', () => {
+    const turn = finishTurn(
+      run(startTurn('c1', 'o que é um índice?', true), [
+        { type: 'turnOpened', turnId: 't1' },
+        { type: 'attemptStarted', attemptId: 'a1', index: 0 },
+        ...streamOf(ANSWER),
+        { type: 'output', attemptId: 'a1', output: ANSWER },
+      ]),
+      {
+        turnId: 't1',
+        status: 'replied',
+        attemptId: 'a1',
+        output: ANSWER,
+        errorCode: null,
+      },
+    );
+    const view = liveTurnView(turn);
+    expect(view.outcome).toBe('replied');
+    expect(view.output?.kind).toBe('answer');
+    expect(view.output?.query).toBeNull();
+    expect(view.failure).toBeNull();
+  });
+
+  it('histórico: o pedido fica de fora da resposta, com os nomes contados', () => {
+    const view = serverTurnView(
+      {
+        id: 't1',
+        index: 0,
+        question: 'pedidos por cliente',
+        language: 'pt',
+        status: 'replied',
+        createdAt: '2026-10-20T00:00:00Z',
+        attempts: [
+          attempt({
+            id: 'a1',
+            index: 0,
+            output: REQUEST,
+            outcome: {
+              guard: { allowed: false, reason: 'kind_structure_request' },
+              preflight: stage(false, null),
+              execution: stage(false, null),
+              rowCount: null,
+              autoExecute: true,
+              userEdited: false,
+            },
+          }),
+          attempt({ id: 'a2', index: 1, output: ANSWER }),
+        ],
+        feedback: null,
+      },
+      null,
+    );
+    expect(view.outcome).toBe('replied');
+    expect(view.attemptId).toBe('a2');
+    expect(view.failedAttempts).toEqual([]);
+    expect(view.structureLookups).toEqual([
+      { requested: 2, found: null, missing: null, limitReached: false },
+    ]);
   });
 });

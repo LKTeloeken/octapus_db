@@ -13,7 +13,7 @@ use crate::error::Error;
 /// Teto do `errorSanitized` no contrato (`StageResult`).
 pub const SANITIZED_MAX_CHARS: usize = 2000;
 
-/// `FailureClass` do contrato 1.4.0 (`openapi.yaml`).
+/// `FailureClass` do contrato 1.5.0 (`openapi.yaml`).
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://octapus.dev/contract/v1/output.schema.json",
   "title": "ModelOutput",
-  "description": "Resposta do modelo a cada tentativa. Plano e compatível com o modo estrito de saída estruturada dos provedores: todos os campos são obrigatórios e os opcionais aceitam null. Campo anulável é sempre anyOf [tipo, null], nunca \"type\": [tipo, \"null\"] — a Anthropic recusa type em lista junto com enum. `query` é sempre texto; para `mongo` e `redis_plan` o texto é um JSON validado por mongo-operation.schema.json e redis-plan.schema.json.",
+  "description": "Resposta do modelo a cada tentativa. Plano e compatível com o modo estrito de saída estruturada dos provedores: todos os campos são obrigatórios e os opcionais aceitam null. Campo anulável é sempre anyOf [tipo, null], nunca \"type\": [tipo, \"null\"] — a Anthropic recusa type em lista junto com enum. Sem maxItems/minLength: o modo estrito da Anthropic recusa restrições de tamanho; os tetos ficam na validação da API. `query` é sempre texto; para `mongo` e `redis_plan` o texto é um JSON validado por mongo-operation.schema.json e redis-plan.schema.json.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,27 +11,28 @@
     "query",
     "explanation",
     "assumptions",
-    "clarificationQuestion"
+    "clarificationQuestion",
+    "structureRequest"
   ],
   "properties": {
     "kind": {
-      "description": "query = consulta de leitura que responde à pergunta; code = qualquer outro código (DDL, função, escrita), nunca executado; clarification = a estrutura não permite responder.",
+      "description": "query = consulta de leitura que responde à pergunta; code = qualquer outro código (DDL, função, escrita), nunca executado; clarification = a estrutura não permite responder; structure_request = o modelo pede mais estrutura antes de responder (nomes em structureRequest); answer = resposta só em texto, sem consulta (dúvida de banco de dados, pergunta sobre a estrutura ou recusa fora do tema), em explanation.",
       "type": "string",
-      "enum": ["query", "code", "clarification"]
+      "enum": ["query", "code", "clarification", "structure_request", "answer"]
     },
     "language": {
-      "description": "Linguagem de `query`. null quando kind = clarification.",
+      "description": "Linguagem de `query`. null quando kind = clarification, structure_request ou answer.",
       "anyOf": [
         { "type": "string", "enum": ["sql", "mongo", "redis_plan"] },
         { "type": "null" }
       ]
     },
     "query": {
-      "description": "A consulta ou o código gerado. null quando kind = clarification.",
+      "description": "A consulta ou o código gerado. null quando kind = clarification, structure_request ou answer.",
       "anyOf": [{ "type": "string" }, { "type": "null" }]
     },
     "explanation": {
-      "description": "O que a consulta retorna (ou o que o código faz), curto, no idioma da pergunta.",
+      "description": "O que a consulta retorna (ou o que o código faz), curto, no idioma da pergunta. Quando kind = answer, é a própria resposta (não pode ser vazia).",
       "type": "string"
     },
     "assumptions": {
@@ -42,6 +43,13 @@
     "clarificationQuestion": {
       "description": "O que falta para responder. Obrigatório quando kind = clarification; null nos demais.",
       "anyOf": [{ "type": "string" }, { "type": "null" }]
+    },
+    "structureRequest": {
+      "description": "Nomes de estrutura que o modelo quer ver antes de responder: `schema.tabela` ou `tabela` (SQL), a coleção (Mongo) ou um prefixo de chave (Redis). Obrigatório e não vazio quando kind = structure_request, com no máximo 20 nomes; null nos demais.",
+      "anyOf": [
+        { "type": "array", "items": { "type": "string" } },
+        { "type": "null" }
+      ]
     }
   }
 }

@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn every_contract_code_maps_to_its_app_code() {
-        // `ErrorCode` do contrato 1.4.0 (openapi.yaml) → código do app
+        // `ErrorCode` do contrato 1.5.0 (openapi.yaml) → código do app
         let expected = [
             ("invalid_request", 400, "ASSISTANT_INVALID_REQUEST"),
             ("unauthorized", 401, "ASSISTANT_UNAUTHORIZED"),

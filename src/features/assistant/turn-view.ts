@@ -8,11 +8,13 @@ import type {
   ModelOutput,
 } from '@/api/types/assistant.types';
 import type { PartialModelOutput } from '@/lib/assistant/partial-output';
-import type {
-  LiveAttempt,
-  LiveTurn,
-  TurnContext,
-  TurnPhase,
+import {
+  isStructureAttempt,
+  type LiveAttempt,
+  type LiveTurn,
+  type StructureLookup,
+  type TurnContext,
+  type TurnPhase,
 } from '@/lib/assistant/turn-reducer';
 
 /**
@@ -25,6 +27,8 @@ export type TurnOutcome =
   | 'answered'
   | 'code'
   | 'clarification'
+  /** Resposta só em texto, sem consulta */
+  | 'replied'
   | 'exhausted'
   | 'failed'
   | 'cancelled';
@@ -60,8 +64,14 @@ export interface TurnView {
   streaming: boolean;
   /** Por que a tentativa da tela não chegou ao resultado, se não chegou */
   failure: AttemptFailureView | null;
-  /** As outras tentativas, que falharam (RN-29) */
+  /** As outras tentativas, que falharam (RN-29); os pedidos de estrutura não */
   failedAttempts: FailedAttemptView[];
+  /**
+   * Os pedidos de estrutura do modelo no turno, na ordem. No histórico, só os
+   * nomes pedidos (o que foi achado não fica guardado): `found` e `missing`
+   * nulos
+   */
+  structureLookups: StructureLookupView[];
   /** Recorte da estrutura (RN-26); `null` = não se sabe (histórico) */
   truncated: boolean | null;
   /** Citadas com `@` que não existem no banco (aviso) */
@@ -80,6 +90,25 @@ export interface TurnView {
   waitUntil: number | null;
   feedback: AssistantFeedback | null;
 }
+
+export interface StructureLookupView {
+  requested: number;
+  found: number | null;
+  missing: string[] | null;
+  limitReached: boolean;
+}
+
+const lookupView = ({
+  requested,
+  found,
+  missing,
+  limitReached,
+}: StructureLookup): StructureLookupView => ({
+  requested,
+  found,
+  missing,
+  limitReached,
+});
 
 const toDisplay = (output: ModelOutput): PartialModelOutput => ({
   kind: output.kind,
@@ -111,10 +140,11 @@ function liveFailure(attempt: LiveAttempt): AttemptFailureView | null {
 
 export function liveTurnView(turn: LiveTurn): TurnView {
   const finished = turn.phase === 'finished';
-  const last = turn.attempts.at(-1) ?? null;
+  // O pedido de estrutura é do meio do turno: nem resposta, nem falha
+  const answers = turn.attempts.filter(attempt => !isStructureAttempt(attempt));
+  const last = answers.at(-1) ?? null;
   const shownId = turn.finish?.attemptId ?? last?.attemptId ?? null;
-  const shown =
-    turn.attempts.find(attempt => attempt.attemptId === shownId) ?? null;
+  const shown = answers.find(attempt => attempt.attemptId === shownId) ?? null;
 
   let output: PartialModelOutput | null = null;
   let streaming = false;
@@ -149,7 +179,7 @@ export function liveTurnView(turn: LiveTurn): TurnView {
           ? liveFailure(shown)
           : null
         : null,
-    failedAttempts: turn.attempts
+    failedAttempts: answers
       .filter(attempt => attempt.attemptId !== shownId)
       .filter(attempt => finished || attempt !== last)
       .map(attempt => ({
@@ -158,6 +188,9 @@ export function liveTurnView(turn: LiveTurn): TurnView {
         query: attempt.output?.query ?? attempt.partial.query,
         failure: liveFailure(attempt),
       })),
+    structureLookups: turn.attempts.flatMap(attempt =>
+      attempt.lookup ? [lookupView(attempt.lookup)] : [],
+    ),
     truncated: turn.context?.truncated ?? null,
     missingMentions: turn.context?.missingMentions ?? [],
     shortenedMentions: turn.context?.shortenedMentions ?? [],
@@ -178,6 +211,8 @@ function outcomeOf(status: AssistantTurn['status']): TurnOutcome {
       return 'code';
     case 'clarification':
       return 'clarification';
+    case 'replied':
+      return 'replied';
     case 'exhausted':
       return 'exhausted';
     case 'cancelled':
@@ -258,7 +293,10 @@ export function serverTurnView(
   turn: AssistantTurn,
   context: TurnContext | null,
 ): TurnView {
-  const attempts = [...turn.attempts].sort((a, b) => a.index - b.index);
+  const sorted = [...turn.attempts].sort((a, b) => a.index - b.index);
+  const isRequest = (attempt: AssistantAttempt) =>
+    attempt.output?.kind === 'structure_request';
+  const attempts = sorted.filter(attempt => !isRequest(attempt));
   const shown = attempts.filter(attempt => attempt.output).at(-1) ?? null;
   const outcome = outcomeOf(turn.status);
   const execution = shown?.outcome?.execution;
@@ -285,6 +323,12 @@ export function serverTurnView(
         query: attempt.output?.query ?? null,
         failure: attemptFailure(attempt),
       })),
+    structureLookups: sorted.filter(isRequest).map(attempt => ({
+      requested: attempt.output?.structureRequest?.length ?? 0,
+      found: null,
+      missing: null,
+      limitReached: attempt.outcome?.guard.reason === 'structure_limit',
+    })),
     truncated: context?.truncated ?? null,
     missingMentions: context?.missingMentions ?? [],
     shortenedMentions: context?.shortenedMentions ?? [],
@@ -295,7 +339,7 @@ export function serverTurnView(
         : null,
     errorCode:
       outcome === 'failed'
-        ? (ATTEMPT_STATUS_ERROR[attempts.at(-1)?.status ?? 'unknown'] ?? null)
+        ? (ATTEMPT_STATUS_ERROR[sorted.at(-1)?.status ?? 'unknown'] ?? null)
         : null,
     errorMessage:
       turn.status === 'open' || turn.status === 'unknown'

@@ -10,6 +10,7 @@ const FULL: ModelOutput = {
   explanation: 'Conta os usuários — por nome.\tTab e \\ barra.',
   assumptions: ['"ativo" quer dizer status = 1', 'Sem filtro de data'],
   clarificationQuestion: null,
+  structureRequest: null,
 };
 
 describe('extractPartialOutput', () => {
@@ -59,6 +60,10 @@ describe('extractPartialOutput', () => {
       extractPartialOutput('{"kind":"outro","query":"x"}').kind,
     ).toBeNull();
     expect(extractPartialOutput('{"kind":"code"').kind).toBe('code');
+    expect(extractPartialOutput('{"kind":"answer","expl').kind).toBe('answer');
+    expect(extractPartialOutput('{"kind":"structure_request"').kind).toBe(
+      'structure_request',
+    );
   });
 
   it('descarta escape cortado no meio', () => {

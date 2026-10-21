@@ -3,4 +3,4 @@
 /**
  * `TurnStatus` do contrato.
  */
-export type AssistantTurnStatus = "open" | "answered" | "code_delivered" | "clarification" | "exhausted" | "failed" | "cancelled" | "unknown";
+export type AssistantTurnStatus = "open" | "answered" | "code_delivered" | "clarification" | "replied" | "exhausted" | "failed" | "cancelled" | "unknown";

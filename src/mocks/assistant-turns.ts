@@ -51,6 +51,11 @@ import type { MockHandler } from './handlers';
  * - "espera"/"lento" → rate limit (`waiting` de 3 s) antes da tentativa;
  * - "falha" → o provedor falha (`failed`, `ASSISTANT_PROVIDER_ERROR`);
  * - "cota" → gasta a cota inteira: daí em diante, `quota_exceeded`;
+ * - "o que é", "explique", "diferença" → resposta só em texto (`answer`, com
+ *   um bloco de código), o turno termina `replied` sem executar nada;
+ * - "futebol", "receita", "piada" → recusa curta fora do tema (`answer`);
+ * - "estrutura" → a primeira tentativa pede estrutura (`structure_request`,
+ *   com um nome que não existe) e a seguinte responde com a contagem;
  * - o resto → contagem da primeira tabela do database.
  *
  * No Mongo (`queryLanguage: 'mongo'` das capabilities) as respostas são a
@@ -199,6 +204,7 @@ function redisOutputFor(question: string, table: string): ModelOutput {
       explanation: '',
       assumptions: [],
       clarificationQuestion: `Sobre qual padrão de chave é a pergunta? Por exemplo, "${prefix}:{id}".`,
+      structureRequest: null,
     };
   }
   if (/apag|exclu|delet|insert|cadastr|atualiz/.test(text)) {
@@ -209,6 +215,7 @@ function redisOutputFor(question: string, table: string): ModelOutput {
       explanation: `Remove a chave ${prefix}:1. O assistente não executa código.`,
       assumptions: [`"${prefix}:1" é a chave do registro`],
       clarificationQuestion: null,
+      structureRequest: null,
     };
   }
   if (/lista|todos|todas/.test(text)) {
@@ -224,6 +231,7 @@ function redisOutputFor(question: string, table: string): ModelOutput {
       explanation: `Lista as chaves ${prefix}:{id} com o nome e o e-mail de cada uma.`,
       assumptions: ['Os hashes guardam os campos "nome" e "email"'],
       clarificationQuestion: null,
+      structureRequest: null,
     };
   }
   return {
@@ -233,6 +241,55 @@ function redisOutputFor(question: string, table: string): ModelOutput {
     explanation: `Percorre as chaves ${prefix}:{id}; o total é a contagem.`,
     assumptions: ['Todo hash com esse prefixo conta'],
     clarificationQuestion: null,
+    structureRequest: null,
+  };
+}
+
+/** Nome pedido que o catálogo do mock "não acha" */
+const GHOST = 'fantasma';
+
+/** Respostas só em texto, iguais nos três paradigmas */
+function answerFor(question: string): ModelOutput | null {
+  const text = question.toLowerCase();
+  const answer = (explanation: string): ModelOutput => ({
+    kind: 'answer',
+    language: null,
+    query: null,
+    explanation,
+    assumptions: [],
+    clarificationQuestion: null,
+    structureRequest: null,
+  });
+  if (/futebol|receita|piada/.test(text)) {
+    return answer(
+      'Desculpe, só consigo ajudar com bancos de dados: consultas, estrutura e dúvidas sobre o seu banco.',
+    );
+  }
+  if (/o que é|explique|explica|diferen[cç]a/.test(text)) {
+    return answer(
+      'Um índice é uma estrutura à parte que guarda os valores de uma ou mais colunas em ordem, com o endereço de cada linha. Com ele, o banco acha as linhas de um filtro sem ler a tabela inteira.\n\nEle acelera as leituras e cobra nas escritas: cada INSERT ou UPDATE também atualiza o índice. Por exemplo:\n\n```sql\nCREATE INDEX pedidos_cliente_idx\n  ON pedidos (cliente_id);\n```\n\nNão sei quantas linhas as suas tabelas têm: para decidir, vale olhar o plano de uma consulta com `EXPLAIN`.',
+    );
+  }
+  return null;
+}
+
+/** O pedido de estrutura do mock: a tabela (coleção, prefixo) e um nome que não existe */
+function structureRequestFor(
+  table: string,
+  language: QueryLanguage,
+): ModelOutput {
+  const names =
+    language === 'redis_plan'
+      ? [`${keyPrefix(table)}:`, `${GHOST}:`]
+      : [table, GHOST];
+  return {
+    kind: 'structure_request',
+    language: null,
+    query: null,
+    explanation: 'Preciso das colunas antes de responder.',
+    assumptions: [],
+    clarificationQuestion: null,
+    structureRequest: names,
   };
 }
 
@@ -266,6 +323,7 @@ function outputFor(
       explanation: '',
       assumptions: [],
       clarificationQuestion: `Sobre qual ${mongo ? 'coleção' : 'tabela'} é a pergunta? Por exemplo, "${table}".`,
+      structureRequest: null,
     };
   }
   if (/apag|exclu|delet|insert|cadastr|atualiz/.test(text)) {
@@ -278,6 +336,7 @@ function outputFor(
       explanation: 'Remove a linha de id 1. O assistente não executa código.',
       assumptions: ['"id" identifica a linha'],
       clarificationQuestion: null,
+      structureRequest: null,
     };
   }
   if (/lista|todos|todas/.test(text)) {
@@ -295,6 +354,7 @@ function outputFor(
       explanation: `Lista as linhas de ${table}, da mais antiga para a mais nova.`,
       assumptions: ['"nome" e "email" são as colunas que interessam'],
       clarificationQuestion: null,
+      structureRequest: null,
     };
   }
   return {
@@ -306,6 +366,7 @@ function outputFor(
     explanation: `Conta as linhas de ${table}.`,
     assumptions: ['Todas as linhas contam, sem filtro de data'],
     clarificationQuestion: null,
+    structureRequest: null,
   };
 }
 
@@ -578,7 +639,9 @@ const finishStatus = (output: ModelOutput): AssistantTurnStatus =>
     ? 'clarification'
     : output.kind === 'code'
       ? 'code_delivered'
-      : 'answered';
+      : output.kind === 'answer'
+        ? 'replied'
+        : 'answered';
 
 function attempt(index: number, output: ModelOutput): AssistantAttempt {
   return {
@@ -697,7 +760,9 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
         await sleep(3_000);
       }
 
-      const final = outputFor(text, table, language);
+      const final =
+        (text.length >= 12 ? answerFor(text) : null) ??
+        outputFor(text, table, language);
       const redis = language === 'redis_plan';
       const broken =
         language === 'mongo'
@@ -721,7 +786,9 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
         ? [broken, broken, broken]
         : /erro|error/i.test(text)
           ? [broken, final]
-          : [final];
+          : /estrutura/i.test(text) && final.kind === 'query'
+            ? [structureRequestFor(table, language), final]
+            : [final];
 
       // Cancelar acorda a espera, como no Rust
       if (running.cancelled) status = 'cancelled';
@@ -759,6 +826,23 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
           current.output = null;
           status = 'cancelled';
           break;
+        }
+        if (output.kind === 'structure_request') {
+          // Chamada utilitária: o app busca os nomes e pergunta de novo
+          await sleep(STEP_MS * 2);
+          const names = output.structureRequest ?? [];
+          const missingNames = names.filter(name => name.startsWith(GHOST));
+          emit({
+            type: 'structureLookup',
+            attemptId: current.id,
+            requested: names.length,
+            found: names.length - missingNames.length,
+            missing: missingNames,
+            truncated: database === SAAS_DATABASE,
+            limitReached: false,
+          });
+          current.outcome = outcome('kind_structure_request', auto);
+          continue;
         }
         emit({ type: 'output', attemptId: current.id, output });
         status = finishStatus(output);

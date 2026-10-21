@@ -10,8 +10,9 @@ use crate::assistant::client::{AttemptProgress, AttemptReply};
 use crate::assistant::failure::{classify, sanitize};
 use crate::assistant::language::{self, Language};
 use crate::assistant::messages::AttemptRequest;
+use crate::assistant::requested::{self, RequestedStructure};
 use crate::assistant::schema_context::{self, ContextRequest, SchemaContext};
-use crate::assistant::turn::{self, TurnApi, TurnDatabase, TurnSetup};
+use crate::assistant::turn::{self, TurnApi, TurnDatabase, TurnSetup, TurnStructure};
 use crate::assistant::{key_context, prompts, read_only, ApiClient, AssistantCode, AssistantError, AssistantService, CancelFlag};
 use crate::catalog::FLAT_SCHEMA;
 use crate::error::{Error, Result};
@@ -22,6 +23,7 @@ use crate::models::{
     AssistantTurnSummary, AttemptOutcome, DatabaseType, QueryLanguage, QueryOptions, QueryResult,
     ReadOnlyPlan, StageResult,
 };
+use crate::services::{CatalogEntry, CatalogService};
 use crate::state::AppState;
 use crate::storage::repositories::assistant as assistant_store;
 use crate::storage::repositories::{servers, settings as settings_store};
@@ -220,10 +222,13 @@ pub async fn assistant_turn_ask(
         let past_questions: Vec<String> = history.iter().map(|turn| turn.question.clone()).collect();
         let context_window = conversation.summary.model.context_window;
         let adapter = connect_adapter(&state, server_id, &database).await?;
+        let entry = match has_catalog(db_type) {
+            true => Some(entry_for(&state, server_id, &database).await?),
+            false => None,
+        };
         let schema = structure_context(
-            &state,
-            server_id,
-            &database,
+            &state.catalog,
+            entry.as_ref(),
             db_type,
             adapter.as_ref(),
             ContextRequest {
@@ -261,12 +266,19 @@ pub async fn assistant_turn_ask(
             token: &token,
             assistant: &state.assistant,
         };
+        let lookup = RequestedLookup {
+            catalogs: &state.catalog,
+            entry,
+            adapter: Arc::clone(&adapter),
+            db_type,
+            scope: &schemas,
+        };
         let db = AdapterDatabase { adapter, db_type };
         let emit = |event: AssistantTurnEvent| {
             // Aba fechada: ninguém ouvindo, o turno segue até o fim
             let _ = on_event.send(event);
         };
-        turn::run_turn(&api, &db, &setup, &emit, &cancel).await
+        turn::run_turn(&api, &db, &lookup, &setup, &emit, &cancel).await
     }
     .await;
     state.assistant.end_turn(&client_turn_id);
@@ -284,23 +296,25 @@ pub async fn assistant_turn_ask(
     result
 }
 
-/// A estrutura que vai ao modelo: pelo catálogo (Postgres, SQLite, Mongo) ou,
-/// no banco sem catálogo (Redis), pelos padrões de chave de uma amostra do
-/// próprio adapter. Decide pelas capabilities.
+/// O banco tem catálogo (capabilities)? Sem ele (Redis), a estrutura vem dos
+/// padrões de chave de uma amostra do próprio adapter.
+fn has_catalog(db_type: DatabaseType) -> bool {
+    AdapterCapabilities::for_db_type(db_type).is_some_and(|caps| caps.has_catalog)
+}
+
+/// A estrutura que vai ao modelo: pelo catálogo (`entry`, no Postgres, SQLite
+/// e Mongo) ou pelos padrões de chave (Redis, sem catálogo).
 async fn structure_context(
-    state: &State<'_, AppState>,
-    server_id: i64,
-    database: &str,
+    catalogs: &CatalogService,
+    entry: Option<&Arc<CatalogEntry>>,
     db_type: DatabaseType,
     adapter: &dyn DatabaseAdapter,
     request: ContextRequest<'_>,
 ) -> Result<SchemaContext> {
-    let has_catalog = AdapterCapabilities::for_db_type(db_type).is_some_and(|caps| caps.has_catalog);
-    if !has_catalog {
-        return key_context::build(adapter, request).await;
+    match entry {
+        Some(entry) => schema_context::build(catalogs, entry, db_type, request).await,
+        None => key_context::build(adapter, request).await,
     }
-    let entry = entry_for(state, server_id, database).await?;
-    schema_context::build(&state.catalog, &entry, db_type, request).await
 }
 
 /// Cancela o turno em andamento (C-18): fecha o stream do modelo (a API
@@ -555,6 +569,29 @@ impl TurnApi for ApiTurns<'_> {
     }
 }
 
+/// A estrutura que o modelo pede no meio do turno, pelo mesmo caminho do
+/// contexto da pergunta: o catálogo (com `entry`) ou os padrões de chave.
+struct RequestedLookup<'a> {
+    catalogs: &'a CatalogService,
+    entry: Option<Arc<CatalogEntry>>,
+    adapter: Arc<dyn DatabaseAdapter>,
+    db_type: DatabaseType,
+    /// Os schemas da conversa, onde um nome sem schema é procurado
+    scope: &'a [String],
+}
+
+#[async_trait]
+impl TurnStructure for RequestedLookup<'_> {
+    async fn lookup(&self, names: &[String], budget_tokens: usize) -> Result<RequestedStructure> {
+        match &self.entry {
+            Some(entry) => {
+                requested::from_catalog(self.catalogs, entry, self.db_type, self.scope, names, budget_tokens).await
+            }
+            None => requested::from_keys(self.adapter.as_ref(), names, budget_tokens).await,
+        }
+    }
+}
+
 /// O banco do usuário pelo caminho só-leitura do assistente (B2/B3): guard
 /// de novo (o turno já conferiu; aqui é a mesma porta da execução manual) e
 /// as barreiras do adapter.
@@ -781,11 +818,15 @@ mod e2e {
             mentions,
             past_mentions: &[],
         };
-        let schema = match structure {
-            Structure::Catalog(catalogs, entry) => schema_context::build(catalogs, entry, db.db_type, request).await,
-            Structure::Keys => key_context::build(db.adapter.as_ref(), request).await,
-        }
-        .unwrap();
+        let (catalogs, entry) = match structure {
+            Structure::Catalog(catalogs, entry) => (Some(catalogs), Some(Arc::clone(entry))),
+            Structure::Keys => (None, None),
+        };
+        let fallback = CatalogService::default();
+        let catalogs = catalogs.unwrap_or(&fallback);
+        let schema = structure_context(catalogs, entry.as_ref(), db.db_type, db.adapter.as_ref(), request)
+            .await
+            .unwrap();
         println!("--- {question}\n{}", schema.ddl);
 
         let setup = TurnSetup {
@@ -809,10 +850,18 @@ mod e2e {
             api: ApiTurns { client, token, assistant },
             sent,
         };
+        let lookup = RequestedLookup {
+            catalogs,
+            entry,
+            adapter: Arc::clone(&db.adapter),
+            db_type: db.db_type,
+            scope: &schemas,
+        };
         let events: Mutex<Vec<String>> = Mutex::default();
         let finish = turn::run_turn(
             &api,
             db,
+            &lookup,
             &setup,
             &|event| {
                 let line = match &event {
@@ -988,6 +1037,86 @@ mod e2e {
         assert!(context.contains("missing_mentions: [AssistantMention { schema: None, table: Some(\"ghost\") }]"), "{context}");
         assert!(events.iter().any(|line| line.starts_with("result: 1 linha")), "{events:?}");
         assert_saved(&participant, 0).await;
+
+        drop(entry);
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// Contrato 1.5.0: dúvida conceitual e pergunta fora do tema viram
+    /// resposta em texto (nada executa); num banco grande, a tabela que só
+    /// aparece pelo nome leva o modelo a pedir a estrutura antes da consulta.
+    #[tokio::test]
+    #[ignore]
+    async fn e2e_real_answers_and_structure_request() {
+        let Some(participant) = participant(DatabaseType::Sqlite).await else {
+            return;
+        };
+
+        // Ruído que o ranking escolhe antes (nome) e a tabela da pergunta,
+        // que só casa pelo sentido: entra só na linha "Other tables"
+        let path = std::env::temp_dir().join("octapus_db_assistant_structure_e2e.db");
+        let _ = std::fs::remove_file(&path);
+        let noise: String = (0..200)
+            .map(|i| format!("CREATE TABLE t_{i:04} (id INTEGER PRIMARY KEY, code TEXT);"))
+            .collect();
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute_batch(&format!(
+                "{noise}
+                 CREATE TABLE zz_refund_ledger (id INTEGER PRIMARY KEY, amount_cents INTEGER NOT NULL,
+                                                reason TEXT, refunded_at TEXT NOT NULL);
+                 INSERT INTO zz_refund_ledger (amount_cents, reason, refunded_at) VALUES
+                   (1000, 'a', '2026-10-01'), (2550, 'b', '2026-10-02'), (450, 'c', '2026-10-03');"
+            ))
+            .unwrap();
+        let server = server(DatabaseType::Sqlite, 0, Some(path.to_string_lossy().into_owned()));
+        let (catalogs, entry, dir) = open_catalog(&server, "main").await;
+        let db = AdapterDatabase {
+            adapter: Arc::new(SqliteAdapter::new(&server, "main").unwrap()),
+            db_type: DatabaseType::Sqlite,
+        };
+
+        // 1. Dúvida conceitual: texto, sem consulta
+        let (finish, events) = ask(
+            &participant,
+            &db,
+            Structure::Catalog(&catalogs, &entry),
+            "O que é um índice composto e quando vale a pena criar um?",
+        )
+        .await;
+        assert_eq!(finish.status, AssistantTurnStatus::Replied, "{finish:?}");
+        let output = finish.output.as_ref().unwrap();
+        assert!(output.query.is_none() && !output.explanation.trim().is_empty(), "{output:?}");
+        assert!(!events.iter().any(|line| line.starts_with("result:") || line.starts_with("Plan")));
+        println!("resposta: {}", output.explanation);
+
+        // 2. Fora do tema: recusa curta, também em texto
+        let (finish, _) = ask(
+            &participant,
+            &db,
+            Structure::Catalog(&catalogs, &entry),
+            "Qual é a capital da França e qual o melhor horário para visitar a Torre Eiffel?",
+        )
+        .await;
+        assert_eq!(finish.status, AssistantTurnStatus::Replied, "{finish:?}");
+        let refusal = &finish.output.as_ref().unwrap().explanation;
+        assert!(!refusal.contains("Paris"), "{refusal}");
+        println!("recusa: {refusal}");
+
+        // 3. Banco grande: pede a estrutura e depois consulta
+        let (finish, events) = ask(
+            &participant,
+            &db,
+            Structure::Catalog(&catalogs, &entry),
+            "Qual a soma dos valores dos reembolsos registrados?",
+        )
+        .await;
+        assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
+        let lookup = events.iter().find(|line| line.starts_with("StructureLookup")).expect("sem pedido de estrutura");
+        assert!(lookup.contains("found: 1") || lookup.contains("found: 2"), "{lookup}");
+        assert!(events.iter().any(|line| line.starts_with("result: 1 linha")), "{events:?}");
+        assert_saved(&participant, 2).await;
 
         drop(entry);
         let _ = std::fs::remove_dir_all(dir);

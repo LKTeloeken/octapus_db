@@ -1,4 +1,4 @@
-//! Cliente HTTP da API do assistente (octapus-assistant-api, contrato 1.4.0).
+//! Cliente HTTP da API do assistente (octapus-assistant-api, contrato 1.5.0).
 //!
 //! Só fala o protocolo: Bearer com o token do participante, JSON em camelCase
 //! e a conversão das respostas de erro (`error.rs`). Onde o token mora e o que

@@ -274,7 +274,12 @@ palette, dentro do `QueryProvider`.
     estado ao vivo, guardado por aba no store (trocar de aba não perde nada). O `delta` é o
     JSON parcial do `ModelOutput`; `partial-output.ts` extrai explicação, consulta e
     premissas enquanto chegam, e o `output` troca pela versão conferida. Só fica
-    "executada" com o `result` ou o outcome registrado (RN-21).
+    "executada" com o `result` ou o outcome registrado (RN-21). O pedido de estrutura do
+    modelo (contrato 1.5.0) é do meio do turno: com o `kind` parcial `structure_request` a
+    fase vira `structure` ("Consultando a estrutura…", polvo da lupa) até a próxima
+    tentativa; o evento `structureLookup` guarda na tentativa as contagens (pedidos,
+    achados, não achados) e liga o recorte se a estrutura pedida não coube.
+    `isStructureAttempt` tira essa tentativa da resposta e das falhas.
   - **Resposta** (`turn-view.ts` + `turn-card.tsx`): consulta sempre visível com
     destaque (RN-18), premissas (RN-20), aviso de recorte (RN-26, nomeando as citadas
     que entraram encurtadas — `shortenedMentions`), aviso das citadas que não existem no
@@ -284,6 +289,13 @@ palette, dentro do `QueryProvider`.
     resultado paginado pelo `assistant_execute` na `ResultsTable` sem `editableInfo`
     (RN-16, C-09), "Abrir no editor" (C-10), tentativas que falharam (RN-29), limite
     esgotado com a última consulta (RN-24) e cancelar (C-18, também `Esc` no campo).
+    A **resposta em texto** (`kind: answer`, turno `replied`) não tem bloco de consulta
+    nem "Abrir no editor": `answer-text.tsx` mostra o texto em parágrafos com as quebras
+    de linha e os blocos cercados por ```` ``` ```` (e trechos entre crases) em
+    monoespaçado, montados por `lib/assistant/answer-text.ts` (puro) — o texto do modelo
+    nunca vira HTML. Os pedidos de estrutura do turno viram uma linha
+    (`structureSummary`): ao vivo, quantos nomes e quais não existem; no histórico, só
+    quantos nomes foram pedidos (o que foi achado não é guardado).
   - **Linguagem do banco** (`queryLanguage` das capabilities, nunca o `dbType`): no
     Mongo (B8) a consulta é a operação do contrato em JSON. `lib/assistant/query-text.ts`
     (puro) a indenta para leitura — é esse texto que vai à revisão e ao Executar —, a
@@ -399,7 +411,10 @@ produção — inclusive o `Channel` de mensagens e o plugin de updater.
   servidor Mongo ("Catálogo (Atlas)", database `catalogo`) os turnos devolvem a
   operação em JSON e a execução manual passa por um guard simplificado; no Redis
   ("Cache (dev)", database `0`), o plano de passos (`SCAN` com o total, `SCAN` +
-  `foreach HMGET`), com o guard simplificado do plano.
+  `foreach HMGET`), com o guard simplificado do plano. Contrato 1.5.0: "o que é",
+  "explique" ou "diferença" dão uma resposta em texto (com um bloco SQL); "futebol",
+  "receita" ou "piada", a recusa fora do tema; "estrutura" faz a primeira tentativa
+  pedir estrutura (com um nome `fantasma` que não existe) antes da consulta.
 
 **Regra de manutenção:** comando novo no backend ⇒ handler novo em
 `src/mocks/handlers.ts`, na mesma lista do `RustCommand`. Sem handler o mock rejeita

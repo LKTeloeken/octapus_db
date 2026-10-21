@@ -1,10 +1,11 @@
 import type { TurnPhase } from '@/lib/assistant/turn-reducer';
-import type { FailureStage } from './turn-view';
+import type { FailureStage, StructureLookupView } from './turn-view';
 
 /** Rótulo ao lado do polvo, por fase do turno */
 export const PHASE_LABELS: Record<TurnPhase, string> = {
   opening: 'Lendo a estrutura do banco…',
   generating: 'Pensando…',
+  structure: 'Consultando a estrutura…',
   checking: 'Conferindo a consulta…',
   executing: 'Executando a consulta…',
   waiting: 'Aguardando a vez…',
@@ -22,6 +23,36 @@ export function phaseLabel(
     if (streaming) return 'Escrevendo…';
   }
   return PHASE_LABELS[phase];
+}
+
+const plural = (count: number, one: string, many: string) =>
+  `${count} ${count === 1 ? one : many}`;
+
+/**
+ * O que o assistente consultou da estrutura no turno, numa frase. Ao vivo, com
+ * as contagens; no histórico só se sabe quantos nomes foram pedidos.
+ */
+export function structureSummary(lookups: StructureLookupView[]): string {
+  const requested = lookups.reduce((sum, lookup) => sum + lookup.requested, 0);
+  const limit = lookups.some(lookup => lookup.limitReached)
+    ? ' Chegou ao limite de consultas à estrutura nesta pergunta.'
+    : '';
+  const searched = lookups.filter(lookup => !lookup.limitReached);
+  if (searched.some(lookup => lookup.found === null)) {
+    return `O assistente consultou a estrutura do banco (${plural(requested, 'nome pedido', 'nomes pedidos')}).${limit}`;
+  }
+  const asked = searched.reduce((sum, lookup) => sum + lookup.requested, 0);
+  const found = searched.reduce((sum, lookup) => sum + (lookup.found ?? 0), 0);
+  const missing = Array.from(
+    new Set(searched.flatMap(lookup => lookup.missing ?? [])),
+  );
+  const head =
+    searched.length > 0
+      ? `O assistente consultou a estrutura de ${plural(asked, 'nome', 'nomes')}: ${plural(found, 'encontrado', 'encontrados')}.`
+      : '';
+  const absent =
+    missing.length > 0 ? ` Não existem no banco: ${missing.join(', ')}.` : '';
+  return `${head}${absent}${limit}`.trim();
 }
 
 export const STAGE_LABELS: Record<FailureStage, string> = {

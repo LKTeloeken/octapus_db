@@ -79,12 +79,13 @@ impl KeyPatterns {
     }
 }
 
-/// Amostra as chaves do database e devolve os padrões com o `TYPE` de cada
-/// um. As chaves lidas morrem aqui.
-pub async fn sample(conn: &mut ConnectionManager) -> Result<KeyPatterns> {
+/// Amostra as chaves do database (ou só as que casam com `pattern`, um
+/// `MATCH` de [`prefix_match`]) e devolve os padrões com o `TYPE` de cada um.
+/// As chaves lidas morrem aqui.
+pub async fn sample(conn: &mut ConnectionManager, pattern: &str) -> Result<KeyPatterns> {
     let work = async {
         let total_keys: Option<u64> = redis::cmd("DBSIZE").query_async(conn).await.ok();
-        let keys = scan_keys(conn, "*", SAMPLE_KEYS).await?;
+        let keys = scan_keys(conn, pattern, SAMPLE_KEYS).await?;
         let groups = generalize(&keys);
         let omitted = groups.len().saturating_sub(MAX_PATTERNS);
 
@@ -291,6 +292,34 @@ fn is_whole_id(segment: &str) -> bool {
         || chars.iter().any(|c| matches!(c, '*' | '?' | '[' | ']' | '\\'))
 }
 
+/// O `MATCH` do `SCAN` para um prefixo que o modelo pediu (`user:{id}:`,
+/// `audit`). Cada segmento passa pela mesma generalização das chaves antes:
+/// o que tem cara de dado vira `*`, então o modelo não consegue sondar uma
+/// chave específica (`session:9f2c…` vale o mesmo que `session:{id}`). Sempre
+/// termina em `*` (é prefixo). `None` quando não sobra parte literal — seria a
+/// amostra inteira, que o modelo já recebeu.
+pub fn prefix_match(prefix: &str) -> Option<String> {
+    let segments: Vec<String> = prefix
+        .trim()
+        .split(':')
+        .map(|segment| match segment {
+            "*" => "*".to_string(),
+            _ => generalize_segment(segment).replace(PLACEHOLDER, "*"),
+        })
+        .collect();
+    let mut glob = segments.join(":");
+    while glob.contains("**") {
+        glob = glob.replace("**", "*");
+    }
+    if !glob.chars().any(|c| c != '*' && c != ':') {
+        return None;
+    }
+    if !glob.ends_with('*') {
+        glob.push('*');
+    }
+    Some(glob)
+}
+
 /// O padrão como `MATCH` do `SCAN`: `{id}` vira `*` (a regra que o prompt
 /// `redis-v1` ensina ao modelo).
 #[cfg(test)]
@@ -308,6 +337,24 @@ mod tests {
 
     fn patterns(list: &[String]) -> Vec<(String, usize)> {
         generalize(list).into_iter().map(|group| (group.pattern, group.members.len())).collect()
+    }
+
+    #[test]
+    fn requested_prefixes_never_probe_a_key() {
+        assert_eq!(prefix_match("user:{id}:cart").as_deref(), Some("user:*:cart*"));
+        assert_eq!(prefix_match("audit").as_deref(), Some("audit*"));
+        assert_eq!(prefix_match("audit:").as_deref(), Some("audit:*"));
+        assert_eq!(prefix_match("user:12345:cart").as_deref(), Some("user:*:cart*"));
+        assert_eq!(
+            prefix_match("session:550e8400-e29b-41d4-a716-446655440000").as_deref(),
+            Some("session:*")
+        );
+        assert_eq!(prefix_match("order_2024_001").as_deref(), Some("order_*"));
+        // Glob do modelo não passa como está
+        assert_eq!(prefix_match("us[e]r*").as_deref(), None);
+        assert_eq!(prefix_match("{id}"), None);
+        assert_eq!(prefix_match("*"), None);
+        assert_eq!(prefix_match(" "), None);
     }
 
     #[test]

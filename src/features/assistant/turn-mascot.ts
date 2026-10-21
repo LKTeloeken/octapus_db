@@ -9,6 +9,7 @@ export function turnScene(
 ): OctapusSceneId {
   switch (phase) {
     case 'opening':
+    case 'structure':
       return 'magnifier';
     case 'generating':
       // O stream chegando é o polvo "escrevendo" (também numa correção)

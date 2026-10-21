@@ -277,6 +277,52 @@ describe('assistente no mock', () => {
       expect(unclear.finish.status).toBe('clarification');
     });
 
+    it('resposta em texto e recusa fora do tema: replied, sem executar', async () => {
+      const { id } = await conversation();
+
+      const concept = await ask(id, 'o que é um índice composto?');
+      expect(concept.finish.status).toBe('replied');
+      expect(concept.finish.output?.kind).toBe('answer');
+      expect(concept.finish.output?.query).toBeNull();
+      expect(concept.finish.output?.explanation).toContain('```sql');
+      expect(concept.types).not.toContain('plan');
+      expect(concept.types).not.toContain('result');
+
+      const offTopic = await ask(
+        id,
+        'quem ganhou o jogo de futebol?',
+        'turn-2',
+      );
+      expect(offTopic.finish.status).toBe('replied');
+      expect(offTopic.finish.output?.explanation).toMatch(/só consigo ajudar/);
+    });
+
+    it('pedido de estrutura: busca, avisa os não encontrados e responde', async () => {
+      const { id } = await conversation();
+      const { finish, events, types } = await ask(
+        id,
+        'quantos itens existem? confira a estrutura antes',
+      );
+
+      expect(finish.status).toBe('answered');
+      expect(finish.output?.kind).toBe('query');
+      expect(types.filter(type => type === 'attemptStarted')).toHaveLength(2);
+      // O pedido não vira `output`: só o evento das contagens
+      expect(types.filter(type => type === 'output')).toHaveLength(1);
+      const lookup = events.find(event => event.type === 'structureLookup');
+      expect(lookup).toMatchObject({
+        requested: 2,
+        found: 1,
+        missing: ['fantasma'],
+      });
+
+      const saved = (await route(RustCommand.AssistantConversation, {
+        conversationId: id,
+      })) as AssistantConversation;
+      const kinds = saved.turns[0].attempts.map(item => item.output?.kind);
+      expect(kinds).toEqual(['structure_request', 'query']);
+    });
+
     it('cancelar no meio encerra o turno como cancelado', async () => {
       const { id } = await conversation();
       const running = ask(id, 'quantos pedidos existem no total?', 'turn-x');

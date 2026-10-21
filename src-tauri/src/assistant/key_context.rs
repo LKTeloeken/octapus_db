@@ -25,7 +25,7 @@ use super::schema_context::{budget_tokens, estimate_tokens, quote_ident, Context
 
 /// Amostra os padrões e monta o texto.
 pub async fn build(adapter: &dyn DatabaseAdapter, request: ContextRequest<'_>) -> Result<SchemaContext> {
-    let sample = adapter.sample_key_patterns().await?;
+    let sample = adapter.sample_key_patterns(None).await?;
     let ranked = rank(&sample.patterns, request.question, request.history);
     let context = render(&sample, &ranked, budget_tokens(request.context_window));
     log::info!(
@@ -128,7 +128,7 @@ fn header(sample: &KeyPatterns) -> String {
 }
 
 /// `"user:{id}" hash, 1203 keys`
-fn line(pattern: &KeyPattern) -> String {
+pub(super) fn line(pattern: &KeyPattern) -> String {
     let types = if pattern.types.is_empty() {
         "unknown".to_string()
     } else {

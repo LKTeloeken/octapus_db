@@ -13,4 +13,10 @@ explanation: string,
 /**
  * Premissas assumidas (RN-20)
  */
-assumptions: Array<string>, clarificationQuestion: string | null, };
+assumptions: Array<string>, clarificationQuestion: string | null, 
+/**
+ * Os nomes que o modelo quer ver (`kind = structure_request`): tabela ou
+ * `schema.tabela`, coleção ou prefixo de chave. Falta nas respostas de
+ * antes do contrato 1.5.0, no histórico
+ */
+structureRequest: Array<string> | null, };

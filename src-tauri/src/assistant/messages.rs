@@ -6,9 +6,10 @@
 //!    a pergunta e a resposta do modelo, só os que cabem no orçamento,
 //!    preferindo os mais recentes;
 //! 3. o turno atual: a estrutura (`<schema>`) e a pergunta;
-//! 4. em correção, cada tentativa que falhou neste turno e o erro sanitizado
-//!    dela (`<previous_attempt_failed>`), na ordem — a última mensagem é
-//!    sempre do usuário, como o contrato exige.
+//! 4. as rodadas deste turno, na ordem ([`Round`]): cada tentativa que falhou
+//!    e o erro sanitizado dela (`<previous_attempt_failed>`), e cada pedido de
+//!    estrutura do modelo com o que o app achou (`<requested_structure>`) — a
+//!    última mensagem é sempre do usuário, como o contrato exige.
 //!
 //! Mudar o formato daqui muda o que o modelo vê: trate como uma versão nova
 //! do prompt.
@@ -18,6 +19,7 @@ use serde::Serialize;
 use super::failure::FailureClass;
 use super::output::ModelOutput;
 use super::prompts::Prompt;
+use super::requested::RequestedStructure;
 use super::schema_context::{budget_tokens, estimate_tokens, SchemaContext};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -54,7 +56,8 @@ pub struct AttemptContext {
 }
 
 /// Um turno anterior da conversa: a pergunta e a resposta que o modelo deu
-/// (a da última tentativa gerada).
+/// (a da última tentativa gerada que não foi pedido de estrutura — numa
+/// resposta em texto, o próprio texto).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryTurn {
     pub question: String,
@@ -82,6 +85,38 @@ pub struct Correction {
     pub error_sanitized: Option<String>,
 }
 
+/// Um pedido de estrutura do modelo neste turno: o pedido como ele deu e o
+/// que o app respondeu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructureRound {
+    pub output: ModelOutput,
+    pub reply: StructureReply,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StructureReply {
+    /// A estrutura achada e os nomes não encontrados
+    Found(RequestedStructure),
+    /// O teto de pedidos do turno já tinha sido atingido: nada foi buscado
+    LimitReached,
+}
+
+/// O que aconteceu depois da pergunta, neste turno, na ordem.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Round {
+    Correction(Correction),
+    Structure(StructureRound),
+}
+
+impl Round {
+    fn output(&self) -> &ModelOutput {
+        match self {
+            Round::Correction(correction) => &correction.output,
+            Round::Structure(round) => &round.output,
+        }
+    }
+}
+
 /// O histórico ganha metade do orçamento da estrutura (pelo menos 500 tokens):
 /// é contexto da conversa, não a resposta.
 pub fn history_budget_tokens(context_window: i64) -> usize {
@@ -94,7 +129,7 @@ pub fn attempt_request(
     schema: &SchemaContext,
     history: &[HistoryTurn],
     question: &str,
-    corrections: &[Correction],
+    rounds: &[Round],
     context_window: i64,
 ) -> AttemptRequest {
     let mut messages = vec![Message {
@@ -106,14 +141,26 @@ pub fn attempt_request(
         role: Role::User,
         content: current_turn(schema, question),
     });
-    for correction in corrections {
+    let mut truncated = schema.truncated;
+    let mut tokens = schema.tokens_estimate;
+    for round in rounds {
         messages.push(Message {
             role: Role::Assistant,
-            content: output_json(&correction.output),
+            content: output_json(round.output()),
         });
+        let content = match round {
+            Round::Correction(correction) => correction_text(correction),
+            Round::Structure(round) => {
+                if let StructureReply::Found(found) = &round.reply {
+                    truncated |= found.truncated;
+                    tokens += found.tokens_estimate;
+                }
+                structure_text(&round.reply)
+            }
+        };
         messages.push(Message {
             role: Role::User,
-            content: correction_text(correction),
+            content,
         });
     }
 
@@ -121,9 +168,14 @@ pub fn attempt_request(
         prompt_version: prompt.version.to_string(),
         messages,
         context: AttemptContext {
-            schema_truncated: schema.truncated,
-            schema_tokens_estimate: schema.tokens_estimate,
-            previous_failure: corrections.last().map(|correction| correction.class),
+            schema_truncated: truncated,
+            schema_tokens_estimate: tokens,
+            // A falha da tentativa logo antes; depois de um pedido de
+            // estrutura, não há
+            previous_failure: match rounds.last() {
+                Some(Round::Correction(correction)) => Some(correction.class),
+                _ => None,
+            },
         },
     }
 }
@@ -172,6 +224,29 @@ fn output_json(output: &ModelOutput) -> String {
     serde_json::to_string(output).expect("ModelOutput sempre serializa")
 }
 
+/// A resposta a um pedido de estrutura. A estrutura é dado do banco (RN-22),
+/// com a mesma convenção do `<schema>`.
+fn structure_text(reply: &StructureReply) -> String {
+    match reply {
+        StructureReply::Found(found) => {
+            let open = if found.truncated {
+                "<requested_structure truncated=\"true\">"
+            } else {
+                "<requested_structure>"
+            };
+            format!(
+                "{open}\n{}\n</requested_structure>\n\
+                 Answer the question now in the same JSON format. Do not request names that were not found again.",
+                found.text
+            )
+        }
+        StructureReply::LimitReached => "<requested_structure limit_reached=\"true\">\n\
+             -- No more structure can be requested for this question.\n</requested_structure>\n\
+             Answer the question now with the structure you have, in the same JSON format."
+            .to_string(),
+    }
+}
+
 fn correction_text(correction: &Correction) -> String {
     let class = serde_json::to_value(correction.class)
         .ok()
@@ -205,6 +280,7 @@ mod tests {
             explanation: "Lista".into(),
             assumptions: vec![],
             clarification_question: None,
+            structure_request: None,
         }
     }
 
@@ -231,7 +307,7 @@ mod tests {
         let prompt = prompts::for_db(DatabaseType::Postgres).unwrap();
         let request = attempt_request(prompt, &schema(false), &[], "  quantos pedidos?  ", &[], 200_000);
 
-        assert_eq!(request.prompt_version, "postgres-v1");
+        assert_eq!(request.prompt_version, "postgres-v2");
         assert_eq!(request.messages.len(), 2);
         // A system é o arquivo inteiro, byte a byte (a API confere o hash)
         assert_eq!(request.messages[0].role, Role::System);
@@ -264,7 +340,7 @@ mod tests {
         assert_eq!(request.messages[1].content, "<question>\nprimeira\n</question>");
         assert_eq!(
             request.messages[2].content,
-            r#"{"kind":"query","language":"sql","query":"SELECT 1","explanation":"Lista","assumptions":[],"clarificationQuestion":null}"#
+            r#"{"kind":"query","language":"sql","query":"SELECT 1","explanation":"Lista","assumptions":[],"clarificationQuestion":null,"structureRequest":null}"#
         );
         assert!(request.messages[7].content.starts_with("<schema truncated=\"true\">\n"));
         assert!(request.context.schema_truncated);
@@ -280,18 +356,18 @@ mod tests {
     fn corrections_follow_the_turn_and_end_with_the_user() {
         let prompt = prompts::for_db(DatabaseType::Postgres).unwrap();
         let corrections = [
-            Correction {
+            Round::Correction(Correction {
                 output: output("SELECT nome FROM orders"),
                 stage: FailedStage::Preflight,
                 class: FailureClass::UnknownObject,
                 error_sanitized: Some("42703: column \"nome\" does not exist".into()),
-            },
-            Correction {
+            }),
+            Round::Correction(Correction {
                 output: output("SELECT name::int FROM orders"),
                 stage: FailedStage::Execution,
                 class: FailureClass::TypeMismatch,
                 error_sanitized: None,
-            },
+            }),
         ];
         let request = attempt_request(prompt, &schema(false), &[], "nomes", &corrections, 200_000);
 
@@ -308,12 +384,100 @@ mod tests {
         assert_eq!(request.context.previous_failure, Some(FailureClass::TypeMismatch));
     }
 
+    fn structure_request(names: &[&str]) -> ModelOutput {
+        ModelOutput {
+            kind: OutputKind::StructureRequest,
+            language: None,
+            query: None,
+            explanation: String::new(),
+            assumptions: vec![],
+            clarification_question: None,
+            structure_request: Some(names.iter().map(|name| name.to_string()).collect()),
+        }
+    }
+
+    /// O pedido de estrutura vira a mensagem do modelo com o pedido e a do
+    /// usuário com o que o app achou; o recorte e os tokens somam no context.
+    #[test]
+    fn structure_rounds_answer_the_request_in_order() {
+        let prompt = prompts::for_db(DatabaseType::Postgres).unwrap();
+        let found = RequestedStructure {
+            text: "-- PostgreSQL. Schemas: \"sales\"\nCREATE TABLE \"sales\".\"orders\" (\n  \"id\" integer\n);\n-- Not found: \"ghost\"".into(),
+            requested: 2,
+            found: 1,
+            missing: vec!["ghost".into()],
+            truncated: true,
+            tokens_estimate: 30,
+        };
+        let rounds = [
+            Round::Structure(StructureRound {
+                output: structure_request(&["sales.orders", "ghost"]),
+                reply: StructureReply::Found(found),
+            }),
+            Round::Correction(Correction {
+                output: output("SELECT nome FROM sales.orders"),
+                stage: FailedStage::Preflight,
+                class: FailureClass::UnknownObject,
+                error_sanitized: None,
+            }),
+            Round::Structure(StructureRound {
+                output: structure_request(&["sales.items"]),
+                reply: StructureReply::LimitReached,
+            }),
+        ];
+        let request = attempt_request(prompt, &schema(false), &[], "pedidos", &rounds, 200_000);
+
+        let roles: Vec<Role> = request.messages.iter().map(|m| m.role).collect();
+        assert_eq!(
+            roles,
+            [Role::System, Role::User, Role::Assistant, Role::User, Role::Assistant, Role::User, Role::Assistant, Role::User]
+        );
+        assert_eq!(
+            request.messages[2].content,
+            r#"{"kind":"structure_request","language":null,"query":null,"explanation":"","assumptions":[],"clarificationQuestion":null,"structureRequest":["sales.orders","ghost"]}"#
+        );
+        assert!(request.messages[3].content.starts_with("<requested_structure truncated=\"true\">\n-- PostgreSQL"));
+        assert!(request.messages[3].content.contains("-- Not found: \"ghost\"\n</requested_structure>\nAnswer the question now"));
+        assert!(request.messages[7].content.starts_with("<requested_structure limit_reached=\"true\">"));
+        assert_eq!(
+            request.context,
+            AttemptContext {
+                schema_truncated: true,
+                schema_tokens_estimate: schema(false).tokens_estimate + 30,
+                // A última rodada é de estrutura: não há falha antes desta
+                previous_failure: None,
+            }
+        );
+    }
+
+    /// A resposta em texto vai no histórico como o modelo deu: o texto
+    /// está no `explanation`.
+    #[test]
+    fn text_answers_go_to_the_history() {
+        let prompt = prompts::for_db(DatabaseType::Postgres).unwrap();
+        let history = [HistoryTurn {
+            question: "o que é um índice?".into(),
+            output: ModelOutput {
+                kind: OutputKind::Answer,
+                language: None,
+                query: None,
+                explanation: "Um índice acelera a busca.".into(),
+                assumptions: vec![],
+                clarification_question: None,
+                structure_request: None,
+            },
+        }];
+        let request = attempt_request(prompt, &schema(false), &history, "e um composto?", &[], 200_000);
+        assert!(request.messages[2].content.contains(r#""kind":"answer""#));
+        assert!(request.messages[2].content.contains("Um índice acelera a busca."));
+    }
+
     #[test]
     fn request_serializes_as_the_contract() {
         let prompt = prompts::for_db(DatabaseType::Postgres).unwrap();
         let request = attempt_request(prompt, &schema(false), &[], "x", &[], 8_000);
         let value = serde_json::to_value(&request).unwrap();
-        assert_eq!(value["promptVersion"], "postgres-v1");
+        assert_eq!(value["promptVersion"], "postgres-v2");
         assert_eq!(value["messages"][0]["role"], "system");
         assert_eq!(
             value["context"],

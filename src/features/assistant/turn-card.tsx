@@ -6,11 +6,17 @@ import { OctapusAnimated } from '@/components/octapus-animated/octapus-animated'
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { AssistantTarget } from '@/stores/assistant-store';
+import { AnswerText } from './answer-text';
 import { QuestionText } from './question-text';
 import { QueryBlock } from './query-block';
 import { ResultBlock } from './result-block';
 import { TurnFeedback } from './turn-feedback';
-import { STAGE_LABELS, phaseLabel, turnErrorMessage } from './turn-messages';
+import {
+  STAGE_LABELS,
+  phaseLabel,
+  structureSummary,
+  turnErrorMessage,
+} from './turn-messages';
 import { useCountdown } from './use-countdown';
 import type { ConversationTurn } from './use-conversation-view';
 import { useTurnCard } from './use-turn-card';
@@ -111,17 +117,27 @@ export function TurnCard({
         </div>
       )}
 
+      {view.structureLookups.length > 0 && (
+        <p className="text-small text-fg-muted">
+          {structureSummary(view.structureLookups)}
+        </p>
+      )}
+
       {output?.clarificationQuestion && (
         <p className="text-body whitespace-pre-wrap text-fg">
           {output.clarificationQuestion}
         </p>
       )}
 
-      {output?.explanation && (
-        <p className="text-body whitespace-pre-wrap text-fg">
-          {output.explanation}
-        </p>
-      )}
+      {output?.explanation &&
+        (output.kind === 'answer' ? (
+          // Resposta só em texto: sem consulta, sem "Abrir no editor"
+          <AnswerText text={output.explanation} />
+        ) : (
+          <p className="text-body whitespace-pre-wrap text-fg">
+            {output.explanation}
+          </p>
+        ))}
 
       {output && output.assumptions.length > 0 && (
         <div className="flex flex-col gap-1">
