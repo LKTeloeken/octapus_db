@@ -1,6 +1,9 @@
 mod browse;
 mod command;
 mod metadata;
+pub mod patterns;
+pub mod plan;
+mod read_only;
 
 use std::time::Instant;
 
@@ -9,9 +12,11 @@ use redis::aio::ConnectionManager;
 use redis::{ConnectionAddr, ConnectionInfo, RedisConnectionInfo, TlsCertificates};
 use tokio::sync::OnceCell;
 
-use crate::adapters::DatabaseAdapter;
+use crate::adapters::{DatabaseAdapter, ReadOnlyLimits, ReadOnlyOp};
 use crate::error::{Error, Result};
 use crate::models::*;
+
+use self::patterns::KeyPatterns;
 
 pub struct RedisAdapter {
     client: redis::Client,
@@ -129,6 +134,33 @@ impl DatabaseAdapter for RedisAdapter {
         let mut result = command::value_to_result(&tokens[0], value);
         result.execution_time_ms = execution_time_ms;
         Ok(result)
+    }
+
+    async fn execute_read_only(&self, op: &ReadOnlyOp, page: QueryOptions) -> Result<QueryResult> {
+        let ReadOnlyOp::RedisPlan(text) = op else {
+            return Err(Error::UnsupportedType(format!(
+                "Redis runs only redis plans read-only, not {:?}",
+                op.language()
+            )));
+        };
+        let mut conn = self.conn().await?;
+        read_only::execute(&mut conn, text, &page, &ReadOnlyLimits::default()).await
+    }
+
+    async fn explain_read_only(&self, op: &ReadOnlyOp, _page: QueryOptions) -> Result<ReadOnlyPlan> {
+        let ReadOnlyOp::RedisPlan(text) = op else {
+            return Err(Error::UnsupportedType(format!(
+                "Redis plans only redis plans, not {:?}",
+                op.language()
+            )));
+        };
+        let mut conn = self.conn().await?;
+        read_only::explain(&mut conn, text, &ReadOnlyLimits::default()).await
+    }
+
+    async fn sample_key_patterns(&self) -> Result<KeyPatterns> {
+        let mut conn = self.conn().await?;
+        patterns::sample(&mut conn).await
     }
 
     async fn fetch_table_data(&self, request: TableDataRequest) -> Result<QueryResult> {

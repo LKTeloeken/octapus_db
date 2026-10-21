@@ -6,6 +6,7 @@ import type { QueryResult } from '@/api/types/query.types';
 import {
   editorText,
   formatQueryText,
+  opensInEditor,
   relationNouns,
 } from '@/lib/assistant/query-text';
 import { useExecuteAssistantQuery } from '@/queries/use-assistant-conversations';
@@ -47,7 +48,7 @@ export const useTurnCard = ({
   conversationId: string | null;
   target: AssistantTarget | null;
   flat: boolean;
-  /** Linguagem do banco (capabilities): no Mongo, a operação em JSON */
+  /** Linguagem do banco (capabilities): no Mongo e no Redis, JSON */
   queryLanguage: QueryLanguage | null;
 }) => {
   const { view, schemas } = turn;
@@ -168,7 +169,7 @@ export const useTurnCard = ({
         database: target.database,
         schema: searchPath,
         title: 'Assistente',
-        // No Mongo, o comando que o editor roda (`db.<coleção>.find(…)`)
+        // No Mongo e no Redis, o comando que o editor roda
         content: editorText(queryLanguage, text),
       });
     },
@@ -210,7 +211,12 @@ export const useTurnCard = ({
     loadMore,
     openInEditor,
     copy,
-    canOpenInEditor: !!target,
+    canOpenInEditor:
+      !!target &&
+      opensInEditor(
+        queryLanguage,
+        isQuery ? draft : (view.output?.query ?? ''),
+      ),
     nouns: relationNouns(queryLanguage),
   };
 };

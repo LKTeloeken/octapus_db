@@ -37,8 +37,9 @@ export function ConversationView({
     paradigm: conversation.conversation?.paradigm ?? null,
     disabled: conversation.running,
   });
+  // Sem catálogo (Redis), o @ não completa nada
   const composer = useComposer({
-    target: conversation.target,
+    target: conversation.mentions ? conversation.target : null,
     flat: conversation.flat,
   });
 
@@ -96,12 +97,20 @@ export function ConversationView({
             <p className="text-title font-semibold text-fg">
               Pergunte sobre o banco
             </p>
-            <p className="text-body text-fg-muted">
-              Em português ou inglês. Cite {conversation.nouns.many} com @ — por
-              exemplo,
-              {conversation.flat ? ' @pedidos' : ' @public.pedidos'}. O modelo
-              vê só a estrutura, nunca os dados.
-            </p>
+            {conversation.mentions ? (
+              <p className="text-body text-fg-muted">
+                Em português ou inglês. Cite {conversation.nouns.many} com @ —
+                por exemplo,
+                {conversation.flat ? ' @pedidos' : ' @public.pedidos'}. O modelo
+                vê só a estrutura, nunca os dados.
+              </p>
+            ) : (
+              <p className="text-body text-fg-muted">
+                Em português ou inglês. O modelo vê só os{' '}
+                {conversation.nouns.many} e os tipos, de uma amostra — nunca as
+                chaves nem os valores.
+              </p>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-6">
@@ -112,6 +121,7 @@ export function ConversationView({
                 conversationId={conversation.conversation?.id ?? null}
                 target={conversation.target}
                 flat={conversation.flat}
+                mentions={conversation.mentions}
                 queryLanguage={conversation.queryLanguage}
                 onCancel={conversation.cancelTurn}
                 isCancelling={conversation.isCancelling}
@@ -134,7 +144,9 @@ export function ConversationView({
             mentionPattern={composer.mentionPattern}
             placeholderText={
               conversation.blockedReason ??
-              `Pergunte algo… (@ cita uma ${conversation.nouns.one})`
+              (conversation.mentions
+                ? `Pergunte algo… (@ cita uma ${conversation.nouns.one})`
+                : 'Pergunte algo…')
             }
             disabled={!!conversation.blockedReason}
             focusRequest={conversation.focusRequest}

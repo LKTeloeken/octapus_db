@@ -26,7 +26,8 @@ export function phaseLabel(
 
 export const STAGE_LABELS: Record<FailureStage, string> = {
   guard: 'Recusada pela verificação de leitura',
-  preflight: 'Falhou na conferência (EXPLAIN)',
+  // EXPLAIN no SQL e no Mongo; no Redis, o COMMAND INFO dos comandos do plano
+  preflight: 'Falhou na conferência antes de executar',
   execution: 'Falhou ao executar',
   output: 'Sem resposta válida',
 };

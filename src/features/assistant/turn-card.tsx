@@ -21,6 +21,8 @@ interface TurnCardProps {
   conversationId: string | null;
   target: AssistantTarget | null;
   flat: boolean;
+  /** Dá para citar com @ (banco com catálogo) */
+  mentions: boolean;
   queryLanguage: QueryLanguage | null;
   onCancel: () => void;
   isCancelling: boolean;
@@ -32,6 +34,7 @@ export function TurnCard({
   conversationId,
   target,
   flat,
+  mentions,
   queryLanguage,
   onCancel,
   isCancelling,
@@ -57,13 +60,19 @@ export function TurnCard({
         <QuestionText text={view.question} flat={flat} />
       </div>
 
-      {view.truncated && (
-        <Notice tone="info">
-          A estrutura do banco é grande: o assistente viu só um recorte das{' '}
-          {card.nouns.many}. Cite as {card.nouns.many} com @ para garantir que
-          entrem.
-        </Notice>
-      )}
+      {view.truncated &&
+        (mentions ? (
+          <Notice tone="info">
+            A estrutura do banco é grande: o assistente viu só um recorte das{' '}
+            {card.nouns.many}. Cite as {card.nouns.many} com @ para garantir que
+            entrem.
+          </Notice>
+        ) : (
+          <Notice tone="info">
+            O banco tem muitas chaves: o assistente viu os {card.nouns.many} de
+            uma amostra, não de todas.
+          </Notice>
+        ))}
 
       {mascot && (
         <div className="flex items-center gap-2.5">

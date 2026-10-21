@@ -3,6 +3,8 @@ import {
   editorText,
   formatQueryText,
   mongoShellCommand,
+  opensInEditor,
+  redisCommandLine,
   relationNouns,
 } from './query-text';
 
@@ -99,5 +101,61 @@ describe('relationNouns', () => {
     expect(relationNouns('mongo').many).toBe('coleções');
     expect(relationNouns('sql').one).toBe('tabela');
     expect(relationNouns(null).many).toBe('tabelas');
+  });
+});
+
+const plan = (...steps: Record<string, unknown>[]) =>
+  JSON.stringify({
+    steps: steps.map((step, index) => ({
+      id: `s${index}`,
+      args: [],
+      foreach: null,
+      ...step,
+    })),
+    output: `s${steps.length - 1}`,
+  });
+
+describe('plano do Redis', () => {
+  const scan = plan({
+    command: 'SCAN',
+    args: ['0', 'MATCH', 'user:*', 'TYPE', 'hash'],
+  });
+  const foreach = plan(
+    { command: 'SCAN', args: ['0', 'MATCH', 'user:*'] },
+    { command: 'HGET', args: ['$item', 'name'], foreach: 's0' },
+  );
+
+  it('indenta o plano e deixa o código como veio', () => {
+    expect(formatQueryText('redis_plan', scan)).toBe(
+      JSON.stringify(JSON.parse(scan), null, 2),
+    );
+    expect(formatQueryText('redis_plan', 'DEL user:42')).toBe('DEL user:42');
+  });
+
+  it('só o plano de um passo vira a linha do editor', () => {
+    expect(redisCommandLine(scan)).toBe('SCAN 0 MATCH user:* TYPE hash');
+    expect(
+      redisCommandLine(plan({ command: 'GET', args: ['nota "a b"', ''] })),
+    ).toBe('GET "nota \\"a b\\"" ""');
+    expect(redisCommandLine(foreach)).toBeNull();
+    expect(editorText('redis_plan', scan)).toBe(
+      'SCAN 0 MATCH user:* TYPE hash',
+    );
+    expect(editorText('redis_plan', ' DEL user:42 ')).toBe('DEL user:42');
+  });
+
+  it('abre no editor só o que vira um comando', () => {
+    expect(opensInEditor('redis_plan', scan)).toBe(true);
+    expect(opensInEditor('redis_plan', foreach)).toBe(false);
+    expect(opensInEditor('redis_plan', 'DEL user:42')).toBe(true);
+    expect(opensInEditor('redis_plan', 'DEL a\nDEL b')).toBe(false);
+    expect(opensInEditor('sql', 'SELECT 1;\nSELECT 2')).toBe(true);
+  });
+
+  it('chama as relações de padrões de chave', () => {
+    expect(relationNouns('redis_plan')).toEqual({
+      one: 'padrão de chave',
+      many: 'padrões de chave',
+    });
   });
 });

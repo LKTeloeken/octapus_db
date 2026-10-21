@@ -232,6 +232,144 @@ mod e2e {
             .unwrap();
     }
 
+    /// Redis dos e2e (localhost:6380, sem auth; dá FLUSHDB no db 1 — o db 0
+    /// é do e2e do adapter).
+    /// `cargo test --lib assistant::read_only -- --ignored`
+    #[tokio::test]
+    #[ignore = "requires local redis on localhost:6380 (no auth)"]
+    async fn e2e_redis_context_guard_foreach_and_canaries() {
+        use crate::adapters::redisdb::RedisAdapter;
+        use crate::assistant::failure::{classify, sanitize, FailureClass};
+        use crate::assistant::key_context;
+        use crate::assistant::schema_context::ContextRequest;
+
+        let redis = DatabaseType::Redis;
+        let op = |text: &str| ReadOnlyOp::RedisPlan(text.into());
+        let mut server = server(redis, None);
+        server.port = 6380;
+        server.username = String::new();
+        server.password = String::new();
+        let adapter = RedisAdapter::new(&server, "1").unwrap();
+        adapter.execute_statement("FLUSHDB").await.unwrap();
+
+        // Chaves e valores com canários: nenhum pode sair do app
+        for i in 1..=30 {
+            adapter
+                .execute_statement(&format!("HSET user:{} name CANARY_name_{i} email user{i}@canary.example", 48200 + i))
+                .await
+                .unwrap();
+        }
+        for i in 1..=5 {
+            adapter.execute_statement(&format!("RPUSH user:{}:cart CANARY_item_{i}", 48200 + i)).await.unwrap();
+        }
+        adapter
+            .execute_statement("SET session:550e8400-e29b-41d4-a716-446655440000 CANARY_token")
+            .await
+            .unwrap();
+        adapter.execute_statement("SET reset:ana.canary@example.com 1").await.unwrap();
+        adapter.execute_statement("ZADD leaderboard 10 CANARY_ana 7 CANARY_bia 3 CANARY_caio").await.unwrap();
+        let members: Vec<String> = (0..1500).map(|i| format!("m{i}")).collect();
+        adapter.execute_statement(&format!("SADD big {}", members.join(" "))).await.unwrap();
+        let dbsize = || async {
+            adapter.execute_query("DBSIZE", QueryOptions::default()).await.unwrap().rows[0][0].clone()
+        };
+        let before = dbsize().await;
+
+        // Contexto: padrões e tipos, sem chave completa nem valor (RN-09)
+        let context = key_context::build(
+            &adapter,
+            ContextRequest {
+                schemas: &[],
+                question: "quantos usuários há?",
+                history: &[],
+                context_window: 200_000,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(context.ddl.contains("\"user:{id}\" hash, 30 keys"), "{}", context.ddl);
+        assert!(context.ddl.contains("\"user:{id}:cart\" list, 5 keys"), "{}", context.ddl);
+        assert!(context.ddl.contains("\"leaderboard\" zset, 1 key"), "{}", context.ddl);
+        for canary in ["CANARY", "canary", "48201", "550e8400", "example"] {
+            assert!(!context.ddl.contains(canary), "{canary} vazou no contexto:\n{}", context.ddl);
+        }
+
+        // Guard: KEYS, scripts e escritas param antes do banco
+        for text in [
+            r#"{"steps":[{"id":"a","command":"KEYS","args":["*"],"foreach":null}],"output":"a"}"#,
+            r#"{"steps":[{"id":"a","command":"EVAL","args":["return redis.call('FLUSHDB')","0"],"foreach":null}],"output":"a"}"#,
+            r#"{"steps":[{"id":"a","command":"FLUSHDB","args":[],"foreach":null}],"output":"a"}"#,
+            r#"{"steps":[{"id":"a","command":"SCAN","args":["0","MATCH","user:*"],"foreach":null},
+                {"id":"b","command":"DEL","args":["$item"],"foreach":"a"}],"output":"b"}"#,
+            r#"{"steps":[{"id":"a","command":"SET","args":["x","1"],"foreach":null}],"output":"a"}"#,
+        ] {
+            let error = execute(&adapter, redis, &op(text), QueryOptions::default()).await.unwrap_err();
+            assert_eq!(error.code(), "GUARD_REJECTED", "{text}");
+        }
+        assert_eq!(dbsize().await, before);
+
+        // foreach: SCAN dos usuários e o nome de cada um, com total e páginas
+        let names = r#"{"steps":[
+            {"id":"users","command":"SCAN","args":["0","MATCH","user:*","TYPE","hash"],"foreach":null},
+            {"id":"names","command":"HGET","args":["$item","name"],"foreach":"users"}],"output":"names"}"#;
+        let page = execute(&adapter, redis, &op(names), QueryOptions { limit: 10, ..QueryOptions::default() })
+            .await
+            .unwrap();
+        assert_eq!((page.row_count, page.has_more, page.total_count), (10, true, Some(30)));
+        let columns: Vec<&str> = page.columns.iter().map(|column| column.name.as_str()).collect();
+        assert_eq!(columns, ["key", "name"]);
+        assert!(page.rows.iter().all(|row| row[1].as_deref().is_some_and(|name| name.starts_with("CANARY_name_"))));
+        let last = execute(&adapter, redis, &op(names), QueryOptions { limit: 10, offset: 25, ..QueryOptions::default() })
+            .await
+            .unwrap();
+        assert_eq!((last.row_count, last.has_more), (5, false));
+
+        // HGETALL por item abre uma coluna por campo; ranking direto no servidor
+        let all = r#"{"steps":[
+            {"id":"users","command":"SCAN","args":["0","MATCH","user:*","TYPE","hash"],"foreach":null},
+            {"id":"all","command":"HGETALL","args":["$item"],"foreach":"users"}],"output":"all"}"#;
+        let result = execute(&adapter, redis, &op(all), QueryOptions::default()).await.unwrap();
+        let columns: Vec<&str> = result.columns.iter().map(|column| column.name.as_str()).collect();
+        assert_eq!(columns, ["key", "name", "email"]);
+        let top = r#"{"steps":[{"id":"top","command":"ZRANGE","args":["leaderboard","0","1","REV","WITHSCORES"],"foreach":null}],"output":"top"}"#;
+        let result = execute(&adapter, redis, &op(top), QueryOptions::default()).await.unwrap();
+        assert_eq!(result.rows, [vec![Some("CANARY_ana".into()), Some("10".into())], vec![Some("CANARY_bia".into()), Some("7".into())]]);
+
+        // Preflight: aridade errada sem executar; o plano certo vira resumo
+        let wrong = r#"{"steps":[{"id":"a","command":"HGET","args":["user:48201"],"foreach":null}],"output":"a"}"#;
+        let error = preflight(&adapter, redis, &op(wrong), QueryOptions::default()).await.unwrap_err();
+        assert_eq!(classify(&error), Some(FailureClass::Syntax));
+        assert_eq!(
+            sanitize(&error, wrong).as_deref(),
+            Some("ERR: wrong number of arguments for 'hget' command")
+        );
+        let plan = preflight(&adapter, redis, &op(names), QueryOptions::default()).await.unwrap();
+        assert_eq!(plan.plan, "SCAN → foreach HGET");
+
+        // WRONGTYPE: o SCAN sem TYPE pega as listas também; nada do banco no erro
+        let mixed = r#"{"steps":[
+            {"id":"users","command":"SCAN","args":["0","MATCH","user:*"],"foreach":null},
+            {"id":"names","command":"HGET","args":["$item","name"],"foreach":"users"}],"output":"names"}"#;
+        let error = execute(&adapter, redis, &op(mixed), QueryOptions { limit: 1000, ..QueryOptions::default() })
+            .await
+            .unwrap_err();
+        assert_eq!(classify(&error), Some(FailureClass::TypeMismatch), "{error:?}");
+        let sanitized = sanitize(&error, mixed).unwrap();
+        assert_eq!(sanitized, "WRONGTYPE: Operation against a key holding the wrong kind of value");
+
+        // Teto: foreach no meio do plano sobre 1500 itens é limitação do paradigma
+        let fan_out = r#"{"steps":[
+            {"id":"members","command":"SMEMBERS","args":["big"],"foreach":null},
+            {"id":"exists","command":"EXISTS","args":["$item"],"foreach":"members"},
+            {"id":"types","command":"TYPE","args":["$item"],"foreach":"exists"}],"output":"types"}"#;
+        let error = execute(&adapter, redis, &op(fan_out), QueryOptions::default()).await.unwrap_err();
+        assert_eq!(classify(&error), Some(FailureClass::ParadigmLimitation), "{error:?}");
+        assert!(sanitize(&error, fan_out).unwrap().contains("more than 1000 items"));
+
+        assert_eq!(dbsize().await, before);
+        adapter.execute_statement("FLUSHDB").await.unwrap();
+    }
+
     /// Mongo dos e2e (localhost:27017, sem auth).
     /// `cargo test --lib assistant::read_only -- --ignored`
     #[tokio::test]

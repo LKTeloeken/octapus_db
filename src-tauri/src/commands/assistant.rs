@@ -10,9 +10,9 @@ use crate::assistant::client::{AttemptProgress, AttemptReply};
 use crate::assistant::failure::{classify, sanitize};
 use crate::assistant::language::{self, Language};
 use crate::assistant::messages::AttemptRequest;
-use crate::assistant::schema_context::{self, ContextRequest};
+use crate::assistant::schema_context::{self, ContextRequest, SchemaContext};
 use crate::assistant::turn::{self, TurnApi, TurnDatabase, TurnSetup};
-use crate::assistant::{prompts, read_only, ApiClient, AssistantCode, AssistantError, AssistantService, CancelFlag};
+use crate::assistant::{key_context, prompts, read_only, ApiClient, AssistantCode, AssistantError, AssistantService, CancelFlag};
 use crate::catalog::FLAT_SCHEMA;
 use crate::error::{Error, Result};
 use crate::models::{
@@ -208,14 +208,16 @@ pub async fn assistant_turn_ask(
         }
 
         let schemas = conversation_schemas(db_type, schemas);
-        let entry = entry_for(&state, server_id, &database).await?;
         let history = turn::history_from(&conversation);
         let past_questions: Vec<String> = history.iter().map(|turn| turn.question.clone()).collect();
         let context_window = conversation.summary.model.context_window;
-        let schema = schema_context::build(
-            &state.catalog,
-            &entry,
+        let adapter = connect_adapter(&state, server_id, &database).await?;
+        let schema = structure_context(
+            &state,
+            server_id,
+            &database,
             db_type,
+            adapter.as_ref(),
             ContextRequest {
                 schemas: &schemas,
                 question: &question,
@@ -224,7 +226,6 @@ pub async fn assistant_turn_ask(
             },
         )
         .await?;
-        let adapter = connect_adapter(&state, server_id, &database).await?;
 
         let setup = TurnSetup {
             conversation_id: conversation_id.clone(),
@@ -271,6 +272,25 @@ pub async fn assistant_turn_ask(
         Ok(_) => {}
     }
     result
+}
+
+/// A estrutura que vai ao modelo: pelo catálogo (Postgres, SQLite, Mongo) ou,
+/// no banco sem catálogo (Redis), pelos padrões de chave de uma amostra do
+/// próprio adapter. Decide pelas capabilities.
+async fn structure_context(
+    state: &State<'_, AppState>,
+    server_id: i64,
+    database: &str,
+    db_type: DatabaseType,
+    adapter: &dyn DatabaseAdapter,
+    request: ContextRequest<'_>,
+) -> Result<SchemaContext> {
+    let has_catalog = AdapterCapabilities::for_db_type(db_type).is_some_and(|caps| caps.has_catalog);
+    if !has_catalog {
+        return key_context::build(adapter, request).await;
+    }
+    let entry = entry_for(state, server_id, database).await?;
+    schema_context::build(&state.catalog, &entry, db_type, request).await
 }
 
 /// Cancela o turno em andamento (C-18): fecha o stream do modelo (a API
@@ -416,8 +436,8 @@ fn query_language(db_type: DatabaseType) -> QueryLanguage {
     AdapterCapabilities::for_db_type(db_type).map_or(QueryLanguage::Sql, |caps| caps.query_language)
 }
 
-/// Os schemas da conversa: no SQLite e no Mongo, o schema sem nome; no
-/// Postgres, os pedidos (sem repetir) ou o `public`.
+/// Os schemas da conversa: no SQLite, no Mongo e no Redis, o schema sem nome;
+/// no Postgres, os pedidos (sem repetir) ou o `public`.
 fn conversation_schemas(db_type: DatabaseType, requested: Option<Vec<String>>) -> Vec<String> {
     if db_type != DatabaseType::Postgres {
         return vec![FLAT_SCHEMA.to_string()];
@@ -564,14 +584,17 @@ mod tests {
     }
 }
 
-/// Um turno de verdade contra uma API do assistente (a local, com a chave de
-/// teste): convite → termo → conversa → contexto de um SQLite temporário →
-/// turno com o modelo real. Gasta tokens; só roda com as variáveis:
+/// Turnos de verdade contra uma API do assistente (a local, com a chave de
+/// teste): convite → termo → conversa → contexto de um banco descartável →
+/// turno com o modelo real. Gastam tokens; só rodam com as variáveis:
 ///
 /// ```text
 /// OCTAPUS_E2E_ASSISTANT_URL=http://localhost:8787 OCTAPUS_E2E_INVITE=<convite> \
 ///   cargo test --lib commands::assistant::e2e -- --ignored --nocapture
 /// ```
+///
+/// O de Mongo usa o banco dos e2e em localhost:27017 e o de Redis o de
+/// localhost:6380 (db 2; o 0 e o 1 são dos outros e2e), os dois sem auth.
 #[cfg(test)]
 mod e2e {
     use std::sync::Arc;
@@ -579,24 +602,30 @@ mod e2e {
     use parking_lot::Mutex;
 
     use super::*;
+    use crate::adapters::mongo::MongoAdapter;
+    use crate::adapters::redisdb::RedisAdapter;
     use crate::adapters::sqlite::SqliteAdapter;
     use crate::models::{Server, SslMode};
-    use crate::services::{CatalogService, SourceOpener};
+    use crate::services::{CatalogEntry, CatalogService, SourceOpener};
     use crate::storage::vault;
 
-    #[tokio::test]
-    #[ignore]
-    async fn e2e_real_turn_against_the_assistant_api() {
+    /// Participante com o termo aceito e uma conversa nova do paradigma
+    struct Participant {
+        client: ApiClient,
+        token: String,
+        conversation_id: String,
+    }
+
+    async fn participant(db_type: DatabaseType) -> Option<Participant> {
         let (Ok(url), Ok(invite)) = (
             std::env::var("OCTAPUS_E2E_ASSISTANT_URL"),
             std::env::var("OCTAPUS_E2E_INVITE"),
         ) else {
             eprintln!("sem OCTAPUS_E2E_ASSISTANT_URL/OCTAPUS_E2E_INVITE: nada a fazer");
-            return;
+            return None;
         };
         vault::init_for_tests();
 
-        // Participante com o termo aceito
         let client = ApiClient::new(&url).unwrap();
         let token = client.redeem(&invite, Some("octapus e2e")).await.unwrap().token;
         let me = client.me(&token).await.unwrap();
@@ -605,79 +634,107 @@ mod e2e {
                 client.consent_accept(&token, current).await.unwrap();
             }
         }
-        let summary = client.create_conversation(&token, "sqlite", None, Some("e2e")).await.unwrap();
+        let paradigm = prompts::paradigm(db_type).unwrap();
+        let summary = client.create_conversation(&token, paradigm, None, Some("e2e")).await.unwrap();
+        Some(Participant {
+            client,
+            token,
+            conversation_id: summary.id,
+        })
+    }
 
-        // Banco SQLite descartável
-        let path = std::env::temp_dir().join("octapus_db_assistant_e2e.db");
-        let _ = std::fs::remove_file(&path);
-        rusqlite::Connection::open(&path)
-            .unwrap()
-            .execute_batch(
-                "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, city TEXT);
-                 CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id),
-                                      total REAL NOT NULL, created_at TEXT NOT NULL);
-                 INSERT INTO customers (name, city) VALUES ('Ana', 'Porto Alegre'), ('Bia', 'Curitiba');
-                 INSERT INTO orders (customer_id, total, created_at) VALUES
-                   (1, 120.5, '2026-10-01'), (1, 80, '2026-10-05'), (2, 42, '2026-10-07');",
-            )
-            .unwrap();
-        let server = Server {
+    fn server(db_type: DatabaseType, port: u16, connection_uri: Option<String>) -> Server {
+        Server {
             id: Some(1),
             name: "e2e".into(),
-            db_type: DatabaseType::Sqlite,
-            host: String::new(),
-            port: 0,
+            db_type,
+            host: "localhost".into(),
+            port,
             username: String::new(),
             password: String::new(),
             default_database: None,
             ssl_mode: SslMode::Disable,
             ssl_root_cert: None,
-            connection_uri: Some(path.to_string_lossy().into_owned()),
+            connection_uri,
             scope_databases: None,
             scope_schemas: None,
             group_id: None,
             created_at: 0,
-        };
+        }
+    }
 
+    /// De onde vem a estrutura que vai ao modelo, como no `structure_context`
+    enum Structure<'a> {
+        Catalog(&'a CatalogService, &'a Arc<CatalogEntry>),
+        Keys,
+    }
+
+    /// Catálogo de um banco descartável, num diretório temporário
+    async fn open_catalog(server: &Server, database: &str) -> (CatalogService, Arc<CatalogEntry>, std::path::PathBuf) {
         let catalogs = CatalogService::default();
-        let dir = std::env::temp_dir().join(format!("octapus-assistant-e2e-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("octapus-assistant-e2e-{}-{database}", std::process::id()));
         catalogs.init(dir.clone(), Arc::new(|_| {}));
         let opener_server = server.clone();
+        let opener_database = database.to_string();
         let opener: SourceOpener = Arc::new(move || {
             let server = opener_server.clone();
-            Box::pin(async move { crate::adapters::create_catalog_source(&server, "main").await })
+            let database = opener_database.clone();
+            Box::pin(async move { crate::adapters::create_catalog_source(&server, &database).await })
         });
-        let entry = catalogs.open(1, "main", "e2e".into(), opener).await;
+        let entry = catalogs.open(1, database, "e2e".into(), opener).await;
+        (catalogs, entry, dir)
+    }
 
-        let question = "Qual o total gasto por cada cliente?";
-        let conversation = client.conversation(&token, &summary.id).await.unwrap();
-        let schemas = [FLAT_SCHEMA.to_string()];
-        let schema = schema_context::build(
-            &catalogs,
-            &entry,
-            DatabaseType::Sqlite,
-            ContextRequest {
-                schemas: &schemas,
-                question,
-                history: &[],
-                context_window: conversation.summary.model.context_window,
-            },
-        )
-        .await
+    /// UUID v4 para a idempotência do turno
+    fn client_turn_id() -> String {
+        let bits: u128 = (rand::random::<u128>() & !(0xf << 76) | (0x4 << 76)) & !(0x3 << 62) | (0x2 << 62);
+        let hex = format!("{bits:032x}");
+        format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
+    }
+
+    /// Um turno com execução automática, com o histórico da conversa;
+    /// imprime os eventos e devolve o fim e as linhas impressas.
+    async fn ask(
+        participant: &Participant,
+        db: &AdapterDatabase,
+        structure: Structure<'_>,
+        question: &str,
+    ) -> (AssistantTurnFinish, Vec<String>) {
+        let Participant {
+            client,
+            token,
+            conversation_id,
+        } = participant;
+        let conversation = client.conversation(token, conversation_id).await.unwrap();
+        let context_window = conversation.summary.model.context_window;
+        let history = turn::history_from(&conversation);
+        let past_questions: Vec<String> = history.iter().map(|turn| turn.question.clone()).collect();
+        let schemas = conversation_schemas(db.db_type, None);
+        let request = ContextRequest {
+            schemas: &schemas,
+            question,
+            history: &past_questions,
+            context_window,
+        };
+        let schema = match structure {
+            Structure::Catalog(catalogs, entry) => schema_context::build(catalogs, entry, db.db_type, request).await,
+            Structure::Keys => key_context::build(db.adapter.as_ref(), request).await,
+        }
         .unwrap();
+        println!("--- {question}\n{}", schema.ddl);
 
         let assistant = AssistantService::from_env();
         let setup = TurnSetup {
-            conversation_id: summary.id.clone(),
-            client_turn_id: "6f1c2b8e-4d3a-4e5f-9a7b-1c2d3e4f5a6b".into(),
+            conversation_id: conversation_id.clone(),
+            client_turn_id: client_turn_id(),
             question: question.into(),
             language: language::detect(question),
-            prompt: prompts::for_db(DatabaseType::Sqlite).unwrap(),
-            db_type: DatabaseType::Sqlite,
-            expected_language: QueryLanguage::Sql,
+            prompt: prompts::for_db(db.db_type).unwrap(),
+            db_type: db.db_type,
+            expected_language: query_language(db.db_type),
             schema,
-            history: vec![],
-            context_window: conversation.summary.model.context_window,
+            history,
+            context_window,
             auto_execute: true,
             page: QueryOptions {
                 limit: FIRST_PAGE_ROWS,
@@ -685,18 +742,14 @@ mod e2e {
             },
         };
         let api = ApiTurns {
-            client: &client,
-            token: &token,
+            client,
+            token,
             assistant: &assistant,
-        };
-        let db = AdapterDatabase {
-            adapter: Arc::new(SqliteAdapter::new(&server, "main").unwrap()),
-            db_type: DatabaseType::Sqlite,
         };
         let events: Mutex<Vec<String>> = Mutex::default();
         let finish = turn::run_turn(
             &api,
-            &db,
+            db,
             &setup,
             &|event| {
                 let line = match &event {
@@ -712,20 +765,161 @@ mod e2e {
         .await
         .unwrap();
 
-        for line in events.lock().iter() {
+        let events = events.into_inner();
+        for line in &events {
             println!("{line}");
         }
         println!("fim: {:?} {:?}", finish.status, finish.error_code);
-        assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
-        assert!(events.lock().iter().any(|line| line.starts_with("result: 2 linha")));
+        (finish, events)
+    }
 
-        // A API guardou o turno com a tentativa e o outcome
-        let saved = client.conversation(&token, &summary.id).await.unwrap();
-        let attempt = saved.turns[0].attempts.last().unwrap();
-        assert!(attempt.outcome.as_ref().is_some_and(|outcome| outcome.execution.ok == Some(true)));
+    /// A API guardou a última tentativa do turno com a execução bem-sucedida
+    async fn assert_saved(participant: &Participant, turn_index: usize) {
+        let saved = participant
+            .client
+            .conversation(&participant.token, &participant.conversation_id)
+            .await
+            .unwrap();
+        let attempt = saved.turns[turn_index].attempts.last().unwrap();
+        assert!(
+            attempt.outcome.as_ref().is_some_and(|outcome| outcome.execution.ok == Some(true)),
+            "{attempt:?}"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn e2e_real_turn_against_the_assistant_api() {
+        let Some(participant) = participant(DatabaseType::Sqlite).await else {
+            return;
+        };
+
+        // Banco SQLite descartável
+        let path = std::env::temp_dir().join("octapus_db_assistant_e2e.db");
+        let _ = std::fs::remove_file(&path);
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, city TEXT);
+                 CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id),
+                                      total REAL NOT NULL, created_at TEXT NOT NULL);
+                 INSERT INTO customers (name, city) VALUES ('Ana', 'Porto Alegre'), ('Bia', 'Curitiba');
+                 INSERT INTO orders (customer_id, total, created_at) VALUES
+                   (1, 120.5, '2026-10-01'), (1, 80, '2026-10-05'), (2, 42, '2026-10-07');",
+            )
+            .unwrap();
+        let server = server(DatabaseType::Sqlite, 0, Some(path.to_string_lossy().into_owned()));
+        let (catalogs, entry, dir) = open_catalog(&server, "main").await;
+        let db = AdapterDatabase {
+            adapter: Arc::new(SqliteAdapter::new(&server, "main").unwrap()),
+            db_type: DatabaseType::Sqlite,
+        };
+
+        let (finish, events) = ask(
+            &participant,
+            &db,
+            Structure::Catalog(&catalogs, &entry),
+            "Qual o total gasto por cada cliente?",
+        )
+        .await;
+        assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
+        assert!(events.iter().any(|line| line.starts_with("result: 2 linha")));
+        assert_saved(&participant, 0).await;
 
         drop(entry);
         let _ = std::fs::remove_dir_all(dir);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the assistant API and local mongodb on localhost:27017 (no auth)"]
+    async fn e2e_real_mongo_turn_against_the_assistant_api() {
+        use mongodb::bson::{doc, Document};
+
+        const DATABASE: &str = "octapus_e2e_assistant_turn";
+        let Some(participant) = participant(DatabaseType::Mongodb).await else {
+            return;
+        };
+
+        // Banco Mongo descartável: pedidos com o cliente embutido
+        let mongo = mongodb::Client::with_uri_str("mongodb://localhost:27017").await.unwrap();
+        let database = mongo.database(DATABASE);
+        database.drop().await.unwrap();
+        database
+            .collection::<Document>("orders")
+            .insert_many([
+                doc! { "customer": { "name": "Ana", "city": "Porto Alegre" }, "total": 120.5, "status": "paid" },
+                doc! { "customer": { "name": "Ana", "city": "Porto Alegre" }, "total": 80.0, "status": "paid" },
+                doc! { "customer": { "name": "Bia", "city": "Curitiba" }, "total": 42.0, "status": "paid" },
+                doc! { "customer": { "name": "Caio", "city": "Curitiba" }, "total": 15.0, "status": "cancelled" },
+            ])
+            .await
+            .unwrap();
+        database
+            .collection::<Document>("products")
+            .insert_many([doc! { "sku": "A-1", "price": 10.0 }, doc! { "sku": "B-2", "price": 25.0 }])
+            .await
+            .unwrap();
+
+        let server = server(DatabaseType::Mongodb, 27017, None);
+        let (catalogs, entry, dir) = open_catalog(&server, DATABASE).await;
+        let db = AdapterDatabase {
+            adapter: Arc::new(MongoAdapter::new(&server, DATABASE).await.unwrap()),
+            db_type: DatabaseType::Mongodb,
+        };
+
+        let (finish, events) = ask(
+            &participant,
+            &db,
+            Structure::Catalog(&catalogs, &entry),
+            "Qual o total vendido por cidade, só nos pedidos pagos?",
+        )
+        .await;
+        assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
+        assert!(events.iter().any(|line| line.starts_with("result: 2 linha")));
+        assert_saved(&participant, 0).await;
+
+        drop(entry);
+        let _ = std::fs::remove_dir_all(dir);
+        database.drop().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the assistant API and local redis on localhost:6380 (no auth)"]
+    async fn e2e_real_redis_turns_against_the_assistant_api() {
+        let Some(participant) = participant(DatabaseType::Redis).await else {
+            return;
+        };
+
+        // Redis descartável (db 2): usuários em hash, carrinhos em lista e um ranking
+        let adapter = RedisAdapter::new(&server(DatabaseType::Redis, 6380, None), "2").unwrap();
+        adapter.execute_statement("FLUSHDB").await.unwrap();
+        let users = [("Ana", "Porto Alegre"), ("Bia", "Curitiba"), ("Caio", "Recife"), ("Duda", "Natal"), ("Edu", "Belém")];
+        for (i, (name, city)) in users.iter().enumerate() {
+            adapter
+                .execute_statement(&format!("HSET user:{} name \"{name}\" city \"{city}\"", 1001 + i))
+                .await
+                .unwrap();
+        }
+        adapter.execute_statement("RPUSH user:1001:cart A-1 B-2").await.unwrap();
+        adapter.execute_statement("ZADD leaderboard 10 user:1001 7 user:1002 3 user:1003").await.unwrap();
+        let db = AdapterDatabase {
+            adapter: Arc::new(adapter),
+            db_type: DatabaseType::Redis,
+        };
+
+        // Contagem pelo SCAN
+        let (finish, events) = ask(&participant, &db, Structure::Keys, "Quantos usuários existem?").await;
+        assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
+        assert!(events.iter().any(|line| line.starts_with("result: ")));
+        assert_saved(&participant, 0).await;
+
+        // Seguimento da conversa: foreach com HGET em cada usuário
+        let (finish, events) = ask(&participant, &db, Structure::Keys, "E qual é o nome e a cidade de cada um?").await;
+        assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
+        assert!(events.iter().any(|line| line.starts_with("result: 5 linha")));
+        assert_saved(&participant, 1).await;
+
+        db.adapter.execute_statement("FLUSHDB").await.unwrap();
     }
 }

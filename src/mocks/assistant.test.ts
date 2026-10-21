@@ -310,6 +310,82 @@ describe('assistente no mock', () => {
       }
     });
 
+    it('Redis: plano de passos, total da contagem, código e guard na execução', async () => {
+      const redis = (await route(RustCommand.AssistantConversationCreate, {
+        serverId: 4,
+        modelId: null,
+        title: null,
+      })) as AssistantConversationSummary;
+      expect(redis.paradigm).toBe('redis');
+
+      const events: AssistantTurnEvent[] = [];
+      const finish = (await route(RustCommand.AssistantTurnAsk, {
+        serverId: 4,
+        database: '0',
+        conversationId: redis.id,
+        question: 'quantos usuários existem?',
+        clientTurnId: 'turn-redis',
+        onEvent: {
+          onmessage: (event: AssistantTurnEvent) => events.push(event),
+        },
+      })) as AssistantTurnFinish;
+      expect(finish.status).toBe('answered');
+      expect(finish.output?.language).toBe('redis_plan');
+      expect(JSON.parse(finish.output?.query ?? '')).toMatchObject({
+        steps: [
+          { command: 'SCAN', args: ['0', 'MATCH', 'user:*', 'TYPE', 'hash'] },
+        ],
+        output: 'keys',
+      });
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: 'plan',
+          plan: { estimatedRows: null, estimatedCost: null, plan: 'SCAN' },
+        }),
+      );
+
+      const code = (await route(RustCommand.AssistantTurnAsk, {
+        serverId: 4,
+        database: '0',
+        conversationId: redis.id,
+        question: 'apagar o primeiro usuário da lista',
+        clientTurnId: 'turn-redis-2',
+      })) as AssistantTurnFinish;
+      expect(code.output?.query).toBe('DEL user:1');
+
+      const page = { offset: 0, limit: 200 };
+      const counted = (await route(RustCommand.AssistantExecute, {
+        serverId: 4,
+        query: finish.output?.query,
+        page,
+      })) as QueryResult;
+      expect(counted.totalCount).toBe(1284);
+      expect(counted.columns.map(column => column.name)).toEqual(['key']);
+      const step = (
+        command: string,
+        args: string[],
+        foreach: string | null = null,
+      ) => ({
+        id: 'a',
+        command,
+        args,
+        foreach,
+      });
+      for (const query of [
+        JSON.stringify({ steps: [step('KEYS', ['*'])], output: 'a' }),
+        JSON.stringify({
+          steps: [step('EVAL', ['return 1', '0'])],
+          output: 'a',
+        }),
+        JSON.stringify({ steps: [step('DEL', ['user:1'])], output: 'a' }),
+        'SCAN 0 MATCH user:*',
+      ]) {
+        await expect(
+          route(RustCommand.AssistantExecute, { serverId: 4, query, page }),
+        ).rejects.toMatchObject({ code: 'GUARD_REJECTED' });
+      }
+    });
+
     it('avaliação: grava, troca, remove e volta na conversa', async () => {
       const { id } = await conversation();
       const { finish } = await ask(id, 'quantos itens existem no estoque?');

@@ -52,8 +52,8 @@ pub struct AdapterCapabilities {
     pub supports_atomic_save: bool,
 
     /// O assistente de consulta atende este banco (a tela e os comandos
-    /// `assistant_*` de turno). Postgres, SQLite e Mongo; o Redis entra com a
-    /// parte B9.
+    /// `assistant_*` de turno). Todos os com adapter: Postgres, SQLite, Mongo
+    /// e Redis (este pelo plano de passos, sem catálogo).
     pub supports_assistant: bool,
 
     /// Em que o assistente escreve a consulta deste banco — o `language` da
@@ -137,7 +137,7 @@ impl AdapterCapabilities {
             supports_schema_compare: false,
             supports_backup: false,
             supports_atomic_save: false,
-            supports_assistant: false,
+            supports_assistant: true,
             query_language: QueryLanguage::RedisPlan,
         }
     }

@@ -65,7 +65,7 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsSchemaCompare: false,
     supportsBackup: false,
     supportsAtomicSave: false,
-    supportsAssistant: false,
+    supportsAssistant: true,
     queryLanguage: 'redis_plan',
   },
   sqlite: {

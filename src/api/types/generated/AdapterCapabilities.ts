@@ -65,8 +65,8 @@ supportsBackup: boolean,
 supportsAtomicSave: boolean, 
 /**
  * O assistente de consulta atende este banco (a tela e os comandos
- * `assistant_*` de turno). Postgres, SQLite e Mongo; o Redis entra com a
- * parte B9.
+ * `assistant_*` de turno). Todos os com adapter: Postgres, SQLite, Mongo
+ * e Redis (este pelo plano de passos, sem catálogo).
  */
 supportsAssistant: boolean, 
 /**

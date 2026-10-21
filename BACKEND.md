@@ -158,7 +158,8 @@ listagem inteira (com o tamanho de cada tabela) levava o backend ao OOM.
 
 As fontes também respondem, só para as relações pedidas, `foreign_keys` e
 `relation_details` (SQL) e `infer_shape` (Mongo: formato por `$sample`) — contexto do
-assistente, ver §4 "Assistente de consulta".
+assistente, ver §4 "Assistente de consulta". O Redis, sem catálogo, responde o dele pelo
+adapter (`sample_key_patterns`).
 
 **Para mexer:** consulta nova → método em `Catalog` (`catalog/query.rs`) + comando em
 `commands/catalog.rs`; banco novo → implementar `CatalogSource` e incluir em
@@ -467,7 +468,7 @@ interface AdapterCapabilities {
   supportsSchemaCompare: boolean; // só Postgres (catalog_compare_schemas)
   supportsBackup: boolean;      // só Postgres (pg_dump/pg_restore)
   supportsAtomicSave: boolean;  // Postgres/Mongo/SQLite (save_row_changes); Mongo só é atômico em replica set
-  supportsAssistant: boolean;   // Postgres e SQLite (piloto); Mongo e Redis entram nas partes B8/B9
+  supportsAssistant: boolean;   // os quatro; o Redis pelo plano de passos, sem catálogo
   queryLanguage: 'sql' | 'mongo' | 'redis_plan'; // o que o assistente gera para o banco
 }
 ```
@@ -742,8 +743,9 @@ segura sozinha (os testes rodam cada executor com o guard desligado):
   transação `READ ONLY` não impede: sessões (`pg_terminate_backend`, `set_config`), lock
   consultivo, arquivos do servidor, `dblink`, SQL dinâmico (`query_to_xml`), sequências,
   `lo_*`; no SQLite, `load_extension`/`readfile`/`writefile`. O que o parser não entende
-  (ex.: `TABLE t`) é recusado. Recusa → `GUARD_REJECTED`; o Redis ainda sem guard →
-  `UNSUPPORTED_TYPE`. O guard do Mongo está em "MongoDB" logo abaixo.
+  (ex.: `TABLE t`) é recusado. Recusa → `GUARD_REJECTED`; linguagem que não é a do banco
+  (ou sem guard) → `UNSUPPORTED_TYPE`. Os guards do Mongo e do Redis estão em "MongoDB" e
+  "Redis" logo abaixo.
 - **Executor** (`DatabaseAdapter::execute_read_only(op, page)`, `ReadOnlyOp` em
   `adapters/read_only.rs`): a consulta vai dentro de `SELECT … FROM (\n…\n)` com
   `LIMIT`/`OFFSET` da página (teto de 1.000 linhas, `ReadOnlyLimits`) e o resultado nunca é
@@ -806,6 +808,57 @@ Mongo vem como comando do shell (`db.x.updateMany(…)`) e nunca roda.
 - **Estrutura** (`adapters/mongo/shape.rs` + `assistant/shape_context.rs`): ver o
   contexto da estrutura abaixo.
 
+**Redis** (B9). O modelo não vê chaves nem valores (RN-09), então a consulta é um **plano
+de passos** (`redis-plan.schema.json`): até 8 passos `{ id, command, args, foreach }` e o
+`output`. Um passo com `foreach` roda uma vez por item do resultado de um passo anterior,
+com `$item` trocado pelo item nos args (também dentro de um texto: `$item:cart`). O parse
+é estrito e o mesmo para guard e executor (`adapters/redisdb/plan.rs`: campo a mais, id
+inválido ou repetido, `foreach` para passo que não veio antes, `$item` sem `foreach` e
+`output` que não existe são recusados). O `kind: code` do Redis vem como comandos do
+`redis-cli`, um por linha, e nunca roda.
+
+- **Guard** (`assistant/guard/redis.rs`, falha fechado): todo passo usa um comando da
+  **allowlist de leitura** (`plan::READ_COMMANDS`: keyspace, strings, hashes, listas, sets,
+  sorted sets, `XRANGE`/`XLEN`, geo); `SORT` (tem `STORE`), `PFCOUNT` (grava o cache do
+  HLL), módulos e o que não está na lista ficam de fora. Motivos próprios: `keys` (`KEYS`),
+  `script` (`EVAL`, `EVALSHA`, `FCALL`, `FUNCTION`, `SCRIPT`), `write` (escritas
+  conhecidas, só para o motivo), `not_allowed` (administração, bloqueantes, `SELECT`,
+  `MULTI`…) e `scan_in_foreach` (uma varredura do keyspace por item). As mensagens nunca
+  repetem argumento.
+- **Executor** (`adapters/redisdb/read_only.rs`): o Redis não tem modo só-leitura por
+  conexão, então cada passo passa de novo pela allowlist antes de ir ao servidor. O app
+  percorre o cursor do `SCAN` (o do modelo, se vier, tem que ser `0`; aceita `MATCH`,
+  `COUNT` e `TYPE`) e tira as chaves repetidas. Só roda o que leva ao `output`; o
+  `foreach` que é o `output` roda só para os itens da página (pipelines de 100). Tetos:
+  10.000 chaves por `SCAN`, 1.000 itens num `foreach` que não é o `output`, 5.000
+  comandos por execução e 30 s no plano inteiro. O `SCAN` que vai para a tela (ou
+  alimenta o `output`) só corta no teto — a página sai do que foi lido e, sem total,
+  `hasMore` fica ligado; pedir a página depois do que foi lido é falha. O que alimenta
+  outro `foreach` precisa do keyspace inteiro e falha no teto. A tabela: `SCAN` → uma
+  chave por linha; resposta em pares → `member`/`score` ou `field`/`value`; `foreach` →
+  o item (`key` quando a fonte é `SCAN`) e a resposta, com `HGET`/`HMGET` nomeando as
+  colunas pelos campos e `HGETALL` abrindo uma coluna por campo (até 50). `totalCount`
+  vai quando se sabe (resposta inteira, `SCAN` até o fim): é a resposta das perguntas de
+  "quantos". O `cancel_query` não interrompe o Redis: o turno larga a execução.
+- **Preflight:** parse, allowlist, opções do `SCAN` e, pelo `COMMAND INFO` dos comandos do
+  plano, que cada um existe nesta versão do servidor, que o número de argumentos bate com
+  a aridade (`ERR wrong number of arguments for 'hget' command`, como o Redis) e que o
+  servidor não o marca como `write`/`admin`/`blocking`. Nada do plano roda. Servidor que
+  esconde o `COMMAND` (alguns gerenciados) pula essa conferência. O `ReadOnlyPlan` traz só
+  os comandos (`SCAN → foreach HGET`), sem estimativa.
+- **Falha:** os erros do servidor saem como `Error::RedisQuery { code, message }` (o código
+  da resposta: `WRONGTYPE`, `ERR`, `NOPERM`…) e os tetos do executor como
+  `Error::PlanLimit` — os dois `QUERY_ERROR` para o front. `classify`: `WRONGTYPE` e
+  valor que não é número → `type_mismatch`; comando desconhecido, aridade e sintaxe →
+  `syntax`; `READONLY` (réplica recusou escrita) → `guard_rejected`; `PlanLimit` →
+  `paradigm_limitation` (o paradigma não expressa o pedido sem ler demais; a separação
+  fina de RN-30 fica na planilha); o resto, `runtime_error`. `sanitize` manda
+  `CODE: mensagem` com a mesma troca por `?` (a chave que entrou no `$item` é dado do
+  banco e não é token do plano, então vira `?`); o `PlanLimit` é texto nosso, só com id de
+  passo, comando e os tetos, e vai inteiro.
+- **Estrutura** (`adapters/redisdb/patterns.rs` + `assistant/key_context.rs`): ver o
+  contexto da estrutura abaixo.
+
 **Contexto da estrutura** (`assistant/schema_context.rs`, RN-26): o DDL que vai ao modelo
 com a pergunta, sem nunca carregar a estrutura inteira.
 
@@ -832,6 +885,21 @@ com a pergunta, sem nunca carregar a estrutura inteira.
   `collection "orders" (100 sampled documents):` e uma linha por campo
   (`"items[].qty" int|double 100%`), no mesmo orçamento e com a mesma linha final
   (`-- Other collections (fields not shown): …`). O `list_columns` da árvore não muda.
+- **Redis** (`assistant/key_context.rs`): não tem catálogo, então o `assistant_turn_ask`
+  desvia pelas capabilities (`hasCatalog`) e o contexto sai do próprio adapter
+  (`DatabaseAdapter::sample_key_patterns`, a cada pergunta). `patterns::sample` faz um
+  `SCAN` amostrado (o `scan_keys` da árvore, até 10.000 chaves, com teto de 5 s), o
+  `DBSIZE` e o `TYPE` de até 3 chaves por padrão (num pipeline, até 200 padrões, os de
+  mais chaves) — **as chaves lidas morrem ali** (RN-09). `generalize` divide nos `:` e
+  só mantém o segmento com cara de nome (começa com letra; letras, até dois dígitos, `_`
+  e `-`; até 40 caracteres; não parece hex nem token): número, UUID, hex, e-mail, data,
+  token, espaço ou caractere de glob viram `{id}`, inteiros ou na parte que varia
+  (`user12345` → `user{id}`, `order_2024_001` → `order_{id}`); uma posição com mais de 8
+  nomes diferentes sob o mesmo prefixo também vira `{id}`. Formato: o cabeçalho diz se a
+  amostra cobriu o banco (`-- Redis. Key patterns in a sample of 10000 of 152340 keys`),
+  uma linha por padrão (`"user:{id}" hash, 1203 keys`), ranqueados pelas palavras da
+  pergunta e pelo número de chaves, no mesmo orçamento e com a linha
+  `-- Other key patterns (not shown): …`. Amostra que não cobriu o banco liga `truncated`.
 - **Formato:** `CREATE TABLE "schema"."tabela" (…)` com `NOT NULL`, `PRIMARY KEY`,
   `REFERENCES` (compostas numa linha própria), views como `CREATE VIEW`, em ordem de
   schema e nome. Nomes sempre entre aspas (caractere de controle vira `\u{…}`) e
@@ -847,7 +915,7 @@ com a pergunta, sem nunca carregar a estrutura inteira.
 **Prompts, mensagens e resposta** (B5):
 
 - **Prompts** em `src-tauri/prompts/<paradigma>-v<n>.txt` (`postgres-v1`, `sqlite-v1`,
-  `mongodb-v1`),
+  `mongodb-v1`, `redis-v1`),
   embutidos com `include_str!` (`assistant/prompts.rs`). A API confere o SHA-256 dos bytes
   exatos da mensagem `system` contra o prompt registrado com o mesmo id: registre **o
   próprio arquivo** no dashboard (Prompts → enviar arquivo, com o paradigma). Texto

@@ -101,6 +101,12 @@ vem como comando do shell e o "erro" lê a coleção `pedidos`, que não existe.
 manual recusa o que o guard do Mongo recusaria (`$out`, `$merge`, `$where`…, operação de
 escrita, texto que não é a operação).
 
+No Redis ("Cache (dev)", `queryLanguage: 'redis_plan'`, sem catálogo: sem `@`) as respostas
+são o plano de passos: a contagem é um `SCAN` do prefixo (o total vem no `totalCount`), a
+listagem é `SCAN` + `foreach HMGET`, o código vem como comando do `redis-cli` e o "erro" é
+um `HGET` sem o campo, que o preflight pega pela aridade. A execução manual recusa `KEYS`,
+scripts, escritas, `SCAN` dentro de `foreach` e texto que não é o plano.
+
 ## Painel de dev
 
 Badge `MOCK` no canto inferior direito. Controla latência, injeção de erro

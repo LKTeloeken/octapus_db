@@ -253,9 +253,11 @@ palette, dentro do `QueryProvider`.
     ignora evento tratado; foco perdido no `body` vale a última zona clicada). Fechar
     cancela o turno. Histórico do servidor no relógio do cabeçalho (C-15).
   - **Alvo**: servidor (só os com `supportsAssistant`) e database; abrir o catálogo
-    conecta. Modelo só no modo `free`, antes da 1ª pergunta; cota no rodapé (RN-23).
+    conecta (banco sem catálogo — o Redis — não abre nada: a estrutura sai de uma
+    amostra das chaves no backend, a cada pergunta). Modelo só no modo `free`, antes da 1ª pergunta; cota no rodapé (RN-23).
   - **Menções `@`** (`mentions.ts`, `mention-completion.ts`): `@schema.tabela` no
-    Postgres, `@tabela` no SQLite e `@coleção` no Mongo, completadas por `catalog_complete` em fatias (nunca a
+    Postgres, `@tabela` no SQLite e `@coleção` no Mongo (só com `hasCatalog`: no Redis o
+    `@` não completa e a tela não fala em citar), completadas por `catalog_complete` em fatias (nunca a
     estrutura inteira). Viram o `schemas` do turno: os citados na pergunta (o 1º vai no
     `search_path`), depois os das perguntas anteriores (relidos do histórico), depois o
     schema de onde a conversa abriu ou `public`.
@@ -277,7 +279,13 @@ palette, dentro do `QueryProvider`.
     salto ou limite vira `aggregate`, que o editor aceita) e dá os rótulos
     tabela/coleção. O destaque usa o dialeto `mongo`; a revisão mostra o caminho do
     plano (`Plano: IXSCAN …`), já que o Mongo não estima linhas. O código do Mongo vem
-    como comando do shell e passa como está.
+    como comando do shell e passa como está. No **Redis** (B9, `redis_plan`) a consulta é
+    o plano de passos em JSON (indentado, destaque `mongo`), a revisão mostra os comandos
+    (`Plano: SCAN → foreach HGET`) e os rótulos viram "padrão/padrões de chave". O editor
+    do Redis roda um comando por vez, então "Abrir no editor" (`opensInEditor`) só vale
+    para o plano de um passo sem `foreach` — vira a linha do `redis-cli`
+    (`redisCommandLine`) — e para o código de uma linha; o resto desabilita o botão. O
+    aviso de recorte, sem `@`, diz que os padrões vieram de uma amostra.
   - **Avaliação** (B11; `turn-feedback.tsx` + `use-turn-feedback.ts`, transições puras em
     `lib/assistant/feedback.ts`): abaixo de cada turno terminado com resposta na tela e
     já no histórico do servidor, 👍 e 👎 como botões de alternar (`aria-pressed`, rótulo
@@ -377,7 +385,9 @@ produção — inclusive o `Channel` de mensagens e o plugin de updater.
   A avaliação (`src/mocks/assistant-turns.ts`) segue as regras da API; para ver o
   "desfazer" da tela, ligue "Falhar comando: próximo" no painel e clique em 👍/👎. No
   servidor Mongo ("Catálogo (Atlas)", database `catalogo`) os turnos devolvem a
-  operação em JSON e a execução manual passa por um guard simplificado.
+  operação em JSON e a execução manual passa por um guard simplificado; no Redis
+  ("Cache (dev)", database `0`), o plano de passos (`SCAN` com o total, `SCAN` +
+  `foreach HMGET`), com o guard simplificado do plano.
 
 **Regra de manutenção:** comando novo no backend ⇒ handler novo em
 `src/mocks/handlers.ts`, na mesma lista do `RustCommand`. Sem handler o mock rejeita

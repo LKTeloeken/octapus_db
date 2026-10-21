@@ -17,7 +17,6 @@ pub const SANITIZED_MAX_CHARS: usize = 2000;
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)] // InvalidOutput e ParadigmLimitation vêm da B5 e da B9
 pub enum FailureClass {
     /// O guard de leitura recusou (ou o banco recusou uma escrita que passou)
     GuardRejected,
@@ -28,7 +27,8 @@ pub enum FailureClass {
     /// Erro de execução que não cabe nos outros
     RuntimeError,
     Timeout,
-    /// O paradigma não expressa o pedido (Redis, B9)
+    /// O paradigma não expressa o pedido: o plano do Redis passou de um teto
+    /// do executor (B9). A separação fina fica na planilha (RN-30)
     ParadigmLimitation,
     /// O modelo respondeu fora do contrato (B5)
     InvalidOutput,
@@ -42,6 +42,8 @@ pub fn classify(error: &Error) -> Option<FailureClass> {
         Error::GuardRejected(_) => Some(FailureClass::GuardRejected),
         Error::DbQuery { sql_state, message } => Some(classify_postgres(sql_state, message)),
         Error::MongoQuery { code, message, .. } => Some(classify_mongo(*code, message)),
+        Error::RedisQuery { code, message } => Some(classify_redis(code, message)),
+        Error::PlanLimit(_) => Some(FailureClass::ParadigmLimitation),
         Error::Query(message) => Some(classify_message(message)),
         Error::InvalidQuery(message) if message.contains("only one statement") => {
             Some(FailureClass::GuardRejected)
@@ -111,6 +113,26 @@ fn classify_mongo(code: i32, message: &str) -> FailureClass {
     }
 }
 
+/// Redis: pelo código da resposta (a primeira palavra do erro) e, no `ERR`
+/// genérico, pela mensagem.
+fn classify_redis(code: &str, message: &str) -> FailureClass {
+    let message = message.to_ascii_lowercase();
+    let any = |needles: &[&str]| needles.iter().any(|needle| message.contains(needle));
+    match code {
+        "WRONGTYPE" => FailureClass::TypeMismatch,
+        // Réplica recusou uma escrita: o guard deixou passar
+        "READONLY" => FailureClass::GuardRejected,
+        "ERR" if any(&["not an integer", "not a float", "not a valid float", "out of range", "not a valid"]) => {
+            FailureClass::TypeMismatch
+        }
+        "ERR" if any(&["unknown command", "wrong number of arguments", "syntax error", "unknown subcommand", "invalid", "unsupported"]) => {
+            FailureClass::Syntax
+        }
+        // NOPERM, NOAUTH, MOVED, CROSSSLOT, BUSY…: do servidor, não da consulta
+        _ => FailureClass::RuntimeError,
+    }
+}
+
 /// Sem SQLSTATE (SQLite, ou o Postgres sem erro do servidor): pela mensagem.
 fn classify_message(message: &str) -> FailureClass {
     let message = message.to_ascii_lowercase();
@@ -158,6 +180,11 @@ pub fn sanitize(error: &Error, query: &str) -> Option<String> {
             }),
             message.as_str(),
         ),
+        // Redis: o código da resposta no lugar do SQLSTATE (`WRONGTYPE: …`)
+        Error::RedisQuery { code, message } => (Some(code.clone()), message.as_str()),
+        // Teto do executor do Redis: texto nosso, só com id de passo, nome de
+        // comando e os tetos (que o modelo precisa ver para refazer o plano)
+        Error::PlanLimit(message) => return Some(truncate_chars(message, SANITIZED_MAX_CHARS)),
         // Mensagens do próprio guard: texto nosso, com no máximo um nome de
         // função tirado da consulta
         Error::GuardRejected(message) | Error::InvalidQuery(message) | Error::Query(message) => {
@@ -176,8 +203,8 @@ pub fn sanitize(error: &Error, query: &str) -> Option<String> {
     Some(truncate_chars(&sanitized, SANITIZED_MAX_CHARS))
 }
 
-/// Os tokens da consulta, em minúsculas: da operação JSON do Mongo (chaves,
-/// textos e números) ou do SQL.
+/// Os tokens da consulta, em minúsculas: da operação JSON do Mongo ou do
+/// plano do Redis (chaves, textos e números) ou do SQL.
 fn known_tokens(query: &str) -> Vec<String> {
     match serde_json::from_str::<serde_json::Value>(query) {
         Ok(value @ serde_json::Value::Object(_)) => {
@@ -671,6 +698,73 @@ mod tests {
         assert_eq!(
             sanitize(&mongo(2, "", "enum value 'pago' is invalid"), query).as_deref(),
             Some("2: enum value 'pago' is invalid")
+        );
+    }
+
+    fn redis(code: &str, message: &str) -> Error {
+        Error::RedisQuery {
+            code: code.into(),
+            message: message.into(),
+        }
+    }
+
+    #[test]
+    fn redis_errors_by_reply_code() {
+        use FailureClass::*;
+        let cases = [
+            ("WRONGTYPE", "Operation against a key holding the wrong kind of value", TypeMismatch),
+            ("ERR", "value is not an integer or out of range", TypeMismatch),
+            ("ERR", "min or max is not a float", TypeMismatch),
+            ("ERR", "wrong number of arguments for 'hget' command", Syntax),
+            ("ERR", "syntax error", Syntax),
+            ("ERR", "unknown command 'LPOS' in this Redis version", Syntax),
+            ("ERR", "Invalid stream ID specified as stream command argument", Syntax),
+            ("READONLY", "You can't write against a read only replica.", GuardRejected),
+            ("NOPERM", "this user has no permissions to run the 'hgetall' command", RuntimeError),
+            ("CROSSSLOT", "Keys in request don't hash to the same slot", RuntimeError),
+            ("ERR", "something else", RuntimeError),
+        ];
+        for (code, message, expected) in cases {
+            assert_eq!(classify(&redis(code, message)), Some(expected), "{code} {message}");
+        }
+        assert_eq!(
+            classify(&Error::PlanLimit("the plan needs more than 5000 commands".into())),
+            Some(ParadigmLimitation)
+        );
+    }
+
+    /// RN-10 no Redis: a chave que entrou no lugar de `$item` (dado do banco)
+    /// e os valores nunca saem; o que veio do plano (comando, padrão, campo)
+    /// pode voltar.
+    #[test]
+    fn redis_keys_and_values_never_leave() {
+        let query = r#"{"steps":[
+            {"id":"users","command":"SCAN","args":["0","MATCH","user:*"],"foreach":null},
+            {"id":"ages","command":"HINCRBY","args":["$item","age","x"],"foreach":"users"}],"output":"ages"}"#;
+        let errors = [
+            redis("ERR", "unknown command 'HINCRBY', with args beginning with: 'user:CANARY_7f3a' 'age' "),
+            redis("ERR", "value 's3cr3t' is not an integer"),
+            redis("ERR", "Error at key \"ana@example.com\": 48213 is out of range"),
+            redis("MOVED", "48213 10.0.0.7:6379"),
+        ];
+        for error in errors {
+            let sanitized = sanitize(&error, query).unwrap();
+            for canary in CANARIES.iter().chain(&["10.0.0.7", "user:"]) {
+                assert!(!sanitized.contains(canary), "{canary} vazou em: {sanitized}");
+            }
+        }
+        assert_eq!(
+            sanitize(&redis("ERR", "wrong number of arguments for 'hincrby' command"), query).as_deref(),
+            Some("ERR: wrong number of arguments for 'hincrby' command")
+        );
+        assert_eq!(
+            sanitize(&redis("WRONGTYPE", "Operation against a key holding the wrong kind of value"), query).as_deref(),
+            Some("WRONGTYPE: Operation against a key holding the wrong kind of value")
+        );
+        // O teto é texto nosso: vai inteiro, com os números que o modelo precisa
+        assert_eq!(
+            sanitize(&Error::PlanLimit("step \"ages\" iterates over more than 1000 items".into()), query).as_deref(),
+            Some("step \"ages\" iterates over more than 1000 items")
         );
     }
 

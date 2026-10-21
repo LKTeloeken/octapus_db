@@ -53,6 +53,10 @@ import type { MockHandler } from './handlers';
  * No Mongo (`queryLanguage: 'mongo'` das capabilities) as respostas são a
  * operação do contrato em JSON (`find`, `aggregate`, `countDocuments`) e o
  * código vem como comando do shell; o "erro" lê uma coleção que não existe.
+ * No Redis (`redis_plan`) são o plano de passos: `SCAN` do prefixo (a
+ * contagem vem no total) ou `SCAN` + `foreach HMGET` (a listagem); o código
+ * vem como comando do `redis-cli` e o "erro" é um `HGET` sem o campo, que o
+ * preflight pega pela aridade.
  *
  * A avaliação (👍/👎) segue as regras da A8: termo aceito, turno com
  * tentativa concluída, comentário até 2000 caracteres. Para ver o "desfazer"
@@ -102,7 +106,7 @@ function autoExecute(): boolean {
   }
 }
 
-type Paradigm = 'postgres' | 'sqlite' | 'mongodb';
+type Paradigm = 'postgres' | 'sqlite' | 'mongodb' | 'redis';
 
 /** Como o `assistant_db_type` do Rust: decide pelas capabilities */
 function paradigmFor(serverId: number): Paradigm {
@@ -121,6 +125,74 @@ function languageFor(serverId: unknown): QueryLanguage {
 }
 
 const mongoOp = (fields: Record<string, unknown>) => JSON.stringify(fields);
+
+type PlanStep = {
+  id: string;
+  command: string;
+  args: string[];
+  foreach: string | null;
+};
+
+/** O plano do Redis do contrato; o último passo é o `output` */
+const redisPlan = (...steps: PlanStep[]) =>
+  JSON.stringify({ steps, output: steps[steps.length - 1].id });
+
+/** O prefixo de um grupo de chaves do mock (`user:` → `user`) */
+const keyPrefix = (table: string) => table.replace(/:$/, '');
+
+function redisOutputFor(question: string, table: string): ModelOutput {
+  const text = question.toLowerCase();
+  const prefix = keyPrefix(table);
+  const scan: PlanStep = {
+    id: 'keys',
+    command: 'SCAN',
+    args: ['0', 'MATCH', `${prefix}:*`, 'TYPE', 'hash'],
+    foreach: null,
+  };
+  if (question.trim().length < 12) {
+    return {
+      kind: 'clarification',
+      language: null,
+      query: null,
+      explanation: '',
+      assumptions: [],
+      clarificationQuestion: `Sobre qual padrão de chave é a pergunta? Por exemplo, "${prefix}:{id}".`,
+    };
+  }
+  if (/apag|exclu|delet|insert|cadastr|atualiz/.test(text)) {
+    return {
+      kind: 'code',
+      language: 'redis_plan',
+      query: `DEL ${prefix}:1`,
+      explanation: `Remove a chave ${prefix}:1. O assistente não executa código.`,
+      assumptions: [`"${prefix}:1" é a chave do registro`],
+      clarificationQuestion: null,
+    };
+  }
+  if (/lista|todos|todas/.test(text)) {
+    return {
+      kind: 'query',
+      language: 'redis_plan',
+      query: redisPlan(scan, {
+        id: 'fields',
+        command: 'HMGET',
+        args: ['$item', 'nome', 'email'],
+        foreach: 'keys',
+      }),
+      explanation: `Lista as chaves ${prefix}:{id} com o nome e o e-mail de cada uma.`,
+      assumptions: ['Os hashes guardam os campos "nome" e "email"'],
+      clarificationQuestion: null,
+    };
+  }
+  return {
+    kind: 'query',
+    language: 'redis_plan',
+    query: redisPlan(scan),
+    explanation: `Percorre as chaves ${prefix}:{id}; o total é a contagem.`,
+    assumptions: ['Todo hash com esse prefixo conta'],
+    clarificationQuestion: null,
+  };
+}
 
 function requireConversation(id: string): AssistantConversation {
   const conversation = conversations.get(id);
@@ -141,6 +213,7 @@ function outputFor(
   table: string,
   language: QueryLanguage,
 ): ModelOutput {
+  if (language === 'redis_plan') return redisOutputFor(question, table);
   const text = question.toLowerCase();
   const mongo = language === 'mongo';
   if (question.trim().length < 12) {
@@ -206,6 +279,7 @@ function resultFor(
   language: QueryLanguage = 'sql',
 ): QueryResult {
   if (language === 'mongo') return mongoResultFor(query, offset, limit);
+  if (language === 'redis_plan') return redisResultFor(query, offset, limit);
   if (/count\(/i.test(query)) {
     return {
       columns: [{ name: 'total', typeName: 'int8', typeOid: 20 }],
@@ -282,6 +356,95 @@ function mongoResultFor(
   };
 }
 
+/**
+ * O mesmo, com a cara do Redis: o `SCAN` dá uma chave por linha e o total;
+ * o `foreach HMGET` dá a chave e os campos pedidos
+ */
+function redisResultFor(
+  query: string,
+  offset: number,
+  limit: number,
+): QueryResult {
+  const listing = /"HMGET"/.test(query);
+  const total = listing ? LIST_ROWS : 1284;
+  const end = Math.min(total, offset + limit);
+  const rows: (string | null)[][] = [];
+  for (let id = offset + 1; id <= end; id += 1) {
+    const key = `user:${id}`;
+    rows.push(
+      listing
+        ? [key, `Cliente ${id}`, id % 7 === 0 ? null : `c${id}@exemplo.com`]
+        : [key],
+    );
+  }
+  const names = listing ? ['key', 'nome', 'email'] : ['key'];
+  return {
+    columns: names.map(name => ({ name, typeName: 'string', typeOid: null })),
+    rows,
+    rowCount: rows.length,
+    totalCount: total,
+    hasMore: end < total,
+    executionTimeMs: 7,
+    editableInfo: null,
+  };
+}
+
+/** Os comandos de leitura que o plano do Redis aceita (`redisdb/plan.rs`), resumidos */
+const REDIS_READS = new Set([
+  'SCAN',
+  'EXISTS',
+  'TYPE',
+  'TTL',
+  'DBSIZE',
+  'GET',
+  'MGET',
+  'STRLEN',
+  'HGET',
+  'HMGET',
+  'HGETALL',
+  'HKEYS',
+  'HLEN',
+  'LRANGE',
+  'LLEN',
+  'SMEMBERS',
+  'SCARD',
+  'ZRANGE',
+  'ZSCORE',
+  'ZCARD',
+  'ZCOUNT',
+  'XRANGE',
+  'XLEN',
+]);
+
+/** O guard do Redis, simplificado: o plano do contrato e só leitura */
+function redisGuard(text: string): string | null {
+  let plan: { steps?: unknown };
+  try {
+    plan = JSON.parse(text);
+  } catch {
+    return 'the plan is not a valid redis-plan JSON (malformed JSON)';
+  }
+  if (!Array.isArray(plan.steps) || plan.steps.length === 0) {
+    return 'the plan has no steps';
+  }
+  for (const step of plan.steps as Partial<PlanStep>[]) {
+    const command = String(step.command ?? '');
+    if (command === 'KEYS') {
+      return 'KEYS is not allowed: use SCAN with MATCH, the app walks the cursor';
+    }
+    if (/^(EVAL|EVALSHA|FCALL|FUNCTION|SCRIPT)$/.test(command)) {
+      return `${command} runs a script on the server and is not allowed`;
+    }
+    if (!REDIS_READS.has(command)) {
+      return `${command} is not one of the read commands a plan can use`;
+    }
+    if (command === 'SCAN' && step.foreach != null) {
+      return 'SCAN cannot run inside a foreach: scan once and iterate over its keys';
+    }
+  }
+  return null;
+}
+
 /** Estágios e operadores que o guard do Mongo recusa (`guard/mongo.rs`) */
 const MONGO_FORBIDDEN = [
   '$out',
@@ -311,7 +474,11 @@ function mongoGuard(text: string): string | null {
 function outcome(
   guardReason: string | null,
   autoExecute: boolean,
-  extra: { preflight?: string; rowCount?: number } = {},
+  extra: {
+    preflight?: string;
+    preflightClass?: 'unknown_object' | 'syntax';
+    rowCount?: number;
+  } = {},
 ): AttemptOutcome {
   const skipped = {
     ran: false,
@@ -334,7 +501,7 @@ function outcome(
     ? {
         ran: true,
         ok: false,
-        failureClass: 'unknown_object' as const,
+        failureClass: extra.preflightClass ?? 'unknown_object',
         errorSanitized: extra.preflight,
         durationMs: 4,
       }
@@ -479,13 +646,24 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
       }
 
       const final = outputFor(text, table, language);
+      const redis = language === 'redis_plan';
       const broken =
         language === 'mongo'
           ? {
               ...final,
               query: mongoOp({ collection: 'pedidos', operation: 'find' }),
             }
-          : { ...final, query: `SELECT nome FROM "${table}"` };
+          : redis
+            ? {
+                ...final,
+                query: redisPlan({
+                  id: 'nome',
+                  command: 'HGET',
+                  args: [`${keyPrefix(table)}:1`],
+                  foreach: null,
+                }),
+              }
+            : { ...final, query: `SELECT nome FROM "${table}"` };
       // "erro": a primeira falha e a correção passa; "esgot": todas falham
       const plan: ModelOutput[] = /esgot/i.test(text)
         ? [broken, broken, broken]
@@ -543,17 +721,22 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
             type: 'stageFailed',
             attemptId: current.id,
             stage: 'preflight',
-            failureClass: 'unknown_object',
+            failureClass: redis ? 'syntax' : 'unknown_object',
             message:
               language === 'mongo'
                 ? 'Query error: collection "pedidos" does not exist'
-                : 'Query error: column "nome" does not exist',
+                : redis
+                  ? "Query error: ERR wrong number of arguments for 'hget' command"
+                  : 'Query error: column "nome" does not exist',
           });
           current.outcome = outcome(null, auto, {
             preflight:
               language === 'mongo'
                 ? 'NamespaceNotFound (26): collection "pedidos" does not exist'
-                : 'column ? does not exist',
+                : redis
+                  ? "ERR: wrong number of arguments for 'hget' command"
+                  : 'column ? does not exist',
+            preflightClass: redis ? 'syntax' : 'unknown_object',
           });
           if (index === plan.length - 1) status = 'exhausted';
           continue;
@@ -561,11 +744,19 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
         emit({
           type: 'plan',
           attemptId: current.id,
-          // O Mongo não estima: só o caminho do plano vencedor
+          // Mongo e Redis não estimam: o caminho do plano, ou os comandos
           plan:
             language === 'mongo'
               ? { estimatedRows: null, estimatedCost: null, plan: 'COLLSCAN' }
-              : { estimatedRows: 1, estimatedCost: 35.5, plan: '[]' },
+              : redis
+                ? {
+                    estimatedRows: null,
+                    estimatedCost: null,
+                    plan: /"HMGET"/.test(output.query ?? '')
+                      ? 'SCAN → foreach HMGET'
+                      : 'SCAN',
+                  }
+                : { estimatedRows: 1, estimatedCost: 35.5, plan: '[]' },
         });
         if (auto) {
           await sleep(STEP_MS);
@@ -660,6 +851,9 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
     const language = languageFor(serverId);
     if (language === 'mongo') {
       const rejected = mongoGuard(text);
+      if (rejected) throw `Guard rejected: ${rejected}`;
+    } else if (language === 'redis_plan') {
+      const rejected = redisGuard(text);
       if (rejected) throw `Guard rejected: ${rejected}`;
     } else if (!/^\s*(select|with|values)\b/i.test(text)) {
       throw 'Guard rejected: only read queries (SELECT) are allowed';

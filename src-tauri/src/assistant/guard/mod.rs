@@ -3,6 +3,7 @@
 //! não tem guard é recusada.
 
 pub mod mongo;
+pub mod redis;
 pub mod sql;
 
 use std::fmt;
@@ -18,6 +19,7 @@ use self::sql::SqlDialect;
 pub enum Rejection {
     Sql(sql::Rejection),
     Mongo(mongo::Rejection),
+    Redis(redis::Rejection),
 }
 
 impl Rejection {
@@ -26,6 +28,7 @@ impl Rejection {
         match self {
             Self::Sql(rejection) => rejection.code(),
             Self::Mongo(rejection) => rejection.code(),
+            Self::Redis(rejection) => rejection.code(),
         }
     }
 }
@@ -35,6 +38,7 @@ impl fmt::Display for Rejection {
         match self {
             Self::Sql(rejection) => rejection.fmt(f),
             Self::Mongo(rejection) => rejection.fmt(f),
+            Self::Redis(rejection) => rejection.fmt(f),
         }
     }
 }
@@ -63,6 +67,9 @@ pub fn inspect(op: &ReadOnlyOp, db_type: DatabaseType) -> Result<Option<Rejectio
         }
         (ReadOnlyOp::Mongo(text), DatabaseType::Mongodb) => {
             Ok(mongo::check(text).err().map(Rejection::Mongo))
+        }
+        (ReadOnlyOp::RedisPlan(text), DatabaseType::Redis) => {
+            Ok(redis::check(text).err().map(Rejection::Redis))
         }
         _ => Err(Error::UnsupportedType(format!(
             "no read-only guard for {:?} on {db_type:?}",
@@ -98,13 +105,27 @@ mod tests {
             DatabaseType::Mongodb
         )
         .is_ok());
+
+        let plan = |command: &str| {
+            ReadOnlyOp::RedisPlan(format!(
+                r#"{{"steps":[{{"id":"a","command":"{command}","args":["*"],"foreach":null}}],"output":"a"}}"#
+            ))
+        };
+        let error = check(&plan("KEYS"), DatabaseType::Redis).unwrap_err();
+        assert_eq!(error.code(), "GUARD_REJECTED");
+        assert_eq!(
+            error.to_string(),
+            "Guard rejected: KEYS is not allowed: use SCAN with MATCH, the app walks the cursor"
+        );
+        assert!(check(&plan("SCAN"), DatabaseType::Redis).is_ok());
     }
 
     #[test]
     fn languages_without_guard_fail_closed() {
         for (op, db_type) in [
             (ReadOnlyOp::Mongo("{}".into()), DatabaseType::Postgres),
-            (ReadOnlyOp::RedisPlan("{}".into()), DatabaseType::Redis),
+            (ReadOnlyOp::RedisPlan("{}".into()), DatabaseType::Postgres),
+            (ReadOnlyOp::Sql("GET k".into()), DatabaseType::Redis),
             (ReadOnlyOp::Sql("SELECT 1".into()), DatabaseType::Mongodb),
         ] {
             assert_eq!(check(&op, db_type).unwrap_err().code(), "UNSUPPORTED_TYPE");

@@ -784,6 +784,41 @@ mod tests {
         );
     }
 
+    /// Redis: o plano vai como `ReadOnlyOp::RedisPlan`; o guard recusa o
+    /// `KEYS` e a correção leva a mensagem dele ao modelo.
+    #[tokio::test]
+    async fn redis_turn_guards_then_runs_the_plan() {
+        let redis = |query: &str| {
+            let mut value = output("query", Some(query));
+            value["language"] = json!("redis_plan");
+            value
+        };
+        let keys = r#"{"steps":[{"id":"all","command":"KEYS","args":["user:*"],"foreach":null}],"output":"all"}"#;
+        let scan = r#"{"steps":[{"id":"all","command":"SCAN","args":["0","MATCH","user:*"],"foreach":null}],"output":"all"}"#;
+        let api = FakeApi::new(vec![Scripted::Output(redis(keys)), Scripted::Output(redis(scan))]);
+        let db = FakeDb::default();
+        let mut setup = setup(true);
+        setup.prompt = prompts::for_db(DatabaseType::Redis).unwrap();
+        setup.db_type = DatabaseType::Redis;
+        setup.expected_language = QueryLanguage::RedisPlan;
+
+        let run = run(&api, &db, &setup, &CancelFlag::default()).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Answered);
+        assert_eq!(*db.executed.lock(), [scan]);
+        assert_eq!(*db.languages.lock(), [QueryLanguage::RedisPlan]);
+        let outcomes = api.outcomes.lock();
+        assert_eq!(outcomes[0].1.guard.reason.as_deref(), Some("keys"));
+        assert!(outcomes[1].1.execution.ok == Some(true));
+        let requests = api.requests.lock();
+        assert_eq!(requests[0].prompt_version, "redis-v1");
+        let correction = &requests[1].messages.last().unwrap().content;
+        assert!(
+            correction.contains("class=\"guard_rejected\">\nKEYS is not allowed: use SCAN with MATCH"),
+            "{correction}"
+        );
+    }
+
     #[tokio::test]
     async fn answers_and_executes_with_auto_execute() {
         let api = FakeApi::new(vec![Scripted::Output(output("query", Some("SELECT count(*) FROM orders")))]);

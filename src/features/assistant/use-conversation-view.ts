@@ -20,7 +20,7 @@ import {
 } from '@/queries/use-assistant-conversations';
 import { useDbCapabilities } from '@/queries/use-capabilities';
 import { relationNouns } from '@/lib/assistant/query-text';
-import { isFlatCatalog, useCatalogStatus } from '@/queries/use-catalog';
+import { hasCatalog, useCatalogStatus } from '@/queries/use-catalog';
 import { useServers } from '@/queries/use-servers';
 import { useSettings } from '@/queries/use-settings';
 import {
@@ -87,13 +87,17 @@ export const useConversationView = ({
   const target = tab.target;
   const server = servers?.find(item => item.id === target?.serverId) ?? null;
   const caps = server ? capsByType[server.dbType] : undefined;
-  const flat = isFlatCatalog(caps);
+  // Sem nível de schema (SQLite, Mongo, Redis): as relações vão sem schema
+  const flat = !!caps && !caps.hasSchemas;
+  // Sem catálogo (Redis), não há o que citar com @: a estrutura sai de uma
+  // amostra das chaves, no backend, a cada pergunta
+  const mentions = hasCatalog(caps);
   // Em que o assistente escreve para este banco (SQL, operação Mongo…)
   const queryLanguage = caps?.queryLanguage ?? null;
 
   // Abrir o catálogo conecta o database e deixa as menções prontas
   const catalog = useCatalogStatus(target?.serverId, target?.database, {
-    enabled: !!caps?.supportsAssistant,
+    enabled: !!caps?.supportsAssistant && mentions,
   });
 
   const conversation = useAssistantConversation(tab.conversationId);
@@ -240,6 +244,7 @@ export const useConversationView = ({
     target,
     server,
     flat,
+    mentions,
     queryLanguage,
     nouns: relationNouns(queryLanguage),
     catalogError: catalog.isError,

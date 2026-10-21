@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::adapters::redisdb::patterns::KeyPatterns;
 use crate::adapters::{MessageSink, ReadOnlyOp};
 use crate::error::{Error, Result};
 use crate::models::{
@@ -78,6 +79,15 @@ pub trait DatabaseAdapter: Send + Sync {
             "Read-only preflight of {:?} is not supported for this database",
             op.language()
         )))
+    }
+
+    /// Os padrões de nomenclatura das chaves de uma amostra, com o `TYPE` de
+    /// cada um (Redis, o contexto do assistente). Nenhuma chave completa nem
+    /// valor sai daqui (RN-09): só o padrão generalizado.
+    async fn sample_key_patterns(&self) -> Result<KeyPatterns> {
+        Err(Error::UnsupportedType(
+            "key patterns are only sampled for key-value databases".into(),
+        ))
     }
 
     /// Browse a table's data with server-side pagination, sorting and

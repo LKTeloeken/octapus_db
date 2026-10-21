@@ -106,7 +106,12 @@ export function QueryBlock({
       <QueryEditor
         value={text}
         onChange={onChange ?? (() => {})}
-        dialect={language === 'mongo' ? 'mongo' : 'postgres'}
+        // A operação do Mongo e o plano do Redis são JSON: destaque de JavaScript
+        dialect={
+          language === 'mongo' || language === 'redis_plan'
+            ? 'mongo'
+            : 'postgres'
+        }
         readOnly={!editable}
         height="auto"
         maxHeight="240px"
@@ -122,8 +127,9 @@ export function QueryBlock({
                 (plan.estimatedCost != null
                   ? `, custo ${numberFormat.format(plan.estimatedCost)}`
                   : '')
-              : language === 'mongo' && plan?.plan
-                ? // O Mongo não estima linhas: o caminho do plano (índice ou varredura)
+              : language !== 'sql' && plan?.plan
+                ? // Mongo e Redis não estimam linhas: o caminho do plano
+                  // (índice ou varredura; os comandos do plano do Redis)
                   `Plano: ${plan.plan}`
                 : 'Revise a consulta antes de executar.'}
           </span>
