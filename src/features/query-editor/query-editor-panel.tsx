@@ -99,6 +99,7 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
             className="min-h-0 flex-1"
             height="100%"
             value={tab.content}
+            documentId={tab.id}
             dialect={supportsSql ? 'postgres' : 'mongo'}
             sqlCompletionSource={supportsSql ? sqlCompletion.source : undefined}
             sqlExtraExtensions={

@@ -1,5 +1,5 @@
 import { useImperativeHandle, useMemo, useRef, type Ref } from 'react';
-import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
+import { getDefaultExtensions } from '@uiw/react-codemirror';
 import {
   autocompletion,
   currentCompletions,
@@ -27,6 +27,7 @@ import {
   sqlStaticSource,
   staticOptionCategory,
 } from './sql-completion/sql-static-sources';
+import { useCodeMirrorView } from './use-code-mirror-view';
 
 const disableSpellcheck = EditorView.contentAttributes.of({
   spellcheck: 'false',
@@ -132,6 +133,13 @@ export interface QueryEditorSchema {
 export interface QueryEditorProps {
   value: string;
   onChange: (value: string) => void;
+
+  /**
+   * Identidade do documento (o id da aba). Trocar o id troca o estado inteiro do editor
+   * — texto, seleção, undo e scroll —, guardando o anterior para a volta. Sem id, o
+   * editor tem um documento só.
+   */
+  documentId?: string;
 
   dialect: QueryDialect;
   schema?: QueryEditorSchema;
@@ -515,6 +523,7 @@ function getRunnableQuery(
 export function QueryEditor({
   value,
   onChange,
+  documentId,
   dialect,
   schema,
   sqlCompletionSource,
@@ -539,24 +548,6 @@ export function QueryEditor({
   const editorTheme = useMemo(
     () => inkEditorTheme(resolvedTheme === 'dark'),
     [resolvedTheme],
-  );
-
-  const codeMirrorRef = useRef<ReactCodeMirrorRef>(null);
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      run: () => {
-        const view = codeMirrorRef.current?.view;
-        if (!view) return;
-
-        const runnableQuery = getRunnableQuery(view, runMode);
-        if (runnableQuery) onRun?.(runnableQuery.query, runnableQuery.context);
-        // O foco volta ao editor, como depois do atalho.
-        view.focus();
-      },
-    }),
-    [onRun, runMode],
   );
 
   // Adaptador de identidade fixa: a prop pode oscilar sem reconfigurar o editor.
@@ -718,46 +709,22 @@ export function QueryEditor({
     );
   }, [singleLine, onEscape]);
 
-  const extensions = useMemo(() => {
-    return [
-      // Antes do `completionExtension`: no mesmo `Prec`, quem vem primeiro vence.
-      escapeKeymap,
-      languageExtension,
-      completionExtension,
-      completionSectionTheme,
-      bodyTooltips,
-      disableSpellcheck,
-      ...(sqlExtraExtensions ? [sqlExtraExtensions] : []),
-      placeholder(placeholderText),
-      runQueryKeymap,
-      explicitCompletionKeymap,
-      ...singleLineExtensions,
-    ];
-  }, [
-    languageExtension,
-    completionExtension,
-    completionSectionTheme,
-    sqlExtraExtensions,
-    placeholderText,
-    runQueryKeymap,
-    singleLineExtensions,
-    escapeKeymap,
-  ]);
-
-  return (
-    <div className={className}>
-      <CodeMirror
-        ref={codeMirrorRef}
-        value={value}
-        height={height}
-        minHeight={minHeight}
-        maxHeight={maxHeight}
-        theme={editorTheme}
-        extensions={extensions}
-        editable={!readOnly}
-        readOnly={readOnly}
-        autoFocus={autoFocus}
-        basicSetup={{
+  // O mesmo conjunto que o `<CodeMirror>` do @uiw montava a partir das props.
+  const defaultExtensions = useMemo(
+    () => [
+      EditorView.theme({
+        '&': {
+          height,
+          minHeight: minHeight ?? null,
+          maxHeight: maxHeight ?? null,
+        },
+        '& .cm-scroller': { height: '100% !important' },
+      }),
+      ...getDefaultExtensions({
+        theme: editorTheme,
+        editable: !readOnly,
+        readOnly,
+        basicSetup: {
           lineNumbers: !singleLine,
           foldGutter: !singleLine,
           highlightActiveLine: !singleLine,
@@ -776,8 +743,69 @@ export function QueryEditor({
           allowMultipleSelections: true,
           indentOnInput: true,
           syntaxHighlighting: true,
-        }}
-        onChange={onChange}
+        },
+      }),
+    ],
+    [height, minHeight, maxHeight, editorTheme, readOnly, singleLine],
+  );
+
+  const extensions = useMemo(() => {
+    return [
+      ...defaultExtensions,
+      // Antes do `completionExtension`: no mesmo `Prec`, quem vem primeiro vence.
+      escapeKeymap,
+      languageExtension,
+      completionExtension,
+      completionSectionTheme,
+      bodyTooltips,
+      disableSpellcheck,
+      ...(sqlExtraExtensions ? [sqlExtraExtensions] : []),
+      placeholder(placeholderText),
+      runQueryKeymap,
+      explicitCompletionKeymap,
+      ...singleLineExtensions,
+    ];
+  }, [
+    defaultExtensions,
+    languageExtension,
+    completionExtension,
+    completionSectionTheme,
+    sqlExtraExtensions,
+    placeholderText,
+    runQueryKeymap,
+    singleLineExtensions,
+    escapeKeymap,
+  ]);
+
+  const { parentRef, viewRef } = useCodeMirrorView({
+    value,
+    onChange,
+    extensions,
+    documentId,
+    autoFocus,
+  });
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      run: () => {
+        const view = viewRef.current;
+        if (!view) return;
+
+        const runnableQuery = getRunnableQuery(view, runMode);
+        if (runnableQuery) onRun?.(runnableQuery.query, runnableQuery.context);
+        // O foco volta ao editor, como depois do atalho.
+        view.focus();
+      },
+    }),
+    [onRun, runMode, viewRef],
+  );
+
+  return (
+    <div className={className}>
+      <div
+        ref={parentRef}
+        className="cm-theme"
         style={{
           fontSize,
           overflow: 'hidden',
