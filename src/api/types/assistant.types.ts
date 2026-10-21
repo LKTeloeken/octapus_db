@@ -7,6 +7,7 @@ export type { AssistantConversation } from './generated/AssistantConversation';
 export type { AssistantConversationPage } from './generated/AssistantConversationPage';
 export type { AssistantConversationSummary } from './generated/AssistantConversationSummary';
 export type { AssistantFeedback } from './generated/AssistantFeedback';
+export type { AssistantFeedbackInput } from './generated/AssistantFeedbackInput';
 export type { AssistantLanguage } from './generated/AssistantLanguage';
 export type { AssistantMe } from './generated/AssistantMe';
 export type { AssistantModel } from './generated/AssistantModel';

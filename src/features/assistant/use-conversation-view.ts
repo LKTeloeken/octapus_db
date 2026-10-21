@@ -34,6 +34,8 @@ export interface ConversationTurn {
   view: TurnView;
   /** Os `schemas` do turno; o primeiro é o `search_path` da execução */
   schemas: string[];
+  /** Já está na conversa lida do servidor (só então dá para avaliar) */
+  inHistory: boolean;
 }
 
 /**
@@ -128,6 +130,7 @@ export const useConversationView = ({
         target?.schema ?? null,
         flat,
       ),
+      inHistory: true,
     }));
     // O turno ao vivo fica até a conversa relida do servidor trazê-lo
     if (live && !serverTurns.some(turn => turn.id === live.turnId)) {
@@ -139,6 +142,7 @@ export const useConversationView = ({
           target?.schema ?? null,
           flat,
         ),
+        inHistory: false,
       });
     }
     return list;

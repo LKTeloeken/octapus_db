@@ -106,6 +106,8 @@ export enum RustCommand {
   AssistantTurnAsk = 'assistant_turn_ask',
   AssistantTurnCancel = 'assistant_turn_cancel',
   AssistantExecute = 'assistant_execute',
+  AssistantFeedbackSet = 'assistant_feedback_set',
+  AssistantFeedbackClear = 'assistant_feedback_clear',
 
   // Auto-update pelo canal beta (o estável usa o `check` do plugin)
   CheckBetaUpdate = 'check_beta_update',

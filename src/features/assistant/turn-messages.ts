@@ -72,3 +72,17 @@ export function turnErrorMessage(
       return message ?? 'O assistente não conseguiu responder.';
   }
 }
+
+/** Por que a avaliação não foi gravada (a tela já voltou ao estado anterior) */
+export function feedbackErrorMessage(code: string | null): string {
+  switch (code) {
+    case 'ASSISTANT_UNAVAILABLE':
+    case 'ASSISTANT_CONSENT_REQUIRED':
+    case 'ASSISTANT_UNAUTHORIZED':
+      return `A avaliação não foi salva. ${turnErrorMessage(code, null)}`;
+    case 'ASSISTANT_CONFLICT':
+      return 'A avaliação não foi salva: esta resposta ainda não pode ser avaliada.';
+    default:
+      return 'A avaliação não foi salva: o servidor recusou. Tente de novo.';
+  }
+}

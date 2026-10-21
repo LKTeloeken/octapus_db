@@ -20,8 +20,8 @@ use super::sse::SseReader;
 use crate::error::{error_chain, Error, Result};
 use crate::models::{
     AssistantConsentTerm, AssistantConversation, AssistantConversationPage,
-    AssistantConversationSummary, AssistantMe, AssistantModel, AssistantParticipant,
-    AssistantTurnStatus, AssistantTurnSummary, AttemptOutcome,
+    AssistantConversationSummary, AssistantFeedbackInput, AssistantMe, AssistantModel,
+    AssistantParticipant, AssistantTurnStatus, AssistantTurnSummary, AttemptOutcome,
 };
 
 /// Pedidos comuns (JSON pequeno). O stream de tentativas (SSE) vai precisar de
@@ -283,6 +283,23 @@ impl ApiClient {
     pub async fn finish_turn(&self, token: &str, turn_id: &str, status: AssistantTurnStatus) -> Result<()> {
         let path = format!("/v1/turns/{}/finish", path_segment(turn_id)?);
         send(self.request(Method::POST, &path, Some(token)).json(&FinishRequest { status }))
+            .await
+            .map(drop)
+    }
+
+    /// Avalia o turno (repetir sobrescreve). O `feedback` já vem normalizado
+    /// (`AssistantFeedbackInput::normalized`).
+    pub async fn set_feedback(&self, token: &str, turn_id: &str, feedback: &AssistantFeedbackInput) -> Result<()> {
+        let path = format!("/v1/turns/{}/feedback", path_segment(turn_id)?);
+        send(self.request(Method::PUT, &path, Some(token)).json(feedback))
+            .await
+            .map(drop)
+    }
+
+    /// Remove a avaliação; turno sem avaliação não é erro.
+    pub async fn clear_feedback(&self, token: &str, turn_id: &str) -> Result<()> {
+        let path = format!("/v1/turns/{}/feedback", path_segment(turn_id)?);
+        send(self.request(Method::DELETE, &path, Some(token)))
             .await
             .map(drop)
     }
@@ -622,6 +639,88 @@ mod tests {
             .await;
         assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    /// Servidor de uma resposta que entrega o pedido inteiro, com o corpo.
+    async fn serve_once_with_body(response: &'static str) -> (String, oneshot::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let (sent, received) = oneshot::channel();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            loop {
+                let read = socket.read(&mut buffer).await.unwrap();
+                request.extend_from_slice(&buffer[..read]);
+                let text = String::from_utf8_lossy(&request).to_lowercase();
+                let Some(end) = text.find("\r\n\r\n") else {
+                    if read == 0 {
+                        break;
+                    }
+                    continue;
+                };
+                let length = text
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if read == 0 || request.len() >= end + 4 + length {
+                    break;
+                }
+            }
+            socket.write_all(response.as_bytes()).await.unwrap();
+            let _ = sent.send(String::from_utf8_lossy(&request).into_owned());
+        });
+        (base, received)
+    }
+
+    #[tokio::test]
+    async fn feedback_is_a_put_with_the_contract_body() {
+        use crate::models::{FeedbackRating, FeedbackReason};
+        let (base, request) =
+            serve_once_with_body("HTTP/1.1 204 No Content\r\nconnection: close\r\n\r\n").await;
+        let feedback = AssistantFeedbackInput {
+            rating: FeedbackRating::Down,
+            reasons: vec![FeedbackReason::WrongQuery, FeedbackReason::DidNotUnderstand],
+            comment: Some("faltou o filtro".into()),
+            attempt_id: Some("a-1".into()),
+        };
+        ApiClient::new(&base).unwrap().set_feedback("tok", TURN, &feedback).await.unwrap();
+
+        let request = request.await.unwrap();
+        assert!(request.starts_with(&format!("PUT /v1/turns/{TURN}/feedback ")), "{request}");
+        let body = request.split("\r\n\r\n").nth(1).unwrap();
+        let body: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "rating": "down",
+                "reasons": ["wrong_query", "did_not_understand"],
+                "comment": "faltou o filtro",
+                "attemptId": "a-1",
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn clearing_feedback_is_a_delete() {
+        let (base, request) = serve_once(http("204 No Content", "", "")).await;
+        ApiClient::new(&base).unwrap().clear_feedback("tok", TURN).await.unwrap();
+        let request = request.await.unwrap();
+        assert!(request.starts_with(&format!("DELETE /v1/turns/{TURN}/feedback ")), "{request}");
+
+        // Recusa da API (409: turno sem resposta) chega com o código
+        let body = r#"{"error":{"code":"conflict","message":"no answer yet"}}"#;
+        let (base, _) = serve_once(http("409 Conflict", "", body)).await;
+        let feedback = AssistantFeedbackInput {
+            rating: crate::models::FeedbackRating::Up,
+            reasons: vec![],
+            comment: None,
+            attempt_id: None,
+        };
+        let error = assistant_error(ApiClient::new(&base).unwrap().set_feedback("tok", TURN, &feedback).await);
+        assert_eq!(error.code, AssistantCode::Conflict);
     }
 
     #[test]

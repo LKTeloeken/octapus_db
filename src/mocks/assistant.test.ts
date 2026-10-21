@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   acceptAssistantConsent,
+  clearAssistantFeedback,
   getAssistantConsent,
   getAssistantMe,
   getAssistantModels,
   getAssistantStatus,
   logoutAssistant,
   redeemAssistantInvite,
+  setAssistantFeedback,
 } from '@/api/assistant';
 import { ApiError } from '@/api/client';
 import { consentPending, quotaRemaining } from '@/queries/use-assistant-me';
@@ -14,6 +16,7 @@ import { RustCommand } from '@/api/commands';
 import type {
   AssistantConversation,
   AssistantConversationSummary,
+  AssistantFeedbackInput,
   AssistantTurnEvent,
   AssistantTurnFinish,
 } from '@/api/types/assistant.types';
@@ -245,6 +248,83 @@ describe('assistente no mock', () => {
           page: {},
         }),
       ).rejects.toMatchObject({ code: 'GUARD_REJECTED' });
+    });
+
+    it('avaliação: grava, troca, remove e volta na conversa', async () => {
+      const { id } = await conversation();
+      const { finish } = await ask(id, 'quantos itens existem no estoque?');
+      const turnId = finish.turnId as string;
+      const read = async () =>
+        (
+          (await route(RustCommand.AssistantConversation, {
+            conversationId: id,
+          })) as AssistantConversation
+        ).turns[0].feedback;
+
+      await setAssistantFeedback(turnId, {
+        rating: 'down',
+        reasons: ['slow', 'slow', 'wrong_query'],
+        comment: '  faltou o filtro  ',
+        attemptId: finish.attemptId,
+      });
+      const down = await read();
+      expect(down).toMatchObject({
+        rating: 'down',
+        reasons: ['slow', 'wrong_query'],
+        comment: 'faltou o filtro',
+      });
+
+      // Trocar para 👍 larga os motivos e mantém a primeira data
+      await setAssistantFeedback(turnId, {
+        rating: 'up',
+        reasons: ['slow'],
+        comment: null,
+        attemptId: finish.attemptId,
+      });
+      expect(await read()).toMatchObject({
+        rating: 'up',
+        reasons: [],
+        createdAt: down?.createdAt,
+      });
+
+      await clearAssistantFeedback(turnId);
+      expect(await read()).toBeNull();
+      // Remover de novo não é erro
+      await clearAssistantFeedback(turnId);
+    });
+
+    it('avaliação recusada: comentário longo, tentativa alheia, turno inexistente', async () => {
+      const { id } = await conversation();
+      const { finish } = await ask(id, 'quantos itens existem no estoque?');
+      const turnId = finish.turnId as string;
+      const up = {
+        rating: 'up',
+        reasons: [],
+        comment: null,
+      } satisfies Partial<AssistantFeedbackInput>;
+
+      expect(
+        await codeOf(
+          setAssistantFeedback(turnId, {
+            ...up,
+            comment: 'a'.repeat(2001),
+            attemptId: null,
+          }),
+        ),
+      ).toBe('ASSISTANT_INVALID_REQUEST');
+      expect(
+        await codeOf(
+          setAssistantFeedback(turnId, { ...up, attemptId: 'outra' }),
+        ),
+      ).toBe('ASSISTANT_INVALID_REQUEST');
+      expect(
+        await codeOf(
+          setAssistantFeedback('00000000-0000-4000-8000-ffffffffffff', {
+            ...up,
+            attemptId: null,
+          }),
+        ),
+      ).toBe('ASSISTANT_NOT_FOUND');
     });
 
     it('sem termo aceito, a conversa não abre', async () => {

@@ -81,6 +81,7 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
 | `use-assistant-me` | `assistant_me`; `consentPending` e `quotaRemaining` |
 | `use-assistant-consent` | `assistant_consent_current` e `assistant_consent_accept` (recarrega o termo no `ASSISTANT_CONFLICT`) |
 | `use-assistant-models` | `assistant_models` (só no modo `free`) |
+| `use-assistant-feedback` | avaliação do turno (`assistant_feedback_set`/`_clear` numa mutação só; `null` remove): otimista na conversa do cache, volta ao estado anterior se o servidor recusar; as mudanças do mesmo turno saem em fila (`scope`) e a conversa só é relida quando a fila esvazia |
 | `use-assistant-conversations` | conversas (`assistant_conversations`, `assistant_conversation`, `assistant_conversation_create`), o turno (`useAskAssistant`, com o `onEvent` do canal; ao terminar relê a conversa e a cota), `useCancelAssistantTurn` e a execução manual (`useExecuteAssistantQuery`) |
 
 - **Query keys** centralizadas em [queries/keys.ts](src/queries/keys.ts). Mutações
@@ -95,7 +96,9 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
   assistente vai para o disco (RN-01; `queries/assistant-keys.test.ts`). O que depende do
   login fica sob `['assistant', 'session']`: um `ASSISTANT_UNAUTHORIZED` (o backend já
   apagou o token) remove esse prefixo e refaz o status (`queries/assistant-errors.ts`).
-  Só `ASSISTANT_UNAVAILABLE` ganha nova tentativa.
+  Só `ASSISTANT_UNAVAILABLE` ganha nova tentativa. As mutações do assistente também
+  ficam sob `['assistant', …]`: o `shouldPersistMutation` do `query-provider.tsx` não
+  grava as pausadas (o comentário de uma avaliação na fila, por exemplo).
 
 ### Zustand — `src/stores/`
 Só estado de **UI**, nada que o backend possa fornecer:
@@ -267,6 +270,16 @@ palette, dentro do `QueryProvider`.
     resultado paginado pelo `assistant_execute` na `ResultsTable` sem `editableInfo`
     (RN-16, C-09), "Abrir no editor" (C-10), tentativas que falharam (RN-29), limite
     esgotado com a última consulta (RN-24) e cancelar (C-18, também `Esc` no campo).
+  - **Avaliação** (B11; `turn-feedback.tsx` + `use-turn-feedback.ts`, transições puras em
+    `lib/assistant/feedback.ts`): abaixo de cada turno terminado com resposta na tela e
+    já no histórico do servidor, 👍 e 👎 como botões de alternar (`aria-pressed`, rótulo
+    "Ajudou"/"Não ajudou"). O mesmo botão de novo remove; o outro troca, levando o
+    comentário. No 👎, os motivos em chips de alternar (ligado = `--iris-soft` + ✓) e o
+    comentário aberto; no 👍, o comentário fica recolhido atrás de "Comentar". Comentário
+    até 2000 caracteres (contador; acima disso o Salvar desliga) com o aviso "Não cole
+    dados do seu banco aqui." no `aria-describedby`. Nota e motivos gravam no clique; o
+    comentário, no Salvar. Tudo otimista (`use-assistant-feedback`); recusa do servidor
+    volta ao estado anterior com um toast (`feedbackErrorMessage`).
   - **Grades várias na tela**: a `ResultsTable` com `keyboardScope` vira uma região de
     teclado (`results-table/keyboard-scope.ts`) e só atende atalhos com o foco nela; a
     grade da aba ignora o que nasce no painel do assistente.
@@ -353,6 +366,8 @@ produção — inclusive o `Channel` de mensagens e o plugin de updater.
 - API do assistente simulada em `src/mocks/assistant.ts`: o painel escolhe "no ar",
   "sem URL" (`ASSISTANT_NOT_CONFIGURED`) ou "fora" (`ASSISTANT_UNAVAILABLE`); entrar com
   um convite (8+ caracteres; `REVOG…` é recusado) deixa o termo pendente até o aceite.
+  A avaliação (`src/mocks/assistant-turns.ts`) segue as regras da API; para ver o
+  "desfazer" da tela, ligue "Falhar comando: próximo" no painel e clique em 👍/👎.
 
 **Regra de manutenção:** comando novo no backend ⇒ handler novo em
 `src/mocks/handlers.ts`, na mesma lista do `RustCommand`. Sem handler o mock rejeita

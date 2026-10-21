@@ -696,6 +696,8 @@ consulta de leitura que gerou; desligado, ela fica para revisão.
 | `assistant_turn_ask` | `{ serverId, database, conversationId, question, clientTurnId, schemas?, onEvent: Channel }` | `AssistantTurnFinish`; o andamento chega pelo canal (`AssistantTurnEvent`) |
 | `assistant_turn_cancel` | `{ clientTurnId }` | `boolean` (`false` = já terminou) |
 | `assistant_execute` | `{ serverId, database, query, page, attemptId?, userEdited }` | `QueryResult` — execução manual, sempre só-leitura |
+| `assistant_feedback_set` | `{ turnId, feedback: AssistantFeedbackInput }` (`{ rating, reasons, comment, attemptId }`) | `void` — avalia o turno (👍/👎, B11); repetir sobrescreve |
+| `assistant_feedback_clear` | `{ turnId }` | `void` — remove a avaliação (sem avaliação não é erro) |
 
 O app fala com a API intermediária do TCC (octapus-assistant-api, contrato 1.4.0 em
 `contract/` daquele repositório), que chama os provedores de modelo e registra o
@@ -717,8 +719,17 @@ experimento; o loop do assistente roda aqui. Módulo `assistant/`:
   URL não é usado, para nunca ir a outro host. É a única coisa do assistente em disco
   (RN-01). Sem token, os comandos autenticados respondem `ASSISTANT_UNAUTHORIZED`; um
   401 da API (convite revogado) apaga o token.
-- **Log:** só ids (participante), códigos de erro e eventos (login, termo aceito, API
-  fora) — nunca pergunta, estrutura, consulta, mensagem da API ou token.
+- **Avaliação** (B11, A8 na API): `PUT`/`DELETE /v1/turns/{turnId}/feedback`, por turno.
+  Antes de sair, `AssistantFeedbackInput::normalized` (`models/assistant.rs`) deixa como
+  a API aceita: motivos só no 👎, sem repetir e sem `unknown`; comentário aparado (só
+  espaços = `null`) e acima de 2000 caracteres (contados como a API, não em bytes) →
+  `ASSISTANT_INVALID_REQUEST` sem ir à API. As recusas da API chegam com o código dela
+  (`CONFLICT` = turno sem tentativa concluída, `CONSENT_REQUIRED`, `NOT_FOUND`…). A
+  avaliação volta no `assistant_conversation` (`AssistantTurn.feedback`). `FeedbackReason`
+  aceita valor novo da API como `unknown`, como os status.
+- **Log:** só ids (participante, conversa, turno), códigos de erro e eventos (login, termo
+  aceito, API fora, avaliação gravada/removida) — nunca pergunta, estrutura, consulta,
+  comentário, mensagem da API ou token.
 
 **Execução só-leitura** (RN-16). A consulta gerada passa por duas barreiras, e a do banco
 segura sozinha (os testes rodam cada executor com o guard desligado):

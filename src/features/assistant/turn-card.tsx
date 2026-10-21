@@ -8,6 +8,7 @@ import type { AssistantTarget } from '@/stores/assistant-store';
 import { QuestionText } from './question-text';
 import { QueryBlock } from './query-block';
 import { ResultBlock } from './result-block';
+import { TurnFeedback } from './turn-feedback';
 import { STAGE_LABELS, phaseLabel, turnErrorMessage } from './turn-messages';
 import { useCountdown } from './use-countdown';
 import type { ConversationTurn } from './use-conversation-view';
@@ -16,6 +17,7 @@ import { useTurnMascot } from './use-turn-mascot';
 
 interface TurnCardProps {
   turn: ConversationTurn;
+  conversationId: string | null;
   target: AssistantTarget | null;
   flat: boolean;
   onCancel: () => void;
@@ -25,12 +27,13 @@ interface TurnCardProps {
 /** Uma pergunta e a resposta: explicação, premissas, consulta e resultado */
 export function TurnCard({
   turn,
+  conversationId,
   target,
   flat,
   onCancel,
   isCancelling,
 }: TurnCardProps) {
-  const card = useTurnCard({ turn, target, flat });
+  const card = useTurnCard({ turn, conversationId, target, flat });
   const { view, run } = card;
   const output = view.output;
   const running = view.outcome === 'running';
@@ -213,7 +216,14 @@ export function TurnCard({
         </details>
       )}
 
-      {/* B11: a avaliação (👍/👎) entra aqui, abaixo da resposta */}
+      {card.feedbackTarget && (
+        <TurnFeedback
+          conversationId={card.feedbackTarget.conversationId}
+          turnId={card.feedbackTarget.turnId}
+          attemptId={view.attemptId}
+          feedback={view.feedback}
+        />
+      )}
     </article>
   );
 }

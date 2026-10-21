@@ -108,6 +108,7 @@ export function ConversationView({
               <TurnCard
                 key={turn.view.key}
                 turn={turn}
+                conversationId={conversation.conversation?.id ?? null}
                 target={conversation.target}
                 flat={conversation.flat}
                 onCancel={conversation.cancelTurn}

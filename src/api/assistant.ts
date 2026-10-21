@@ -6,6 +6,7 @@ import type {
   AssistantConversation,
   AssistantConversationPage,
   AssistantConversationSummary,
+  AssistantFeedbackInput,
   AssistantMe,
   AssistantModel,
   AssistantParticipant,
@@ -144,4 +145,20 @@ export function executeAssistantQuery(
     attemptId: input.attemptId ?? null,
     userEdited: input.userEdited ?? false,
   });
+}
+
+/**
+ * Avalia a resposta do turno (👍/👎, motivos só no 👎, comentário até 2000
+ * caracteres); repetir sobrescreve
+ */
+export function setAssistantFeedback(
+  turnId: string,
+  feedback: AssistantFeedbackInput,
+): Promise<void> {
+  return call<void>(RustCommand.AssistantFeedbackSet, { turnId, feedback });
+}
+
+/** Remove a avaliação do turno (sem avaliação não é erro) */
+export function clearAssistantFeedback(turnId: string): Promise<void> {
+  return call<void>(RustCommand.AssistantFeedbackClear, { turnId });
 }

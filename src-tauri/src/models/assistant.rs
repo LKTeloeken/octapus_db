@@ -288,7 +288,7 @@ pub enum FeedbackRating {
 
 /// Motivos rápidos do 👎.
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FeedbackReason {
     WrongResult,
@@ -297,6 +297,62 @@ pub enum FeedbackReason {
     UnclearExplanation,
     Slow,
     Other,
+    /// Valor de uma API mais nova (não volta para a API)
+    Unknown,
+}
+
+lenient_deserialize!(FeedbackReason {
+    WrongResult, WrongQuery, DidNotUnderstand, UnclearExplanation, Slow, Other
+} else Unknown);
+
+/// Teto do comentário da avaliação, em caracteres (o mesmo da API).
+pub const FEEDBACK_COMMENT_MAX: usize = 2000;
+
+/// A avaliação que a tela manda (`assistant_feedback_set`); também é o corpo
+/// do `PUT /v1/turns/{turnId}/feedback`, depois do `normalized`.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantFeedbackInput {
+    pub rating: FeedbackRating,
+    /// Só no 👎 (no 👍 são descartados)
+    pub reasons: Vec<FeedbackReason>,
+    /// Texto livre, até 2000 caracteres; só espaços = sem comentário
+    pub comment: Option<String>,
+    /// A tentativa cuja resposta estava na tela
+    pub attempt_id: Option<String>,
+}
+
+impl AssistantFeedbackInput {
+    /// O que a API aceita: motivos só no 👎, sem repetir e sem os
+    /// desconhecidos; comentário aparado, vazio vira `None`. Comentário acima
+    /// do teto é recusado aqui, sem ir à API.
+    pub fn normalized(self) -> std::result::Result<Self, String> {
+        let mut reasons: Vec<FeedbackReason> = Vec::new();
+        if self.rating == FeedbackRating::Down {
+            for reason in self.reasons {
+                if reason != FeedbackReason::Unknown && !reasons.contains(&reason) {
+                    reasons.push(reason);
+                }
+            }
+        }
+        let comment = self
+            .comment
+            .map(|comment| comment.trim().to_string())
+            .filter(|comment| !comment.is_empty());
+        if comment
+            .as_ref()
+            .is_some_and(|comment| comment.chars().count() > FEEDBACK_COMMENT_MAX)
+        {
+            return Err(format!("comment longer than {FEEDBACK_COMMENT_MAX} characters"));
+        }
+        Ok(Self {
+            rating: self.rating,
+            reasons,
+            comment,
+            attempt_id: self.attempt_id,
+        })
+    }
 }
 
 /// A avaliação de um turno (B11).
@@ -454,5 +510,42 @@ mod tests {
         let language: crate::assistant::language::Language = serde_json::from_str("\"es\"").unwrap();
         assert_eq!(language, crate::assistant::language::Language::Other);
         assert!(serde_json::from_str::<AssistantTurnStatus>("3").is_err());
+        let reason: FeedbackReason = serde_json::from_str("\"too_long\"").unwrap();
+        assert_eq!(reason, FeedbackReason::Unknown);
+    }
+
+    fn feedback(rating: FeedbackRating, reasons: Vec<FeedbackReason>, comment: Option<&str>) -> AssistantFeedbackInput {
+        AssistantFeedbackInput {
+            rating,
+            reasons,
+            comment: comment.map(str::to_owned),
+            attempt_id: None,
+        }
+    }
+
+    #[test]
+    fn feedback_keeps_reasons_only_on_down() {
+        use FeedbackReason::*;
+        let up = feedback(FeedbackRating::Up, vec![Slow], None).normalized().unwrap();
+        assert!(up.reasons.is_empty());
+
+        let down = feedback(FeedbackRating::Down, vec![Slow, Unknown, WrongQuery, Slow], None)
+            .normalized()
+            .unwrap();
+        assert_eq!(down.reasons, [Slow, WrongQuery]);
+    }
+
+    #[test]
+    fn feedback_comment_is_trimmed_and_capped() {
+        let blank = feedback(FeedbackRating::Up, vec![], Some("   \n ")).normalized().unwrap();
+        assert_eq!(blank.comment, None);
+        let trimmed = feedback(FeedbackRating::Up, vec![], Some("  ok ")).normalized().unwrap();
+        assert_eq!(trimmed.comment.as_deref(), Some("ok"));
+
+        // O teto conta caracteres, não bytes (como a API, em runes)
+        let at_limit = "é".repeat(FEEDBACK_COMMENT_MAX);
+        assert!(feedback(FeedbackRating::Down, vec![], Some(&at_limit)).normalized().is_ok());
+        let over = format!("{at_limit}x");
+        assert!(feedback(FeedbackRating::Down, vec![], Some(&over)).normalized().is_err());
     }
 }

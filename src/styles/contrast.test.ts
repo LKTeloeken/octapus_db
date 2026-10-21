@@ -184,6 +184,16 @@ function pairs(): Pair[] {
       TEXT_AA,
     );
 
+    // Assistente: chip de motivo ligado na avaliação (texto --fg sobre o
+    // --iris-soft no painel)
+    add(
+      '--fg',
+      t('fg'),
+      'surface-1 + iris-soft (chip ligado)',
+      composite(t('surface-1'), t('iris-soft')),
+      TEXT_AA,
+    );
+
     // §2.2: branco sobre os preenchimentos (botão primário, hover do destrutivo)
     add('branco', WHITE, '--iris', t('iris'), TEXT_AA);
     add('branco', WHITE, '--iris-hover', t('iris-hover'), TEXT_AA);

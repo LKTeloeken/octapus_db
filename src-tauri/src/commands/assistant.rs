@@ -17,8 +17,8 @@ use crate::catalog::FLAT_SCHEMA;
 use crate::error::{Error, Result};
 use crate::models::{
     AdapterCapabilities, AssistantConsentTerm, AssistantConversation, AssistantConversationPage,
-    AssistantConversationSummary, AssistantMe, AssistantModel, AssistantParticipant,
-    AssistantStatus, AssistantTurnEvent, AssistantTurnFinish, AssistantTurnStatus,
+    AssistantConversationSummary, AssistantFeedbackInput, AssistantMe, AssistantModel,
+    AssistantParticipant, AssistantStatus, AssistantTurnEvent, AssistantTurnFinish, AssistantTurnStatus,
     AssistantTurnSummary, AttemptOutcome, DatabaseType, QueryLanguage, QueryOptions, QueryResult,
     ReadOnlyPlan, StageResult,
 };
@@ -363,6 +363,40 @@ async fn report_manual_execution(
             error.code()
         ),
     }
+}
+
+/// Avalia a resposta do turno (👍/👎, motivos e comentário); repetir
+/// sobrescreve. Comentário acima do teto → `ASSISTANT_INVALID_REQUEST` sem ir
+/// à API. O comentário nunca vai para o log.
+#[tauri::command]
+pub async fn assistant_feedback_set(
+    state: State<'_, AppState>,
+    turn_id: String,
+    feedback: AssistantFeedbackInput,
+) -> Result<()> {
+    let feedback = feedback
+        .normalized()
+        .map_err(|message| Error::from(AssistantError::new(AssistantCode::InvalidRequest, message)))?;
+    let rating = feedback.rating;
+    let turn = turn_id.as_str();
+    authorized(&state, "avaliação", |client, token| async move {
+        client.set_feedback(&token, turn, &feedback).await
+    })
+    .await?;
+    log::info!("assistente: avaliação do turno {turn_id} gravada ({rating:?})");
+    Ok(())
+}
+
+/// Remove a avaliação do turno (sem avaliação não é erro).
+#[tauri::command]
+pub async fn assistant_feedback_clear(state: State<'_, AppState>, turn_id: String) -> Result<()> {
+    let turn = turn_id.as_str();
+    authorized(&state, "remover avaliação", |client, token| async move {
+        client.clear_feedback(&token, turn).await
+    })
+    .await?;
+    log::info!("assistente: avaliação do turno {turn_id} removida");
+    Ok(())
 }
 
 /// O tipo do banco do servidor, se o assistente atende (capabilities).

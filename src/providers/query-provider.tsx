@@ -1,4 +1,8 @@
-import { QueryClient } from '@tanstack/react-query';
+import {
+  QueryClient,
+  defaultShouldDehydrateMutation,
+  type Mutation,
+} from '@tanstack/react-query';
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { del, get, set } from 'idb-keyval';
@@ -18,6 +22,18 @@ export const PERSISTED_DOMAINS: ReadonlySet<string> = new Set([
   'columns',
   'indexes',
 ]);
+
+/**
+ * Mutação pausada (sem rede, ou esperando a vez na fila de um `scope`) vai
+ * para o disco com as variáveis — menos as do assistente (RN-01): o
+ * comentário de uma avaliação, por exemplo, nunca é gravado.
+ */
+export function shouldPersistMutation(mutation: Mutation) {
+  return (
+    mutation.options.mutationKey?.[0] !== 'assistant' &&
+    defaultShouldDehydrateMutation(mutation)
+  );
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,6 +73,7 @@ export const QueryProvider = ({ children }: { children: ReactNode }) => {
           shouldDehydrateQuery: query =>
             query.state.status === 'success' &&
             PERSISTED_DOMAINS.has(String(query.queryKey[0])),
+          shouldDehydrateMutation: shouldPersistMutation,
         },
       }}
     >

@@ -32,10 +32,12 @@ export type QueryState =
 
 export const useTurnCard = ({
   turn,
+  conversationId,
   target,
   flat,
 }: {
   turn: ConversationTurn;
+  conversationId: string | null;
   target: AssistantTarget | null;
   flat: boolean;
 }) => {
@@ -171,8 +173,21 @@ export const useTurnCard = ({
     }
   }, []);
 
+  // Avalia-se a resposta que está na tela, com o turno terminado e já no
+  // histórico do servidor (a API recusa turno sem tentativa concluída)
+  const feedbackTarget =
+    conversationId &&
+    view.turnId &&
+    turn.inHistory &&
+    view.output &&
+    !view.streaming &&
+    view.outcome !== 'running'
+      ? { conversationId, turnId: view.turnId }
+      : null;
+
   return {
     view,
+    feedbackTarget,
     run: run ?? null,
     queryState,
     isQuery,

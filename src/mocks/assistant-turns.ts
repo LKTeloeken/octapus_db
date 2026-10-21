@@ -5,6 +5,8 @@ import type {
   AssistantConversation,
   AssistantConversationPage,
   AssistantConversationSummary,
+  AssistantFeedbackInput,
+  AssistantTurn,
   AssistantTurnEvent,
   AssistantTurnFinish,
   AssistantTurnStatus,
@@ -12,6 +14,11 @@ import type {
   ModelOutput,
 } from '@/api/types/assistant.types';
 import type { QueryOptions, QueryResult } from '@/api/types/query.types';
+import {
+  commentTooLong,
+  FEEDBACK_COMMENT_MAX,
+  normalizeFeedback,
+} from '@/lib/assistant/feedback';
 import { requireDatabase, requireServerEntry } from './data';
 import {
   ASSISTANT_MODELS,
@@ -36,6 +43,10 @@ import type { MockHandler } from './handlers';
  * - "falha" → o provedor falha (`failed`, `ASSISTANT_PROVIDER_ERROR`);
  * - "cota" → gasta a cota inteira: daí em diante, `quota_exceeded`;
  * - o resto → contagem da primeira tabela do database.
+ *
+ * A avaliação (👍/👎) segue as regras da A8: termo aceito, turno com
+ * tentativa concluída, comentário até 2000 caracteres. Para ver o "desfazer"
+ * da tela, ligue a falha no painel do mock.
  *
  * Como na API real, o `delta` é o JSON da resposta em pedaços. No database
  * `saas` (5.000 schemas) o contexto sai recortado (`truncated`).
@@ -91,6 +102,14 @@ function requireConversation(id: string): AssistantConversation {
   const conversation = conversations.get(id);
   if (!conversation) throw 'Assistant not_found: conversation not found';
   return conversation;
+}
+
+function requireTurn(turnId: string): AssistantTurn {
+  for (const conversation of Array.from(conversations.values())) {
+    const turn = conversation.turns.find(item => item.id === turnId);
+    if (turn) return turn;
+  }
+  throw 'Assistant not_found: turn not found';
 }
 
 function outputFor(question: string, table: string): ModelOutput {
@@ -464,6 +483,42 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
     if (!running) return false;
     running.cancelled = true;
     return true;
+  },
+
+  [RustCommand.AssistantFeedbackSet]: ({ turnId, feedback }: Args): void => {
+    const session = requireAssistantLogin();
+    const input = feedback as AssistantFeedbackInput;
+    if (input.comment && commentTooLong(input.comment)) {
+      throw `Assistant invalid_request: comment longer than ${FEEDBACK_COMMENT_MAX} characters`;
+    }
+    if (!session.acceptedVersion) {
+      throw 'Assistant consent_required: accept the current consent term first';
+    }
+    const turn = requireTurn(turnId as string);
+    if (!turn.attempts.some(item => item.status !== 'generating')) {
+      throw 'Assistant conflict: the turn has no finished attempt';
+    }
+    const normalized = normalizeFeedback(input);
+    if (
+      normalized.attemptId &&
+      !turn.attempts.some(item => item.id === normalized.attemptId)
+    ) {
+      throw 'Assistant invalid_request: attemptId is not an attempt of this turn';
+    }
+    turn.feedback = {
+      rating: normalized.rating,
+      reasons: normalized.reasons,
+      comment: normalized.comment,
+      attemptId: normalized.attemptId,
+      createdAt: turn.feedback?.createdAt ?? now(),
+      updatedAt: now(),
+    };
+  },
+
+  // Sem avaliação não é erro; não exige o termo (como na API)
+  [RustCommand.AssistantFeedbackClear]: ({ turnId }: Args): void => {
+    requireAssistantLogin();
+    requireTurn(turnId as string).feedback = null;
   },
 
   // Só leitura, como no Rust: o resto é recusado pelo guard

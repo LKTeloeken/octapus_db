@@ -192,6 +192,8 @@ pub fn run() {
             commands::assistant_turn_ask,
             commands::assistant_turn_cancel,
             commands::assistant_execute,
+            commands::assistant_feedback_set,
+            commands::assistant_feedback_clear,
             // Auto-update pelo canal beta (o estável usa o `check` do plugin)
             #[cfg(desktop)]
             commands::check_beta_update,

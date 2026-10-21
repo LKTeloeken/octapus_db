@@ -3,4 +3,4 @@
 /**
  * Motivos rápidos do 👎.
  */
-export type FeedbackReason = "wrong_result" | "wrong_query" | "did_not_understand" | "unclear_explanation" | "slow" | "other";
+export type FeedbackReason = "wrong_result" | "wrong_query" | "did_not_understand" | "unclear_explanation" | "slow" | "other" | "unknown";
