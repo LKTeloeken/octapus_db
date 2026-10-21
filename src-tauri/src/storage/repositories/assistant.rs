@@ -131,6 +131,32 @@ mod tests {
         assert_eq!(load_token(&storage, API).unwrap(), None);
     }
 
+    /// RN-01 (critério 8): o esquema do disco do app não tem onde guardar
+    /// pergunta, resposta, consulta ou resultado do assistente — a única
+    /// tabela dele é a do token, com estas colunas.
+    #[test]
+    fn the_token_is_the_only_assistant_record_on_disk() {
+        let storage = memory_storage();
+        let conn = storage.lock();
+        let tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%assistant%'")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(tables, ["assistant_session"]);
+
+        let columns: Vec<String> = conn
+            .prepare("SELECT name FROM pragma_table_info('assistant_session')")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(columns, ["id", "api_url", "token", "created_at"]);
+    }
+
     #[test]
     fn clear_forgets_the_token() {
         let storage = memory_storage();

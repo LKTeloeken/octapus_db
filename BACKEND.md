@@ -971,6 +971,29 @@ commands::assistant::e2e -- --ignored --nocapture`. E2E: `cargo test --lib read_
   (Postgres e Mongo dos e2e; o SQLite usa arquivo temporário) e `cargo test --lib
   shape_context -- --ignored` (contexto do Mongo com canários).
 
+**Prova de privacidade** (B10, critérios 7 e 8 do épico,
+`commands/assistant_privacy_e2e.rs`): um e2e por banco (Postgres, SQLite, Mongo e Redis)
+semeia **canários** — strings únicas da execução nos valores, nos campos de texto livre,
+nas chaves do Redis com cara de registro (UUID, número, hex, e-mail, nomes demais numa
+posição) e nas chaves de mapa do Mongo — e roda os fluxos contra a API local: contexto da
+estrutura, erro do banco que cita o valor (`amount::numeric`, `$toDouble`) e a correção,
+pergunta de seguimento, execução manual com paginação e com erro, e avaliação com
+comentário. Depois procura cada canário (1) no que o app mandou à API (a `Recording` do
+módulo `e2e` grava cada chamada da `TurnApi`), (2) no log do app, capturado com os níveis
+do arquivo de log (`logging::app_level`/`DEPENDENCIES_LEVEL`), (3) em todas as tabelas do
+banco da API, numa transação só de leitura, e (4) no `docker logs` da API. Nenhum pode
+aparecer; e cada teste confere que o canário chegou à tela (o erro como o banco deu, as
+linhas), para a prova não ser vazia. O de Postgres também resgata o convite num cliente
+novo e lê a conversa e a avaliação: o histórico volta noutra máquina só com o convite.
+Além das variáveis do e2e, pede `OCTAPUS_E2E_API_DATABASE_URL` e
+`OCTAPUS_E2E_API_CONTAINER`: `cargo test --lib commands::assistant::privacy_e2e --
+--ignored --nocapture` (Mongo em 27017, Redis em 6380 db 3, Postgres em 5432 com um banco
+próprio que o teste cria e apaga). No disco, `storage::repositories::assistant` trava o
+esquema: a única tabela do assistente no `app.db` é a do token. Limites declarados (não
+são falha): uma chave de Mongo ou Redis que é dado mas tem cara de nome em poucas chaves
+(`user:ana.silva`) sai como literal, e uma chave do Redis sem `{id}` (`leaderboard`) sai
+inteira.
+
 ### Diagnóstico
 
 | Comando | Args | Retorno |

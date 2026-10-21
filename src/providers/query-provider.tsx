@@ -1,6 +1,7 @@
 import {
   QueryClient,
   defaultShouldDehydrateMutation,
+  type DehydrateOptions,
   type Mutation,
 } from '@tanstack/react-query';
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
@@ -34,6 +35,18 @@ export function shouldPersistMutation(mutation: Mutation) {
     defaultShouldDehydrateMutation(mutation)
   );
 }
+
+/**
+ * O que o persister grava no IndexedDB: as queries de sucesso dos
+ * `PERSISTED_DOMAINS` e as mutações pausadas que não são do assistente. A
+ * prova do RN-01 (`persisted-cache.test.ts`) passa o cache por aqui.
+ */
+export const PERSIST_DEHYDRATE_OPTIONS: DehydrateOptions = {
+  shouldDehydrateQuery: query =>
+    query.state.status === 'success' &&
+    PERSISTED_DOMAINS.has(String(query.queryKey[0])),
+  shouldDehydrateMutation: shouldPersistMutation,
+};
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -69,12 +82,7 @@ export const QueryProvider = ({ children }: { children: ReactNode }) => {
         // `assistant-capabilities-v1`: `AdapterCapabilities` ganhou
         // `supportsAssistant` e `queryLanguage`
         buster: 'assistant-capabilities-v1',
-        dehydrateOptions: {
-          shouldDehydrateQuery: query =>
-            query.state.status === 'success' &&
-            PERSISTED_DOMAINS.has(String(query.queryKey[0])),
-          shouldDehydrateMutation: shouldPersistMutation,
-        },
+        dehydrateOptions: PERSIST_DEHYDRATE_OPTIONS,
       }}
     >
       {children}

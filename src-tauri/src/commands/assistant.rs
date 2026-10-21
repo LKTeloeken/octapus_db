@@ -325,23 +325,47 @@ pub async fn assistant_execute(
     let duration = Some(started.elapsed().as_millis() as i64);
 
     if let (Some(attempt_id), 0) = (attempt_id.as_deref(), offset) {
-        report_manual_execution(&state, attempt_id, &result, &query, duration, user_edited).await;
+        if let Ok((api_url, client)) = state.assistant.endpoint() {
+            if let Ok(Some(token)) = assistant_store::load_token(&state.storage, api_url) {
+                let execution = ManualExecution {
+                    result: &result,
+                    query: &query,
+                    duration,
+                    user_edited,
+                };
+                report_manual_execution(&state.assistant, client, &token, attempt_id, execution).await;
+            }
+        }
     }
     result
 }
 
-/// Completa o outcome guardado da tentativa com a execução manual e manda de
-/// novo (repetir sobrescreve). Sem o outcome em memória ou sem login, não faz
-/// nada: é registro do experimento, não pode falhar a execução.
-async fn report_manual_execution(
-    state: &State<'_, AppState>,
-    attempt_id: &str,
-    result: &Result<QueryResult>,
-    query: &str,
+/// Uma execução manual de uma consulta do assistente, para o outcome.
+struct ManualExecution<'a> {
+    result: &'a Result<QueryResult>,
+    query: &'a str,
     duration: Option<i64>,
     user_edited: bool,
+}
+
+/// Completa o outcome guardado da tentativa com a execução manual e manda de
+/// novo (repetir sobrescreve). Sem o outcome em memória ou sem login, não faz
+/// nada: é registro do experimento, não pode falhar a execução. O erro vai
+/// sanitizado, como no turno (RN-10).
+async fn report_manual_execution(
+    assistant: &AssistantService,
+    client: &ApiClient,
+    token: &str,
+    attempt_id: &str,
+    execution: ManualExecution<'_>,
 ) {
-    let Some(mut outcome) = state.assistant.outcome(attempt_id) else {
+    let ManualExecution {
+        result,
+        query,
+        duration,
+        user_edited,
+    } = execution;
+    let Some(mut outcome) = assistant.outcome(attempt_id) else {
         return;
     };
     match result {
@@ -370,14 +394,8 @@ async fn report_manual_execution(
     }
     outcome.user_edited = user_edited;
 
-    let Ok((api_url, client)) = state.assistant.endpoint() else {
-        return;
-    };
-    let Ok(Some(token)) = assistant_store::load_token(&state.storage, api_url) else {
-        return;
-    };
-    match client.report_outcome(&token, attempt_id, &outcome).await {
-        Ok(()) => state.assistant.remember_outcome(attempt_id, &outcome),
+    match client.report_outcome(token, attempt_id, &outcome).await {
+        Ok(()) => assistant.remember_outcome(attempt_id, &outcome),
         Err(error) => log::warn!(
             "assistente: outcome da execução manual de {attempt_id} não foi registrado ({})",
             error.code()
@@ -595,6 +613,7 @@ mod tests {
 ///
 /// O de Mongo usa o banco dos e2e em localhost:27017 e o de Redis o de
 /// localhost:6380 (db 2; o 0 e o 1 são dos outros e2e), os dois sem auth.
+/// A prova de privacidade (B10) cresce a partir daqui: `privacy_e2e`.
 #[cfg(test)]
 mod e2e {
     use std::sync::Arc;
@@ -609,14 +628,18 @@ mod e2e {
     use crate::services::{CatalogEntry, CatalogService, SourceOpener};
     use crate::storage::vault;
 
-    /// Participante com o termo aceito e uma conversa nova do paradigma
-    struct Participant {
-        client: ApiClient,
-        token: String,
-        conversation_id: String,
+    /// Participante com o termo aceito e uma conversa nova do paradigma. O
+    /// `assistant` guarda os outcomes (a execução manual completa o deles) e o
+    /// `sent` tudo que os turnos mandaram à API, para a prova de privacidade.
+    pub(super) struct Participant {
+        pub(super) client: ApiClient,
+        pub(super) token: String,
+        pub(super) conversation_id: String,
+        pub(super) assistant: AssistantService,
+        pub(super) sent: Mutex<Vec<String>>,
     }
 
-    async fn participant(db_type: DatabaseType) -> Option<Participant> {
+    pub(super) async fn participant(db_type: DatabaseType) -> Option<Participant> {
         let (Ok(url), Ok(invite)) = (
             std::env::var("OCTAPUS_E2E_ASSISTANT_URL"),
             std::env::var("OCTAPUS_E2E_INVITE"),
@@ -640,10 +663,12 @@ mod e2e {
             client,
             token,
             conversation_id: summary.id,
+            assistant: AssistantService::from_env(),
+            sent: Mutex::default(),
         })
     }
 
-    fn server(db_type: DatabaseType, port: u16, connection_uri: Option<String>) -> Server {
+    pub(super) fn server(db_type: DatabaseType, port: u16, connection_uri: Option<String>) -> Server {
         Server {
             id: Some(1),
             name: "e2e".into(),
@@ -664,13 +689,13 @@ mod e2e {
     }
 
     /// De onde vem a estrutura que vai ao modelo, como no `structure_context`
-    enum Structure<'a> {
+    pub(super) enum Structure<'a> {
         Catalog(&'a CatalogService, &'a Arc<CatalogEntry>),
         Keys,
     }
 
     /// Catálogo de um banco descartável, num diretório temporário
-    async fn open_catalog(server: &Server, database: &str) -> (CatalogService, Arc<CatalogEntry>, std::path::PathBuf) {
+    pub(super) async fn open_catalog(server: &Server, database: &str) -> (CatalogService, Arc<CatalogEntry>, std::path::PathBuf) {
         let catalogs = CatalogService::default();
         let dir = std::env::temp_dir().join(format!("octapus-assistant-e2e-{}-{database}", std::process::id()));
         catalogs.init(dir.clone(), Arc::new(|_| {}));
@@ -686,7 +711,7 @@ mod e2e {
     }
 
     /// UUID v4 para a idempotência do turno
-    fn client_turn_id() -> String {
+    pub(super) fn client_turn_id() -> String {
         let bits: u128 = (rand::random::<u128>() & !(0xf << 76) | (0x4 << 76)) & !(0x3 << 62) | (0x2 << 62);
         let hex = format!("{bits:032x}");
         format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
@@ -694,7 +719,7 @@ mod e2e {
 
     /// Um turno com execução automática, com o histórico da conversa;
     /// imprime os eventos e devolve o fim e as linhas impressas.
-    async fn ask(
+    pub(super) async fn ask(
         participant: &Participant,
         db: &AdapterDatabase,
         structure: Structure<'_>,
@@ -704,6 +729,8 @@ mod e2e {
             client,
             token,
             conversation_id,
+            assistant,
+            sent,
         } = participant;
         let conversation = client.conversation(token, conversation_id).await.unwrap();
         let context_window = conversation.summary.model.context_window;
@@ -723,7 +750,6 @@ mod e2e {
         .unwrap();
         println!("--- {question}\n{}", schema.ddl);
 
-        let assistant = AssistantService::from_env();
         let setup = TurnSetup {
             conversation_id: conversation_id.clone(),
             client_turn_id: client_turn_id(),
@@ -741,10 +767,9 @@ mod e2e {
                 ..QueryOptions::default()
             },
         };
-        let api = ApiTurns {
-            client,
-            token,
-            assistant: &assistant,
+        let api = Recording {
+            api: ApiTurns { client, token, assistant },
+            sent,
         };
         let events: Mutex<Vec<String>> = Mutex::default();
         let finish = turn::run_turn(
@@ -773,8 +798,56 @@ mod e2e {
         (finish, events)
     }
 
+    /// A [`TurnApi`] de verdade, guardando o que cada chamada manda à API
+    struct Recording<'a> {
+        api: ApiTurns<'a>,
+        sent: &'a Mutex<Vec<String>>,
+    }
+
+    impl Recording<'_> {
+        fn record(&self, what: &str, payload: impl serde::Serialize) {
+            let json = serde_json::to_string(&payload).unwrap();
+            self.sent.lock().push(format!("{what}: {json}"));
+        }
+    }
+
+    #[async_trait]
+    impl TurnApi for Recording<'_> {
+        async fn create_turn(
+            &self,
+            conversation_id: &str,
+            question: &str,
+            language: Language,
+            client_turn_id: &str,
+        ) -> Result<AssistantTurnSummary> {
+            self.record("turno", (question, format!("{language:?}")));
+            self.api.create_turn(conversation_id, question, language, client_turn_id).await
+        }
+
+        async fn create_attempt(
+            &self,
+            turn_id: &str,
+            request: &AttemptRequest,
+            cancel: &CancelFlag,
+            progress: &(dyn Fn(AttemptProgress) + Send + Sync),
+        ) -> Result<AttemptReply> {
+            self.record("tentativa", request);
+            self.api.create_attempt(turn_id, request, cancel, progress).await
+        }
+
+        async fn report_outcome(&self, attempt_id: &str, outcome: &AttemptOutcome) -> Result<()> {
+            self.record("outcome", outcome);
+            self.api.report_outcome(attempt_id, outcome).await
+        }
+
+        async fn finish_turn(&self, turn_id: &str, status: AssistantTurnStatus) -> Result<()> {
+            self.record("fim", status);
+            self.api.finish_turn(turn_id, status).await
+        }
+    }
+
     /// A API guardou a última tentativa do turno com a execução bem-sucedida
-    async fn assert_saved(participant: &Participant, turn_index: usize) {
+    pub(super) async fn assert_saved(participant: &Participant, turn_index: usize) {
         let saved = participant
             .client
             .conversation(&participant.token, &participant.conversation_id)
@@ -923,3 +996,7 @@ mod e2e {
         db.adapter.execute_statement("FLUSHDB").await.unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "assistant_privacy_e2e.rs"]
+mod privacy_e2e;

@@ -99,6 +99,12 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
   Só `ASSISTANT_UNAVAILABLE` ganha nova tentativa. As mutações do assistente também
   ficam sob `['assistant', …]`: o `shouldPersistMutation` do `query-provider.tsx` não
   grava as pausadas (o comentário de uma avaliação na fila, por exemplo).
+- **Prova do disco (B10, critério 8):** o `providers/persisted-cache.test.ts` passa um cache
+  com conversa, lista, participante e avaliação pausada (com canário) pelas mesmas
+  `PERSIST_DEHYDRATE_OPTIONS` do provider e confere que nada do assistente sai no que vai
+  ao IndexedDB; o `stores/tabs-session.test.ts` enche o `assistant-store` e confere que o
+  snapshot das abas não leva nada dele. O lado do Rust (log, `app.db`) e os canários na
+  API estão no BACKEND.md, seção do assistente.
 
 ### Zustand — `src/stores/`
 Só estado de **UI**, nada que o backend possa fornecer:
