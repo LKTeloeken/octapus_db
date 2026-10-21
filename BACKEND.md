@@ -915,7 +915,7 @@ com a pergunta, sem nunca carregar a estrutura inteira.
 **Prompts, mensagens e resposta** (B5):
 
 - **Prompts** em `src-tauri/prompts/<paradigma>-v<n>.txt` (`postgres-v1`, `sqlite-v1`,
-  `mongodb-v1`, `redis-v1`),
+  `mongo-v1`, `redis-v1`),
   embutidos com `include_str!` (`assistant/prompts.rs`). A API confere o SHA-256 dos bytes
   exatos da mensagem `system` contra o prompt registrado com o mesmo id: registre **o
   próprio arquivo** no dashboard (Prompts → enviar arquivo, com o paradigma). Texto
