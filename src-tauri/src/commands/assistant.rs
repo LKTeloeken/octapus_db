@@ -1212,7 +1212,163 @@ mod e2e {
         assert!(events.iter().any(|line| line.starts_with("result: 5 linha")));
         assert_saved(&participant, 1).await;
 
+        // Dúvida conceitual (redis-v2): texto, sem plano
+        assert_replied(
+            ask(
+                &participant,
+                &db,
+                Structure::Keys,
+                "Qual a diferença entre guardar um usuário num hash e numa string com JSON?",
+            )
+            .await,
+        );
+
         db.adapter.execute_statement("FLUSHDB").await.unwrap();
+    }
+
+    /// Resposta em texto: nada executa e há explicação
+    fn assert_replied((finish, events): (AssistantTurnFinish, Vec<String>)) {
+        assert_eq!(finish.status, AssistantTurnStatus::Replied, "{finish:?}");
+        let output = finish.output.as_ref().unwrap();
+        assert!(output.query.is_none() && !output.explanation.trim().is_empty(), "{output:?}");
+        assert!(!events.iter().any(|line| line.starts_with("result:") || line.starts_with("Plan")));
+        println!("resposta: {}", output.explanation);
+    }
+
+    /// Pediu a estrutura do que não veio no recorte e depois consultou
+    fn assert_looked_up_then_answered((finish, events): (AssistantTurnFinish, Vec<String>)) {
+        assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
+        let lookup = events
+            .iter()
+            .find(|line| line.starts_with("StructureLookup"))
+            .expect("sem pedido de estrutura");
+        assert!(!lookup.contains("found: 0"), "{lookup}");
+        assert!(events.iter().any(|line| line.starts_with("result: 1 linha")), "{events:?}");
+    }
+
+    /// Prompts v2 no Postgres: dúvida conceitual em texto e, num schema de
+    /// 200 tabelas, o pedido de estrutura antes da consulta.
+    #[tokio::test]
+    #[ignore = "requires the assistant API and Postgres on localhost:5432 (postgres/1234)"]
+    async fn e2e_real_postgres_answers_and_structure_request() {
+        use crate::adapters::postgres::PostgresAdapter;
+
+        const DATABASE: &str = "octapus_e2e_assistant_v2";
+        let Some(participant) = participant(DatabaseType::Postgres).await else {
+            return;
+        };
+        let pg_server = Server {
+            username: "postgres".into(),
+            password: "1234".into(),
+            ..server(DatabaseType::Postgres, 5432, None)
+        };
+        let admin = PostgresAdapter::new(&pg_server, "postgres").unwrap();
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
+        admin.execute_statement(&format!("CREATE DATABASE {DATABASE}")).await.unwrap();
+        // O adapter executa um comando por vez
+        let scratch = PostgresAdapter::new(&pg_server, DATABASE).unwrap();
+        let noise = (0..200).map(|i| format!("CREATE TABLE t_{i:04} (id serial PRIMARY KEY, code text)"));
+        let ledger = [
+            "CREATE TABLE zz_refund_ledger (id serial PRIMARY KEY, amount_cents int NOT NULL,
+                                            reason text, refunded_at date NOT NULL)"
+                .to_string(),
+            "INSERT INTO zz_refund_ledger (amount_cents, reason, refunded_at) VALUES
+               (1000, 'a', '2026-10-01'), (2550, 'b', '2026-10-02'), (450, 'c', '2026-10-03')"
+                .to_string(),
+        ];
+        for statement in noise.chain(ledger) {
+            scratch.execute_statement(&statement).await.unwrap();
+        }
+
+        let (catalogs, entry, dir) = open_catalog(&pg_server, DATABASE).await;
+        let db = AdapterDatabase {
+            adapter: Arc::new(scratch),
+            db_type: DatabaseType::Postgres,
+        };
+        let structure = || Structure::Catalog(&catalogs, &entry);
+
+        assert_replied(
+            ask(
+                &participant,
+                &db,
+                structure(),
+                "Qual a diferença entre um índice B-tree e um GIN no Postgres?",
+            )
+            .await,
+        );
+        assert_looked_up_then_answered(
+            ask(&participant, &db, structure(), "Qual a soma dos valores dos reembolsos registrados?").await,
+        );
+        assert_saved(&participant, 1).await;
+
+        drop(db);
+        drop(entry);
+        let _ = std::fs::remove_dir_all(dir);
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
+    }
+
+    /// Prompts v2 no Mongo: dúvida conceitual em texto e, com mais coleções
+    /// que as 12 do contexto, o pedido de estrutura antes da consulta.
+    #[tokio::test]
+    #[ignore = "requires the assistant API and local mongodb on localhost:27017 (no auth)"]
+    async fn e2e_real_mongo_answers_and_structure_request() {
+        use mongodb::bson::{doc, Document};
+
+        const DATABASE: &str = "octapus_e2e_assistant_v2";
+        let Some(participant) = participant(DatabaseType::Mongodb).await else {
+            return;
+        };
+        let mongo = mongodb::Client::with_uri_str("mongodb://localhost:27017").await.unwrap();
+        let database = mongo.database(DATABASE);
+        database.drop().await.unwrap();
+        for i in 0..20 {
+            database
+                .collection::<Document>(&format!("c_{i:02}"))
+                .insert_one(doc! { "code": "x" })
+                .await
+                .unwrap();
+        }
+        database
+            .collection::<Document>("zz_refund_ledger")
+            .insert_many([
+                doc! { "amountCents": 1000, "reason": "a" },
+                doc! { "amountCents": 2550, "reason": "b" },
+                doc! { "amountCents": 450, "reason": "c" },
+            ])
+            .await
+            .unwrap();
+
+        let server = server(DatabaseType::Mongodb, 27017, None);
+        let (catalogs, entry, dir) = open_catalog(&server, DATABASE).await;
+        let db = AdapterDatabase {
+            adapter: Arc::new(MongoAdapter::new(&server, DATABASE).await.unwrap()),
+            db_type: DatabaseType::Mongodb,
+        };
+        let structure = || Structure::Catalog(&catalogs, &entry);
+
+        assert_replied(
+            ask(
+                &participant,
+                &db,
+                structure(),
+                "Quando vale mais a pena embutir documentos do que referenciar outra coleção?",
+            )
+            .await,
+        );
+        assert_looked_up_then_answered(
+            ask(&participant, &db, structure(), "Qual a soma dos valores dos reembolsos registrados?").await,
+        );
+        assert_saved(&participant, 1).await;
+
+        drop(entry);
+        let _ = std::fs::remove_dir_all(dir);
+        database.drop().await.unwrap();
     }
 }
 
