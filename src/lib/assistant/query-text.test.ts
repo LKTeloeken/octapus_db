@@ -4,6 +4,7 @@ import {
   formatQueryText,
   mongoShellCommand,
   opensInEditor,
+  queryDraft,
   redisCommandLine,
   relationNouns,
 } from './query-text';
@@ -157,5 +158,22 @@ describe('plano do Redis', () => {
       one: 'padrão de chave',
       many: 'padrões de chave',
     });
+  });
+});
+
+describe('queryDraft', () => {
+  it('enquanto a consulta chega, mostra a gerada (sem rascunho vazio)', () => {
+    expect(queryDraft(null, 'SELECT 1', true)).toBe('SELECT 1');
+    expect(queryDraft({ base: '', text: '' }, 'SELECT', true)).toBe('SELECT');
+  });
+
+  it('a edição vale sobre o texto que ela editou', () => {
+    const edit = { base: 'SELECT 1', text: 'SELECT 2' };
+    expect(queryDraft(edit, 'SELECT 1', false)).toBe('SELECT 2');
+  });
+
+  it('consulta nova (correção) descarta a edição antiga', () => {
+    const edit = { base: 'SELECT 1', text: 'SELECT 2' };
+    expect(queryDraft(edit, 'SELECT 3', false)).toBe('SELECT 3');
   });
 });

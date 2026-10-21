@@ -181,3 +181,22 @@ export function relationNouns(language: QueryLanguage | null): {
   }
   return { one: 'tabela', many: 'tabelas' };
 }
+
+/** Uma edição da consulta na revisão, com o texto gerado sobre o qual foi feita */
+export interface QueryEdit {
+  base: string;
+  text: string;
+}
+
+/**
+ * O texto que o bloco mostra: a edição vale só sobre o texto que ela editou
+ * e com a resposta já completa. Enquanto a consulta chega (streaming), ou
+ * depois que o modelo gerou outra (correção), mostra a gerada.
+ */
+export function queryDraft(
+  edit: QueryEdit | null,
+  generated: string,
+  streaming: boolean,
+): string {
+  return edit && !streaming && edit.base === generated ? edit.text : generated;
+}

@@ -1,5 +1,5 @@
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import toast from 'react-hot-toast';
 import type { QueryLanguage } from '@/api/types/capabilities.types';
 import type { QueryResult } from '@/api/types/query.types';
@@ -7,7 +7,9 @@ import {
   editorText,
   formatQueryText,
   opensInEditor,
+  queryDraft,
   relationNouns,
+  type QueryEdit,
 } from '@/lib/assistant/query-text';
 import { useExecuteAssistantQuery } from '@/queries/use-assistant-conversations';
 import {
@@ -64,10 +66,12 @@ export const useTurnCard = ({
   // Indentada para ler (no Mongo, o JSON da operação); é esta que roda
   const generated = formatQueryText(queryLanguage, view.output?.query ?? '');
   // A consulta da revisão é editável; começa como o modelo gerou
-  const [draft, setDraft] = useState(generated);
-  useEffect(() => {
-    if (!view.streaming) setDraft(generated);
-  }, [generated, view.streaming]);
+  const [edit, setEdit] = useState<QueryEdit | null>(null);
+  const draft = queryDraft(edit, generated, view.streaming);
+  const setDraft = useCallback(
+    (text: string) => setEdit({ base: generated, text }),
+    [generated],
+  );
 
   const isQuery = view.output?.kind === 'query';
   const searchPath = flat ? null : (schemas[0] ?? null);
