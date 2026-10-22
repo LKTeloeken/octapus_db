@@ -1,8 +1,12 @@
 import toast from 'react-hot-toast';
 import { loadSession, saveSession } from '@/api/session';
 import type { SortSpec } from '@/api/types/browse.types';
+import type {
+  CatalogObjectKind,
+  CatalogObjectRef,
+} from '@/api/types/catalog.types';
 import { encodeNodeId } from '@/lib/node-ref';
-import { useTabsStore, type WorkspaceTab } from './tabs-store';
+import { definitionTabId, useTabsStore, type WorkspaceTab } from './tabs-store';
 
 /**
  * Sessão do workspace: as abas abertas sobrevivem ao fechamento do app — em
@@ -82,6 +86,34 @@ function parseSort(value: unknown): SortSpec[] {
   );
 }
 
+const OBJECT_KINDS: readonly CatalogObjectKind[] = [
+  'view',
+  'materializedView',
+  'index',
+  'function',
+  'sequence',
+  'trigger',
+  'foreignKey',
+];
+
+function parseObjectRef(value: unknown): CatalogObjectRef | null {
+  if (!isObject(value)) return null;
+  const kind = OBJECT_KINDS.find(item => item === value.kind);
+  if (
+    !kind ||
+    typeof value.schema !== 'string' ||
+    typeof value.name !== 'string'
+  )
+    return null;
+  return {
+    kind,
+    schema: value.schema,
+    name: value.name,
+    table: asNullableString(value.table),
+    signature: asNullableString(value.signature),
+  };
+}
+
 function parseTab(raw: unknown): WorkspaceTab | null {
   if (!isObject(raw)) return null;
 
@@ -119,6 +151,20 @@ function parseTab(raw: unknown): WorkspaceTab | null {
       whereExpr: asString(raw.whereExpr, ''),
       sort: parseSort(raw.sort),
       hiddenColumns: asStringArray(raw.hiddenColumns),
+    };
+  }
+
+  if (raw.kind === 'definition') {
+    const target = parseObjectRef(raw.target);
+    if (!target) return null;
+    return {
+      ...base,
+      // Como no browse: o id sai do objeto, para abrir de novo achar a aba
+      id: definitionTabId(base.serverId, database, target),
+      kind: 'definition',
+      title: asString(raw.title, target.name),
+      schema: asNullableString(raw.schema),
+      target,
     };
   }
 

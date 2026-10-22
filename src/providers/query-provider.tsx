@@ -46,8 +46,10 @@ export const QueryProvider = ({ children }: { children: ReactNode }) => {
         // que ficava aqui (dezenas de MB num banco multi-tenant) é descartada.
         // `server-groups-v1`: `Server` ganhou o `groupId` (grupos da sidebar).
         // `ssl-capabilities-v1`: `Server` trocou `sslEnabled` por `sslMode` e
-        // `AdapterCapabilities` ganhou as flags de catálogo, estrutura e backup
-        buster: 'ssl-capabilities-v1',
+        // `AdapterCapabilities` ganhou as flags de catálogo, estrutura e backup.
+        // `structure-folders-v2`: ganhou `structureFolders` e `relationFolders`
+        // (pastas da árvore, com os índices dentro da tabela)
+        buster: 'structure-folders-v2',
         dehydrateOptions: {
           shouldDehydrateQuery: query =>
             query.state.status === 'success' &&

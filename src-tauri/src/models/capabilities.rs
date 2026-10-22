@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+use crate::catalog::ObjectKind;
+
 /// Describes what a given adapter supports, so the frontend can decide what to
 /// render (schema tree levels, editable grids, free-form editor, etc.) without
 /// branching on `dbType` directly.
@@ -50,6 +52,18 @@ pub struct AdapterCapabilities {
     /// depende da topologia: replica set/mongos usa transação; num standalone
     /// as etapas valem uma a uma (com aviso no log), como nas chamadas separadas.
     pub supports_atomic_save: bool,
+
+    /// Pastas de objetos que a árvore mostra num schema aberto, nesta ordem,
+    /// depois da pasta das tabelas (`catalog_folders`/`catalog_objects`).
+    /// Vazio = nenhuma.
+    #[cfg_attr(test, ts(as = "Vec<ObjectKind>"))]
+    pub structure_folders: &'static [ObjectKind],
+
+    /// Pastas de objetos dentro de cada tabela, depois da pasta das colunas
+    /// (a view materializada só tem a de índices): vêm por relação
+    /// (`catalog_objects` com `table`), nunca do schema inteiro.
+    #[cfg_attr(test, ts(as = "Vec<ObjectKind>"))]
+    pub relation_folders: &'static [ObjectKind],
 }
 
 /// As capabilities de um tipo de banco — a tabela do `get_db_capabilities`.
@@ -76,6 +90,13 @@ impl AdapterCapabilities {
             supports_schema_compare: true,
             supports_backup: true,
             supports_atomic_save: true,
+            structure_folders: &[
+                ObjectKind::View,
+                ObjectKind::MaterializedView,
+                ObjectKind::Function,
+                ObjectKind::Sequence,
+            ],
+            relation_folders: &[ObjectKind::Index, ObjectKind::Trigger, ObjectKind::ForeignKey],
         }
     }
 
@@ -93,6 +114,8 @@ impl AdapterCapabilities {
             supports_schema_compare: false,
             supports_backup: false,
             supports_atomic_save: true,
+            structure_folders: &[ObjectKind::View],
+            relation_folders: &[ObjectKind::Index],
         }
     }
 
@@ -110,6 +133,8 @@ impl AdapterCapabilities {
             supports_schema_compare: false,
             supports_backup: false,
             supports_atomic_save: false,
+            structure_folders: &[],
+            relation_folders: &[],
         }
     }
 
@@ -128,6 +153,8 @@ impl AdapterCapabilities {
             supports_schema_compare: false,
             supports_backup: false,
             supports_atomic_save: true,
+            structure_folders: &[ObjectKind::View],
+            relation_folders: &[ObjectKind::Index, ObjectKind::Trigger, ObjectKind::ForeignKey],
         }
     }
 
@@ -190,5 +217,24 @@ mod tests {
         }
         assert_eq!(AdapterCapabilities::all().len(), 4);
         assert!(AdapterCapabilities::for_db_type(DatabaseType::Mysql).is_none());
+    }
+
+    #[test]
+    fn folders_need_the_catalog() {
+        for entry in AdapterCapabilities::all() {
+            let caps = entry.capabilities;
+            if !caps.structure_folders.is_empty() || !caps.relation_folders.is_empty() {
+                assert!(caps.has_catalog, "{:?}", entry.db_type);
+            }
+            // Funções, sequences e views materializadas só onde há schema
+            for kind in [ObjectKind::Function, ObjectKind::Sequence, ObjectKind::MaterializedView] {
+                if caps.structure_folders.contains(&kind) {
+                    assert!(caps.has_schemas, "{:?}", entry.db_type);
+                }
+            }
+        }
+        let json = serde_json::to_value(AdapterCapabilities::sqlite()).unwrap();
+        assert_eq!(json["structureFolders"], serde_json::json!(["view"]));
+        assert_eq!(json["relationFolders"], serde_json::json!(["index", "trigger", "foreignKey"]));
     }
 }

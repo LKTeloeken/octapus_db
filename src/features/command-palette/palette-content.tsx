@@ -1,6 +1,6 @@
 import {
-  Folder01Icon,
   Layers01Icon,
+  PackageIcon,
   Search01Icon,
   TableIcon,
 } from '@hugeicons/core-free-icons';
@@ -60,7 +60,7 @@ const actionOf = (target: PaletteTarget) => {
 };
 
 const iconOf = (target: PaletteTarget) => {
-  if (target.kind === 'schema') return Folder01Icon;
+  if (target.kind === 'schema') return PackageIcon;
   if (target.kind === 'group') return Layers01Icon;
   return TableIcon;
 };
@@ -151,7 +151,7 @@ export function PaletteContent({
             className="inline-flex h-6 max-w-[40%] shrink-0 items-center gap-1.5 rounded-[7px] bg-active px-2 text-body text-fg shadow-[inset_0_0_0_1px_var(--line-subtle)]"
           >
             <HugeiconsIcon
-              icon={Folder01Icon}
+              icon={PackageIcon}
               className="size-3.5 shrink-0 text-fg-muted"
             />
             <span className="truncate">{pinnedSchema}</span>

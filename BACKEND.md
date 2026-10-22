@@ -156,6 +156,31 @@ listagem inteira (com o tamanho de cada tabela) levava o backend ao OOM.
   schema tirado de tipos e defaults (a sequência de cada tenant não é diferença). Fontes
   sem schema respondem `UnsupportedType`.
 
+- **Pastas da árvore** (`catalog/objects.rs`): views e views materializadas saem das
+  relações do catálogo; **índices e funções** vêm da fonte só quando a pasta é aberta
+  (`CatalogSource::list_indexes(schema, table?)`, `list_functions(schema)`), um schema por
+  consulta, na faixa de prioridade, e ficam **só em memória** no `Catalog` (fora do
+  arquivo: o `FORMAT_VERSION` não muda), esquecidos a cada sincronização concluída e no
+  refresh/mudança de estrutura do schema. A definição (`definition`) vem sob demanda, sem
+  cache. Postgres: índices pelo `pg_index` (colunas pelo `pg_get_indexdef(oid, k)`, que dá
+  a expressão também), funções pelo `pg_proc` sem as de extensão (`pg_depend` `deptype =
+  'e'`) nem schemas de sistema; definições por `pg_get_viewdef`/`pg_get_indexdef`/
+  `pg_get_functiondef` (agregada monta o `CREATE AGGREGATE` pelo `pg_aggregate`). SQLite:
+  `sqlite_schema` sem os `sqlite_autoindex_*`. Mongo: índices só por coleção
+  (`listIndexes`), definição como `db.createView(...)`/`createIndex(...)`; a
+  `system.views` não entra como coleção. Nada de tamanho; log só com contagens.
+  **Sequences** (`list_sequences(schema)`, só Postgres: `pg_class` `relkind 'S'`, o tipo
+  pelo `pg_sequence` no PG 10+ e a coluna dona pelo `pg_depend` `'a'`/`'i'`), **triggers**
+  e **chaves estrangeiras** (`list_triggers`/`list_foreign_keys(schema, table?)`) seguem o
+  mesmo caminho. Postgres: triggers do `pg_trigger` sem os internos (`tgisinternal`, os
+  das FKs), momento e eventos decodificados do `tgtype`; FKs do `pg_constraint`
+  (`contype 'f'`) com as colunas das duas pontas na ordem da chave e as ações. SQLite:
+  triggers do `sqlite_schema` (momento e evento lidos do cabeçalho do `CREATE TRIGGER`) e
+  FKs do `pragma_foreign_key_list`, sem nome (`fk_<tabela>_<id>`). Definições:
+  `CREATE SEQUENCE … OWNED BY`, `pg_get_triggerdef`, `ALTER TABLE … ADD CONSTRAINT` +
+  `pg_get_constraintdef`; no SQLite, o `CREATE TRIGGER` guardado e a cláusula `FOREIGN KEY`
+  remontada. Trigger e FK pedem a definição com `table` (o nome é por tabela).
+
 **Para mexer:** consulta nova → método em `Catalog` (`catalog/query.rs`) + comando em
 `commands/catalog.rs`; banco novo → implementar `CatalogSource` e incluir em
 `adapters::has_catalog`/`create_catalog_source`. Nada de voltar a listar a estrutura
@@ -371,6 +396,7 @@ interface CatalogNode {
 type CatalogPath =
   | { kind: 'schemas' }
   | { kind: 'schema'; schema: string }
+  | { kind: 'tables'; schema: string }   // as soltas da árvore: sem views (moram nas pastas)
   | { kind: 'partitions'; schema: string; table: string }
   | { kind: 'shape'; key: string };      // schemas de um grupo (árvore agrupada)
 
@@ -425,6 +451,31 @@ interface SchemaComparison {
                changes: { column: string; expected: ColumnSpec | null; actual: ColumnSpec | null }[] }[];
 }
 
+// Pastas da árvore (`catalog_folders`, `catalog_objects`, `catalog_object_definition`)
+type CatalogObjectKind = 'view' | 'materializedView' | 'index' | 'function'
+  | 'sequence' | 'trigger' | 'foreignKey';
+interface CatalogFolder { kind: CatalogObjectKind; count: number | null } // null = ainda não se sabe
+type CatalogObject =
+  | { kind: 'view' | 'materializedView'; name: string }
+  | { kind: 'index'; name: string; table: string; method: string;
+      unique: boolean; primary: boolean; columns: string[] }
+  | { kind: 'function'; name: string;
+      signature: string;          // tipos dos argumentos: distingue as sobrecargas
+      arguments: string;          // como se declaram (nomes, defaults)
+      returns: string | null;     // null numa procedure
+      functionKind: 'function' | 'procedure' | 'aggregate' | 'window'; language: string }
+  | { kind: 'sequence'; name: string; dataType: string; ownedBy: string | null }  // 'tabela.coluna'
+  | { kind: 'trigger'; name: string; table: string; timing: string;   // BEFORE | AFTER | INSTEAD OF
+      events: string[]; function: string | null; enabled: boolean }   // function null no SQLite
+  | { kind: 'foreignKey'; name: string; table: string; columns: string[];
+      refSchema: string; refTable: string; refColumns: string[];      // refColumns vazio = PK implícita (SQLite)
+      onDelete: string; onUpdate: string };
+interface CatalogObjectRef {      // de que objeto se quer a definição
+  kind: CatalogObjectKind; schema: string; name: string;
+  table?: string | null;          // índice do Mongo (o nome é por coleção)
+  signature?: string | null;      // função
+}
+
 // "Copiar diagnóstico": só contagens e tempos, nenhum nome
 interface CatalogDiagnostics {
   appVersion: string;
@@ -460,6 +511,8 @@ interface AdapterCapabilities {
   supportsSchemaCompare: boolean; // só Postgres (catalog_compare_schemas)
   supportsBackup: boolean;      // só Postgres (pg_dump/pg_restore)
   supportsAtomicSave: boolean;  // Postgres/Mongo/SQLite (save_row_changes); Mongo só é atômico em replica set
+  structureFolders: CatalogObjectKind[]; // pastas de objetos de um schema aberto: Postgres view, materializedView, function e sequence; SQLite e Mongo view; Redis nenhuma
+  relationFolders: CatalogObjectKind[];  // pastas dentro de cada tabela: index nos três com catálogo; trigger e foreignKey no Postgres e no SQLite (a view materializada só tem index)
 }
 ```
 
@@ -489,6 +542,7 @@ comparar `dbType`. Banco novo ou recurso novo = flag aqui, nos dois lados.
 |---|---|---|---|
 | `connect` | `{ serverId, database? }` | `boolean` | Testa a conexão; `database` opcional usa o default do tipo |
 | `test_connection` | `{ serverId }` | `boolean` | Igual a `connect` mas sempre no database default |
+| `test_server_input` | `{ input: ServerInput, serverId? }` | `void` | O "Testar conexão" do formulário: conexão avulsa (fora do pool) com os dados digitados, ping e descarte, em até 20 s. Com `serverId`, senha em branco = a salva. Rejeita com o erro inteiro (`CONNECTION_ERROR` com as causas, `CONNECTION_TIMEOUT`…) |
 | `disconnect` | `{ serverId, database? }` | `void` | Sem `database` → desconecta todos os databases do server |
 | `get_pool_stats` | `{ serverId, database }` | `PoolStats \| null` | Só Postgres devolve stats |
 
@@ -544,6 +598,9 @@ por chamada.
 | `catalog_cancel` | `{ serverId, database }` | `boolean` | interrompe a sincronização em andamento |
 | `catalog_relation_size` | `{ serverId, database, schema, table }` | `number \| null` | sim (só da tabela aberta) |
 | `catalog_diagnostics` | `{ serverId, database }` | `CatalogDiagnostics` | não |
+| `catalog_folders` | `{ serverId, database, schema }` | `CatalogFolder[]` | só para carregar o schema — as pastas do `structureFolders`, com a contagem que já se sabe |
+| `catalog_objects` | `{ serverId, database, schema, kind, table?, filter?, offset, limit }` | `CatalogPage<CatalogObject>` | índices, funções, sequences, triggers e FKs na 1ª vez (o schema inteiro numa consulta; com `table`, só os da relação — como a árvore pede índices, triggers e FKs, e no Mongo a única forma); depois da memória até a próxima sincronização |
+| `catalog_object_definition` | `{ serverId, database, target: CatalogObjectRef }` | `string` | sim, só o objeto pedido |
 
 O progresso chega pelo evento global **`catalog-event`** (`CatalogEvent`): o front escuta
 com `listen` e invalida só as fatias daquele database. No Redis, os comandos que abrem
@@ -734,6 +791,13 @@ const ok = await invoke<boolean>('connect', { serverId, database: null });
 `database: null` conecta no database default do tipo (Postgres `postgres`,
 Mongo `admin`, Redis `0`). Trate a rejeição (string) como falha de conexão.
 
+Para testar o que ainda não foi gravado (o formulário), `test_server_input`. A conexão
+recusada precisa voltar rápido e com o motivo, não como timeout: Postgres e Mongo têm
+teto de 5 s para conectar; o Redis usa `ConnectionManagerConfig` com 2 tentativas e o
+mesmo teto (o padrão do crate tentava 6 vezes, com espera exponencial, e um host que
+recusava só falhava depois de 20 s, como "timed out"). A resposta do Redis segue sem
+teto, para não cortar um comando longo.
+
 ### 6.3 Buscar a estrutura (sidebar em árvore)
 Fluxo com o catálogo (Postgres, Mongo, SQLite):
 ```ts
@@ -760,6 +824,11 @@ await listen<CatalogEvent>('catalog-event', ({ payload }) => { /* invalida as fa
   `childCount: null` e `state: 'unloaded'`; abrir ele carrega na hora.
 - **Partições** ficam dentro da tabela particionada (`kind: 'partitioned'`): peça
   `{ kind: 'partitions', schema, table }`.
+- **Pastas:** a árvore pede as relações soltas com `{ kind: 'tables', schema }` (sem as
+  views, na pasta Tabelas) e `catalog_folders` (as de objetos do schema); cada pasta
+  aberta pede `catalog_objects` (`kind` + janela + filtro), e a de índices de uma tabela
+  vai com `table`. Clique num índice ou função → `catalog_object_definition` na aba de
+  definição (só leitura).
 - **Agrupado por formato:** `catalog_shapes` dá os grupos e `{ kind: 'shape', key }` os
   schemas de cada um. O `drift` de cada schema diz quantas tabelas faltam/sobram em
   relação ao formato dominante.

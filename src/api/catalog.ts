@@ -6,6 +6,10 @@ import {
   type CatalogDiagnostics,
   type CatalogDriftReport,
   type CatalogEvent,
+  type CatalogFolder,
+  type CatalogObject,
+  type CatalogObjectKind,
+  type CatalogObjectRef,
   type CatalogNode,
   type CatalogPage,
   type CatalogPath,
@@ -173,6 +177,62 @@ export function catalogDiagnostics(
   return call<CatalogDiagnostics>(RustCommand.CatalogDiagnostics, {
     serverId,
     database,
+  });
+}
+
+/**
+ * Uma janela de uma pasta (views, views materializadas, índices, funções) de
+ * um schema (`FLAT_SCHEMA` no Mongo/SQLite). Com `table`, só os índices dessa
+ * relação — no Mongo, a única forma. Índices e funções vão ao banco só na
+ * primeira vez.
+ */
+export function catalogObjects(
+  serverId: number,
+  database: string,
+  schema: string,
+  kind: CatalogObjectKind,
+  options: {
+    table?: string | null;
+    filter?: string | null;
+    offset?: number;
+    limit: number;
+  },
+): Promise<CatalogPage<CatalogObject>> {
+  return call<CatalogPage<CatalogObject>>(RustCommand.CatalogObjects, {
+    serverId,
+    database,
+    schema,
+    kind,
+    table: options.table ?? null,
+    filter: options.filter || null,
+    offset: options.offset ?? 0,
+    limit: options.limit,
+  });
+}
+
+/** As pastas de um schema, com a contagem quando já se sabe (sem ir ao banco) */
+export function catalogFolders(
+  serverId: number,
+  database: string,
+  schema: string,
+): Promise<CatalogFolder[]> {
+  return call<CatalogFolder[]>(RustCommand.CatalogFolders, {
+    serverId,
+    database,
+    schema,
+  });
+}
+
+/** A definição completa de um objeto (`CREATE VIEW…`, `CREATE INDEX…`…) */
+export function catalogObjectDefinition(
+  serverId: number,
+  database: string,
+  target: CatalogObjectRef,
+): Promise<string> {
+  return call<string>(RustCommand.CatalogObjectDefinition, {
+    serverId,
+    database,
+    target,
   });
 }
 

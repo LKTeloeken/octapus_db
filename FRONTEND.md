@@ -67,7 +67,7 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
 | `use-servers` | CRUD de servidores |
 | `use-capabilities` | `get_capabilities`; `useDbCapabilities` → `get_db_capabilities` (tabela por tipo) |
 | `use-databases` / `use-columns` / `use-indexes` | databases, colunas e índices (sob demanda) |
-| `use-catalog` | catálogo do backend: `catalogStatusQuery` (abre com `catalog_open`), `catalogChildrenQuery`, `catalogShapesQuery`, `useCatalogSearch`, `useCatalogRelationSize`, `useCatalogRefresh`, `useCatalogDiagnostics`, `useSchemaComparison` (dois schemas, key `schema-comparison` fora do prefixo do catálogo); `hasCatalog`/`isFlatCatalog` dizem quem usa |
+| `use-catalog` | catálogo do backend: `catalogStatusQuery` (abre com `catalog_open`), `catalogChildrenQuery`, `catalogShapesQuery`, `catalogFoldersQuery` e `catalogObjectsQuery` (pastas da árvore), `useCatalogObjectDefinition` ("Ver definição"), `useCatalogSearch`, `useCatalogRelationSize`, `useCatalogRefresh`, `useCatalogDiagnostics`, `useSchemaComparison` (dois schemas, key `schema-comparison` fora do prefixo do catálogo); `hasCatalog`/`isFlatCatalog` dizem quem usa |
 | `use-catalog-events` | liga o `catalog-event` às invalidações (montado pela árvore) |
 | `use-refresh-structure` | "Atualizar" da árvore (servidor, database, schema, tabela) |
 | `use-structure` | estrutura inteira — só Redis (os demais usam o catálogo) |
@@ -91,7 +91,7 @@ Só estado de **UI**, nada que o backend possa fornecer:
 
 | Store | Responsabilidade |
 |---|---|
-| `tabs-store` | abas abertas (query e browse) e aba ativa — persistidas como sessão |
+| `tabs-store` | abas abertas (query, browse e definição) e aba ativa — persistidas como sessão |
 | `query-results-store` | resultado, log de mensagens e aba inferior de cada aba de query (efêmero, por id de aba) |
 | `tree-store` | nós expandidos da sidebar, filtro e tamanho da janela de cada nó grande, databases agrupados por formato |
 | `recent-tables-store` | tabelas abertas recentemente (command palette) |
@@ -108,7 +108,7 @@ antes do primeiro render; daí em diante cada mudança do `tabs-store` é gravad
 `save_session` (SQLite do backend, não `localStorage`) com throttle de 500 ms. Entra só a
 intenção da aba — query escrita, ordenação, filtro, colunas ocultas; resultados e
 edições pendentes não. Antes de sair por conta própria (instalar/reiniciar o update),
-chame `flushTabsSession()`. Campo novo em `QueryTab`/`BrowseTab` ⇒ trate-o no
+chame `flushTabsSession()`. Campo novo em `QueryTab`/`BrowseTab`/`DefinitionTab` ⇒ trate-o no
 `parseTab` (com default, para snapshots antigos continuarem válidos).
 
 ### O catálogo no front
@@ -140,7 +140,10 @@ palette, dentro do `QueryProvider`.
   schemas → tabelas → colunas, montada como lista plana em `use-connection-tree`
   (`FlatRow`: nó, erro, filtro, "carregar mais"). Com catálogo, cada nível é uma janela de
   500 com **linha de filtro** acima de 50 itens (`/` foca o filtro; Enter/↓ voltam à
-  lista; Esc limpa) e **"carregar mais"**; a lista de databases de um servidor ganha o
+  lista; Esc limpa) e **"carregar mais"**. Teclado
+  ([use-tree-navigation.ts](src/features/connection-tree/use-tree-navigation.ts)): setas
+  ou **vim** — `j`/`k` descem e sobem, `l` abre (ou entra no filho), `h` fecha (ou sobe
+  ao pai), `o` é o Enter, `gg` vai ao topo e `G` ao fim; a lista de databases de um servidor ganha o
   mesmo filtro e janela, aplicados no front. Mongo e SQLite mostram as relações direto sob
   o database. Num database multi-tenant:
   - **agrupar por formato** (ação do database, estado em `tree-store.shapeGrouped`):
@@ -151,9 +154,41 @@ palette, dentro do `QueryProvider`.
   - **"Copiar diagnóstico"** (contagens e tempos, sem nomes —
     [lib/catalog-diagnostics.ts](src/lib/catalog-diagnostics.ts)).
 
+  **Pastas** ao abrir um schema (ou o database, no Mongo/SQLite): primeiro **Tabelas**
+  (**Coleções** no Mongo: as soltas, `{ kind: 'tables' }`, sem as views), depois as pastas
+  de objetos do `structureFolders` das capabilities, nunca por `dbType` (**Views**, **Views
+  materializadas**, **Funções**, **Sequences**). A tabela aberta tem **Colunas** (**Campos**
+  no Mongo) e as pastas do `relationFolders` (**Índices**, **Triggers**, **Chaves
+  estrangeiras**; a view materializada só Índices — `relationFolderApplies`); a
+  particionada também **Partições**; a view
+  comum lista as colunas direto, e o Redis (sem catálogo) também. Tabelas, Colunas e
+  Partições são pastas só do front (`TreeFolderKind`), sobre as consultas de sempre: a
+  janela e o filtro das tabelas e das partições moram no nó da pasta. `catalog_folders` diz
+  as pastas de objetos e a contagem quando já se sabe (views pelo catálogo; índices e
+  funções só depois de abertas). Pasta de tabelas ou de views vazia não aparece; índices e
+  funções aparecem sempre, e aberta e vazia mostra "Nenhuma função" (linha `empty`). A
+  pasta é um nó (`NodeRef.folder`) e só aberta pede `catalog_objects`, em janela e com
+  filtro como as outras listas. View: clique abre os dados, "Ver definição" no menu;
+  índice (colunas, método, único/primário, parcial), função (`nome(assinatura)`, retorno,
+  tipo, linguagem — sobrecargas pela assinatura), sequence (tipo e coluna dona), trigger
+  (momento, eventos, função, desligado) e chave estrangeira (colunas → referenciada, `ON
+  DELETE`; menu com "Abrir tabela referenciada"): o clique abre a **aba de definição**
+  ([definition-viewer](src/features/definition-viewer)): o texto completo, só leitura e com
+  destaque (`QueryEditor readOnly`, SQL ou shell do Mongo pelas capabilities), com
+  "Abrir em aba de query" (cria a aba de query com o texto, para editar e executar),
+  "Copiar" e recarregar. Uma aba por objeto (`definitionTabId`: abrir de novo só ativa);
+  a aba guarda o objeto (`CatalogObjectRef`), não o texto, que vem do
+  `catalogDefinitionQuery` (key sob `catalog`, invalidada pelos eventos do catálogo).
+
   Tamanho só da tabela aberta (`catalog_relation_size`). Rótulos dos grupos e do aviso em
   [shape-labels.ts](src/features/connection-tree/shape-labels.ts). O Redis segue com a
   estrutura inteira (`use-structure`).
+
+  A linha de erro ("Falha ao carregar") tem **detalhes**: um popover com o
+  [ErrorDetails](src/components/error-details/error-details.tsx) — título pelo código do
+  erro ([lib/error-details.ts](src/lib/error-details.ts), nunca pelo texto), a mensagem
+  inteira do backend, "Copiar erro", "Tentar de novo" e, nas falhas de servidor e
+  database, "Editar servidor". Nova tentativa também no ↻ da própria linha.
 - **`structure-editor`** — DDL pela árvore (Postgres e SQLite), aberto pelo menu dos nós
   (`structure-editor-store`, montado na sidebar): **schema** (ou o database, no SQLite) →
   "Nova tabela"; **tabela** → "Nova coluna", "Renomear", "Excluir tabela/view" (CASCADE
@@ -183,7 +218,10 @@ palette, dentro do `QueryProvider`.
 - **`server-form`** — criar/editar servidor. A senha **nunca** volta do backend: no modo
   edição o campo começa vazio e deve ser redigitado. **Escopo** opcional: "Databases
   visíveis" e, no Postgres, "Schemas visíveis" (padrões com `*`, `?` e `!` para excluir —
-  aplicados no backend).
+  aplicados no backend). **Testar conexão** (`test_server_input`) conecta com o que está
+  digitado, sem gravar; na edição a senha em branco vale a salva. O resultado fica abaixo
+  do corpo (que rola) e some quando um campo muda: "Conexão bem-sucedida" ou o
+  `ErrorDetails` com o motivo.
 - **`settings`** — diálogo de configurações (engrenagem no rodapé da sidebar): menu de
   seções à esquerda, a ativa à direita. Seções num registro
   ([settings-sections.ts](src/features/settings/settings-sections.ts)); cada configuração
@@ -231,7 +269,10 @@ palette, dentro do `QueryProvider`.
 tanto pelo editor livre quanto pelo browse. Características:
 
 - **Duas visualizações:** tabela (padrão) e vertical (registros como colunas), alternadas
-  na status bar.
+  na status bar ou com **`Tab`** com o foco numa delas
+  ([use-view-toggle.ts](src/components/results-table/use-view-toggle.ts); não vale numa
+  célula em edição nem num campo, como a busca). O cursor de célula anda pelas setas e
+  pelo `hjkl`; o Tab não anda mais de célula.
 - **Virtualização** de linhas e colunas com TanStack Virtual (renderiza só o visível).
 - **Estado de edição** isolado em [use-results-table.ts](src/components/results-table/use-results-table.ts):
   - edições de células (amarelo), linhas novas (verde) e linhas removidas (vermelho)

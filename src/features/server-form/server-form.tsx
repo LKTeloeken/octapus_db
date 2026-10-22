@@ -1,3 +1,6 @@
+import { Tick02Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { ErrorDetails } from '@/components/error-details/error-details';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input/input';
 import { Label } from '@/components/ui/label';
@@ -11,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { SimpleAlertDialog } from '@/components/ui/simple-alert-dialog';
 import { SimpleDialog } from '@/components/ui/simple-dialog';
+import { Spinner } from '@/components/ui/spinner';
 import {
   DB_TYPE_ICONS,
   DB_TYPE_LABELS,
@@ -32,6 +36,10 @@ export function ServerForm(props: ServerFormProps) {
     groups,
     isEditMode,
     disableSave,
+    canTest,
+    isTesting,
+    connectionTest,
+    handleTest,
     openRemoveDialog,
     sslOptions,
     sslVerifies,
@@ -68,6 +76,16 @@ export function ServerForm(props: ServerFormProps) {
             )}
             <Button
               size="sm"
+              variant="outline"
+              className="ml-auto"
+              onClick={() => void handleTest()}
+              disabled={!canTest}
+            >
+              {isTesting && <Spinner className="size-3.5" />}
+              Testar conexão
+            </Button>
+            <Button
+              size="sm"
               variant="default"
               onClick={handleSave}
               disabled={disableSave}
@@ -77,7 +95,9 @@ export function ServerForm(props: ServerFormProps) {
           </>
         }
       >
-        <div className="flex flex-col gap-6">
+        {/* O corpo rola: com TLS e escopo o formulário passa da altura de uma
+            janela pequena, e o resultado do teste fica sempre à vista abaixo */}
+        <div className="-mx-6 flex max-h-[60vh] flex-col gap-6 overflow-y-auto px-6 py-1 scrollbar-thin">
           {/* Escolha do banco: selecionado em `--active` + anel `--ring`; na
               edição o tipo não muda e os demais ficam apagados. */}
           <div role="radiogroup" aria-label="Banco" className="flex gap-2">
@@ -285,6 +305,19 @@ export function ServerForm(props: ServerFormProps) {
             </>
           )}
         </div>
+
+        {connectionTest?.status === 'ok' && (
+          <p
+            role="status"
+            className="mt-4 flex items-center gap-1.5 text-body text-success"
+          >
+            <HugeiconsIcon icon={Tick02Icon} className="size-4" />
+            Conexão bem-sucedida.
+          </p>
+        )}
+        {connectionTest?.status === 'failed' && (
+          <ErrorDetails details={connectionTest.details} className="mt-4" />
+        )}
       </SimpleDialog>
 
       <SimpleAlertDialog

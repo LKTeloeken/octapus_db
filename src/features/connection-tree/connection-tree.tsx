@@ -5,6 +5,7 @@ import { memo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { ErrorRow } from './error-row';
+import { EmptyRow } from './empty-row';
 import { FilterRow } from './filter-row';
 import { MoreRow } from './more-row';
 import { NodeRow } from './node-row/node-row';
@@ -60,6 +61,7 @@ export const ConnectionTree = memo((props: ConnectionTreeProps) => {
       <ErrorRow
         level={0}
         message={error?.message ?? 'Falha ao carregar servidores'}
+        error={error}
         onRetry={retry}
       />
     );
@@ -134,7 +136,9 @@ export const ConnectionTree = memo((props: ConnectionTreeProps) => {
                   <ErrorRow
                     level={row.level}
                     message={row.message}
+                    error={row.error}
                     onRetry={row.onRetry}
+                    onEdit={row.onEdit}
                   />
                 ) : row.variant === 'filter' ? (
                   <FilterRow
@@ -146,6 +150,8 @@ export const ConnectionTree = memo((props: ConnectionTreeProps) => {
                     onChange={row.onChange}
                     onLeave={() => leaveFilter(row.nodeId)}
                   />
+                ) : row.variant === 'empty' ? (
+                  <EmptyRow level={row.level} message={row.message} />
                 ) : row.variant === 'more' ? (
                   <MoreRow
                     level={row.level}

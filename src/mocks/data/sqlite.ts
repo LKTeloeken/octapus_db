@@ -120,12 +120,25 @@ const tags: MockTable = {
   indexes: [],
 };
 
+/** View: sem PK, abre em modo leitura (e mora na pasta Views da árvore) */
+const notasPorUsuario: MockTable = {
+  name: 'vw_notas_por_usuario',
+  schema: '',
+  tableType: 'view',
+  rowEstimate: 300,
+  columns: [
+    column('usuario_id', 'INTEGER', gen.int(1, USUARIOS)),
+    column('notas', 'INTEGER', gen.int(0, 120)),
+  ],
+  indexes: [],
+};
+
 export function buildSqliteDatabases(): MockDatabase[] {
   return [
     {
       name: 'main',
       sizeBytes: 3_284_992,
-      tables: [notas, tags, usuarios],
+      tables: [notas, tags, usuarios, notasPorUsuario],
     },
   ];
 }

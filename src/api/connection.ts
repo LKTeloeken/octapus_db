@@ -4,7 +4,7 @@ import type {
   AdapterCapabilities,
   DbTypeCapabilities,
 } from './types/capabilities.types';
-import type { PoolStats } from './types/server.types';
+import type { PoolStats, ServerInput } from './types/server.types';
 
 /** database null → connects to the db type's default (postgres/admin/0) */
 export function connect(
@@ -19,6 +19,21 @@ export function connect(
 
 export function testConnection(serverId: number): Promise<boolean> {
   return call<boolean>(RustCommand.TestConnection, { serverId });
+}
+
+/**
+ * Testa os dados do formulário sem gravar (conexão avulsa, ping, descarte).
+ * Na edição, `serverId` deixa a senha em branco valer a salva. Falhar rejeita
+ * com o erro do backend (`code` e a mensagem com o motivo).
+ */
+export function testServerInput(
+  input: ServerInput,
+  serverId?: number | null,
+): Promise<void> {
+  return call<void>(RustCommand.TestServerInput, {
+    input,
+    serverId: serverId ?? null,
+  });
 }
 
 /** Without database → disconnects every database of the server */

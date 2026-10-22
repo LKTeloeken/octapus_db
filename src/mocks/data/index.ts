@@ -33,6 +33,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsSchemaCompare: true,
     supportsBackup: true,
     supportsAtomicSave: true,
+    structureFolders: ['view', 'materializedView', 'function', 'sequence'],
+    relationFolders: ['index', 'trigger', 'foreignKey'],
   },
   mongodb: {
     hasSchemas: false,
@@ -47,6 +49,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsSchemaCompare: false,
     supportsBackup: false,
     supportsAtomicSave: true,
+    structureFolders: ['view'],
+    relationFolders: ['index'],
   },
   redis: {
     hasSchemas: false,
@@ -61,6 +65,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsSchemaCompare: false,
     supportsBackup: false,
     supportsAtomicSave: false,
+    structureFolders: [],
+    relationFolders: [],
   },
   sqlite: {
     hasSchemas: false,
@@ -75,6 +81,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsSchemaCompare: false,
     supportsBackup: false,
     supportsAtomicSave: true,
+    structureFolders: ['view'],
+    relationFolders: ['index', 'trigger', 'foreignKey'],
   },
 };
 
