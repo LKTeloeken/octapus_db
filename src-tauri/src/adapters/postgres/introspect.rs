@@ -29,9 +29,9 @@ use tokio_postgres::types::{ToSql, Type};
 use tokio_postgres::{Client, Row};
 
 use crate::catalog::{
-    Catalog, CatalogSource, ColumnDetail, ColumnSpec, ForeignKey, LoadState, NameScope, RelKind,
-    RelationColumns, RelationDetail, SchemaDiff, SchemaHeader, SourceCanceller, Strategy,
-    SyncEvent, SyncReport, TableRecord,
+    Catalog, CatalogSource, ColumnDetail, ColumnMatch, ColumnSpec, ForeignKey, FunctionKind, FunctionObject,
+    IndexObject, LoadState, NameScope, ObjectKind, ObjectRef, RelKind, RelationColumns, RelationDetail, SchemaDiff, SchemaHeader,
+    SourceCanceller, Strategy, SyncEvent, SyncReport, TableRecord,
 };
 use crate::error::{Error, Result};
 use crate::models::Server;
@@ -293,6 +293,132 @@ fn relation_columns_sql() -> String {
          LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
          ORDER BY p.s, p.t, a.attnum"
     )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pastas da árvore: índices, funções e definições
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Schemas de sistema nunca entram (o mesmo critério da camada 0)
+const USER_SCHEMA: &str = "n.nspname <> 'information_schema' AND n.nspname !~ '^pg_'";
+
+/// Índices de um schema (`$1`), ou só os da relação `$2`. As colunas saem do
+/// `pg_get_indexdef(oid, k, true)`, que também dá a expressão de um índice
+/// sobre expressão. Só o catálogo; nenhum tamanho.
+fn indexes_sql() -> String {
+    format!(
+        "SELECT i.relname::text, t.relname::text, am.amname::text, ix.indisunique, ix.indisprimary,
+                ARRAY(SELECT pg_get_indexdef(ix.indexrelid, k, true)
+                      FROM generate_series(1, ix.indnatts::int) AS k ORDER BY k),
+                pg_get_expr(ix.indpred, ix.indrelid, true)
+         FROM pg_index ix
+         JOIN pg_class i ON i.oid = ix.indexrelid
+         JOIN pg_class t ON t.oid = ix.indrelid
+         JOIN pg_namespace n ON n.oid = i.relnamespace
+         JOIN pg_am am ON am.oid = i.relam
+         WHERE n.nspname = $1 AND {USER_SCHEMA}
+           AND ($2::text IS NULL OR t.relname = $2::text)
+         ORDER BY i.relname COLLATE \"C\""
+    )
+}
+
+/// `prokind` (PG 11+) ou, antes, as flags que ele substituiu.
+fn prokind_expr(info: &ServerInfo) -> &'static str {
+    if info.flavor == Flavor::Postgres && info.version_num >= 110_000 {
+        "p.prokind::text"
+    } else {
+        "CASE WHEN p.proisagg THEN 'a' WHEN p.proiswindow THEN 'w' ELSE 'f' END"
+    }
+}
+
+/// Funções e procedures de um schema (`$1`) sem as que pertencem a uma
+/// extensão (`pg_depend` com `deptype = 'e'`): o `pgcrypto` num schema de
+/// tenant não vira 40 itens na pasta.
+fn functions_sql(info: &ServerInfo) -> String {
+    format!(
+        "SELECT p.proname::text, pg_get_function_identity_arguments(p.oid),
+                pg_get_function_arguments(p.oid), pg_get_function_result(p.oid),
+                {kind}, l.lanname::text, obj_description(p.oid, 'pg_proc')
+         FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+         JOIN pg_language l ON l.oid = p.prolang
+         WHERE n.nspname = $1 AND {USER_SCHEMA}
+           AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                           WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
+         ORDER BY p.proname COLLATE \"C\", 2",
+        kind = prokind_expr(info),
+    )
+}
+
+/// Colunas de um schema (`$1`) cujo nome casa com o `ILIKE` `$2` (escape
+/// `\`), até `$3`: tabelas, views, views materializadas e estrangeiras, sem as
+/// partições (as colunas são as da mãe).
+fn search_columns_sql(caps: &Capabilities) -> String {
+    let data_type = unqualified("format_type(a.atttypid, a.atttypmod)", "n.nspname");
+    let partitions = if caps.partitions {
+        "AND NOT c.relispartition"
+    } else {
+        ""
+    };
+    format!(
+        "SELECT c.relname::text, a.attname::text, {data_type}
+         FROM pg_namespace n
+         JOIN pg_class c ON c.relnamespace = n.oid
+         JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+         WHERE n.nspname = $1::text AND {USER_SCHEMA}
+           AND c.relkind IN ('r', 'p', 'v', 'm', 'f') {partitions}
+           AND a.attname ILIKE $2::text ESCAPE '\\'
+         ORDER BY c.relname COLLATE \"C\", a.attnum
+         LIMIT $3::int8"
+    )
+}
+
+/// Comentários dos schemas `$1`. O do `public` que o Postgres cria
+/// ("standard public schema") não diz nada e fica de fora.
+const SCHEMA_COMMENTS_SQL: &str = "SELECT n.nspname::text, d.description
+         FROM pg_namespace n
+         JOIN pg_description d ON d.objoid = n.oid AND d.classoid = 'pg_namespace'::regclass
+         WHERE n.nspname = ANY($1::text[]) AND d.description <> 'standard public schema'
+         ORDER BY n.nspname COLLATE \"C\"";
+
+/// Definição de uma view (`$1` schema, `$2` nome), já como `CREATE`.
+const VIEW_DEFINITION_SQL: &str = "SELECT format(CASE c.relkind WHEN 'm' THEN 'CREATE MATERIALIZED VIEW %I.%I AS' \
+                                       ELSE 'CREATE OR REPLACE VIEW %I.%I AS' END, n.nspname, c.relname)
+            || E'\\n' || rtrim(pg_get_viewdef(c.oid, true), E'; \\n')
+     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('v', 'm')";
+
+const INDEX_DEFINITION_SQL: &str = "SELECT pg_get_indexdef(i.oid)
+     FROM pg_class i JOIN pg_namespace n ON n.oid = i.relnamespace
+     WHERE n.nspname = $1 AND i.relname = $2 AND i.relkind IN ('i', 'I')";
+
+/// Definição de uma função pela assinatura (`$3`, a de identidade). Agregada
+/// não tem `pg_get_functiondef` (dá erro): monta-se o `CREATE AGGREGATE` com
+/// o essencial do `pg_aggregate`.
+fn function_definition_sql(info: &ServerInfo) -> String {
+    format!(
+        "SELECT CASE WHEN {kind} = 'a' THEN
+                  format(E'CREATE AGGREGATE %I.%I(%s) (\\n    SFUNC = %s,\\n    STYPE = %s%s%s\\n)',
+                         n.nspname, p.proname, pg_get_function_identity_arguments(p.oid),
+                         a.aggtransfn::regproc, format_type(a.aggtranstype, NULL),
+                         CASE WHEN a.aggfinalfn <> 0 THEN E',\\n    FINALFUNC = ' || a.aggfinalfn::regproc END,
+                         CASE WHEN a.agginitval IS NOT NULL THEN E',\\n    INITCOND = ' || quote_literal(a.agginitval) END)
+                ELSE rtrim(pg_get_functiondef(p.oid), E'\\n') END
+         FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+         LEFT JOIN pg_aggregate a ON a.aggfnoid = p.oid
+         WHERE n.nspname = $1 AND p.proname = $2 AND pg_get_function_identity_arguments(p.oid) = $3",
+        kind = prokind_expr(info),
+    )
+}
+
+fn function_kind(code: &str) -> FunctionKind {
+    match code {
+        "p" => FunctionKind::Procedure,
+        "a" => FunctionKind::Aggregate,
+        "w" => FunctionKind::Window,
+        _ => FunctionKind::Function,
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -941,6 +1067,115 @@ impl Introspector {
         Ok(relations.iter().filter_map(|key| by_key.remove(key)).collect())
     }
 
+    /// Índices de um schema, ou de uma relação dele.
+    pub async fn list_indexes(&mut self, schema: &str, table: Option<&str>) -> Result<Vec<IndexObject>> {
+        let rows = self
+            .read_rows(
+                &indexes_sql(),
+                &[
+                    (&schema as &(dyn ToSql + Sync), Type::TEXT),
+                    (&table as &(dyn ToSql + Sync), Type::TEXT),
+                ],
+            )
+            .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(IndexObject {
+                    name: row.try_get(0)?,
+                    table: row.try_get(1)?,
+                    method: row.try_get(2)?,
+                    unique: row.try_get(3)?,
+                    primary: row.try_get(4)?,
+                    columns: row.try_get(5)?,
+                    predicate: row.try_get(6)?,
+                })
+            })
+            .collect()
+    }
+
+    /// Funções e procedures de um schema, fora as de extensões.
+    pub async fn list_functions(&mut self, schema: &str) -> Result<Vec<FunctionObject>> {
+        let sql = functions_sql(&self.info);
+        let rows = self
+            .read_rows(&sql, &[(&schema as &(dyn ToSql + Sync), Type::TEXT)])
+            .await?;
+        rows.iter()
+            .map(|row| {
+                let kind: String = row.try_get(4)?;
+                Ok(FunctionObject {
+                    name: row.try_get(0)?,
+                    signature: row.try_get(1)?,
+                    arguments: row.try_get(2)?,
+                    returns: row.try_get(3)?,
+                    function_kind: function_kind(&kind),
+                    language: row.try_get(5)?,
+                    comment: row.try_get(6)?,
+                })
+            })
+            .collect()
+    }
+
+    /// Colunas de um schema pelo nome (ver [`CatalogSource::search_columns`]).
+    pub async fn search_columns(&mut self, schema: &str, pattern: &str, limit: usize) -> Result<Vec<ColumnMatch>> {
+        let sql = search_columns_sql(&self.info.caps);
+        let limit = limit as i64;
+        let rows = self
+            .read_rows(
+                &sql,
+                &[
+                    (&schema as &(dyn ToSql + Sync), Type::TEXT),
+                    (&pattern as &(dyn ToSql + Sync), Type::TEXT),
+                    (&limit as &(dyn ToSql + Sync), Type::INT8),
+                ],
+            )
+            .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(ColumnMatch {
+                    table: row.try_get(0)?,
+                    column: row.try_get(1)?,
+                    data_type: row.try_get(2)?,
+                })
+            })
+            .collect()
+    }
+
+    /// Os comentários dos schemas pedidos que têm um.
+    pub async fn schema_comments(&mut self, schemas: &[String]) -> Result<Vec<(String, String)>> {
+        if schemas.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = self
+            .read_rows(SCHEMA_COMMENTS_SQL, &[(&schemas as &(dyn ToSql + Sync), Type::TEXT_ARRAY)])
+            .await?;
+        rows.iter()
+            .map(|row| Ok((row.try_get(0)?, row.try_get(1)?)))
+            .collect()
+    }
+
+    /// A definição completa de uma view, índice ou função, terminada em `;`.
+    pub async fn definition(&mut self, target: &ObjectRef) -> Result<Option<String>> {
+        let signature = target.signature.clone().unwrap_or_default();
+        let (sql, with_signature) = match target.kind {
+            ObjectKind::View | ObjectKind::MaterializedView => (VIEW_DEFINITION_SQL.to_string(), false),
+            ObjectKind::Index => (INDEX_DEFINITION_SQL.to_string(), false),
+            ObjectKind::Function => (function_definition_sql(&self.info), true),
+        };
+        let mut params: Vec<(&(dyn ToSql + Sync), Type)> = vec![
+            (&target.schema as &(dyn ToSql + Sync), Type::TEXT),
+            (&target.name as &(dyn ToSql + Sync), Type::TEXT),
+        ];
+        if with_signature {
+            params.push((&signature as &(dyn ToSql + Sync), Type::TEXT));
+        }
+        let rows = self.read_rows(&sql, &params).await?;
+        let Some(row) = rows.first() else {
+            return Ok(None);
+        };
+        let text: Option<String> = row.try_get(0)?;
+        Ok(text.map(|text| format!("{};\n", text.trim_end().trim_end_matches(';'))))
+    }
+
     /// Linhas de uma consulta ao catálogo, na transação só-leitura de sempre.
     async fn read_rows(&mut self, sql: &str, params: &[(&(dyn ToSql + Sync), Type)]) -> Result<Vec<Row>> {
         self.cancelled.store(false, Ordering::SeqCst);
@@ -1027,6 +1262,26 @@ impl CatalogSource for Introspector {
 
     async fn relation_details(&mut self, relations: &[(String, String)]) -> Result<Vec<RelationDetail>> {
         Introspector::relation_details(self, relations).await
+    }
+
+    async fn list_indexes(&mut self, schema: &str, table: Option<&str>) -> Result<Vec<IndexObject>> {
+        Introspector::list_indexes(self, schema, table).await
+    }
+
+    async fn list_functions(&mut self, schema: &str) -> Result<Vec<FunctionObject>> {
+        Introspector::list_functions(self, schema).await
+    }
+
+    async fn definition(&mut self, target: &ObjectRef) -> Result<Option<String>> {
+        Introspector::definition(self, target).await
+    }
+
+    async fn search_columns(&mut self, schema: &str, pattern: &str, limit: usize) -> Result<Vec<ColumnMatch>> {
+        Introspector::search_columns(self, schema, pattern, limit).await
+    }
+
+    async fn schema_comments(&mut self, schemas: &[String]) -> Result<Vec<(String, String)>> {
+        Introspector::schema_comments(self, schemas).await
     }
 
     fn canceller(&self) -> Box<dyn SourceCanceller> {
@@ -1209,5 +1464,200 @@ mod tests {
         fn assert_send<T: Send>(_: &T) {}
         let future = introspector.sync(catalog, |_| {});
         assert_send(&future);
+    }
+}
+
+/// Pastas da árvore contra o Postgres dos e2e (localhost:5432, postgres/1234),
+/// num banco scratch próprio. `cargo test --lib postgres::introspect::e2e -- --ignored`
+#[cfg(test)]
+mod e2e {
+    use super::*;
+    use crate::adapters::postgres::PostgresAdapter;
+    use crate::adapters::DatabaseAdapter;
+    use crate::catalog::{CatalogObject, CatalogPath};
+    use crate::models::{DatabaseType, SslMode};
+
+    const DATABASE: &str = "octapus_db_e2e_folders";
+
+    fn server() -> Server {
+        Server {
+            id: Some(1),
+            name: "e2e".into(),
+            db_type: DatabaseType::Postgres,
+            host: "localhost".into(),
+            port: 5432,
+            username: "postgres".into(),
+            password: "1234".into(),
+            default_database: None,
+            ssl_mode: SslMode::Disable,
+            ssl_root_cert: None,
+            connection_uri: None,
+            scope_databases: None,
+            scope_schemas: None,
+            group_id: None,
+            assistant_sample_values: false,
+            created_at: 0,
+        }
+    }
+
+    fn target(kind: ObjectKind, name: &str, signature: Option<&str>) -> ObjectRef {
+        ObjectRef {
+            kind,
+            schema: "app".into(),
+            name: name.into(),
+            table: None,
+            signature: signature.map(str::to_string),
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires local postgres on localhost:5432 (postgres/1234)"]
+    async fn e2e_folders_indexes_functions_and_definitions() {
+        let admin = PostgresAdapter::new(&server(), "postgres").unwrap();
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
+        admin
+            .execute_statement(&format!("CREATE DATABASE {DATABASE}"))
+            .await
+            .unwrap();
+        let setup = PostgresAdapter::new(&server(), DATABASE).unwrap();
+        setup
+            .execute_transaction(
+                [
+                    "CREATE SCHEMA app",
+                    "CREATE TABLE app.orders (id serial PRIMARY KEY, customer text NOT NULL, total numeric(10,2))",
+                    "CREATE INDEX orders_customer_lower ON app.orders (lower(customer), total)",
+                    "CREATE VIEW app.big_orders AS SELECT * FROM app.orders WHERE total > 1000",
+                    "CREATE MATERIALIZED VIEW app.totals AS SELECT customer, sum(total) AS total FROM app.orders GROUP BY customer",
+                    "CREATE FUNCTION app.add(a integer, b integer DEFAULT 1) RETURNS integer LANGUAGE sql AS 'SELECT a + b'",
+                    "CREATE FUNCTION app.add(a text, b text) RETURNS text LANGUAGE sql AS 'SELECT a || b'",
+                    "CREATE PROCEDURE app.archive(days integer) LANGUAGE sql AS 'DELETE FROM app.orders WHERE id < days'",
+                    "CREATE AGGREGATE app.concat_all(text) (SFUNC = textcat, STYPE = text, INITCOND = '')",
+                    // Funções de extensão não entram na pasta
+                    "CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA app",
+                ]
+                .map(String::from)
+                .to_vec(),
+            )
+            .await
+            .unwrap();
+        drop(setup);
+
+        let mut source = Introspector::connect(&server(), DATABASE, IntrospectOptions::default())
+            .await
+            .unwrap();
+
+        // Views saem das relações soltas
+        let catalog = RwLock::new(Catalog::new());
+        source.sync(&catalog, |_| {}).await.unwrap();
+        let loose: Vec<String> = catalog
+            .read()
+            .children(&CatalogPath::Tables("app".into()), None, 0, 100)
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|node| node.name)
+            .collect();
+        assert_eq!(loose, ["orders"]);
+        let views = catalog
+            .read()
+            .objects(ObjectKind::View, "app", None, None, 0, 10)
+            .unwrap();
+        assert_eq!(
+            views.items,
+            [CatalogObject::View {
+                name: "big_orders".into()
+            }]
+        );
+
+        let indexes = source.list_indexes("app", None).await.unwrap();
+        let names: Vec<&str> = indexes.iter().map(|index| index.name.as_str()).collect();
+        assert_eq!(names, ["orders_customer_lower", "orders_pkey"]);
+        let expression = &indexes[0];
+        assert_eq!(expression.table, "orders");
+        assert_eq!(expression.method, "btree");
+        assert_eq!(expression.columns, ["lower(customer)", "total"]);
+        assert!(indexes[1].primary && indexes[1].unique);
+        assert_eq!(indexes[0].predicate, None);
+        assert_eq!(source.list_indexes("app", Some("totals")).await.unwrap().len(), 0);
+        assert_eq!(source.list_indexes("app", Some("orders")).await.unwrap().len(), 2);
+
+        let functions = source.list_functions("app").await.unwrap();
+        let listed: Vec<(&str, &str, FunctionKind)> = functions
+            .iter()
+            .map(|f| (f.name.as_str(), f.signature.as_str(), f.function_kind))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("add", "a integer, b integer", FunctionKind::Function),
+                ("add", "a text, b text", FunctionKind::Function),
+                ("archive", "IN days integer", FunctionKind::Procedure),
+                ("concat_all", "text", FunctionKind::Aggregate),
+            ],
+            "sem as do pgcrypto"
+        );
+        assert_eq!(functions[0].arguments, "a integer, b integer DEFAULT 1");
+        assert_eq!(functions[0].returns.as_deref(), Some("integer"));
+        assert_eq!(functions[2].returns, None);
+        assert_eq!(functions[0].language, "sql");
+
+        let view = source
+            .definition(&target(ObjectKind::View, "big_orders", None))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(view.starts_with("CREATE OR REPLACE VIEW app.big_orders AS\n"), "{view}");
+        assert!(view.ends_with("1000::numeric;\n"), "{view}");
+        let materialized = source
+            .definition(&target(ObjectKind::MaterializedView, "totals", None))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            materialized.starts_with("CREATE MATERIALIZED VIEW app.totals AS\n"),
+            "{materialized}"
+        );
+        let index = source
+            .definition(&target(ObjectKind::Index, "orders_customer_lower", None))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            index,
+            "CREATE INDEX orders_customer_lower ON app.orders USING btree (lower(customer), total);\n"
+        );
+        let text_add = source
+            .definition(&target(ObjectKind::Function, "add", Some("a text, b text")))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            text_add.contains("app.add(a text, b text)") && text_add.contains("a || b"),
+            "{text_add}"
+        );
+        let aggregate = source
+            .definition(&target(ObjectKind::Function, "concat_all", Some("text")))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            aggregate.starts_with("CREATE AGGREGATE app.concat_all(text) (\n    SFUNC = textcat,"),
+            "{aggregate}"
+        );
+        assert!(aggregate.contains("INITCOND = ''"), "{aggregate}");
+        assert!(source
+            .definition(&target(ObjectKind::Function, "add", Some("numeric")))
+            .await
+            .unwrap()
+            .is_none());
+
+        drop(source);
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
     }
 }

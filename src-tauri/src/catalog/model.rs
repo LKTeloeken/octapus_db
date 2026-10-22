@@ -128,6 +128,9 @@ pub enum CatalogPath {
     Schemas,
     /// As relações de um schema (partições ficam dentro do pai)
     Schema(String),
+    /// As relações soltas de um schema na árvore: as de [`CatalogPath::Schema`]
+    /// sem as views, que moram nas pastas delas
+    Tables(String),
     /// As partições de uma tabela particionada
     Partitions { schema: String, table: String },
     /// Os schemas de um grupo de formato ([`ShapeGroup::key`])

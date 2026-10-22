@@ -106,6 +106,10 @@ const serverFromInput = (
   scopeDatabases: input.scopeDatabases?.trim() ? input.scopeDatabases : null,
   scopeSchemas: input.scopeSchemas?.trim() ? input.scopeSchemas : null,
   groupId: input.groupId ?? null,
+  // Mesma regra do backend: só o banco que manda os valores grava ligado
+  assistantSampleValues:
+    (input.assistantSampleValues ?? false) &&
+    CAPABILITIES[input.dbType].assistantSampleValues,
 });
 
 /** Nome aparado, não vazio e único (sem diferenciar maiúsculas), como no Rust */
@@ -550,6 +554,9 @@ const catalogHandlers: Record<string, MockHandler> = {
   [RustCommand.CatalogRelationSize]: args => mockCatalog.relationSize(args),
   [RustCommand.CatalogShapes]: args => mockCatalog.shapes(args),
   [RustCommand.CatalogDiagnostics]: args => mockCatalog.diagnostics(args),
+  [RustCommand.CatalogObjects]: args => mockCatalog.objects(args),
+  [RustCommand.CatalogFolders]: args => mockCatalog.folders(args),
+  [RustCommand.CatalogObjectDefinition]: args => mockCatalog.definition(args),
 };
 
 // ── Browse ──────────────────────────────────────────────────────────────────

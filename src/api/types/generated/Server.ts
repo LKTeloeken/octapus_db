@@ -29,4 +29,10 @@ scopeSchemas: string | null,
 /**
  * Grupo da sidebar (`server_groups`); `None` = fora de qualquer grupo
  */
-groupId: number | null, };
+groupId: number | null, 
+/**
+ * Manda ao assistente os valores de exemplo dos campos categóricos (a
+ * distribuição de `status`, por exemplo), tirados da amostra. Desligado
+ * por padrão (RN-08): só o banco com `assistantSampleValues` liga.
+ */
+assistantSampleValues: boolean, };

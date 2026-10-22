@@ -5,6 +5,7 @@ import {
   DatabaseExportIcon,
   DatabaseImportIcon,
   Delete02Icon,
+  SourceCodeIcon,
   Edit01Icon,
   FolderTransferIcon,
   GitCompareIcon,
@@ -29,9 +30,14 @@ import type { BackupTarget } from '@/api/types/backup.types';
 import type { AdapterCapabilities } from '@/api/types/capabilities.types';
 import {
   FLAT_SCHEMA,
+  type CatalogFolder,
   type CatalogNode,
   type CatalogNodeKind,
+  type CatalogObject,
+  type CatalogObjectKind,
+  type CatalogObjectRef,
   type CatalogPage,
+  type CatalogPath,
   type CatalogStatus,
   type ShapeGroup,
 } from '@/api/types/catalog.types';
@@ -53,11 +59,14 @@ import { useRefreshStructure } from '@/queries/use-refresh-structure';
 import {
   CATALOG_PAGE_SIZE,
   catalogChildrenQuery,
+  catalogFoldersQuery,
+  catalogObjectsQuery,
   catalogShapesQuery,
   catalogStatusQuery,
   hasCatalog,
   isFlatCatalog,
   useCatalogDiagnostics,
+  useCatalogObjectDefinition,
   useCatalogRelationSize,
 } from '@/queries/use-catalog';
 import { useCatalogEvents } from '@/queries/use-catalog-events';
@@ -84,7 +93,7 @@ import {
   type NodeRef,
 } from '@/lib/node-ref';
 import type { ConnectionTreeProps, FlatRow } from './connection-tree.types';
-import type { NodeRowAction } from './node-row/node-row.types';
+import type { NodeRowAction, TreeFolderKind } from './node-row/node-row.types';
 import { driftBadge, shapeGroupRow } from './shape-labels';
 
 const structureQueryOptions = {
@@ -117,6 +126,89 @@ const hasRepeatedShapes = (status: CatalogStatus | undefined) => {
 };
 const schemaKey = (ref: NodeRef) =>
   `${ref.serverId}|${ref.database}|${ref.schema}`;
+
+/** Nome de cada pasta de objetos e o texto do filtro dela */
+const FOLDERS: Record<CatalogObjectKind, { label: string; filter: string }> = {
+  view: { label: 'Views', filter: 'Filtrar views' },
+  materializedView: {
+    label: 'Views materializadas',
+    filter: 'Filtrar views materializadas',
+  },
+  index: { label: 'Índices', filter: 'Filtrar índices' },
+  function: { label: 'Funções', filter: 'Filtrar funções' },
+};
+
+/** Pastas cuja contagem o catálogo já sabe: vazias, nem aparecem */
+const COUNTED_FOLDERS: ReadonlySet<CatalogObjectKind> =
+  new Set<CatalogObjectKind>(['view', 'materializedView']);
+
+/** O que a pasta aberta e vazia diz */
+const EMPTY_FOLDER: Record<CatalogObjectKind, string> = {
+  view: 'Nenhuma view',
+  materializedView: 'Nenhuma view materializada',
+  index: 'Nenhum índice',
+  function: 'Nenhuma função',
+};
+
+/** Relações com índices próprios (pasta Índices dentro delas) */
+const hasIndexes = (kind: CatalogNodeKind | undefined) =>
+  kind === undefined ||
+  kind === 'table' ||
+  kind === 'partitioned' ||
+  kind === 'materializedView';
+
+/** A pasta das tabelas de um schema (`schema` null = o schema sem nome) */
+const tablesFolderId = (
+  serverId: number,
+  database: string,
+  schema: string | null,
+) =>
+  encodeNodeId({
+    serverId,
+    database,
+    schema: schema ?? undefined,
+    folder: 'tables',
+  });
+
+const FUNCTION_KINDS = {
+  function: 'função',
+  procedure: 'procedure',
+  aggregate: 'agregada',
+  window: 'janela',
+} as const;
+
+const isViewKind = (kind: CatalogNodeKind | undefined) =>
+  kind === 'view' || kind === 'materializedView';
+
+/** Pastas do schema (`structureFolders`): vazio enquanto as capabilities carregam */
+const structureFoldersOf = (caps: AdapterCapabilities | undefined) =>
+  caps?.structureFolders ?? [];
+
+/**
+ * As relações soltas de um schema: com pasta de views, elas saem da lista
+ * (`tables`); sem, a lista é a de sempre.
+ */
+const loosePath = (
+  caps: AdapterCapabilities | undefined,
+  schema: string,
+): CatalogPath =>
+  structureFoldersOf(caps).includes('view')
+    ? { kind: 'tables', schema }
+    : { kind: 'schema', schema };
+
+const folderKey = (ref: NodeRef) =>
+  `${ref.serverId}|${ref.database}|${ref.schema ?? FLAT_SCHEMA}|${ref.table ?? ''}|${ref.folder}`;
+
+/** O detalhe de um índice: tabela (fora da pasta da coleção), colunas, método */
+function indexLabel(
+  index: Extract<CatalogObject, { kind: 'index' }>,
+  inRelation: boolean,
+) {
+  const columns = `(${index.columns.join(', ')})`;
+  const role = index.primary ? ' · primário' : index.unique ? ' · único' : '';
+  const partial = index.predicate ? ' · parcial' : '';
+  return `${inRelation ? columns : `${index.table} ${columns}`} · ${index.method}${role}${partial}`;
+}
 
 /**
  * Flattens the expanded tree into a single virtualizable list. Each level's
@@ -174,7 +266,8 @@ export const useConnectionTree = ({
   // trocar o filtro troca a key, o observer é outro e a página some até a nova
   // chegar — junto com a linha do filtro, que sai do DOM e leva o foco do
   // campo a cada letra digitada.
-  const lastPages = useRef(new Map<string, CatalogPage<CatalogNode>>());
+  const lastPages = useRef(new Map<string, CatalogPage<unknown>>());
+  const definition = useCatalogObjectDefinition();
 
   const servers = useMemo(() => serversQuery.data ?? [], [serversQuery.data]);
   const serverIds = useMemo(
@@ -397,11 +490,13 @@ export const useConnectionTree = ({
   // Sem schema: as relações vêm direto sob o database
   const flatListQueries = useQueries({
     queries: flatDbRefs.map(ref => {
-      const { filter, limit } = windowOf(encodeNodeId(ref));
+      const { filter, limit } = windowOf(
+        tablesFolderId(ref.serverId, ref.database!, null),
+      );
       return catalogChildrenQuery(
         ref.serverId,
         ref.database!,
-        { kind: 'schema', schema: FLAT_SCHEMA },
+        loosePath(capsByType[dbTypes.get(ref.serverId)!], FLAT_SCHEMA),
         filter,
         limit,
       );
@@ -410,19 +505,99 @@ export const useConnectionTree = ({
 
   const relationListQueries = useQueries({
     queries: catalogSchemaRefs.map(ref => {
-      const { filter, limit } = windowOf(encodeNodeId(ref));
+      const { filter, limit } = windowOf(
+        tablesFolderId(ref.serverId, ref.database!, ref.schema!),
+      );
       return catalogChildrenQuery(
         ref.serverId,
         ref.database!,
-        { kind: 'schema', schema: ref.schema! },
+        loosePath(capsByType[dbTypes.get(ref.serverId)!], ref.schema!),
         filter,
         limit,
       );
     }),
   });
 
-  // Tipo de cada relação já listada: uma particionada expande para as
-  // partições, as demais para as colunas
+  // Pastas (views, índices, funções) dos schemas abertos — no Mongo e no
+  // SQLite, do schema sem nome direto sob o database
+  const folderSchemaRefs = [
+    ...catalogSchemaRefs,
+    ...flatDbRefs.map(ref => ({ ...ref, schema: FLAT_SCHEMA })),
+  ].filter(
+    ref =>
+      structureFoldersOf(capsByType[dbTypes.get(ref.serverId)!]).length > 0,
+  );
+  const folderListQueries = useQueries({
+    queries: folderSchemaRefs.map(ref =>
+      catalogFoldersQuery(ref.serverId, ref.database!, ref.schema!),
+    ),
+  });
+  const foldersByKey = new Map<string, UseQueryResult<CatalogFolder[]>>();
+  folderSchemaRefs.forEach((ref, i) =>
+    foldersByKey.set(schemaKey(ref), folderListQueries[i]),
+  );
+
+  // Pasta aberta e visível: a do schema (ou do database, sem schema) ou a da
+  // tabela aberta (índices). Só ela pede os objetos ao backend
+  const expandedFolderRefs = expandedRefs.filter(ref => {
+    if (nodeKind(ref) !== 'folder' || !catalogServerIds.has(ref.serverId)) {
+      return false;
+    }
+    const caps = capsByType[dbTypes.get(ref.serverId)!];
+    const dbOpen = expanded.has(
+      encodeNodeId({ serverId: ref.serverId, database: ref.database }),
+    );
+    const kind = ref.folder as CatalogObjectKind;
+    if (ref.table != null) {
+      return (
+        dbOpen &&
+        !!caps?.relationFolders.includes(kind) &&
+        expanded.has(
+          encodeNodeId({
+            serverId: ref.serverId,
+            database: ref.database,
+            schema: ref.schema,
+            table: ref.table,
+          }),
+        )
+      );
+    }
+    const parentOpen =
+      ref.schema == null
+        ? flatServerIds.has(ref.serverId)
+        : expanded.has(
+            encodeNodeId({
+              serverId: ref.serverId,
+              database: ref.database,
+              schema: ref.schema,
+            }),
+          );
+    return dbOpen && parentOpen && structureFoldersOf(caps).includes(kind);
+  });
+  const objectQueries = useQueries({
+    queries: expandedFolderRefs.map(ref => {
+      const { filter, limit } = windowOf(encodeNodeId(ref));
+      return catalogObjectsQuery(
+        ref.serverId,
+        ref.database!,
+        ref.schema ?? FLAT_SCHEMA,
+        ref.folder as CatalogObjectKind,
+        ref.table ?? null,
+        filter,
+        limit,
+      );
+    }),
+  });
+  const objectsByKey = new Map<
+    string,
+    UseQueryResult<CatalogPage<CatalogObject>>
+  >();
+  expandedFolderRefs.forEach((ref, i) =>
+    objectsByKey.set(folderKey(ref), objectQueries[i]),
+  );
+
+  // Tipo de cada relação já listada: uma particionada também tem a pasta das
+  // partições
   const relationKinds = new Map<string, CatalogNodeKind>();
   catalogSchemaRefs.forEach((ref, i) => {
     for (const node of relationListQueries[i]?.data?.items ?? []) {
@@ -438,11 +613,14 @@ export const useConnectionTree = ({
     ) === 'partitioned';
 
   const partitionedRefs = expandedTableRefs.filter(isPartitioned);
-  const columnRefs = expandedTableRefs.filter(ref => !isPartitioned(ref));
+  // Colunas de toda tabela aberta: a pasta Colunas já mostra quantas são
+  const columnRefs = expandedTableRefs;
 
   const partitionQueries = useQueries({
     queries: partitionedRefs.map(ref => {
-      const { filter, limit } = windowOf(encodeNodeId(ref));
+      const { filter, limit } = windowOf(
+        encodeNodeId({ ...ref, folder: 'partitions' }),
+      );
       return catalogChildrenQuery(
         ref.serverId,
         ref.database!,
@@ -588,12 +766,12 @@ export const useConnectionTree = ({
   };
 
   /** Uma janela vinda do catálogo (o filtro e o limite já foram no pedido) */
-  const pushWindowed = (
+  const pushWindowed = <T = CatalogNode>(
     nodeId: string,
     level: number,
-    query: UseQueryResult<CatalogPage<CatalogNode>> | undefined,
+    query: UseQueryResult<CatalogPage<T>> | undefined,
     placeholder: string,
-    pushChild: (node: CatalogNode) => void,
+    pushChild: (node: T) => void,
   ) => {
     if (query?.isError) {
       rows.push({
@@ -609,7 +787,9 @@ export const useConnectionTree = ({
     if (query?.data) lastPages.current.set(nodeId, query.data);
     const page =
       query?.data ??
-      (query?.isPending ? lastPages.current.get(nodeId) : undefined);
+      (query?.isPending
+        ? (lastPages.current.get(nodeId) as CatalogPage<T> | undefined)
+        : undefined);
     if (!query || !page) return;
     pushPage(nodeId, level, page, query.isFetching, placeholder, pushChild);
   };
@@ -740,6 +920,283 @@ export const useConnectionTree = ({
         ]
       : [];
 
+  /**
+   * "Ver definição": o texto vai para uma aba de query nova, como texto comum
+   * — executar fica por conta do usuário.
+   */
+  const openDefinition = async (
+    serverId: number,
+    database: string,
+    schema: string | null,
+    target: CatalogObjectRef,
+    title: string,
+  ) => {
+    try {
+      const content = await definition.mutateAsync({
+        serverId,
+        database,
+        target,
+      });
+      openQueryTab({ serverId, database, schema, title, content });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const definitionAction = (onSelect: () => void): NodeRowAction => ({
+    label: 'Ver definição',
+    icon: SourceCodeIcon,
+    onSelect,
+  });
+
+  /**
+   * Um item de pasta que não é relação (índice, função): o clique abre a
+   * definição numa aba nova. `table` = a pasta é a de uma coleção (Mongo).
+   */
+  const pushObject = (
+    serverId: number,
+    database: string,
+    schema: string | null,
+    folderNodeId: string,
+    object: Extract<CatalogObject, { kind: 'index' | 'function' }>,
+    level: number,
+    table: string | null,
+  ) => {
+    const isFunction = object.kind === 'function';
+    const name = isFunction
+      ? `${object.name}(${object.signature})`
+      : object.name;
+    const subLabel = isFunction
+      ? [
+          object.returns ? `→ ${object.returns}` : null,
+          FUNCTION_KINDS[object.functionKind],
+          object.language,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : indexLabel(object, table !== null);
+    const target: CatalogObjectRef = {
+      kind: object.kind,
+      schema: schema ?? FLAT_SCHEMA,
+      name: object.name,
+      table: object.kind === 'index' && table !== null ? table : null,
+      signature: isFunction ? object.signature : null,
+    };
+    const open = () =>
+      void openDefinition(serverId, database, schema, target, object.name);
+
+    rows.push({
+      variant: 'node',
+      // Sobrecargas têm o mesmo nome: a assinatura entra no id
+      id: `${folderNodeId}|ob=${encodeURIComponent(name)}`,
+      props: {
+        level,
+        kind: object.kind,
+        name,
+        subLabel,
+        // O comentário da função (`COMMENT ON FUNCTION`) só no passar do mouse
+        title:
+          isFunction && object.comment
+            ? `${name} ${subLabel}\n${object.comment}`
+            : `${name} ${subLabel}`,
+        hasChildren: false,
+        onClick: open,
+        actions: [definitionAction(open)],
+      },
+    });
+  };
+
+  /**
+   * A linha de uma pasta (`count` null = ainda não se sabe quantos são).
+   * Devolve se ela está aberta.
+   */
+  const pushFolderRow = (
+    id: string,
+    level: number,
+    folderKind: TreeFolderKind,
+    name: string,
+    count: number | null,
+    isLoading: boolean,
+    actions?: NodeRowAction[],
+  ) => {
+    const isExpanded = expanded.has(id);
+    rows.push({
+      variant: 'node',
+      id,
+      props: {
+        level,
+        kind: 'folder',
+        folderKind,
+        name,
+        subLabel: count == null ? undefined : formatCount(count),
+        hasChildren: true,
+        isExpanded,
+        isLoading: isExpanded && isLoading,
+        onClick: () => toggleNode(id),
+        actions,
+      },
+    });
+    return isExpanded;
+  };
+
+  /**
+   * Uma pasta de objetos (views, índices, funções) e, aberta, a janela dos
+   * itens dela. Sem `table`, a do schema (`schema` null = o schema sem nome do
+   * Mongo e do SQLite); com `table`, a da tabela (índices). Views vazias nem
+   * aparecem (o catálogo sabe quantas são); índices e funções só se sabem ao
+   * abrir, e a pasta aberta e vazia diz isso em vez de sumir.
+   */
+  const pushFolder = (
+    serverId: number,
+    database: string,
+    schema: string | null,
+    kind: CatalogObjectKind,
+    count: number | null,
+    level: number,
+    table: string | null = null,
+  ) => {
+    const ref: NodeRef = {
+      serverId,
+      database,
+      schema: schema ?? undefined,
+      table: table ?? undefined,
+      folder: kind,
+    };
+    const folderNodeId = encodeNodeId(ref);
+    const objects = objectsByKey.get(folderKey(ref));
+    const filter = filters.get(folderNodeId) ?? '';
+    // Aberta e lida sem filtro, a própria janela diz quantos são
+    const known =
+      !filter && objects?.data ? objects.data.total : (count ?? null);
+    if (known === 0 && COUNTED_FOLDERS.has(kind)) return;
+
+    const isExpanded = pushFolderRow(
+      folderNodeId,
+      level,
+      kind,
+      FOLDERS[kind].label,
+      known,
+      objects?.isFetching ?? false,
+      table === null && schema !== null
+        ? [
+            {
+              label: 'Atualizar',
+              icon: RefreshIcon,
+              onSelect: () => void refreshSchema(serverId, database, schema),
+            },
+          ]
+        : undefined,
+    );
+
+    if (!isExpanded) return;
+    if (known === 0 && !filter) {
+      rows.push({
+        variant: 'empty',
+        id: `${folderNodeId}|empty`,
+        level: level + 1,
+        message: EMPTY_FOLDER[kind],
+      });
+      return;
+    }
+    pushWindowed(
+      folderNodeId,
+      level + 1,
+      objects,
+      FOLDERS[kind].filter,
+      item => {
+        if (item.kind === 'view' || item.kind === 'materializedView') {
+          pushTable(
+            serverId,
+            database,
+            schema,
+            item.name,
+            openSizeFor(serverId, database, schema ?? FLAT_SCHEMA, item.name),
+            level + 1,
+            item.kind,
+          );
+        } else {
+          pushObject(
+            serverId,
+            database,
+            schema,
+            folderNodeId,
+            item,
+            level + 1,
+            table,
+          );
+        }
+      },
+    );
+  };
+
+  /**
+   * A pasta das tabelas (coleções, no Mongo) de um schema aberto e, aberta, a
+   * janela delas. Sem tabela nenhuma, a pasta não aparece.
+   */
+  const pushTablesFolder = (
+    serverId: number,
+    database: string,
+    schema: string | null,
+    relations: UseQueryResult<CatalogPage<CatalogNode>> | undefined,
+    level: number,
+  ) => {
+    const folderNodeId = tablesFolderId(serverId, database, schema);
+    const filter = filters.get(folderNodeId) ?? '';
+    const count = !filter && relations?.data ? relations.data.total : null;
+    if (count === 0) return;
+    const isMongo = dbTypes.get(serverId) === 'mongodb';
+
+    const isExpanded = pushFolderRow(
+      folderNodeId,
+      level,
+      'tables',
+      isMongo ? 'Coleções' : 'Tabelas',
+      count,
+      relations?.isFetching ?? false,
+    );
+    if (!isExpanded) return;
+    pushWindowed(
+      folderNodeId,
+      level + 1,
+      relations,
+      isMongo ? 'Filtrar coleções' : 'Filtrar tabelas',
+      relation =>
+        pushTable(
+          serverId,
+          database,
+          schema,
+          relation.name,
+          openSizeFor(serverId, database, schema ?? FLAT_SCHEMA, relation.name),
+          level + 1,
+          relation.kind,
+        ),
+    );
+  };
+
+  /** As pastas de objetos de um schema aberto, depois da pasta das tabelas */
+  const pushFolders = (
+    serverId: number,
+    database: string,
+    schema: string | null,
+    level: number,
+  ) => {
+    const key = `${serverId}|${database}|${schema ?? FLAT_SCHEMA}`;
+    const query = foldersByKey.get(key);
+    if (query?.isError) {
+      rows.push({
+        variant: 'error',
+        id: `${key}|folders-err`,
+        level,
+        message: query.error.message,
+        onRetry: () => void query.refetch(),
+      });
+      return;
+    }
+    for (const folder of query?.data ?? []) {
+      pushFolder(serverId, database, schema, folder.kind, folder.count, level);
+    }
+  };
+
   const pushTable = (
     serverId: number,
     database: string,
@@ -758,9 +1215,7 @@ export const useConnectionTree = ({
     const isExpanded = expanded.has(tableNodeId);
     const key = columnsKey(serverId, database, schema, table);
     const partitioned = relationKind === 'partitioned';
-    const childQuery = partitioned
-      ? partitionsByKey.get(key)
-      : columnsByKey.get(key);
+    const childQuery = columnsByKey.get(key);
     const target = structureTarget(serverId, database, schema);
     const columnsEditable = !!target && hasEditableColumns(relationKind);
 
@@ -799,6 +1254,26 @@ export const useConnectionTree = ({
                 title: table,
               }),
           },
+          ...(isViewKind(relationKind)
+            ? [
+                definitionAction(
+                  () =>
+                    void openDefinition(
+                      serverId,
+                      database,
+                      schema,
+                      {
+                        kind: relationKind as CatalogObjectKind,
+                        schema: schema ?? FLAT_SCHEMA,
+                        name: table,
+                        table: null,
+                        signature: null,
+                      },
+                      table,
+                    ),
+                ),
+              ]
+            : []),
           ...(schema
             ? backupAction(serverId, database, { kind: 'table', schema, table })
             : []),
@@ -812,49 +1287,110 @@ export const useConnectionTree = ({
 
     if (!isExpanded) return;
 
-    if (partitioned) {
-      pushWindowed(
-        tableNodeId,
-        level + 1,
-        partitionsByKey.get(key),
-        'Filtrar partições',
-        node =>
-          pushTable(
-            serverId,
-            database,
-            schema,
-            node.name,
-            schema ? openSizeFor(serverId, database, schema, node.name) : null,
-            level + 1,
-            node.kind,
-          ),
+    const caps = capsOf(serverId);
+    const colQuery = columnsByKey.get(key);
+    const pushColumnsUnder = (parentId: string, columnLevel: number) =>
+      pushColumns(
+        parentId,
+        columnLevel,
+        colQuery,
+        table,
+        columnsEditable ? target : null,
       );
+
+    // Sem catálogo (Redis) e na view comum, só há colunas: vêm direto
+    if (!caps?.hasCatalog || relationKind === 'view') {
+      pushColumnsUnder(tableNodeId, level + 1);
       return;
     }
 
-    const colQuery = columnsByKey.get(key);
+    // Colunas, índices e, na particionada, as partições: cada um na sua pasta
+    const tableRef = {
+      serverId,
+      database,
+      schema: schema ?? undefined,
+      table,
+    };
+    const columnsFolderId = encodeNodeId({ ...tableRef, folder: 'columns' });
+    const columnsOpen = pushFolderRow(
+      columnsFolderId,
+      level + 1,
+      'columns',
+      dbTypes.get(serverId) === 'mongodb' ? 'Campos' : 'Colunas',
+      colQuery?.data?.length ?? null,
+      colQuery?.isFetching ?? false,
+    );
+    if (columnsOpen) pushColumnsUnder(columnsFolderId, level + 2);
+
+    if (hasIndexes(relationKind)) {
+      for (const kind of caps.relationFolders) {
+        pushFolder(serverId, database, schema, kind, null, level + 1, table);
+      }
+    }
+
+    if (!partitioned) return;
+    const partitionsFolderId = encodeNodeId({
+      ...tableRef,
+      folder: 'partitions',
+    });
+    const partitions = partitionsByKey.get(key);
+    const partitionsFilter = filters.get(partitionsFolderId) ?? '';
+    const partitionsOpen = pushFolderRow(
+      partitionsFolderId,
+      level + 1,
+      'partitions',
+      'Partições',
+      !partitionsFilter && partitions?.data ? partitions.data.total : null,
+      partitions?.isFetching ?? false,
+    );
+    if (!partitionsOpen) return;
+    pushWindowed(
+      partitionsFolderId,
+      level + 2,
+      partitions,
+      'Filtrar partições',
+      node =>
+        pushTable(
+          serverId,
+          database,
+          schema,
+          node.name,
+          schema ? openSizeFor(serverId, database, schema, node.name) : null,
+          level + 2,
+          node.kind,
+        ),
+    );
+  };
+
+  /** As colunas de uma tabela sob `parentId` (a pasta Colunas ou a tabela) */
+  const pushColumns = (
+    parentId: string,
+    level: number,
+    colQuery: UseQueryResult<ColumnInfo[]> | undefined,
+    table: string,
+    target: StructureTarget | null,
+  ) => {
     if (colQuery?.isError) {
       rows.push({
         variant: 'error',
-        id: `${tableNodeId}|err`,
-        level: level + 1,
+        id: `${parentId}|err`,
+        level,
         message: colQuery.error.message,
         onRetry: () => void colQuery.refetch(),
       });
       return;
     }
-
     for (const column of colQuery?.data ?? []) {
       rows.push({
         variant: 'node',
-        id: `${tableNodeId}|c=${column.name}`,
+        id: `${parentId}|c=${column.name}`,
         props: {
-          level: level + 1,
+          level,
           kind: 'column',
           name: column.name,
           subLabel: `${column.dataType}${column.isPrimaryKey ? ' (PK)' : ''}`,
           hasChildren: false,
-          actions: columnsEditable
+          actions: target
             ? [
                 {
                   label: 'Editar coluna',
@@ -862,7 +1398,7 @@ export const useConnectionTree = ({
                   onSelect: () =>
                     openStructureDialog({
                       kind: 'editColumn',
-                      target: target!,
+                      target,
                       table,
                       column,
                     }),
@@ -875,7 +1411,7 @@ export const useConnectionTree = ({
                   onSelect: () =>
                     openStructureDialog({
                       kind: 'dropColumn',
-                      target: target!,
+                      target,
                       table,
                       column: column.name,
                     }),
@@ -978,19 +1514,8 @@ export const useConnectionTree = ({
     }
 
     if (isFlatCatalog(capsByType[dbType])) {
-      const placeholder =
-        dbType === 'mongodb' ? 'Filtrar coleções' : 'Filtrar tabelas';
-      pushWindowed(dbNodeId, 2, children, placeholder, relation =>
-        pushTable(
-          serverId,
-          database,
-          null,
-          relation.name,
-          openSizeFor(serverId, database, FLAT_SCHEMA, relation.name),
-          2,
-          relation.kind,
-        ),
-      );
+      pushTablesFolder(serverId, database, null, children, 2);
+      pushFolders(serverId, database, null, 2);
       return;
     }
 
@@ -1053,7 +1578,7 @@ export const useConnectionTree = ({
     );
   };
 
-  /** Um schema com catálogo e, aberto, as relações dele em janela */
+  /** Um schema com catálogo e, aberto, a pasta das tabelas e as de objetos */
   const pushCatalogSchema = (
     serverId: number,
     database: string,
@@ -1096,22 +1621,8 @@ export const useConnectionTree = ({
     });
 
     if (!isSchemaExpanded) return;
-    pushWindowed(
-      schemaNodeId,
-      level + 1,
-      relations,
-      'Filtrar tabelas',
-      relation =>
-        pushTable(
-          serverId,
-          database,
-          node.name,
-          relation.name,
-          openSizeFor(serverId, database, node.name, relation.name),
-          level + 1,
-          relation.kind,
-        ),
-    );
+    pushTablesFolder(serverId, database, node.name, relations, level + 1);
+    pushFolders(serverId, database, node.name, level + 1);
   };
 
   /** Copia o diagnóstico do catálogo (contagens e tempos, sem nomes) */

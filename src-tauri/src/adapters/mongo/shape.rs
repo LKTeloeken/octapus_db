@@ -9,13 +9,20 @@
 //! - pelo formato: número, UUID, ObjectId/hex, e-mail, data, texto longo;
 //! - pelo uso: um objeto com muitas chaves diferentes, cada uma em poucos
 //!   documentos, é um mapa — todas as chaves dele viram `{key}`.
+//!
+//! A exceção, só com o servidor ligando (`Server::assistant_sample_values`):
+//! os valores de exemplo de um campo de texto com cara de enum (`status`,
+//! `channel`), com a fatia de cada um — sem eles o modelo chuta o `"paid"`.
+//! Um campo só entra se a amostra o mostrar repetindo poucos valores curtos
+//! ([`categorical`]); nome de pessoa, e-mail, documento e texto livre ficam de
+//! fora pelo nome do campo e pelo formato do valor.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use mongodb::bson::{Bson, Document};
 
-use crate::catalog::{CollectionShape, FieldShape};
+use crate::catalog::{CollectionShape, FieldShape, ValueShare};
 
 use super::types::bson_type_name;
 
@@ -33,19 +40,46 @@ const KEY_MAX_CHARS: usize = 64;
 /// O que entra no lugar de uma chave que é dado.
 pub const KEY_PLACEHOLDER: &str = "{key}";
 
-/// O formato pela amostra. Os documentos não saem daqui.
-pub fn infer(collection: &str, docs: &[Document]) -> CollectionShape {
+/// Valores de exemplo por campo, no máximo (os mais comuns).
+const MAX_VALUES: usize = 8;
+/// Valores distintos acompanhados por campo; passou disso, não é enum.
+const MAX_DISTINCT: usize = 24;
+/// Ocorrências de texto que um campo precisa ter na amostra para mostrar
+/// valores (com poucas, um valor pode ser de uma pessoa só).
+const VALUES_MIN_OCCURRENCES: usize = 10;
+/// Em média, cada valor distinto se repete pelo menos isto.
+const VALUES_MIN_REPEAT: usize = 4;
+/// Valor mais longo que isto é texto livre, não categoria.
+const VALUE_MAX_CHARS: usize = 40;
+/// Campos cujo nome diz que o valor é de uma pessoa ou segredo: nunca mostram
+/// valor, mesmo repetindo. Comparado com cada palavra do último segmento do
+/// caminho (`customerName` → `customer`, `name`).
+const SENSITIVE_WORDS: &[&str] = &[
+    "name", "nome", "email", "mail", "phone", "fone", "telefone", "celular", "mobile", "cpf", "cnpj", "rg",
+    "ssn", "document", "documento", "passport", "password", "senha", "pass", "pwd", "token", "secret", "hash",
+    "key", "address", "endereco", "street", "rua", "cep", "zip", "postal", "ip", "birth", "birthday",
+    "nascimento", "card", "cartao", "iban", "account", "conta", "salary", "salario", "username",
+    "login", "comment", "note", "notes", "description", "bio", "text", "message", "url",
+];
+
+/// O formato pela amostra. Os documentos não saem daqui; com `values`, os
+/// valores de exemplo dos campos categóricos saem no formato.
+pub fn infer(collection: &str, docs: &[Document], values: bool) -> CollectionShape {
     let maps = map_parents(docs);
 
     // Por caminho: em quantos documentos aparece e quantas vezes cada tipo
     let mut presence: HashMap<String, usize> = HashMap::new();
     let mut types: HashMap<String, HashMap<&'static str, usize>> = HashMap::new();
+    let mut texts: HashMap<String, TextCounts> = HashMap::new();
     for doc in docs {
         let mut seen: HashSet<String> = HashSet::new();
         walk_document(doc, "", 0, &maps, &mut |event| {
             *types.entry(event.path.to_string()).or_default().entry(bson_type_name(event.value)).or_default() += 1;
             if seen.insert(event.path.to_string()) {
                 *presence.entry(event.path.to_string()).or_default() += 1;
+            }
+            if let (true, Bson::String(text)) = (values, event.value) {
+                texts.entry(event.path.to_string()).or_default().add(text);
             }
         });
     }
@@ -56,10 +90,17 @@ pub fn infer(collection: &str, docs: &[Document]) -> CollectionShape {
         .map(|(path, present)| {
             let mut counts: Vec<(&'static str, usize)> = types.remove(&path).unwrap_or_default().into_iter().collect();
             counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+            let (values, more_values) = texts
+                .remove(&path)
+                .and_then(|counts| categorical(&path, counts))
+                .unwrap_or_default();
             FieldShape {
                 presence: percent(present, sampled),
                 types: counts.into_iter().map(|(name, _)| name).collect(),
                 path,
+                values,
+                more_values,
+                description: None,
             }
         })
         .collect();
@@ -76,7 +117,102 @@ pub fn infer(collection: &str, docs: &[Document]) -> CollectionShape {
         sampled,
         fields,
         truncated,
+        description: None,
     }
+}
+
+/// Os textos de um caminho na amostra: quantos, e quantas vezes cada um até
+/// [`MAX_DISTINCT`] (depois disso só conta, e o campo já não é enum).
+#[derive(Default)]
+struct TextCounts {
+    occurrences: usize,
+    counts: HashMap<String, usize>,
+    overflow: bool,
+}
+
+impl TextCounts {
+    fn add(&mut self, text: &str) {
+        self.occurrences += 1;
+        if self.overflow {
+            return;
+        }
+        if let Some(count) = self.counts.get_mut(text) {
+            *count += 1;
+        } else if self.counts.len() < MAX_DISTINCT {
+            self.counts.insert(text.to_string(), 1);
+        } else {
+            self.overflow = true;
+            self.counts.clear();
+        }
+    }
+}
+
+/// Os valores de exemplo de um campo com cara de enum, com quantos distintos
+/// ficaram de fora; `None` quando o campo não é categórico:
+/// - nome de pessoa, contato, documento ou segredo ([`SENSITIVE_WORDS`]);
+/// - poucas ocorrências, valores demais ou que pouco se repetem;
+/// - algum valor longo, com quebra de linha ou com cara de dado (número,
+///   e-mail, id, data — [`looks_like_data`]).
+///
+/// Valor visto uma vez só nunca aparece: entra na conta dos de fora.
+fn categorical(path: &str, texts: TextCounts) -> Option<(Vec<ValueShare>, usize)> {
+    let last = path.rsplit('.').next().unwrap_or(path).trim_end_matches("[]");
+    if texts.overflow
+        || texts.occurrences < VALUES_MIN_OCCURRENCES
+        || texts.counts.len() * VALUES_MIN_REPEAT > texts.occurrences
+        || words(last).iter().any(|word| SENSITIVE_WORDS.contains(&word.as_str()))
+    {
+        return None;
+    }
+    let clean = |value: &str| {
+        !value.trim().is_empty()
+            && value.chars().count() <= VALUE_MAX_CHARS
+            && !value.chars().any(char::is_control)
+            && !looks_like_data(value)
+    };
+    if !texts.counts.keys().all(|value| clean(value)) {
+        return None;
+    }
+
+    let distinct = texts.counts.len();
+    let mut counts: Vec<(String, usize)> = texts.counts.into_iter().filter(|(_, count)| *count > 1).collect();
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    counts.truncate(MAX_VALUES);
+    let shown = counts.len();
+    let values = counts
+        .into_iter()
+        .map(|(value, count)| ValueShare {
+            value,
+            percent: percent(count, texts.occurrences),
+        })
+        .collect();
+    Some((values, distinct - shown))
+}
+
+/// As palavras de um nome de campo, em minúsculas: `customerName`,
+/// `customer_name` e `customer-name` → `customer`, `name`.
+fn words(name: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut previous_lower = false;
+    for c in name.chars() {
+        if !c.is_alphanumeric() {
+            if !current.is_empty() {
+                words.push(std::mem::take(&mut current));
+            }
+            previous_lower = false;
+            continue;
+        }
+        if c.is_uppercase() && previous_lower && !current.is_empty() {
+            words.push(std::mem::take(&mut current));
+        }
+        previous_lower = c.is_lowercase() || c.is_ascii_digit();
+        current.extend(c.to_lowercase());
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
 }
 
 /// `_id` primeiro; depois por nível (`a`, `a.b`, `a[]`, `a[].c`, `b`).
@@ -260,7 +396,7 @@ mod tests {
 
     #[test]
     fn infers_nested_paths_types_and_presence() {
-        let shape = infer("orders", &orders());
+        let shape = infer("orders", &orders(), false);
         assert_eq!(shape.sampled, 10);
         assert!(!shape.truncated);
         assert_eq!(shape.fields[0].path, "_id");
@@ -282,12 +418,12 @@ mod tests {
         assert!(position("customer") < position("customer.address"));
         assert!(position("items") < position("items[]"));
         assert!(position("items[]") < position("items[].qty"));
-        assert_eq!(infer("orders", &orders()).fields, shape.fields);
+        assert_eq!(infer("orders", &orders(), false).fields, shape.fields);
     }
 
     #[test]
     fn empty_sample_has_no_fields() {
-        let shape = infer("empty", &[]);
+        let shape = infer("empty", &[], false);
         assert_eq!((shape.sampled, shape.fields.len()), (0, 0));
     }
 
@@ -315,7 +451,7 @@ mod tests {
         let docs: Vec<Document> = (0..5)
             .map(|_| (0..30).map(|i| (format!("field_{i}"), Bson::Int32(i))).collect())
             .collect();
-        let shape = infer("wide", &docs);
+        let shape = infer("wide", &docs, false);
         assert!(shape.fields.iter().any(|field| field.path == "field_29"));
         assert!(!shape.fields.iter().any(|field| field.path.contains(KEY_PLACEHOLDER)));
     }
@@ -341,7 +477,9 @@ mod tests {
                 }
             })
             .collect();
-        let shape = infer("people", &docs);
+        // Com os valores de exemplo ligados, os canários seguem fora: valor
+        // distinto por documento, campo de pessoa ou texto, fundo demais
+        let shape = infer("people", &docs, true);
         let text = format!("{shape:?}");
         for canary in ["CANARY", "canary", "exemplo.com", "2026-13-45", "507f1f77", "2026-10-20"] {
             assert!(!text.contains(canary), "{canary} vazou: {text}");
@@ -350,6 +488,66 @@ mod tests {
         assert_eq!(field(&shape, "scores.{key}").types, ["int"]);
         assert_eq!(field(&shape, "byEmail.{key}").types, ["bool"]);
         assert_eq!(field(&shape, "byId.{key}.count").types, ["int"]);
+    }
+
+    fn ticket(i: usize) -> Document {
+        let status = match i % 10 {
+            0..=5 => "paid",
+            6..=8 => "open",
+            _ => "void",
+        };
+        let even = i.is_multiple_of(2);
+        let mut doc = doc! {
+            "status": status,
+            "channel": if even { "web" } else { "app" },
+            // Valor de pessoa, mesmo repetindo pouco
+            "customerName": if even { "Ana Souza" } else { "Bia Lima" },
+            "contact": { "email": "ana@exemplo.com" },
+            // Número em texto: dado, não categoria
+            "code": if even { "1001" } else { "1002" },
+            // Valor distinto por documento
+            "ref": format!("R-{i}"),
+            "items": [ { "kind": "book" }, { "kind": "pen" } ],
+        };
+        if i == 0 {
+            doc.insert("status", "refunded");
+        }
+        doc
+    }
+
+    #[test]
+    fn categorical_values_only_when_asked() {
+        let docs: Vec<Document> = (0..40).map(ticket).collect();
+        let off = infer("tickets", &docs, false);
+        assert!(off.fields.iter().all(|field| field.values.is_empty() && field.more_values == 0));
+
+        let shape = infer("tickets", &docs, true);
+        let status = field(&shape, "status");
+        let values: Vec<(&str, u8)> = status.values.iter().map(|share| (share.value.as_str(), share.percent)).collect();
+        // `refunded` apareceu uma vez só: fica na conta dos de fora
+        assert_eq!(values, [("paid", 58), ("open", 30), ("void", 10)]);
+        assert_eq!(status.more_values, 1);
+        assert_eq!(field(&shape, "channel").values.len(), 2);
+        assert_eq!(field(&shape, "items[].kind").values.len(), 2);
+        for path in ["customerName", "contact.email", "code", "ref", "_id"] {
+            if let Some(found) = shape.fields.iter().find(|field| field.path == path) {
+                assert!(found.values.is_empty(), "{path}: {:?}", found.values);
+            }
+        }
+
+        // Amostra curta: poucas ocorrências, nenhum valor
+        let few = infer("tickets", &docs[..6], true);
+        assert!(field(&few, "status").values.is_empty());
+    }
+
+    #[test]
+    fn splits_field_names_into_words() {
+        assert_eq!(words("customerName"), ["customer", "name"]);
+        assert_eq!(words("customer_name"), ["customer", "name"]);
+        assert_eq!(words("billing-address2"), ["billing", "address2"]);
+        assert_eq!(words("status"), ["status"]);
+        assert_eq!(words("{key}"), ["key"]);
+        assert_eq!(words("CPF"), ["cpf"]);
     }
 
     #[test]
@@ -362,7 +560,7 @@ mod tests {
                     .collect()
             })
             .collect();
-        let shape = infer("wide", &docs);
+        let shape = infer("wide", &docs, false);
         assert!(shape.truncated);
         assert_eq!(shape.fields.len(), MAX_FIELDS);
         assert!(shape.fields.iter().any(|field| field.path == "f009" && field.presence == 100));

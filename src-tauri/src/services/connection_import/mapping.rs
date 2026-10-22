@@ -247,6 +247,7 @@ pub fn to_server_input(
         scope_databases: None,
         scope_schemas: None,
         group_id,
+        assistant_sample_values: false,
     })
 }
 
@@ -465,6 +466,7 @@ mod tests {
             scope_databases: None,
             scope_schemas: None,
             group_id: None,
+            assistant_sample_values: false,
         };
         assert_eq!(
             to_candidate(0, &pg("localhost"), std::slice::from_ref(&existing)).duplicate_of,

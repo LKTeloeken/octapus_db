@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FLAT_SCHEMA,
   type CatalogNode,
+  type CatalogObject,
   type CatalogPage,
   type CatalogStatus,
 } from '@/api/types/catalog.types';
@@ -36,6 +37,7 @@ const server = (id: number, dbType: Server['dbType']): Server => ({
   scopeDatabases: null,
   scopeSchemas: null,
   groupId: null,
+  assistantSampleValues: false,
 });
 
 const status = (overrides: Partial<CatalogStatus> = {}): CatalogStatus => ({
@@ -77,6 +79,11 @@ const page = (
   offset: 0,
   items,
 });
+
+const objectPage = (
+  items: CatalogObject[],
+  total = items.length,
+): CatalogPage<CatalogObject> => ({ total, offset: 0, items });
 
 const serverNode = encodeNodeId({ serverId: PG });
 const dbNode = encodeNodeId({ serverId: PG, database: 'saas' });
@@ -160,7 +167,18 @@ const describeRow = (row: FlatRow) =>
       ? `more:${row.remaining}`
       : row.variant === 'filter'
         ? `filter:${row.total}`
-        : `error:${row.message}`;
+        : row.variant === 'empty'
+          ? `empty:${row.message}`
+          : `error:${row.message}`;
+
+/** As linhas abaixo do nó `id`, até o próximo servidor */
+function below(tree: FlatRow[], id: string) {
+  const at = tree.findIndex(row => row.id === id);
+  const end = tree.findIndex(
+    (row, i) => i > at && row.variant === 'node' && row.props.kind === 'server',
+  );
+  return tree.slice(at + 1, end === -1 ? undefined : end);
+}
 
 beforeEach(() => treeState([]));
 
@@ -223,11 +241,17 @@ describe('useConnectionTree com catálogo', () => {
     expect(tree.some(row => row.variant === 'more')).toBe(false);
   });
 
-  it('partições aparecem dentro da tabela particionada', () => {
+  it('partições numa pasta da tabela particionada, depois de colunas e índices', () => {
     const schema = encodeNodeId({
       serverId: PG,
       database: 'saas',
       schema: 'events',
+    });
+    const tables = encodeNodeId({
+      serverId: PG,
+      database: 'saas',
+      schema: 'events',
+      folder: 'tables',
     });
     const parent = encodeNodeId({
       serverId: PG,
@@ -235,7 +259,14 @@ describe('useConnectionTree com catálogo', () => {
       schema: 'events',
       table: 'event_log',
     });
-    treeState([serverNode, dbNode, schema, parent]);
+    const partitions = encodeNodeId({
+      serverId: PG,
+      database: 'saas',
+      schema: 'events',
+      table: 'event_log',
+      folder: 'partitions',
+    });
+    treeState([serverNode, dbNode, schema, tables, parent, partitions]);
     const queryClient = client();
     queryClient.setQueryData(
       queryKeys.catalogChildren(
@@ -251,7 +282,7 @@ describe('useConnectionTree com catálogo', () => {
       queryKeys.catalogChildren(
         PG,
         'saas',
-        { kind: 'schema', schema: 'events' },
+        { kind: 'tables', schema: 'events' },
         '',
         CATALOG_PAGE_SIZE,
       ),
@@ -292,11 +323,21 @@ describe('useConnectionTree com catálogo', () => {
     );
 
     const tree = rows(queryClient);
+    const at = tree.findIndex(row => row.id === parent);
+    expect(tree.slice(at, at + 5).map(describeRow)).toEqual([
+      'table:event_log',
+      'folder:Colunas',
+      'folder:Índices',
+      'folder:Partições',
+      'table:event_log_p1',
+    ]);
     const nodes = tree.filter(row => row.variant === 'node');
     const log = nodes.find(row => row.props.name === 'event_log')!;
     const partition = nodes.find(row => row.props.name === 'event_log_p1')!;
     expect(log.props.relationKind).toBe('partitioned');
-    expect(partition.props.level).toBe(log.props.level + 1);
+    expect(partition.props.level).toBe(log.props.level + 2);
+    const folderRow = tree[at + 3];
+    expect(folderRow.variant === 'node' && folderRow.props.subLabel).toBe('2');
   });
 
   it('erro de sincronização sem schemas aparece com nova tentativa', () => {
@@ -327,9 +368,14 @@ describe('useConnectionTree com catálogo', () => {
     );
   });
 
-  it('sem schema (SQLite): tabelas direto sob o database, do schema sem nome', () => {
+  it('sem schema (SQLite): pastas direto sob o database, do schema sem nome', () => {
     const sqliteServer = encodeNodeId({ serverId: SQLITE });
     const sqliteDb = encodeNodeId({ serverId: SQLITE, database: 'main' });
+    const tablesFolder = encodeNodeId({
+      serverId: SQLITE,
+      database: 'main',
+      folder: 'tables',
+    });
     treeState([sqliteServer, sqliteDb]);
     const queryClient = client();
     queryClient.setQueryData(queryKeys.databases(SQLITE), [
@@ -343,7 +389,7 @@ describe('useConnectionTree com catálogo', () => {
       queryKeys.catalogChildren(
         SQLITE,
         'main',
-        { kind: 'schema', schema: FLAT_SCHEMA },
+        { kind: 'tables', schema: FLAT_SCHEMA },
         '',
         CATALOG_PAGE_SIZE,
       ),
@@ -355,36 +401,101 @@ describe('useConnectionTree com catálogo', () => {
           state: null,
           drift: null,
         },
-        {
-          name: 'resumo',
-          kind: 'view',
-          childCount: null,
-          state: null,
-          drift: null,
-        },
       ]),
     );
+    // As views moram na pasta delas, depois da pasta das tabelas
+    queryClient.setQueryData(
+      queryKeys.catalogFolders(SQLITE, 'main', FLAT_SCHEMA),
+      [{ kind: 'view', count: 1 }],
+    );
+    queryClient.setQueryData(
+      queryKeys.catalogObjects(
+        SQLITE,
+        'main',
+        FLAT_SCHEMA,
+        'view',
+        null,
+        '',
+        CATALOG_PAGE_SIZE,
+      ),
+      objectPage([{ kind: 'view', name: 'resumo' }]),
+    );
+    const viewsFolder = encodeNodeId({
+      serverId: SQLITE,
+      database: 'main',
+      folder: 'view',
+    });
 
-    const tree = rows(queryClient);
-    const dbIndex = tree.findIndex(row => row.id === sqliteDb);
-    expect(tree.slice(dbIndex + 1, dbIndex + 3).map(describeRow)).toEqual([
-      'table:notas',
-      'table:resumo',
+    let tree = rows(queryClient);
+    let dbIndex = tree.findIndex(row => row.id === sqliteDb);
+    expect(below(tree, sqliteDb).map(describeRow)).toEqual([
+      'folder:Tabelas',
+      'folder:Views',
     ]);
-    const notas = tree[dbIndex + 1];
+
+    treeState([sqliteServer, sqliteDb, tablesFolder]);
+    tree = rows(queryClient);
+    dbIndex = tree.findIndex(row => row.id === sqliteDb);
+    expect(below(tree, sqliteDb).map(describeRow)).toEqual([
+      'folder:Tabelas',
+      'table:notas',
+      'folder:Views',
+    ]);
+    const notas = tree[dbIndex + 2];
     // A aba da tabela não tem schema
     expect(notas.id).toBe(
       encodeNodeId({ serverId: SQLITE, database: 'main', table: 'notas' }),
     );
-    expect(notas.variant === 'node' && notas.props.level).toBe(2);
-    const resumo = tree[dbIndex + 2];
+    expect(notas.variant === 'node' && notas.props.level).toBe(3);
+
+    // Aberta, a pasta mostra a view como relação (clique abre os dados); a
+    // view aberta lista as colunas direto, sem pastas
+    const resumoNode = encodeNodeId({
+      serverId: SQLITE,
+      database: 'main',
+      table: 'resumo',
+    });
+    queryClient.setQueryData(queryKeys.columns(SQLITE, 'main', '', 'resumo'), [
+      {
+        name: 'total',
+        ordinal: 1,
+        dataType: 'INTEGER',
+        isNullable: true,
+        defaultValue: null,
+        isPrimaryKey: false,
+        isForeignKey: false,
+      },
+    ]);
+    treeState([sqliteServer, sqliteDb, viewsFolder, resumoNode]);
+    tree = rows(queryClient);
+    dbIndex = tree.findIndex(row => row.id === sqliteDb);
+    expect(below(tree, sqliteDb).map(describeRow)).toEqual([
+      'folder:Tabelas',
+      'folder:Views',
+      'table:resumo',
+      'column:total',
+    ]);
+    const resumo = tree[dbIndex + 3];
+    expect(resumo.id).toBe(
+      encodeNodeId({ serverId: SQLITE, database: 'main', table: 'resumo' }),
+    );
     expect(resumo.variant === 'node' && resumo.props.relationKind).toBe('view');
+    expect(resumo.variant === 'node' && resumo.props.level).toBe(3);
+    expect(
+      resumo.variant === 'node' &&
+        resumo.props.actions?.map(action => action.label),
+    ).toContain('Ver definição');
   });
 
   it('5.000 coleções (Mongo): filtro e janela direto sob o database', () => {
     const mongoServer = encodeNodeId({ serverId: MONGO });
     const mongoDb = encodeNodeId({ serverId: MONGO, database: 'tenants' });
-    treeState([mongoServer, mongoDb]);
+    const collectionsFolder = encodeNodeId({
+      serverId: MONGO,
+      database: 'tenants',
+      folder: 'tables',
+    });
+    treeState([mongoServer, mongoDb, collectionsFolder]);
     const queryClient = client();
     queryClient.setQueryData(queryKeys.databases(MONGO), [
       { name: 'tenants', sizeBytes: null },
@@ -407,7 +518,7 @@ describe('useConnectionTree com catálogo', () => {
       queryKeys.catalogChildren(
         MONGO,
         'tenants',
-        { kind: 'schema', schema: FLAT_SCHEMA },
+        { kind: 'tables', schema: FLAT_SCHEMA },
         '',
         CATALOG_PAGE_SIZE,
       ),
@@ -418,7 +529,12 @@ describe('useConnectionTree com catálogo', () => {
     const dbIndex = tree.findIndex(row => row.id === mongoDb);
     const db = tree[dbIndex];
     expect(db.variant === 'node' && db.props.subLabel).toBe('5.000');
-    const filter = tree[dbIndex + 1];
+    const folderRow = tree[dbIndex + 1];
+    expect(describeRow(folderRow)).toBe('folder:Coleções');
+    expect(folderRow.variant === 'node' && folderRow.props.subLabel).toBe(
+      '5.000',
+    );
+    const filter = tree[dbIndex + 2];
     expect(filter.variant === 'filter' && filter.placeholder).toBe(
       'Filtrar coleções',
     );
@@ -717,5 +833,417 @@ describe('tree-store com grupos', () => {
     store.toggleNode(id);
     store.expandNode(id);
     expect(useTreeStore.getState().collapsedGroups.has(7)).toBe(false);
+  });
+});
+
+describe('useConnectionTree: pastas de tabelas, colunas, views, índices e funções', () => {
+  const schema = encodeNodeId({
+    serverId: PG,
+    database: 'saas',
+    schema: 'app',
+  });
+  const folder = (kind: string) =>
+    encodeNodeId({
+      serverId: PG,
+      database: 'saas',
+      schema: 'app',
+      folder: kind,
+    });
+  const orders = encodeNodeId({
+    serverId: PG,
+    database: 'saas',
+    schema: 'app',
+    table: 'orders',
+  });
+  const ordersFolder = (kind: string) =>
+    encodeNodeId({
+      serverId: PG,
+      database: 'saas',
+      schema: 'app',
+      table: 'orders',
+      folder: kind,
+    });
+
+  function pgClient() {
+    const queryClient = client();
+    queryClient.setQueryData(
+      queryKeys.catalogChildren(
+        PG,
+        'saas',
+        { kind: 'schemas' },
+        '',
+        CATALOG_PAGE_SIZE,
+      ),
+      page([schemaNode('app')]),
+    );
+    queryClient.setQueryData(
+      queryKeys.catalogChildren(
+        PG,
+        'saas',
+        { kind: 'tables', schema: 'app' },
+        '',
+        CATALOG_PAGE_SIZE,
+      ),
+      page([
+        {
+          name: 'orders',
+          kind: 'table',
+          childCount: null,
+          state: null,
+          drift: null,
+        },
+      ]),
+    );
+    queryClient.setQueryData(queryKeys.catalogFolders(PG, 'saas', 'app'), [
+      { kind: 'view', count: 0 },
+      { kind: 'materializedView', count: 2 },
+      { kind: 'function', count: null },
+    ]);
+    queryClient.setQueryData(queryKeys.columns(PG, 'saas', 'app', 'orders'), [
+      {
+        name: 'id',
+        ordinal: 1,
+        dataType: 'integer',
+        isNullable: false,
+        defaultValue: null,
+        isPrimaryKey: true,
+        isForeignKey: false,
+      },
+      {
+        name: 'total',
+        ordinal: 2,
+        dataType: 'numeric',
+        isNullable: true,
+        defaultValue: null,
+        isPrimaryKey: false,
+        isForeignKey: false,
+      },
+    ]);
+    return queryClient;
+  }
+
+  const objects = (
+    queryClient: QueryClient,
+    kind: 'index' | 'function',
+    data: CatalogPage<CatalogObject>,
+    table: string | null = null,
+    server = PG,
+    database = 'saas',
+    schemaName = 'app',
+  ) =>
+    queryClient.setQueryData(
+      queryKeys.catalogObjects(
+        server,
+        database,
+        schemaName,
+        kind,
+        table,
+        '',
+        CATALOG_PAGE_SIZE,
+      ),
+      data,
+    );
+
+  const afterSchema = (tree: FlatRow[]) => below(tree, schema);
+
+  it('Tabelas primeiro, depois as pastas de objetos; a que se sabe vazia não aparece', () => {
+    treeState([serverNode, dbNode, schema]);
+    const tree = afterSchema(rows(pgClient()));
+    expect(tree.map(describeRow)).toEqual([
+      'folder:Tabelas',
+      'folder:Views materializadas',
+      'folder:Funções',
+    ]);
+    const [tables, materialized, functions] = tree;
+    expect(tables.variant === 'node' && tables.props.subLabel).toBe('1');
+    expect(tables.variant === 'node' && tables.props.folderKind).toBe('tables');
+    expect(materialized.variant === 'node' && materialized.props.subLabel).toBe(
+      '2',
+    );
+    // Funções ainda sem contagem: só vão ao banco ao abrir
+    expect(functions.variant === 'node' && functions.props.subLabel).toBe(
+      undefined,
+    );
+  });
+
+  it('tabela aberta: Colunas e Índices, cada um na sua pasta', () => {
+    treeState([serverNode, dbNode, schema, folder('tables'), orders]);
+    let tree = afterSchema(rows(pgClient()));
+    expect(tree.slice(0, 4).map(describeRow)).toEqual([
+      'folder:Tabelas',
+      'table:orders',
+      'folder:Colunas',
+      'folder:Índices',
+    ]);
+    const columns = tree[2];
+    expect(columns.variant === 'node' && columns.props.subLabel).toBe('2');
+    expect(columns.variant === 'node' && columns.props.level).toBe(5);
+
+    treeState([
+      serverNode,
+      dbNode,
+      schema,
+      folder('tables'),
+      orders,
+      ordersFolder('columns'),
+    ]);
+    tree = afterSchema(rows(pgClient()));
+    expect(tree.slice(2, 6).map(describeRow)).toEqual([
+      'folder:Colunas',
+      'column:id',
+      'column:total',
+      'folder:Índices',
+    ]);
+    const id = tree[3];
+    expect(id.variant === 'node' && id.props.subLabel).toBe('integer (PK)');
+    expect(id.variant === 'node' && id.props.level).toBe(6);
+  });
+
+  it('índices da tabela em janela, com filtro, colunas e papel', () => {
+    treeState([
+      serverNode,
+      dbNode,
+      schema,
+      folder('tables'),
+      orders,
+      ordersFolder('index'),
+    ]);
+    const queryClient = pgClient();
+    const indexes = Array.from(
+      { length: CATALOG_PAGE_SIZE },
+      (_, i): CatalogObject => ({
+        kind: 'index',
+        name: `idx_${String(i).padStart(3, '0')}`,
+        table: 'orders',
+        method: 'btree',
+        unique: i === 0,
+        primary: false,
+        columns: ['customer', 'total'],
+        predicate: i === 0 ? "status <> 'void'" : null,
+      }),
+    );
+    objects(queryClient, 'index', objectPage(indexes, 900), 'orders');
+
+    const tree = afterSchema(rows(queryClient));
+    expect(tree.slice(2, 6).map(describeRow)).toEqual([
+      'folder:Colunas',
+      'folder:Índices',
+      'filter:900',
+      'index:idx_000',
+    ]);
+    const folderRow = tree[3];
+    expect(folderRow.variant === 'node' && folderRow.props.subLabel).toBe(
+      '900',
+    );
+    // Dentro da tabela, o rótulo não repete a tabela
+    const first = tree[5];
+    expect(first.variant === 'node' && first.props.subLabel).toBe(
+      '(customer, total) · btree · único · parcial',
+    );
+    expect(first.variant === 'node' && first.props.level).toBe(6);
+    expect(tree.map(describeRow)).toContain('more:400');
+    const filter = tree[4];
+    expect(filter.variant === 'filter' && filter.placeholder).toBe(
+      'Filtrar índices',
+    );
+  });
+
+  it('funções com assinatura, retorno, tipo e linguagem; sobrecargas distintas', () => {
+    treeState([serverNode, dbNode, schema, folder('function')]);
+    const queryClient = pgClient();
+    const add = (signature: string, returns: string): CatalogObject => ({
+      kind: 'function',
+      name: 'add',
+      signature,
+      arguments: signature,
+      returns,
+      functionKind: 'function',
+      language: 'sql',
+      comment: null,
+    });
+    objects(
+      queryClient,
+      'function',
+      objectPage([
+        add('a integer, b integer', 'integer'),
+        add('a text, b text', 'text'),
+        {
+          kind: 'function',
+          name: 'archive',
+          signature: 'days integer',
+          arguments: 'days integer DEFAULT 90',
+          returns: null,
+          functionKind: 'procedure',
+          language: 'plpgsql',
+          comment: 'Arquiva os pedidos antigos',
+        },
+      ]),
+    );
+
+    const tree = afterSchema(rows(queryClient)).filter(
+      row => row.variant === 'node' && row.props.kind === 'function',
+    );
+    expect(tree.map(describeRow)).toEqual([
+      'function:add(a integer, b integer)',
+      'function:add(a text, b text)',
+      'function:archive(days integer)',
+    ]);
+    expect(new Set(tree.map(row => row.id)).size).toBe(3);
+    const [first, , procedure] = tree;
+    expect(first.variant === 'node' && first.props.subLabel).toBe(
+      '→ integer · função · sql',
+    );
+    expect(procedure.variant === 'node' && procedure.props.subLabel).toBe(
+      'procedure · plpgsql',
+    );
+    // O comentário só no passar do mouse
+    expect(procedure.variant === 'node' && procedure.props.title).toBe(
+      'archive(days integer) procedure · plpgsql\nArquiva os pedidos antigos',
+    );
+    expect(first.variant === 'node' && first.props.title).toBe(
+      'add(a integer, b integer) → integer · função · sql',
+    );
+    expect(
+      first.variant === 'node' &&
+        first.props.actions?.map(action => action.label),
+    ).toEqual(['Ver definição']);
+  });
+
+  it('pasta aberta que veio vazia continua, com o aviso dentro', () => {
+    treeState([serverNode, dbNode, schema, folder('function')]);
+    const queryClient = pgClient();
+    objects(queryClient, 'function', objectPage([]));
+    const tree = afterSchema(rows(queryClient));
+    expect(tree.map(describeRow)).toEqual([
+      'folder:Tabelas',
+      'folder:Views materializadas',
+      'folder:Funções',
+      'empty:Nenhuma função',
+    ]);
+    const functions = tree[2];
+    expect(functions.variant === 'node' && functions.props.subLabel).toBe('0');
+
+    // O catálogo já sabendo que não há funções: a pasta fechada também fica
+    queryClient.setQueryData(queryKeys.catalogFolders(PG, 'saas', 'app'), [
+      { kind: 'view', count: 0 },
+      { kind: 'materializedView', count: 2 },
+      { kind: 'function', count: 0 },
+    ]);
+    treeState([serverNode, dbNode, schema]);
+    expect(afterSchema(rows(queryClient)).map(describeRow)).toContain(
+      'folder:Funções',
+    );
+  });
+
+  it('pasta fechada não pede objetos, nem a de um schema fechado', () => {
+    treeState([serverNode, dbNode, folder('function')]);
+    const tree = rows(pgClient());
+    expect(tree.map(describeRow)).not.toContain('folder:Funções');
+  });
+
+  it('Mongo: coleção aberta com Campos e Índices', () => {
+    const mongoServer = encodeNodeId({ serverId: MONGO });
+    const mongoDb = encodeNodeId({ serverId: MONGO, database: 'loja' });
+    const collectionsFolder = encodeNodeId({
+      serverId: MONGO,
+      database: 'loja',
+      folder: 'tables',
+    });
+    const collection = encodeNodeId({
+      serverId: MONGO,
+      database: 'loja',
+      table: 'orders',
+    });
+    const inCollection = (kind: string) =>
+      encodeNodeId({
+        serverId: MONGO,
+        database: 'loja',
+        table: 'orders',
+        folder: kind,
+      });
+    treeState([
+      mongoServer,
+      mongoDb,
+      collectionsFolder,
+      collection,
+      inCollection('columns'),
+      inCollection('index'),
+    ]);
+    const queryClient = client();
+    queryClient.setQueryData(queryKeys.databases(MONGO), [
+      { name: 'loja', sizeBytes: null },
+    ]);
+    queryClient.setQueryData(
+      queryKeys.catalogStatus(MONGO, 'loja'),
+      status({ serverId: MONGO, database: 'loja' }),
+    );
+    queryClient.setQueryData(
+      queryKeys.catalogChildren(
+        MONGO,
+        'loja',
+        { kind: 'tables', schema: FLAT_SCHEMA },
+        '',
+        CATALOG_PAGE_SIZE,
+      ),
+      page([
+        {
+          name: 'orders',
+          kind: 'table',
+          childCount: null,
+          state: null,
+          drift: null,
+        },
+      ]),
+    );
+    queryClient.setQueryData(
+      queryKeys.catalogFolders(MONGO, 'loja', FLAT_SCHEMA),
+      [{ kind: 'view', count: 0 }],
+    );
+    queryClient.setQueryData(queryKeys.columns(MONGO, 'loja', '', 'orders'), [
+      {
+        name: '_id',
+        ordinal: 1,
+        dataType: 'objectId',
+        isNullable: false,
+        defaultValue: null,
+        isPrimaryKey: true,
+        isForeignKey: false,
+      },
+    ]);
+    objects(
+      queryClient,
+      'index',
+      objectPage([
+        {
+          kind: 'index',
+          name: '_id_',
+          table: 'orders',
+          method: 'regular',
+          unique: true,
+          primary: true,
+          columns: ['_id'],
+          predicate: null,
+        },
+      ]),
+      'orders',
+      MONGO,
+      'loja',
+      FLAT_SCHEMA,
+    );
+
+    const tree = rows(queryClient);
+    const mongoAt = tree.findIndex(row => row.id === mongoDb);
+    expect(below(tree, mongoDb).map(describeRow)).toEqual([
+      'folder:Coleções',
+      'table:orders',
+      'folder:Campos',
+      'column:_id',
+      'folder:Índices',
+      'index:_id_',
+    ]);
+    const index = tree[mongoAt + 6];
+    expect(index.variant === 'node' && index.props.subLabel).toBe(
+      '(_id) · regular · primário',
+    );
   });
 });

@@ -86,6 +86,7 @@ mod e2e {
             scope_databases: None,
             scope_schemas: None,
             group_id: None,
+            assistant_sample_values: false,
             created_at: 0,
         }
     }
@@ -285,6 +286,7 @@ mod e2e {
                 context_window: 200_000,
                 mentions: &[],
                 past_mentions: &[],
+                sample_values: false,
             },
         )
         .await

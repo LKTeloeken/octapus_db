@@ -45,6 +45,13 @@ export type FlatRow =
       onChange: (value: string) => void;
     }
   | {
+      /** Pasta aberta e vazia (nenhuma função, nenhum índice) */
+      variant: 'empty';
+      id: string;
+      level: number;
+      message: string;
+    }
+  | {
       /** A janela mostra só parte dos filhos: pede a próxima */
       variant: 'more';
       id: string;

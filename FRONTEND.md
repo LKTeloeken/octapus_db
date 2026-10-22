@@ -67,7 +67,7 @@ Fonte da verdade de **tudo que vem do backend**. Um hook por domínio:
 | `use-servers` | CRUD de servidores |
 | `use-capabilities` | `get_capabilities`; `useDbCapabilities` → `get_db_capabilities` (tabela por tipo) |
 | `use-databases` / `use-columns` / `use-indexes` | databases, colunas e índices (sob demanda) |
-| `use-catalog` | catálogo do backend: `catalogStatusQuery` (abre com `catalog_open`), `catalogChildrenQuery`, `catalogShapesQuery`, `useCatalogSearch`, `useCatalogRelationSize`, `useCatalogRefresh`, `useCatalogDiagnostics`, `catalogCompleteQuery` (completar por prefixo: menções do assistente), `useSchemaComparison` (dois schemas, key `schema-comparison` fora do prefixo do catálogo); `hasCatalog`/`isFlatCatalog` dizem quem usa |
+| `use-catalog` | catálogo do backend: `catalogStatusQuery` (abre com `catalog_open`), `catalogChildrenQuery`, `catalogShapesQuery`, `catalogFoldersQuery` e `catalogObjectsQuery` (pastas da árvore), `useCatalogObjectDefinition` ("Ver definição"), `useCatalogSearch`, `useCatalogRelationSize`, `useCatalogRefresh`, `useCatalogDiagnostics`, `catalogCompleteQuery` (completar por prefixo: menções do assistente), `useSchemaComparison` (dois schemas, key `schema-comparison` fora do prefixo do catálogo); `hasCatalog`/`isFlatCatalog` dizem quem usa |
 | `use-catalog-events` | liga o `catalog-event` às invalidações (montado pela árvore) |
 | `use-refresh-structure` | "Atualizar" da árvore (servidor, database, schema, tabela) |
 | `use-structure` | estrutura inteira — só Redis (os demais usam o catálogo) |
@@ -121,7 +121,7 @@ Só estado de **UI**, nada que o backend possa fornecer:
 | `command-palette-store` | paleta de comandos aberta/fechada — aberta pelo `Cmd/Ctrl+K`, pela busca da sidebar e pelo botão Comandos — e o schema fixado nela (em memória, sobrevive ao fechar) |
 | `structure-editor-store` | diálogo de estrutura aberto pelo menu da árvore (criar/renomear/excluir tabela, nova/editar/excluir coluna, comparar dois schemas) |
 | `value-panel-store` | painel de valor da aba de tabela: aberto/fechado e preferências de formatação (global, persistido) |
-| `assistant-store` | painel do assistente: aberto/fechado, abas de conversa (alvo, id da conversa, modelo, rascunho), turno ao vivo de cada aba e resultados por tentativa — **só em memória**, fora do `tabs-store` (RN-01) |
+| `assistant-store` | painel do assistente: aberto/fechado, modo agente, abas de conversa (alvo, id da conversa, modelo, rascunho), turno ao vivo de cada aba e resultados por tentativa — **só em memória**, fora do `tabs-store` (RN-01) |
 
 **Sessão das abas** ([stores/tabs-session.ts](src/stores/tabs-session.ts)): as abas
 sobrevivem ao fechamento e ao update do app. O `main.tsx` chama `restoreTabsSession()`
@@ -172,6 +172,23 @@ palette, dentro do `QueryProvider`.
   - **"Copiar diagnóstico"** (contagens e tempos, sem nomes —
     [lib/catalog-diagnostics.ts](src/lib/catalog-diagnostics.ts)).
 
+  **Pastas** ao abrir um schema (ou o database, no Mongo/SQLite): primeiro **Tabelas**
+  (**Coleções** no Mongo: as soltas, `{ kind: 'tables' }`, sem as views), depois as pastas
+  de objetos do `structureFolders` das capabilities, nunca por `dbType` (**Views**, **Views
+  materializadas**, **Funções**). A tabela aberta tem **Colunas** (**Campos** no Mongo) e
+  as pastas do `relationFolders` (**Índices**); a particionada também **Partições**; a view
+  comum lista as colunas direto, e o Redis (sem catálogo) também. Tabelas, Colunas e
+  Partições são pastas só do front (`TreeFolderKind`), sobre as consultas de sempre: a
+  janela e o filtro das tabelas e das partições moram no nó da pasta. `catalog_folders` diz
+  as pastas de objetos e a contagem quando já se sabe (views pelo catálogo; índices e
+  funções só depois de abertas). Pasta de tabelas ou de views vazia não aparece; índices e
+  funções aparecem sempre, e aberta e vazia mostra "Nenhuma função" (linha `empty`). A
+  pasta é um nó (`NodeRef.folder`) e só aberta pede `catalog_objects`, em janela e com
+  filtro como as outras listas. View: clique abre os dados, "Ver definição" no menu;
+  índice (colunas, método, único/primário, parcial) e função (`nome(assinatura)`, retorno,
+  tipo, linguagem — sobrecargas pela assinatura): o clique abre a definição completa numa
+  aba de query nova, como texto comum.
+
   Tamanho só da tabela aberta (`catalog_relation_size`). Rótulos dos grupos e do aviso em
   [shape-labels.ts](src/features/connection-tree/shape-labels.ts). O Redis segue com a
   estrutura inteira (`use-structure`).
@@ -204,7 +221,10 @@ palette, dentro do `QueryProvider`.
 - **`server-form`** — criar/editar servidor. A senha **nunca** volta do backend: no modo
   edição o campo começa vazio e deve ser redigitado. **Escopo** opcional: "Databases
   visíveis" e, no Postgres, "Schemas visíveis" (padrões com `*`, `?` e `!` para excluir —
-  aplicados no backend).
+  aplicados no backend). Onde a capability `assistantSampleValues` deixa (Mongo), o
+  interruptor "Mostrar ao assistente os valores mais comuns" (`assistantSampleValues`,
+  desligado por padrão). O corpo do diálogo rola (`max-h-[65vh]`), para o rodapé caber
+  numa janela baixa.
 - **`settings`** — diálogo de configurações (engrenagem no rodapé da sidebar): menu de
   seções à esquerda, a ativa à direita. Seções num registro
   ([settings-sections.ts](src/features/settings/settings-sections.ts)); cada configuração
@@ -258,6 +278,15 @@ palette, dentro do `QueryProvider`.
     **com o foco no painel** (listener de captura + `preventDefault`; o `use-query-tabs`
     ignora evento tratado; foco perdido no `body` vale a última zona clicada). Fechar
     cancela o turno. Histórico do servidor no relógio do cabeçalho (C-15).
+  - **Modo agente** (`assistant-store.agentMode`): botão do cabeçalho ou
+    `Cmd/Ctrl+Shift+J` (`useToggleAgentMode`; com o painel fechado, abre como o
+    `Cmd/Ctrl+J`). O assistente vira a janela inteira: o `app.tsx` esconde o grupo de
+    painéis (num invólucro `hidden` — a árvore e as abas de query continuam montadas) e
+    monta o `AssistantPanel` sozinho. As conversas abertas e as anteriores vão para uma
+    coluna à esquerda (`agent-sidebar.tsx`), a conversa fica numa coluna centrada
+    (`ConversationView wide`) e o cabeçalho vira a barra de título (semáforo no macOS,
+    controles no Linux). Sai pelo mesmo botão/atalho, ao fechar o painel ou quando uma aba
+    de query é aberta ou ativada ("Abrir no editor", paleta), para ela aparecer.
   - **Alvo**: servidor (só os com `supportsAssistant`) e database; abrir o catálogo
     conecta (banco sem catálogo — o Redis — não abre nada: a estrutura sai de uma
     amostra das chaves no backend, a cada pergunta). Modelo só no modo `free`, antes da 1ª pergunta; cota no rodapé (RN-23).

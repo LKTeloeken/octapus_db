@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::catalog::ObjectKind;
+
 /// Describes what a given adapter supports, so the frontend can decide what to
 /// render (schema tree levels, editable grids, free-form editor, etc.) without
 /// branching on `dbType` directly.
@@ -56,9 +58,27 @@ pub struct AdapterCapabilities {
     /// e Redis (este pelo plano de passos, sem catálogo).
     pub supports_assistant: bool,
 
+    /// O servidor pode mandar ao assistente os valores de exemplo dos campos
+    /// categóricos (`Server::assistant_sample_values`, desligado por padrão).
+    /// Só o Mongo: sem eles o modelo não tem como saber os valores de um
+    /// `status` num documento sem esquema.
+    pub assistant_sample_values: bool,
+
     /// Em que o assistente escreve a consulta deste banco — o `language` da
     /// saída do modelo no contrato da API (`output.schema.json`).
     pub query_language: QueryLanguage,
+
+    /// Pastas de objetos que a árvore mostra num schema aberto, nesta ordem,
+    /// depois da pasta das tabelas (`catalog_folders`/`catalog_objects`).
+    /// Vazio = nenhuma.
+    #[cfg_attr(test, ts(as = "Vec<ObjectKind>"))]
+    pub structure_folders: &'static [ObjectKind],
+
+    /// Pastas de objetos dentro de cada tabela (e view materializada), depois
+    /// da pasta das colunas: os índices vêm por relação (`catalog_objects`
+    /// com `table`), nunca do schema inteiro.
+    #[cfg_attr(test, ts(as = "Vec<ObjectKind>"))]
+    pub relation_folders: &'static [ObjectKind],
 }
 
 /// Linguagem da consulta gerada pelo assistente.
@@ -100,7 +120,10 @@ impl AdapterCapabilities {
             supports_backup: true,
             supports_atomic_save: true,
             supports_assistant: true,
+            assistant_sample_values: false,
             query_language: QueryLanguage::Sql,
+            structure_folders: &[ObjectKind::View, ObjectKind::MaterializedView, ObjectKind::Function],
+            relation_folders: &[ObjectKind::Index],
         }
     }
 
@@ -119,7 +142,10 @@ impl AdapterCapabilities {
             supports_backup: false,
             supports_atomic_save: true,
             supports_assistant: true,
+            assistant_sample_values: true,
             query_language: QueryLanguage::Mongo,
+            structure_folders: &[ObjectKind::View],
+            relation_folders: &[ObjectKind::Index],
         }
     }
 
@@ -138,7 +164,10 @@ impl AdapterCapabilities {
             supports_backup: false,
             supports_atomic_save: false,
             supports_assistant: true,
+            assistant_sample_values: false,
             query_language: QueryLanguage::RedisPlan,
+            structure_folders: &[],
+            relation_folders: &[],
         }
     }
 
@@ -158,7 +187,10 @@ impl AdapterCapabilities {
             supports_backup: false,
             supports_atomic_save: true,
             supports_assistant: true,
+            assistant_sample_values: false,
             query_language: QueryLanguage::Sql,
+            structure_folders: &[ObjectKind::View],
+            relation_folders: &[ObjectKind::Index],
         }
     }
 
@@ -221,6 +253,25 @@ mod tests {
         }
         assert_eq!(AdapterCapabilities::all().len(), 4);
         assert!(AdapterCapabilities::for_db_type(DatabaseType::Mysql).is_none());
+    }
+
+    #[test]
+    fn folders_need_the_catalog() {
+        for entry in AdapterCapabilities::all() {
+            let caps = entry.capabilities;
+            if !caps.structure_folders.is_empty() || !caps.relation_folders.is_empty() {
+                assert!(caps.has_catalog, "{:?}", entry.db_type);
+            }
+            // Funções e views materializadas só onde há schema
+            for kind in [ObjectKind::Function, ObjectKind::MaterializedView] {
+                if caps.structure_folders.contains(&kind) {
+                    assert!(caps.has_schemas, "{:?}", entry.db_type);
+                }
+            }
+        }
+        let json = serde_json::to_value(AdapterCapabilities::sqlite()).unwrap();
+        assert_eq!(json["structureFolders"], serde_json::json!(["view"]));
+        assert_eq!(json["relationFolders"], serde_json::json!(["index"]));
     }
 
     #[test]

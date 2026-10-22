@@ -198,6 +198,7 @@ pub async fn assistant_turn_ask(
         return Err(Error::InvalidQuery("Empty question".into()));
     }
     let db_type = assistant_db_type(&state, server_id)?;
+    let sample_values = servers::get_by_id_meta(&state.storage, server_id)?.assistant_sample_values;
     let prompt = prompts::for_db(db_type).expect("banco com assistente tem prompt");
     let auto_execute = settings_store::load(&state.storage)?.assistant_auto_execute;
     let (api_url, client) = state.assistant.endpoint()?;
@@ -238,6 +239,7 @@ pub async fn assistant_turn_ask(
                 context_window,
                 mentions: &mentions,
                 past_mentions: &past_mentions,
+                sample_values,
             },
         )
         .await?;
@@ -272,6 +274,7 @@ pub async fn assistant_turn_ask(
             adapter: Arc::clone(&adapter),
             db_type,
             scope: &schemas,
+            sample_values,
         };
         let db = AdapterDatabase { adapter, db_type };
         let emit = |event: AssistantTurnEvent| {
@@ -578,6 +581,8 @@ struct RequestedLookup<'a> {
     db_type: DatabaseType,
     /// Os schemas da conversa, onde um nome sem schema é procurado
     scope: &'a [String],
+    /// Valores de exemplo dos campos categóricos (Mongo), como no contexto
+    sample_values: bool,
 }
 
 #[async_trait]
@@ -585,7 +590,12 @@ impl TurnStructure for RequestedLookup<'_> {
     async fn lookup(&self, names: &[String], budget_tokens: usize) -> Result<RequestedStructure> {
         match &self.entry {
             Some(entry) => {
-                requested::from_catalog(self.catalogs, entry, self.db_type, self.scope, names, budget_tokens).await
+                let request = requested::Lookup {
+                    db_type: self.db_type,
+                    scope: self.scope,
+                    sample_values: self.sample_values,
+                };
+                requested::from_catalog(self.catalogs, entry, &request, names, budget_tokens).await
             }
             None => requested::from_keys(self.adapter.as_ref(), names, budget_tokens).await,
         }
@@ -746,6 +756,7 @@ mod e2e {
             scope_databases: None,
             scope_schemas: None,
             group_id: None,
+            assistant_sample_values: false,
             created_at: 0,
         }
     }
@@ -798,6 +809,18 @@ mod e2e {
         question: &str,
         mentions: &[AssistantMention],
     ) -> (AssistantTurnFinish, Vec<String>) {
+        ask_full(participant, db, structure, question, mentions, false).await
+    }
+
+    /// [`ask_with`] escolhendo o interruptor dos valores de exemplo do servidor
+    pub(super) async fn ask_full(
+        participant: &Participant,
+        db: &AdapterDatabase,
+        structure: Structure<'_>,
+        question: &str,
+        mentions: &[AssistantMention],
+        sample_values: bool,
+    ) -> (AssistantTurnFinish, Vec<String>) {
         let Participant {
             client,
             token,
@@ -817,6 +840,7 @@ mod e2e {
             context_window,
             mentions,
             past_mentions: &[],
+            sample_values,
         };
         let (catalogs, entry) = match structure {
             Structure::Catalog(catalogs, entry) => (Some(catalogs), Some(Arc::clone(entry))),
@@ -856,6 +880,7 @@ mod e2e {
             adapter: Arc::clone(&db.adapter),
             db_type: db.db_type,
             scope: &schemas,
+            sample_values,
         };
         let events: Mutex<Vec<String>> = Mutex::default();
         let finish = turn::run_turn(
@@ -984,6 +1009,7 @@ mod e2e {
         .await;
         assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
         assert!(events.iter().any(|line| line.starts_with("result: 2 linha")));
+        assert_multiline(&finish);
         assert_saved(&participant, 0).await;
 
         drop(entry);
@@ -1303,6 +1329,320 @@ mod e2e {
             ask(&participant, &db, structure(), "Qual a soma dos valores dos reembolsos registrados?").await,
         );
         assert_saved(&participant, 1).await;
+
+        drop(db);
+        drop(entry);
+        let _ = std::fs::remove_dir_all(dir);
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
+    }
+
+    /// Prompts v4: o SQL vem em várias linhas, uma cláusula por linha
+    fn assert_multiline(finish: &AssistantTurnFinish) {
+        let query = finish
+            .output
+            .as_ref()
+            .and_then(|output| output.query.as_deref())
+            .unwrap_or_default();
+        println!("consulta:\n{query}");
+        assert!(query.lines().count() >= 3, "consulta numa linha só: {query:?}");
+        assert!(
+            query.lines().any(|line| line.trim_start().starts_with("FROM")),
+            "FROM sem linha própria: {query:?}"
+        );
+    }
+
+    /// Prompts v4 no Postgres: a consulta com junção e agrupamento chega
+    /// formatada, em várias linhas, e roda.
+    #[tokio::test]
+    #[ignore = "requires the assistant API and Postgres on localhost:5432 (postgres/1234)"]
+    async fn e2e_real_postgres_query_in_several_lines() {
+        use crate::adapters::postgres::PostgresAdapter;
+
+        const DATABASE: &str = "octapus_e2e_assistant_v4";
+        let Some(participant) = participant(DatabaseType::Postgres).await else {
+            return;
+        };
+        let pg_server = Server {
+            username: "postgres".into(),
+            password: "1234".into(),
+            ..server(DatabaseType::Postgres, 5432, None)
+        };
+        let admin = PostgresAdapter::new(&pg_server, "postgres").unwrap();
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
+        admin
+            .execute_statement(&format!("CREATE DATABASE {DATABASE}"))
+            .await
+            .unwrap();
+        let scratch = PostgresAdapter::new(&pg_server, DATABASE).unwrap();
+        for statement in [
+            "CREATE TABLE customers (id serial PRIMARY KEY, name text NOT NULL, city text)",
+            "CREATE TABLE orders (id serial PRIMARY KEY, customer_id int NOT NULL REFERENCES customers(id),
+                                  total numeric(10,2) NOT NULL, created_at timestamptz NOT NULL DEFAULT now())",
+            "INSERT INTO customers (name, city) VALUES ('Ana', 'Porto Alegre'), ('Bia', 'Curitiba')",
+            "INSERT INTO orders (customer_id, total) VALUES (1, 120.5), (1, 80), (2, 42)",
+        ] {
+            scratch.execute_statement(statement).await.unwrap();
+        }
+
+        let (catalogs, entry, dir) = open_catalog(&pg_server, DATABASE).await;
+        let db = AdapterDatabase {
+            adapter: Arc::new(scratch),
+            db_type: DatabaseType::Postgres,
+        };
+        let (finish, events) = ask(
+            &participant,
+            &db,
+            Structure::Catalog(&catalogs, &entry),
+            "Qual o total gasto e o número de pedidos de cada cliente, com a cidade, do maior para o menor?",
+        )
+        .await;
+        assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
+        assert!(
+            events.iter().any(|line| line.starts_with("result: 2 linha")),
+            "{events:?}"
+        );
+        assert_multiline(&finish);
+
+        drop(db);
+        drop(entry);
+        let _ = std::fs::remove_dir_all(dir);
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
+    }
+
+    /// Prompts v5 no Postgres: a coluna que a pergunta pede está numa de 60
+    /// tabelas de nome opaco, fora das que vão com colunas — pedir uma a uma
+    /// passa do teto de nomes, então o modelo acha pela busca `columns:`. O
+    /// comentário do schema vai no cabeçalho.
+    #[tokio::test]
+    #[ignore = "requires the assistant API and Postgres on localhost:5432 (postgres/1234)"]
+    async fn e2e_real_postgres_column_search() {
+        use crate::adapters::postgres::PostgresAdapter;
+
+        const DATABASE: &str = "octapus_e2e_assistant_v5";
+        let Some(participant) = participant(DatabaseType::Postgres).await else {
+            return;
+        };
+        let pg_server = Server {
+            username: "postgres".into(),
+            password: "1234".into(),
+            ..server(DatabaseType::Postgres, 5432, None)
+        };
+        let admin = PostgresAdapter::new(&pg_server, "postgres").unwrap();
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
+        admin
+            .execute_statement(&format!("CREATE DATABASE {DATABASE}"))
+            .await
+            .unwrap();
+        let scratch = PostgresAdapter::new(&pg_server, DATABASE).unwrap();
+        let mut statements: Vec<String> = (0..60)
+            .filter(|i| *i != 47)
+            .map(|i| format!("CREATE TABLE t_{i:03} (id serial PRIMARY KEY, valor int, criado_em date)"))
+            .collect();
+        statements.extend(
+            [
+                "COMMENT ON SCHEMA public IS 'Cadastro de pessoas e lançamentos'",
+                "CREATE TABLE t_047 (id serial PRIMARY KEY, nome_completo text NOT NULL, documento_cpf text)",
+                "INSERT INTO t_047 (nome_completo, documento_cpf) VALUES ('Ana Souza', '111'), ('Bia Lima', '222')",
+            ]
+            .map(String::from),
+        );
+        for statement in statements {
+            scratch.execute_statement(&statement).await.unwrap();
+        }
+
+        let (catalogs, entry, dir) = open_catalog(&pg_server, DATABASE).await;
+        let db = AdapterDatabase {
+            adapter: Arc::new(scratch),
+            db_type: DatabaseType::Postgres,
+        };
+        let (finish, events) = ask(
+            &participant,
+            &db,
+            Structure::Catalog(&catalogs, &entry),
+            "Qual o CPF da Ana Souza?",
+        )
+        .await;
+        assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
+        assert!(events.iter().any(|line| line.starts_with("result: 1 linha")), "{events:?}");
+        let sent = participant.sent.lock().join("\n");
+        assert!(sent.contains("-- Columns matching"), "o modelo não buscou a coluna: {events:?}");
+        assert!(sent.contains("-- Schema \\\"public\\\": «Cadastro de pessoas e lançamentos»"), "{sent}");
+
+        drop(db);
+        drop(entry);
+        let _ = std::fs::remove_dir_all(dir);
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
+    }
+
+    /// Prompts v4 no Mongo: o `status` guarda códigos em maiúsculas. Com o
+    /// interruptor desligado, o modelo não vê valor nenhum; ligado, vê os
+    /// valores de exemplo e filtra com o certo. Mongo sem auth em
+    /// `OCTAPUS_E2E_MONGO_PORT` (padrão 27017).
+    #[tokio::test]
+    #[ignore = "requires the assistant API and local mongodb without auth (OCTAPUS_E2E_MONGO_PORT)"]
+    async fn e2e_real_mongo_sample_values() {
+        use mongodb::bson::{doc, Document};
+
+        const DATABASE: &str = "octapus_e2e_assistant_values";
+        let Some(participant) = participant(DatabaseType::Mongodb).await else {
+            return;
+        };
+        let port: u16 = std::env::var("OCTAPUS_E2E_MONGO_PORT")
+            .ok()
+            .and_then(|port| port.parse().ok())
+            .unwrap_or(27017);
+        let mongo = mongodb::Client::with_uri_str(format!("mongodb://localhost:{port}"))
+            .await
+            .unwrap();
+        let database = mongo.database(DATABASE);
+        database.drop().await.unwrap();
+        database
+            .create_collection("chamados")
+            .validator(doc! { "$jsonSchema": {
+                "description": "Chamados do suporte",
+                "properties": { "situacao": { "description": "Situação do pagamento do chamado" } },
+            } })
+            .await
+            .unwrap();
+        let tickets: Vec<Document> = (0..40)
+            .map(|i| {
+                let situacao = match i % 4 {
+                    0 | 1 => "PG_CONFIRMADO",
+                    2 => "AGUARDANDO_PG",
+                    _ => "ESTORNADO",
+                };
+                doc! { "situacao": situacao, "valor": 10.0 + i as f64 }
+            })
+            .collect();
+        database.collection::<Document>("chamados").insert_many(tickets).await.unwrap();
+
+        let server = server(DatabaseType::Mongodb, port, None);
+        let (catalogs, entry, dir) = open_catalog(&server, DATABASE).await;
+        let db = AdapterDatabase {
+            adapter: Arc::new(MongoAdapter::new(&server, DATABASE).await.unwrap()),
+            db_type: DatabaseType::Mongodb,
+        };
+        let question = "Qual o valor total dos chamados já pagos?";
+
+        let (off, _) = ask_full(&participant, &db, Structure::Catalog(&catalogs, &entry), question, &[], false).await;
+        println!("desligado: {:?} {:?}", off.status, off.output.as_ref().map(|output| &output.query));
+        let sent_off = participant.sent.lock().join("\n");
+        // (o `values:` aparece no próprio prompt, como exemplo; os valores do banco, não)
+        for value in ["PG_CONFIRMADO", "AGUARDANDO_PG", "ESTORNADO"] {
+            assert!(!sent_off.contains(value), "{value}: {sent_off}");
+        }
+        assert!(sent_off.contains("Situação do pagamento do chamado"), "{sent_off}");
+
+        let (on, events) = ask_full(&participant, &db, Structure::Catalog(&catalogs, &entry), question, &[], true).await;
+        assert_eq!(on.status, AssistantTurnStatus::Answered, "{on:?}");
+        let query = on.output.as_ref().and_then(|output| output.query.clone()).unwrap_or_default();
+        assert!(query.contains("PG_CONFIRMADO"), "{query}");
+        assert!(events.iter().any(|line| line.starts_with("result: 1 linha")), "{events:?}");
+        let sent = participant.sent.lock().join("\n");
+        assert!(sent.contains("values: \\\"PG_CONFIRMADO\\\" 50%"), "{sent}");
+
+        drop(entry);
+        let _ = std::fs::remove_dir_all(dir);
+        database.drop().await.unwrap();
+    }
+
+    /// Prompts v3 no Postgres: o modelo pede índices e a definição de uma
+    /// função pelos prefixos, e os literais dela (canários) não chegam à API.
+    #[tokio::test]
+    #[ignore = "requires the assistant API and Postgres on localhost:5432 (postgres/1234)"]
+    async fn e2e_real_postgres_object_requests_without_literals() {
+        use crate::adapters::postgres::PostgresAdapter;
+
+        const DATABASE: &str = "octapus_e2e_assistant_v3";
+        let Some(participant) = participant(DatabaseType::Postgres).await else {
+            return;
+        };
+        let pg_server = Server {
+            username: "postgres".into(),
+            password: "1234".into(),
+            ..server(DatabaseType::Postgres, 5432, None)
+        };
+        let admin = PostgresAdapter::new(&pg_server, "postgres").unwrap();
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
+        admin
+            .execute_statement(&format!("CREATE DATABASE {DATABASE}"))
+            .await
+            .unwrap();
+        let scratch = PostgresAdapter::new(&pg_server, DATABASE).unwrap();
+        let noise = (0..200).map(|i| format!("CREATE TABLE t_{i:04} (id serial PRIMARY KEY, code text)"));
+        let objects = [
+            "CREATE TABLE zz_orders (id serial PRIMARY KEY, status text NOT NULL, total_cents int NOT NULL)",
+            "CREATE INDEX zz_orders_status_idx ON zz_orders (status) WHERE status <> 'CANARY_void'",
+            "CREATE FUNCTION zz_order_total(p_order int) RETURNS int LANGUAGE plpgsql AS $$
+               BEGIN
+                 IF p_order = 424242 THEN RAISE EXCEPTION 'CANARY_blocked'; END IF;
+                 RETURN (SELECT total_cents FROM zz_orders WHERE id = p_order AND status <> 'CANARY_void');
+               END $$",
+        ]
+        .map(String::from);
+        for statement in noise.chain(objects) {
+            scratch.execute_statement(&statement).await.unwrap();
+        }
+
+        let (catalogs, entry, dir) = open_catalog(&pg_server, DATABASE).await;
+        let db = AdapterDatabase {
+            adapter: Arc::new(scratch),
+            db_type: DatabaseType::Postgres,
+        };
+        let structure = || Structure::Catalog(&catalogs, &entry);
+        let looked_up = |events: &[String]| events.iter().any(|line| line.starts_with("StructureLookup"));
+
+        let (finish, events) = ask(
+            &participant,
+            &db,
+            structure(),
+            "Quais índices a tabela zz_orders tem? Algum deles é parcial?",
+        )
+        .await;
+        println!("fim 1: {:?}", finish.status);
+        assert!(looked_up(&events), "{events:?}");
+
+        let (finish, events) = ask(
+            &participant,
+            &db,
+            structure(),
+            "O que a função zz_order_total faz, passo a passo?",
+        )
+        .await;
+        println!("fim 2: {:?}", finish.status);
+        assert!(looked_up(&events), "{events:?}");
+
+        let sent = participant.sent.lock().join("\n");
+        assert!(
+            sent.contains("indexes:") || sent.contains("definition:"),
+            "sem prefixo pedido"
+        );
+        assert!(
+            sent.contains("definition:") || sent.contains("functions:"),
+            "sem pedido da função"
+        );
+        assert!(
+            !sent.contains("CANARY") && !sent.contains("424242"),
+            "literal vazou para a API"
+        );
 
         drop(db);
         drop(entry);

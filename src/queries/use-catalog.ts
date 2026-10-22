@@ -10,13 +10,20 @@ import {
   catalogComplete,
   catalogCompareSchemas,
   catalogDiagnostics,
+  catalogFolders,
+  catalogObjectDefinition,
+  catalogObjects,
   catalogOpen,
   catalogRefresh,
   catalogRelationSize,
   catalogSearch,
   catalogShapes,
 } from '@/api/catalog';
-import type { CatalogPath } from '@/api/types/catalog.types';
+import type {
+  CatalogObjectKind,
+  CatalogObjectRef,
+  CatalogPath,
+} from '@/api/types/catalog.types';
 import type { AdapterCapabilities } from '@/api/types/capabilities.types';
 import { queryKeys } from './keys';
 
@@ -91,6 +98,78 @@ export function catalogChildrenQuery(
     // até a nova chegar, sem piscar o nó
     placeholderData: keepPreviousData,
     ...fromEvents,
+  });
+}
+
+/**
+ * As pastas de um schema aberto (as do `structureFolders` do banco) e quantos
+ * itens cada uma tem quando já se sabe: views pelo catálogo; índices e funções
+ * só depois de abertas (`count: null` até lá).
+ */
+export function catalogFoldersQuery(
+  serverId: number,
+  database: string,
+  schema: string,
+) {
+  return queryOptions({
+    queryKey: queryKeys.catalogFolders(serverId, database, schema),
+    queryFn: () => catalogFolders(serverId, database, schema),
+    placeholderData: keepPreviousData,
+    ...fromEvents,
+  });
+}
+
+/**
+ * Uma janela de uma pasta aberta. Índices e funções vão ao banco na primeira
+ * vez (um schema por consulta, ou uma coleção no Mongo) e ficam em memória no
+ * backend até a próxima sincronização.
+ */
+export function catalogObjectsQuery(
+  serverId: number,
+  database: string,
+  schema: string,
+  kind: CatalogObjectKind,
+  table: string | null,
+  filter = '',
+  limit = CATALOG_PAGE_SIZE,
+) {
+  return queryOptions({
+    queryKey: queryKeys.catalogObjects(
+      serverId,
+      database,
+      schema,
+      kind,
+      table,
+      filter,
+      limit,
+    ),
+    queryFn: () =>
+      catalogObjects(serverId, database, schema, kind, {
+        table,
+        filter,
+        limit,
+      }),
+    placeholderData: keepPreviousData,
+    ...fromEvents,
+  });
+}
+
+/**
+ * Definição de um objeto, sob demanda e sempre do momento ("Ver definição"):
+ * a árvore abre o texto numa aba de query nova.
+ */
+export function useCatalogObjectDefinition() {
+  return useMutation({
+    mutationFn: (request: {
+      serverId: number;
+      database: string;
+      target: CatalogObjectRef;
+    }) =>
+      catalogObjectDefinition(
+        request.serverId,
+        request.database,
+        request.target,
+      ),
   });
 }
 

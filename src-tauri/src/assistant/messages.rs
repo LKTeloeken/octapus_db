@@ -307,7 +307,7 @@ mod tests {
         let prompt = prompts::for_db(DatabaseType::Postgres).unwrap();
         let request = attempt_request(prompt, &schema(false), &[], "  quantos pedidos?  ", &[], 200_000);
 
-        assert_eq!(request.prompt_version, "postgres-v2");
+        assert_eq!(request.prompt_version, "postgres-v5");
         assert_eq!(request.messages.len(), 2);
         // A system é o arquivo inteiro, byte a byte (a API confere o hash)
         assert_eq!(request.messages[0].role, Role::System);
@@ -477,7 +477,7 @@ mod tests {
         let prompt = prompts::for_db(DatabaseType::Postgres).unwrap();
         let request = attempt_request(prompt, &schema(false), &[], "x", &[], 8_000);
         let value = serde_json::to_value(&request).unwrap();
-        assert_eq!(value["promptVersion"], "postgres-v2");
+        assert_eq!(value["promptVersion"], "postgres-v5");
         assert_eq!(value["messages"][0]["role"], "system");
         assert_eq!(
             value["context"],

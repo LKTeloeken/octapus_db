@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::interner::{Interner, Sym};
 use super::model::{LoadState, SchemaDiff, SchemaHeader, TableRecord};
+use super::objects::ObjectCache;
 use super::shape::{Shape, ShapeId, TableIndex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +48,8 @@ pub struct Catalog {
     /// A lista completa de schemas (camada 0) já chegou alguma vez — cargas
     /// prioritárias inserem schemas soltos, então "tem schema" não basta
     listed: bool,
+    /// Índices e funções já lidos (só em memória: não vão para o disco)
+    pub(super) objects: ObjectCache,
 }
 
 impl Catalog {
@@ -142,6 +145,7 @@ impl Catalog {
         let Some(entry) = self.schemas.remove(schema) else {
             return false;
         };
+        self.forget_objects(Some(schema));
         if let Some(shape) = entry.shape {
             self.release(shape);
         }

@@ -153,6 +153,7 @@ mod tests {
                 scope_databases: None,
                 scope_schemas: None,
                 group_id,
+                assistant_sample_values: false,
             },
         )
         .unwrap()

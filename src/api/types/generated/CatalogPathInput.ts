@@ -2,7 +2,8 @@
 
 /**
  * Nó cujos filhos o front quer: `{ kind: "schemas" }`,
- * `{ kind: "schema", schema }`, `{ kind: "partitions", schema, table }` ou,
- * na árvore agrupada por formato, `{ kind: "shape", key }`.
+ * `{ kind: "schema", schema }`, `{ kind: "tables", schema }` (as relações
+ * soltas da árvore, sem as views das pastas), `{ kind: "partitions", schema,
+ * table }` ou, na árvore agrupada por formato, `{ kind: "shape", key }`.
  */
-export type CatalogPathInput = { "kind": "schemas" } | { "kind": "schema", schema: string, } | { "kind": "partitions", schema: string, table: string, } | { "kind": "shape", key: string, };
+export type CatalogPathInput = { "kind": "schemas" } | { "kind": "schema", schema: string, } | { "kind": "tables", schema: string, } | { "kind": "partitions", schema: string, table: string, } | { "kind": "shape", key: string, };

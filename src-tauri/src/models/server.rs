@@ -147,6 +147,11 @@ pub struct Server {
     /// Grupo da sidebar (`server_groups`); `None` = fora de qualquer grupo
     #[serde(default)]
     pub group_id: Option<i64>,
+    /// Manda ao assistente os valores de exemplo dos campos categóricos (a
+    /// distribuição de `status`, por exemplo), tirados da amostra. Desligado
+    /// por padrão (RN-08): só o banco com `assistantSampleValues` liga.
+    #[serde(default)]
+    pub assistant_sample_values: bool,
 }
 
 /// For creating/updating servers (receives password)
@@ -174,6 +179,9 @@ pub struct ServerInput {
     pub scope_schemas: Option<String>,
     #[serde(default)]
     pub group_id: Option<i64>,
+    #[serde(default)]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub assistant_sample_values: bool,
 }
 
 /// Grupo de servidores na sidebar (pasta de um nível). Excluir o grupo não

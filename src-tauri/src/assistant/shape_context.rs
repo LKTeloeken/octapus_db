@@ -5,14 +5,19 @@
 //! As coleções vêm do ranking do catálogo (`Catalog::context_candidates`,
 //! como no SQL), e só as primeiras [`MAX_COLLECTIONS`] são amostradas — nunca
 //! o database inteiro. As citadas com `@` na pergunta entram sempre, fora
-//! desse limite (até [`MAX_CITED`]), e o orçamento as encurta sem tirá-las. Não há valor nenhum no texto (RN-08): só caminhos,
-//! tipos BSON e a % de presença. Os nomes vêm do banco e são dado (RN-22),
-//! sempre entre aspas duplas, como no DDL.
+//! desse limite (até [`MAX_CITED`]), e o orçamento as encurta sem tirá-las.
+//! O texto tem caminhos, tipos BSON, a % de presença e as descrições do
+//! validador `$jsonSchema` (entre `«` e `»`, como os comentários do SQL).
+//! Valor, só com o servidor ligando (`Server::assistant_sample_values`): os de
+//! exemplo de um campo categórico, com a fatia de cada um; desligado, nenhum
+//! (RN-08). Os nomes, as descrições e os valores vêm do banco e são dado
+//! (RN-22): nomes entre aspas duplas como no DDL, valores como string JSON.
 //!
 //! ```text
 //! -- MongoDB
-//! collection "orders" (100 sampled documents):
+//! collection "orders" (100 sampled documents): -- «Pedidos da loja»
 //!   "_id" objectId 100%
+//!   "status" string 100% values: "paid" 62%, "open" 30%, … 2 more -- «Situação»
 //!   "customer.name" string 97%
 //!   "items[].qty" int|double 100%
 //! -- Other collections (fields not shown): "audit", "carts"
@@ -26,8 +31,8 @@ use crate::error::Result;
 use crate::services::{CatalogEntry, CatalogService};
 
 use super::schema_context::{
-    budget_tokens, estimate_tokens, mention_of, others_line, qualified, quote_ident, share_room, ContextRequest,
-    MentionReport, SchemaContext, MAX_CITED,
+    budget_tokens, comment, estimate_tokens, mention_of, others_line, qualified, quote_ident, share_room,
+    ContextRequest, MentionReport, SchemaContext, MAX_CITED,
 };
 
 /// Coleções amostradas por turno, no máximo: cada uma é um `$sample`.
@@ -69,7 +74,7 @@ pub async fn build(
             .map(|candidate| candidate.table.clone())
             .collect::<Vec<_>>(),
     );
-    let shapes = catalogs.infer_shape(entry, &chosen).await?;
+    let shapes = catalogs.infer_shape(entry, &chosen, request.sample_values).await?;
     let context = render(&ShapeRender {
         candidates: &candidates,
         chosen: &chosen,
@@ -226,6 +231,9 @@ fn render_collection(shape: &CollectionShape, kind: RelKind, max_fields: Option<
     }
     let plural = if shape.sampled == 1 { "" } else { "s" };
     let mut text = format!("{keyword} {name} ({} sampled document{plural}):", shape.sampled);
+    if let Some(description) = shape.description.as_deref() {
+        text.push_str(&format!(" -- {}", comment(description)));
+    }
 
     let shown = max_fields.unwrap_or(shape.fields.len()).min(shape.fields.len());
     for field in &shape.fields[..shown] {
@@ -235,6 +243,20 @@ fn render_collection(shape: &CollectionShape, kind: RelKind, max_fields: Option<
             field.types.join("|"),
             field.presence
         ));
+        if !field.values.is_empty() {
+            let values: Vec<String> = field
+                .values
+                .iter()
+                .map(|share| format!("{} {}%", json_string(&share.value), share.percent))
+                .collect();
+            text.push_str(&format!(" values: {}", values.join(", ")));
+            if field.more_values > 0 {
+                text.push_str(&format!(", … {} more", field.more_values));
+            }
+        }
+        if let Some(description) = field.description.as_deref() {
+            text.push_str(&format!(" -- {}", comment(description)));
+        }
     }
     if shown < shape.fields.len() {
         text.push_str(&format!("\n  -- … {} more field(s)", shape.fields.len() - shown));
@@ -242,6 +264,11 @@ fn render_collection(shape: &CollectionShape, kind: RelKind, max_fields: Option<
         text.push_str("\n  -- … more fields exist, only the most frequent are shown");
     }
     text
+}
+
+/// O valor como string JSON (o modelo o escreve igual no filtro).
+fn json_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"?\"".to_string())
 }
 
 /// A coleção com o máximo de campos que cabe em `room` caracteres (pelo
@@ -261,7 +288,7 @@ fn fit_fields(shape: &CollectionShape, kind: RelKind, room: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::FieldShape;
+    use crate::catalog::{FieldShape, ValueShare};
 
     fn candidate(table: &str, kind: RelKind, score: u32) -> Candidate {
         Candidate {
@@ -277,6 +304,9 @@ mod tests {
             path: path.into(),
             types: types.to_vec(),
             presence,
+            values: Vec::new(),
+            more_values: 0,
+            description: None,
         }
     }
 
@@ -297,18 +327,21 @@ mod tests {
                     field("na\"me", &["string", "null"], 4),
                 ],
                 truncated: false,
+                description: None,
             },
             CollectionShape {
                 collection: "active_customers".into(),
                 sampled: 1,
                 fields: vec![field("_id", &["objectId"], 100)],
                 truncated: false,
+                description: None,
             },
             CollectionShape {
                 collection: "audit".into(),
                 sampled: 0,
                 fields: vec![],
                 truncated: false,
+                description: None,
             },
         ];
         (candidates, shapes)
@@ -338,6 +371,48 @@ mod tests {
         );
         assert_eq!((context.tables, context.truncated), (3, false));
         assert_eq!(context.tokens_estimate, estimate_tokens(&context.ddl));
+    }
+
+    #[test]
+    fn renders_sample_values_and_descriptions() {
+        let (candidates, mut shapes) = shop();
+        shapes[0].description = Some("Pedidos\nda «loja»".into());
+        let status = FieldShape {
+            values: vec![
+                ValueShare {
+                    value: "paid".into(),
+                    percent: 62,
+                },
+                ValueShare {
+                    value: "em \"aberto\"".into(),
+                    percent: 30,
+                },
+            ],
+            more_values: 2,
+            description: Some("Situação".into()),
+            ..field("status", &["string"], 100)
+        };
+        shapes[0].fields.insert(1, status);
+        let chosen: Vec<String> = candidates.iter().map(|c| c.table.clone()).collect();
+        let context = render(&ShapeRender {
+            candidates: &candidates,
+            chosen: &chosen,
+            cited: &[],
+            shapes: &shapes,
+            budget_tokens: 4_000,
+        });
+        assert!(
+            context.ddl.contains("collection \"orders\" (100 sampled documents): -- «Pedidos da \"loja\"»\n"),
+            "{}",
+            context.ddl
+        );
+        assert!(
+            context.ddl.contains(
+                "\n  \"status\" string 100% values: \"paid\" 62%, \"em \\\"aberto\\\"\" 30%, … 2 more -- «Situação»\n"
+            ),
+            "{}",
+            context.ddl
+        );
     }
 
     #[test]
@@ -435,6 +510,7 @@ mod e2e {
             scope_databases: None,
             scope_schemas: None,
             group_id: None,
+            assistant_sample_values: false,
             created_at: 0,
         }
     }
@@ -484,6 +560,7 @@ mod e2e {
                 context_window: 200_000,
                 mentions: &[],
                 past_mentions: &[],
+                sample_values: false,
             },
         )
         .await
@@ -520,6 +597,7 @@ mod e2e {
                 context_window: 200_000,
                 mentions: &mentions,
                 past_mentions: &past,
+                sample_values: false,
             },
         )
         .await

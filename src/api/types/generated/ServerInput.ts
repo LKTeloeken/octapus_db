@@ -5,4 +5,4 @@ import type { SslMode } from "./SslMode";
 /**
  * For creating/updating servers (receives password)
  */
-export type ServerInput = { name: string, dbType: DatabaseType, host: string, port: number, username: string, password: string, defaultDatabase?: string | null, sslMode?: SslMode | null, sslRootCert?: string | null, connectionUri?: string | null, scopeDatabases?: string | null, scopeSchemas?: string | null, groupId?: number | null, };
+export type ServerInput = { name: string, dbType: DatabaseType, host: string, port: number, username: string, password: string, defaultDatabase?: string | null, sslMode?: SslMode | null, sslRootCert?: string | null, connectionUri?: string | null, scopeDatabases?: string | null, scopeSchemas?: string | null, groupId?: number | null, assistantSampleValues?: boolean, };

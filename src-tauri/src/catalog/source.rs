@@ -9,8 +9,9 @@ use parking_lot::RwLock;
 
 use super::base::Catalog;
 use super::columns::RelationColumns;
-use super::context::{CollectionShape, ForeignKey, RelationDetail};
+use super::context::{CollectionShape, ColumnMatch, ForeignKey, RelationDetail};
 use super::model::{LoadState, SchemaDiff, SchemaHeader, TableRecord};
+use super::objects::{FunctionObject, IndexObject, ObjectRef};
 use crate::error::{Error, Result};
 
 /// Bancos sem nível de schema (Mongo, SQLite) guardam as relações num schema
@@ -106,11 +107,53 @@ pub trait CatalogSource: Send {
 
     /// O formato de cada coleção pedida (Mongo), por uma amostra aleatória
     /// de documentos, na ordem pedida; a que falhou (tempo, permissão) fica
-    /// de fora. Os valores ficam na fonte (RN-08): sai só caminho, tipo e
-    /// presença. Só das escolhidas para o contexto do assistente.
-    async fn infer_shape(&mut self, _collections: &[String]) -> Result<Vec<CollectionShape>> {
+    /// de fora. Os valores ficam na fonte (RN-08): sai só caminho, tipo,
+    /// presença e as descrições do validador — e, com `values`, os valores de
+    /// exemplo dos campos categóricos. Só das escolhidas para o contexto do
+    /// assistente.
+    async fn infer_shape(&mut self, _collections: &[String], _values: bool) -> Result<Vec<CollectionShape>> {
         Err(Error::UnsupportedType(
             "shapes are only inferred for document databases".into(),
+        ))
+    }
+
+    /// As colunas de um schema cujo nome casa com `pattern` — um `LIKE` sem
+    /// diferenciar maiúsculas, com `\` de escape —, até `limit`, por tabela e
+    /// posição. Só o catálogo do banco, nunca dado: é a busca do assistente
+    /// por "onde está o CPF?" (`columns:schema.*cpf*`).
+    async fn search_columns(&mut self, _schema: &str, _pattern: &str, _limit: usize) -> Result<Vec<ColumnMatch>> {
+        Err(Error::UnsupportedType(
+            "columns are only searched in SQL databases".into(),
+        ))
+    }
+
+    /// O comentário de cada schema pedido que tem um, na ordem que vier
+    /// (Postgres; os outros não têm comentário de schema).
+    async fn schema_comments(&mut self, _schemas: &[String]) -> Result<Vec<(String, String)>> {
+        Ok(Vec::new())
+    }
+
+    /// Índices de um schema (sem `table`, numa consulta só) ou de uma relação.
+    /// O Mongo só responde com `table`: o banco não lista os índices de
+    /// todas as coleções.
+    async fn list_indexes(&mut self, _schema: &str, _table: Option<&str>) -> Result<Vec<IndexObject>> {
+        Err(Error::UnsupportedType(
+            "indexes are not listed for this database".into(),
+        ))
+    }
+
+    /// Funções e procedures de um schema, sem as de extensões. Só o Postgres.
+    async fn list_functions(&mut self, _schema: &str) -> Result<Vec<FunctionObject>> {
+        Err(Error::UnsupportedType(
+            "functions are only listed for PostgreSQL".into(),
+        ))
+    }
+
+    /// A definição de um objeto (`CREATE VIEW…`, `CREATE INDEX…`, o corpo da
+    /// função), completa. `None` = não existe.
+    async fn definition(&mut self, _target: &ObjectRef) -> Result<Option<String>> {
+        Err(Error::UnsupportedType(
+            "definitions are not available for this database".into(),
         ))
     }
 

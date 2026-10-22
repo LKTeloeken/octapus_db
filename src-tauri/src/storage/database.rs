@@ -88,6 +88,10 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         ),
         ("ssl_mode", "ALTER TABLE servers ADD COLUMN ssl_mode TEXT"),
         ("ssl_root_cert", "ALTER TABLE servers ADD COLUMN ssl_root_cert TEXT"),
+        (
+            "assistant_sample_values",
+            "ALTER TABLE servers ADD COLUMN assistant_sample_values INTEGER NOT NULL DEFAULT 0",
+        ),
     ];
 
     for (col_name, alter_sql) in migrations {

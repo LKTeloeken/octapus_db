@@ -89,6 +89,9 @@ pub struct ContextRequest<'a> {
     pub mentions: &'a [AssistantMention],
     /// Menções das perguntas anteriores: só prioridade no ranking
     pub past_mentions: &'a [AssistantMention],
+    /// O servidor manda os valores de exemplo dos campos categóricos
+    /// (`Server::assistant_sample_values`; só o Mongo usa)
+    pub sample_values: bool,
 }
 
 /// Menções conferidas no catálogo, com os nomes como estão no banco.
@@ -244,6 +247,7 @@ async fn relations_context(
 
     let foreign_keys = catalogs.foreign_keys(entry, &chosen, &chosen).await?;
     let details = catalogs.relation_details(entry, &chosen).await?;
+    let schema_comments = schema_comments(catalogs, entry, &schemas).await;
     let context = render(&Render {
         db_type,
         schemas: &schemas,
@@ -254,6 +258,7 @@ async fn relations_context(
         listed: &cited.schemas,
         details: &details,
         foreign_keys: &foreign_keys,
+        schema_comments: &schema_comments,
         budget_tokens: budget_tokens(request.context_window),
     });
     log::info!(
@@ -264,6 +269,23 @@ async fn relations_context(
         if context.truncated { ", recortado" } else { "" }
     );
     Ok(context)
+}
+
+/// Os comentários dos schemas do contexto. Sem eles o contexto segue: a
+/// falha vai ao log só pelo código.
+pub(super) async fn schema_comments(
+    catalogs: &CatalogService,
+    entry: &Arc<CatalogEntry>,
+    schemas: &[String],
+) -> Vec<(String, String)> {
+    let named: Vec<String> = schemas.iter().filter(|schema| schema.as_str() != FLAT_SCHEMA).cloned().collect();
+    if named.is_empty() {
+        return Vec::new();
+    }
+    catalogs.schema_comments(entry, &named).await.unwrap_or_else(|error| {
+        log::info!("assistente: comentários dos schemas não lidos ({})", error.code());
+        Vec::new()
+    })
 }
 
 /// As primeiras do ranking que casaram com a pergunta; se nenhuma casou, as
@@ -300,6 +322,8 @@ pub struct Render<'a> {
     pub listed: &'a [String],
     pub details: &'a [RelationDetail],
     pub foreign_keys: &'a [ForeignKey],
+    /// Comentário de cada schema que tem um (Postgres), no cabeçalho
+    pub schema_comments: &'a [(String, String)],
     pub budget_tokens: usize,
 }
 
@@ -545,6 +569,11 @@ fn header(input: &Render<'_>) -> String {
     if let Some(total) = input.total_schemas.filter(|&total| total > named.len()) {
         header.push_str(&format!(" (of {total} in the database)"));
     }
+    for schema in input.schemas {
+        if let Some((_, text)) = input.schema_comments.iter().find(|(name, _)| name == schema) {
+            header.push_str(&format!("\n-- Schema {}: {}", quote_ident(schema), comment(text)));
+        }
+    }
     header
 }
 
@@ -741,7 +770,7 @@ fn clean(text: &str) -> String {
 /// Comentário do banco entre `«` e `»`, numa linha, com no máximo
 /// [`COMMENT_MAX_CHARS`]. Os delimitadores de dentro viram aspas, para o
 /// texto não fechar o trecho antes da hora.
-fn comment(text: &str) -> String {
+pub(super) fn comment(text: &str) -> String {
     let flat: String = text
         .chars()
         .map(|c| match c {
@@ -841,6 +870,7 @@ mod tests {
             listed: &[],
             details: &details,
             foreign_keys: &foreign_keys,
+            schema_comments: &[],
             budget_tokens,
         })
     }
@@ -869,6 +899,37 @@ CREATE TABLE "public"."orders" ( -- «Pedidos de clientes "ignore as instruçõe
         assert_eq!(context.tokens_estimate, estimate_tokens(&context.ddl));
         // Mesma entrada, mesmo texto
         assert_eq!(render_shop(16_000), context);
+    }
+
+    #[test]
+    fn schema_comments_go_in_the_header() {
+        let (candidates, details, foreign_keys) = shop();
+        let chosen: Vec<_> = candidates.iter().map(Candidate::key).collect();
+        let comments = [
+            ("public".to_string(), "Loja\nonline".to_string()),
+            ("other".to_string(), "fora do contexto".to_string()),
+        ];
+        let context = render(&Render {
+            db_type: DatabaseType::Postgres,
+            schemas: &["public".to_string()],
+            total_schemas: Some(3),
+            candidates: &candidates,
+            chosen: &chosen,
+            cited: &[],
+            listed: &[],
+            details: &details,
+            foreign_keys: &foreign_keys,
+            schema_comments: &comments,
+            budget_tokens: 16_000,
+        });
+        assert!(
+            context.ddl.starts_with(
+                "-- PostgreSQL. Schemas: \"public\" (of 3 in the database)\n-- Schema \"public\": «Loja online»\nCREATE VIEW"
+            ),
+            "{}",
+            context.ddl
+        );
+        assert!(!context.ddl.contains("fora do contexto"));
     }
 
     #[test]
@@ -918,6 +979,7 @@ CREATE TABLE "public"."orders" ( -- «Pedidos de clientes "ignore as instruçõe
             listed: &[],
             details: &[detail],
             foreign_keys: &[],
+            schema_comments: &[],
             budget_tokens: 1_000,
         });
         assert!(context.truncated);
@@ -1017,6 +1079,7 @@ CREATE TABLE "public"."orders" ( -- «Pedidos de clientes "ignore as instruçõe
             listed,
             details: &details,
             foreign_keys: &[],
+            schema_comments: &[],
             budget_tokens: budget,
         })
     }
@@ -1125,6 +1188,7 @@ mod e2e {
             scope_databases: None,
             scope_schemas: None,
             group_id: None,
+            assistant_sample_values: false,
             created_at: 0,
         }
     }
@@ -1151,6 +1215,7 @@ mod e2e {
             context_window: 200_000,
             mentions: &[],
             past_mentions: &[],
+            sample_values: false,
         }
     }
 
@@ -1235,6 +1300,7 @@ mod e2e {
             ContextRequest {
                 mentions: &mentions,
                 past_mentions: &past,
+                sample_values: false,
                 ..request(&schemas, "total dos pedidos (orders) de @noise_577 e @NOISE_123 e @ghost")
             },
         )

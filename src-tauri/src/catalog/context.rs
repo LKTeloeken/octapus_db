@@ -41,8 +41,9 @@ pub struct RelationDetail {
     pub columns: Vec<ColumnDetail>,
 }
 
-/// Um campo de uma coleção, inferido da amostra (Mongo). Só o caminho, os
-/// tipos BSON e a presença: nenhum valor (RN-08).
+/// Um campo de uma coleção, inferido da amostra (Mongo): o caminho, os tipos
+/// BSON e a presença. Valor, só os de exemplo de um campo categórico, quando o
+/// servidor liga (`Server::assistant_sample_values`); sem isso, nenhum (RN-08).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldShape {
     /// Caminho com `.` entre os níveis e `[]` nos elementos de array
@@ -52,6 +53,21 @@ pub struct FieldShape {
     pub types: Vec<&'static str>,
     /// % dos documentos da amostra que têm o campo (1 a 100)
     pub presence: u8,
+    /// Valores de exemplo, do mais comum para o menos; vazio fora de um campo
+    /// com cara de enum (ver `adapters::mongo::shape`)
+    pub values: Vec<ValueShare>,
+    /// Valores distintos vistos que ficaram fora de `values`
+    pub more_values: usize,
+    /// A `description` do campo no validador `$jsonSchema` da coleção
+    pub description: Option<String>,
+}
+
+/// Um valor de exemplo e a fatia das ocorrências de texto do campo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValueShare {
+    pub value: String,
+    /// 1 a 100
+    pub percent: u8,
 }
 
 /// O formato de uma coleção, pela amostra aleatória (`$sample`).
@@ -63,6 +79,16 @@ pub struct CollectionShape {
     pub fields: Vec<FieldShape>,
     /// Campos demais: ficaram os mais presentes
     pub truncated: bool,
+    /// A `description` do `$jsonSchema` da coleção
+    pub description: Option<String>,
+}
+
+/// Uma coluna achada pela busca por nome (`search_columns`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColumnMatch {
+    pub table: String,
+    pub column: String,
+    pub data_type: String,
 }
 
 /// Uma relação candidata, com a pontuação contra a pergunta.

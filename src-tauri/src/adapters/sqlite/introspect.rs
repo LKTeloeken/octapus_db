@@ -13,8 +13,8 @@ use parking_lot::{Mutex, RwLock};
 use rusqlite::{Connection, InterruptHandle, OptionalExtension};
 
 use crate::catalog::{
-    sync_flat, Catalog, CatalogSource, ColumnDetail, ForeignKey, RelKind, RelationDetail,
-    SourceCanceller, SyncEvent, SyncReport, TableRecord, FLAT_SCHEMA,
+    sync_flat, Catalog, CatalogSource, ColumnDetail, ColumnMatch, ForeignKey, IndexObject, ObjectKind, ObjectRef,
+    RelKind, RelationDetail, SourceCanceller, SyncEvent, SyncReport, TableRecord, FLAT_SCHEMA,
 };
 use crate::error::{Error, Result};
 use crate::models::Server;
@@ -201,6 +201,106 @@ fn read_details(conn: &Connection, database: &str, tables: &[String]) -> rusqlit
     Ok(details)
 }
 
+/// Colunas cujo nome casa com o `LIKE` (escape `\\`; o `LIKE` do SQLite não
+/// diferencia maiúsculas em ASCII), até `limit`, das tabelas e views do banco.
+fn search_columns(
+    conn: &Connection,
+    database: &str,
+    pattern: &str,
+    limit: usize,
+) -> rusqlite::Result<Vec<ColumnMatch>> {
+    let schema = quote_ident(database);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT m.name, p.name, p.type FROM {schema}.sqlite_schema AS m \
+         JOIN pragma_table_info(m.name, ?1) AS p \
+         WHERE m.type IN ('table', 'view') AND m.name NOT LIKE 'sqlite_%' \
+           AND p.name LIKE ?2 ESCAPE '\\' \
+         ORDER BY m.name, p.cid LIMIT ?3"
+    ))?;
+    let rows = stmt.query_map(rusqlite::params![database, pattern, limit as i64], |row| {
+        Ok(ColumnMatch {
+            table: row.get(0)?,
+            column: row.get(1)?,
+            data_type: row.get(2)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Índices do arquivo (ou de uma tabela), do `sqlite_schema`. Os autoindexes
+/// (`sqlite_autoindex_*`, de `UNIQUE`/`PRIMARY KEY`) não têm `sql` e ficam de
+/// fora, como os internos.
+fn read_indexes(conn: &Connection, database: &str, table: Option<&str>) -> rusqlite::Result<Vec<IndexObject>> {
+    let schema = quote_ident(database);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT m.name, m.tbl_name, il.\"unique\", il.partial, m.sql
+         FROM {schema}.sqlite_schema AS m
+         JOIN pragma_index_list(m.tbl_name, ?1) AS il ON il.name = m.name
+         WHERE m.type = 'index' AND m.sql IS NOT NULL AND m.name NOT LIKE 'sqlite_%'
+           AND (?2 IS NULL OR m.tbl_name = ?2)
+         ORDER BY m.name"
+    ))?;
+    let listed = stmt
+        .query_map(rusqlite::params![database, table], |row| {
+            let partial = row.get::<_, i64>(3)? != 0;
+            let sql: String = row.get(4)?;
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)? != 0,
+                partial.then(|| partial_predicate(&sql)).flatten(),
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    // Expressão não tem nome de coluna (`name` nulo)
+    let mut columns = conn.prepare("SELECT name FROM pragma_index_info(?1, ?2) ORDER BY seqno")?;
+    listed
+        .into_iter()
+        .map(|(name, table, unique, predicate)| {
+            let cols = columns
+                .query_map([name.as_str(), database], |row| {
+                    Ok(row.get::<_, Option<String>>(0)?.unwrap_or_else(|| "(expr)".to_string()))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(IndexObject {
+                name,
+                table,
+                // O SQLite só tem b-tree
+                method: "btree".to_string(),
+                unique,
+                primary: false,
+                columns: cols,
+                predicate,
+            })
+        })
+        .collect()
+}
+
+/// A condição de um índice parcial: o que vem depois do último `WHERE` do
+/// `CREATE INDEX` guardado (o SQLite não guarda a condição à parte). Basta
+/// para mostrar; a definição inteira vem por `definition`.
+fn partial_predicate(sql: &str) -> Option<String> {
+    let at = sql.to_ascii_uppercase().rfind("WHERE")?;
+    let predicate = sql[at + "WHERE".len()..].trim().trim_end_matches(';').trim();
+    (!predicate.is_empty()).then(|| predicate.to_string())
+}
+
+/// O `CREATE` guardado no `sqlite_schema` de uma view ou de um índice.
+fn read_definition(conn: &Connection, database: &str, kind: &str, name: &str) -> rusqlite::Result<Option<String>> {
+    let schema = quote_ident(database);
+    conn.query_row(
+        &format!("SELECT sql FROM {schema}.sqlite_schema WHERE type = ?1 AND name = ?2"),
+        [kind, name],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .optional()
+    .map(|sql| {
+        sql.flatten()
+            .map(|sql| format!("{};\n", sql.trim_end().trim_end_matches(';')))
+    })
+}
+
 struct SqliteCanceller(Arc<InterruptHandle>);
 
 #[async_trait]
@@ -269,6 +369,38 @@ impl CatalogSource for SqliteSource {
             .await
     }
 
+    async fn search_columns(&mut self, schema: &str, pattern: &str, limit: usize) -> Result<Vec<ColumnMatch>> {
+        if schema != FLAT_SCHEMA {
+            return Ok(Vec::new());
+        }
+        let pattern = pattern.to_string();
+        self.with_conn(move |conn, database| search_columns(conn, database, &pattern, limit))
+            .await
+    }
+
+    async fn list_indexes(&mut self, schema: &str, table: Option<&str>) -> Result<Vec<IndexObject>> {
+        if schema != FLAT_SCHEMA {
+            return Ok(Vec::new());
+        }
+        let table = table.map(str::to_string);
+        self.with_conn(move |conn, database| read_indexes(conn, database, table.as_deref()))
+            .await
+    }
+
+    async fn definition(&mut self, target: &ObjectRef) -> Result<Option<String>> {
+        let kind = match target.kind {
+            ObjectKind::View => "view",
+            ObjectKind::Index => "index",
+            ObjectKind::MaterializedView | ObjectKind::Function => return Ok(None),
+        };
+        if target.schema != FLAT_SCHEMA {
+            return Ok(None);
+        }
+        let name = target.name.clone();
+        self.with_conn(move |conn, database| read_definition(conn, database, kind, &name))
+            .await
+    }
+
     fn canceller(&self) -> Box<dyn SourceCanceller> {
         Box::new(SqliteCanceller(Arc::clone(&self.interrupt)))
     }
@@ -304,6 +436,7 @@ mod tests {
             scope_databases: None,
             scope_schemas: None,
             group_id: None,
+            assistant_sample_values: false,
             created_at: 0,
         }
     }
@@ -368,6 +501,75 @@ mod tests {
         let size = source.relation_size(FLAT_SCHEMA, "users").await.unwrap();
         assert!(size.is_some_and(|bytes| bytes > 0));
         assert_eq!(source.relation_size(FLAT_SCHEMA, "active").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn lists_indexes_without_autoindexes_and_reads_definitions() {
+        let path = fresh_file("objects");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE, name TEXT);
+                 CREATE INDEX idx_users_name ON users(name, lower(email)) WHERE name <> 'x';
+                 CREATE UNIQUE INDEX idx_users_email ON users(email);
+                 CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER);
+                 CREATE INDEX idx_orders_user ON orders(user_id);
+                 CREATE VIEW active AS SELECT * FROM users;",
+            )
+            .unwrap();
+        let mut source = SqliteSource::connect(&server(path.to_str().unwrap()), "main")
+            .await
+            .unwrap();
+
+        let all = source.list_indexes(FLAT_SCHEMA, None).await.unwrap();
+        let names: Vec<&str> = all.iter().map(|index| index.name.as_str()).collect();
+        // O `UNIQUE` de `email` vira `sqlite_autoindex_users_1`: fica de fora
+        assert_eq!(names, ["idx_orders_user", "idx_users_email", "idx_users_name"]);
+        let by_name = all.iter().find(|index| index.name == "idx_users_name").unwrap();
+        assert_eq!((by_name.table.as_str(), by_name.unique), ("users", false));
+        assert_eq!(by_name.columns, ["name", "(expr)"]);
+        assert_eq!(by_name.predicate.as_deref(), Some("name <> 'x'"));
+        assert_eq!(
+            all.iter()
+                .find(|index| index.name == "idx_users_email")
+                .unwrap()
+                .predicate,
+            None
+        );
+        assert!(all.iter().find(|index| index.name == "idx_users_email").unwrap().unique);
+
+        let of_orders = source.list_indexes(FLAT_SCHEMA, Some("orders")).await.unwrap();
+        assert_eq!(of_orders.len(), 1);
+
+        let target = |kind, name: &str| ObjectRef {
+            kind,
+            schema: FLAT_SCHEMA.into(),
+            name: name.into(),
+            table: None,
+            signature: None,
+        };
+        let view = source
+            .definition(&target(ObjectKind::View, "active"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(view, "CREATE VIEW active AS SELECT * FROM users;\n");
+        let index = source
+            .definition(&target(ObjectKind::Index, "idx_orders_user"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(index.starts_with("CREATE INDEX idx_orders_user ON orders(user_id)"));
+        assert!(source
+            .definition(&target(ObjectKind::Index, "nope"))
+            .await
+            .unwrap()
+            .is_none());
+        assert!(source
+            .definition(&target(ObjectKind::Function, "f"))
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

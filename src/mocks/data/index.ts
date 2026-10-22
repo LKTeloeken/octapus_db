@@ -34,7 +34,10 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsBackup: true,
     supportsAtomicSave: true,
     supportsAssistant: true,
+    assistantSampleValues: false,
     queryLanguage: 'sql',
+    structureFolders: ['view', 'materializedView', 'function'],
+    relationFolders: ['index'],
   },
   mongodb: {
     hasSchemas: false,
@@ -50,7 +53,10 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsBackup: false,
     supportsAtomicSave: true,
     supportsAssistant: true,
+    assistantSampleValues: true,
     queryLanguage: 'mongo',
+    structureFolders: ['view'],
+    relationFolders: ['index'],
   },
   redis: {
     hasSchemas: false,
@@ -66,7 +72,10 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsBackup: false,
     supportsAtomicSave: false,
     supportsAssistant: true,
+    assistantSampleValues: false,
     queryLanguage: 'redis_plan',
+    structureFolders: [],
+    relationFolders: [],
   },
   sqlite: {
     hasSchemas: false,
@@ -82,7 +91,10 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsBackup: false,
     supportsAtomicSave: true,
     supportsAssistant: true,
+    assistantSampleValues: false,
     queryLanguage: 'sql',
+    structureFolders: ['view'],
+    relationFolders: ['index'],
   },
 };
 
@@ -128,6 +140,7 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     scopeDatabases: null,
     scopeSchemas: null,
     groupId: 1,
+    assistantSampleValues: false,
   },
   {
     name: 'Catálogo (Atlas)',
@@ -143,6 +156,7 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     scopeDatabases: null,
     scopeSchemas: null,
     groupId: null,
+    assistantSampleValues: false,
   },
   {
     name: 'Notas (arquivo)',
@@ -159,6 +173,7 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     scopeDatabases: null,
     scopeSchemas: null,
     groupId: null,
+    assistantSampleValues: false,
   },
   {
     name: 'Cache (dev)',
@@ -174,6 +189,7 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     scopeDatabases: null,
     scopeSchemas: null,
     groupId: 1,
+    assistantSampleValues: false,
   },
 ];
 

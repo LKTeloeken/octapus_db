@@ -80,8 +80,10 @@ export const QueryProvider = ({ children }: { children: ReactNode }) => {
         // `ssl-capabilities-v1`: `Server` trocou `sslEnabled` por `sslMode` e
         // `AdapterCapabilities` ganhou as flags de catálogo, estrutura e backup.
         // `assistant-capabilities-v1`: `AdapterCapabilities` ganhou
-        // `supportsAssistant` e `queryLanguage`
-        buster: 'assistant-capabilities-v1',
+        // `supportsAssistant` e `queryLanguage`. `structure-folders-v1`:
+        // ganhou `structureFolders` e `relationFolders` (pastas da árvore).
+        // `structure-folders-v2`: a pasta Índices foi para dentro da tabela
+        buster: 'structure-folders-v2',
         dehydrateOptions: PERSIST_DEHYDRATE_OPTIONS,
       }}
     >

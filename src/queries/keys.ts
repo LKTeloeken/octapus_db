@@ -11,6 +11,8 @@ export function catalogPathKey(path: CatalogPath): string {
       return 'schemas';
     case 'schema':
       return `schema:${path.schema}`;
+    case 'tables':
+      return `tables:${path.schema}`;
     case 'partitions':
       return `partitions:${path.schema}\u0000${path.table}`;
     case 'shape':
@@ -113,11 +115,36 @@ export const queryKeys = {
       { filter, limit },
     ] as const,
 
-  /** Tamanho exato de uma relação (sob demanda: só da tabela aberta) */
   /** Grupos por formato (árvore agrupada) */
   catalogShapes: (serverId: number, database: string) =>
     ['catalog', serverId, database, 'shapes'] as const,
 
+  /** Pastas de um schema (quais e quantos itens, quando já se sabe) */
+  catalogFolders: (serverId: number, database: string, schema: string) =>
+    ['catalog', serverId, database, 'folders', schema] as const,
+
+  /** Uma janela de uma pasta; `table` = os índices de uma relação só */
+  catalogObjects: (
+    serverId: number,
+    database: string,
+    schema: string,
+    kind: string,
+    table: string | null,
+    filter: string,
+    limit: number,
+  ) =>
+    [
+      'catalog',
+      serverId,
+      database,
+      'objects',
+      schema,
+      kind,
+      table,
+      { filter, limit },
+    ] as const,
+
+  /** Tamanho exato de uma relação (sob demanda: só da tabela aberta) */
   catalogRelationSize: (
     serverId: number,
     database: string,

@@ -159,6 +159,9 @@ pub fn run() {
             commands::catalog_refresh,
             commands::catalog_cancel,
             commands::catalog_relation_size,
+            commands::catalog_objects,
+            commands::catalog_folders,
+            commands::catalog_object_definition,
             commands::catalog_shapes,
             commands::catalog_diagnostics,
             // Sessão do workspace (abas abertas)

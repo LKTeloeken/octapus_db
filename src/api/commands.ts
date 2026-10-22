@@ -54,6 +54,9 @@ export enum RustCommand {
   CatalogRelationSize = 'catalog_relation_size',
   CatalogShapes = 'catalog_shapes',
   CatalogDiagnostics = 'catalog_diagnostics',
+  CatalogObjects = 'catalog_objects',
+  CatalogFolders = 'catalog_folders',
+  CatalogObjectDefinition = 'catalog_object_definition',
 
   // Free query editor
   ExecuteQuery = 'execute_query',

@@ -3,13 +3,20 @@ import {
   DatabaseIcon,
   Folder01Icon,
   Folder02Icon,
+  FolderCodeIcon,
+  FolderDetailsIcon,
+  FolderKeyIcon,
   FolderLibraryIcon,
+  FolderViewIcon,
+  FoldersIcon,
+  FunctionSquareIcon,
   HashtagIcon,
   Layers01Icon,
   MoreHorizontalIcon,
   ServerStack01Icon,
   TableIcon,
   ViewIcon,
+  ZapIcon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Fragment, memo, useState } from 'react';
@@ -26,7 +33,11 @@ import { DB_TYPE_TEXT_COLOR } from '@/lib/db-defaults';
 import { formatBytes } from '@/lib/format-bytes';
 import { cn } from '@/lib/utils';
 import type { CatalogNodeKind } from '@/api/types/catalog.types';
-import type { NodeRowKind, NodeRowProps } from './node-row.types';
+import type {
+  NodeRowKind,
+  NodeRowProps,
+  TreeFolderKind,
+} from './node-row.types';
 
 const KIND_ICONS: Record<NodeRowKind, typeof DatabaseIcon> = {
   group: Folder02Icon,
@@ -35,7 +46,21 @@ const KIND_ICONS: Record<NodeRowKind, typeof DatabaseIcon> = {
   shape: FolderLibraryIcon,
   schema: Folder01Icon,
   table: TableIcon,
+  folder: Folder01Icon,
+  index: ZapIcon,
+  function: FunctionSquareIcon,
   column: HashtagIcon,
+};
+
+/** Cada pasta com o ícone do que guarda */
+const FOLDER_ICONS: Record<TreeFolderKind, typeof DatabaseIcon> = {
+  tables: Folder01Icon,
+  columns: FolderDetailsIcon,
+  partitions: FoldersIcon,
+  view: FolderViewIcon,
+  materializedView: FolderViewIcon,
+  index: FolderKeyIcon,
+  function: FolderCodeIcon,
 };
 
 /** Views e tabelas particionadas se distinguem da tabela comum pelo ícone */
@@ -62,6 +87,8 @@ export const NodeRow = memo(
     isLoading,
     dbType,
     relationKind,
+    folderKind,
+    title,
     badge,
     isOpen,
     isFocused,
@@ -74,9 +101,11 @@ export const NodeRow = memo(
     const isServer = kind === 'server';
     // Grupo e servidor são os nós de topo: nome em destaque
     const isTopLevel = isServer || kind === 'group';
-    // Sem botão: o tamanho ocupa o lugar dele, e numa coluna o nome e o tipo
-    // precisam da largura toda — o menu abre pelo clique direito
-    const contextMenuOnly = hasSize || kind === 'column';
+    // Sem botão: o tamanho ocupa o lugar dele, e numa coluna, índice ou
+    // função o nome e o detalhe precisam da largura toda — o menu abre pelo
+    // clique direito
+    const contextMenuOnly =
+      hasSize || kind === 'column' || kind === 'index' || kind === 'function';
 
     return (
       <div
@@ -89,6 +118,7 @@ export const NodeRow = memo(
           hasActions && !contextMenuOnly && 'pr-8',
         )}
         style={{ paddingLeft: `${6 + level * 14}px` }}
+        title={title}
         onClick={onClick}
         onContextMenu={
           hasActions
@@ -117,7 +147,9 @@ export const NodeRow = memo(
 
         <HugeiconsIcon
           icon={
-            (relationKind && RELATION_ICONS[relationKind]) ?? KIND_ICONS[kind]
+            (folderKind && FOLDER_ICONS[folderKind]) ??
+            (relationKind && RELATION_ICONS[relationKind]) ??
+            KIND_ICONS[kind]
           }
           className={cn(
             'size-4 shrink-0',

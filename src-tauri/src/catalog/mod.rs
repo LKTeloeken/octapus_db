@@ -15,6 +15,7 @@ mod context;
 mod drift;
 mod interner;
 mod model;
+mod objects;
 mod persist;
 mod query;
 mod scope;
@@ -28,7 +29,8 @@ mod proptests;
 pub use base::Catalog;
 pub use columns::{common_relations, compare_schemas, RelationColumns};
 pub use context::{
-    with_neighbors, Candidate, CollectionShape, ColumnDetail, FieldShape, ForeignKey, RelationDetail,
+    with_neighbors, Candidate, CollectionShape, ColumnDetail, ColumnMatch, FieldShape, ForeignKey, RelationDetail,
+    ValueShare,
 };
 pub use model::{
     CatalogNode, CatalogPath, CatalogStats, ColumnSpec, DriftReport, LoadState, NodeKind, Page,
@@ -37,6 +39,7 @@ pub use model::{
 };
 #[cfg(test)]
 pub use model::SchemaDrift;
+pub use objects::{CatalogObject, FolderSummary, FunctionKind, FunctionObject, IndexObject, ObjectKind, ObjectRef};
 pub use persist::{CatalogKey, CatalogStore, Loaded};
 pub use scope::NameScope;
 pub use source::{

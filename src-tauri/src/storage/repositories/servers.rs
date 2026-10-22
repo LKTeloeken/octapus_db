@@ -4,12 +4,13 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection, Row};
 
 use crate::error::{Error, Result};
-use crate::models::{DatabaseType, Server, ServerInput, SslMode};
+use crate::models::{AdapterCapabilities, DatabaseType, Server, ServerInput, SslMode};
 use crate::storage::{secrets, vault};
 
 const SELECT_COLUMNS: &str = "id, name, db_type, host, port, username, password, \
                               default_database, ssl_mode, connection_uri, created_at, \
-                              scope_databases, scope_schemas, group_id, ssl_root_cert";
+                              scope_databases, scope_schemas, group_id, ssl_root_cert, \
+                              assistant_sample_values";
 
 /// Get all servers (metadata only). The UI never displays passwords, so the
 /// stored ciphertext is never decrypted nor returned here.
@@ -76,13 +77,15 @@ pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server>
 
     let db_type_str = db_type_to_string(&input.db_type);
     let ssl = SslColumns::from_input(&input);
+    let sample_values = sample_values(&input);
     let encrypted = vault::encrypt(&input.password)?;
 
     let mut stmt = conn.prepare(&format!(
         "INSERT INTO servers (name, db_type, host, port, username, password, \
                               default_database, ssl_enabled, connection_uri, created_at, \
-                              scope_databases, scope_schemas, group_id, ssl_mode, ssl_root_cert) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) \
+                              scope_databases, scope_schemas, group_id, ssl_mode, ssl_root_cert, \
+                              assistant_sample_values) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16) \
          RETURNING {SELECT_COLUMNS}"
     ))?;
 
@@ -104,6 +107,7 @@ pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server>
                 input.group_id,
                 ssl.mode,
                 ssl.root_cert,
+                sample_values,
             ],
             map_row,
         )
@@ -122,6 +126,7 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
 
     let db_type_str = db_type_to_string(&input.db_type);
     let ssl = SslColumns::from_input(&input);
+    let sample_values = sample_values(&input);
     let encrypted = vault::encrypt(&input.password)?;
 
     let mut stmt = conn.prepare(&format!(
@@ -129,7 +134,7 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
          SET name = ?1, db_type = ?2, host = ?3, port = ?4, username = ?5, \
              password = ?6, default_database = ?7, ssl_enabled = ?8, connection_uri = ?9, \
              scope_databases = ?11, scope_schemas = ?12, group_id = ?13, \
-             ssl_mode = ?14, ssl_root_cert = ?15 \
+             ssl_mode = ?14, ssl_root_cert = ?15, assistant_sample_values = ?16 \
          WHERE id = ?10 \
          RETURNING {SELECT_COLUMNS}"
     ))?;
@@ -152,6 +157,7 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
                 input.group_id,
                 ssl.mode,
                 ssl.root_cert,
+                sample_values,
             ],
             map_row,
         )
@@ -234,7 +240,15 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<Server> {
         scope_databases: row.get(11)?,
         scope_schemas: row.get(12)?,
         group_id: row.get(13)?,
+        assistant_sample_values: row.get(15)?,
     })
+}
+
+/// Os valores de exemplo ao assistente só ficam ligados no banco que os manda
+/// (capabilities); nos outros, gravam desligados.
+fn sample_values(input: &ServerInput) -> bool {
+    input.assistant_sample_values
+        && AdapterCapabilities::for_db_type(input.db_type).is_some_and(|caps| caps.assistant_sample_values)
 }
 
 /// O TLS como vai para as colunas: o modo ajustado ao banco, a CA só quando
@@ -340,6 +354,7 @@ mod tests {
             scope_databases: None,
             scope_schemas: None,
             group_id: None,
+            assistant_sample_values: false,
         }
     }
 
@@ -370,6 +385,31 @@ mod tests {
         // Metadata paths never expose the secret.
         assert_eq!(get_by_id_meta(&storage, id).unwrap().password, "");
         assert_eq!(get_all(&storage).unwrap()[0].password, "");
+    }
+
+    #[test]
+    fn sample_values_only_stay_on_where_the_database_sends_them() {
+        vault::init_for_tests();
+        let storage = Mutex::new(init_storage(":memory:").unwrap());
+        let mongo = ServerInput {
+            db_type: DatabaseType::Mongodb,
+            port: 27017,
+            assistant_sample_values: true,
+            ..sample_input()
+        };
+        let id = create(&storage, mongo).unwrap().id.unwrap();
+        assert!(get_by_id_meta(&storage, id).unwrap().assistant_sample_values);
+        assert!(get_all(&storage).unwrap()[0].assistant_sample_values);
+
+        // Desligar grava desligado; o Postgres não manda valores, então grava
+        // desligado mesmo pedindo
+        let off = update(&storage, id, ServerInput { db_type: DatabaseType::Mongodb, ..sample_input() }).unwrap();
+        assert!(!off.assistant_sample_values);
+        let postgres = ServerInput {
+            assistant_sample_values: true,
+            ..sample_input()
+        };
+        assert!(!update(&storage, id, postgres).unwrap().assistant_sample_values);
     }
 
     #[test]

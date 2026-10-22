@@ -2,6 +2,7 @@ import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import type { DatabaseType, ServerInput } from '@/api/types/server.types';
+import { useDbCapabilities } from '@/queries/use-capabilities';
 import { useServerGroups } from '@/queries/use-server-groups';
 import {
   useCreateServer,
@@ -26,6 +27,7 @@ const emptyForm: ServerInput = {
   scopeDatabases: null,
   scopeSchemas: null,
   groupId: null,
+  assistantSampleValues: false,
 };
 
 export const useServerForm = ({
@@ -38,6 +40,7 @@ export const useServerForm = ({
   const [openRemoveDialog, setOpenRemoveDialog] = useState(false);
 
   const { data: groups = [] } = useServerGroups();
+  const capsByType = useDbCapabilities();
   const createServer = useCreateServer();
   const updateServer = useUpdateServer();
   const deleteServer = useDeleteServer();
@@ -63,6 +66,7 @@ export const useServerForm = ({
         scopeDatabases: server.scopeDatabases,
         scopeSchemas: server.scopeSchemas,
         groupId: server.groupId,
+        assistantSampleValues: server.assistantSampleValues,
       });
     } else {
       setForm({ ...emptyForm, groupId: defaultGroupId });
@@ -121,6 +125,9 @@ export const useServerForm = ({
 
   const sslOptions = sslModesFor(form.dbType);
   const sslVerifies = sslModeVerifies(form.sslMode);
+  /** O banco pode mandar ao assistente os valores de exemplo (só o Mongo) */
+  const canShareSampleValues =
+    capsByType[form.dbType]?.assistantSampleValues === true;
 
   const disableSave = useMemo(() => {
     // No SQLite a URI é o caminho do arquivo, e é o único campo obrigatório
@@ -167,6 +174,7 @@ export const useServerForm = ({
     openRemoveDialog,
     sslOptions,
     sslVerifies,
+    canShareSampleValues,
     setField,
     setDbType,
     chooseRootCert,

@@ -16,6 +16,7 @@ pub mod failure;
 pub mod guard;
 pub mod key_context;
 pub mod language;
+pub mod literals;
 pub mod messages;
 pub mod output;
 pub mod prompts;

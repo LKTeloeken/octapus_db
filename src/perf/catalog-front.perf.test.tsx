@@ -107,6 +107,7 @@ const SERVER: Server = {
   scopeDatabases: null,
   scopeSchemas: null,
   groupId: null,
+  assistantSampleValues: false,
 };
 
 const schemaNode = (name: string): CatalogNode => ({

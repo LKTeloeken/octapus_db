@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select';
 import { SimpleAlertDialog } from '@/components/ui/simple-alert-dialog';
 import { SimpleDialog } from '@/components/ui/simple-dialog';
+import { Switch } from '@/components/ui/switch';
 import {
   DB_TYPE_ICONS,
   DB_TYPE_LABELS,
@@ -21,6 +22,9 @@ import type { ServerFormProps } from './server-form.types';
 import { useServerForm } from './use-server-form';
 import { NO_GROUP } from '@/features/server-groups/server-groups.types';
 import { cn } from '@/lib/utils';
+
+const SAMPLE_VALUES_HELP =
+  'De uma amostra dos documentos, o assistente vê os valores que se repetem em campos de texto como status e tipo, para acertar os filtros. Nomes, e-mails, documentos e texto livre ficam de fora. Desligado, ele vê só os nomes e os tipos dos campos.';
 
 const SCOPE_HELP =
   'Padrões separados por vírgula: * qualquer trecho, ? um caractere, ! na frente exclui. Vazio mostra todos.';
@@ -35,6 +39,7 @@ export function ServerForm(props: ServerFormProps) {
     openRemoveDialog,
     sslOptions,
     sslVerifies,
+    canShareSampleValues,
     setField,
     setDbType,
     chooseRootCert,
@@ -77,7 +82,9 @@ export function ServerForm(props: ServerFormProps) {
           </>
         }
       >
-        <div className="flex flex-col gap-6">
+        {/* O corpo rola: com TLS, escopo e o interruptor do assistente, o
+            formulário passa da altura de uma janela pequena e o rodapé sumia */}
+        <div className="-mx-6 flex max-h-[65vh] flex-col gap-6 overflow-y-auto px-6 py-1 scrollbar-thin">
           {/* Escolha do banco: selecionado em `--active` + anel `--ring`; na
               edição o tipo não muda e os demais ficam apagados. */}
           <div role="radiogroup" aria-label="Banco" className="flex gap-2">
@@ -281,6 +288,26 @@ export function ServerForm(props: ServerFormProps) {
                     setField('scopeSchemas', e.target.value || null)
                   }
                 />
+              )}
+
+              {canShareSampleValues && (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col gap-0.5">
+                    <Label htmlFor="server-sample-values">
+                      Mostrar ao assistente os valores mais comuns
+                    </Label>
+                    <span className="text-small text-fg-muted">
+                      {SAMPLE_VALUES_HELP}
+                    </span>
+                  </div>
+                  <Switch
+                    id="server-sample-values"
+                    checked={form.assistantSampleValues ?? false}
+                    onCheckedChange={checked =>
+                      setField('assistantSampleValues', checked)
+                    }
+                  />
+                </div>
               )}
             </>
           )}

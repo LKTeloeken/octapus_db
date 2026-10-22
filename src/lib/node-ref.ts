@@ -11,6 +11,9 @@ export interface NodeRef {
   shape?: string;
   schema?: string;
   table?: string;
+  /** Pasta da árvore (`view`, `index`…): sob um schema ou, no Mongo, sob a
+   *  coleção (com `table`) */
+  folder?: string;
   column?: string;
 }
 
@@ -20,6 +23,7 @@ export type NodeKind =
   | 'shape'
   | 'schema'
   | 'table'
+  | 'folder'
   | 'column';
 
 const SEGMENT_KEYS = [
@@ -27,6 +31,7 @@ const SEGMENT_KEYS = [
   'shape',
   'schema',
   'table',
+  'folder',
   'column',
 ] as const;
 
@@ -39,11 +44,13 @@ const SEGMENT_PREFIX: Record<(typeof SEGMENT_KEYS)[number], string> = {
   shape: 'fm',
   schema: 'sc',
   table: 'tb',
+  folder: 'fd',
   column: 'co',
 };
 
 export function nodeKind(ref: NodeRef): NodeKind {
   if (ref.column != null) return 'column';
+  if (ref.folder != null) return 'folder';
   if (ref.table != null) return 'table';
   if (ref.schema != null) return 'schema';
   if (ref.shape != null) return 'shape';

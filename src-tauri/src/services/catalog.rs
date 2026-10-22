@@ -23,9 +23,9 @@ use futures_util::future::BoxFuture;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 
 use crate::catalog::{
-    common_relations, compare_schemas, stable_hash, Catalog, CatalogKey, CatalogSource,
-    CatalogStore, CollectionShape, ForeignKey, LoadState, Loaded, RelationDetail, SchemaComparison, SearchHit,
-    SourceCanceller, Strategy, SyncEvent, SyncReport,
+    common_relations, compare_schemas, stable_hash, Catalog, CatalogKey, CatalogObject, CatalogSource, CatalogStore,
+    CollectionShape, ColumnMatch, FolderSummary, ForeignKey, LoadState, Loaded, ObjectKind, ObjectRef, Page,
+    RelationDetail, SchemaComparison, SearchHit, SourceCanceller, Strategy, SyncEvent, SyncReport,
 };
 use crate::error::{Error, Result};
 use crate::models::{
@@ -248,6 +248,9 @@ async fn run_sync(shared: Arc<Shared>, entry: Arc<CatalogEntry>) {
                 report.shared,
                 report.layer0.as_millis()
             );
+            // Índices e funções não entram no fingerprint: revalidar o
+            // catálogo é ler de novo o que for pedido
+            entry.catalog.write().forget_objects(None);
             {
                 let mut state = entry.state.lock();
                 state.syncing = false;
@@ -528,23 +531,168 @@ impl CatalogService {
         result
     }
 
-    /// O formato das coleções escolhidas (Mongo), pela faixa de prioridade
-    /// (contexto do assistente).
-    pub async fn infer_shape(&self, entry: &Arc<CatalogEntry>, collections: &[String]) -> Result<Vec<CollectionShape>> {
+    /// Colunas de um schema pelo nome (`LIKE`, ver
+    /// [`CatalogSource::search_columns`]), pela faixa de prioridade (pedido de
+    /// estrutura do assistente).
+    pub async fn search_columns(
+        &self,
+        entry: &Arc<CatalogEntry>,
+        schema: &str,
+        pattern: &str,
+        limit: usize,
+    ) -> Result<Vec<ColumnMatch>> {
         entry.touch();
         let mut lane = entry.priority_lane.lock().await;
         let source = open_lane(entry, &mut lane).await?;
-        let result = source.infer_shape(collections).await;
+        let result = source.search_columns(schema, pattern, limit).await;
         if result.is_err() && source.is_closed() {
             *lane = None;
         }
         result
     }
 
+    /// Os comentários dos schemas pedidos (Postgres), pela faixa de prioridade
+    /// (contexto do assistente).
+    pub async fn schema_comments(
+        &self,
+        entry: &Arc<CatalogEntry>,
+        schemas: &[String],
+    ) -> Result<Vec<(String, String)>> {
+        entry.touch();
+        let mut lane = entry.priority_lane.lock().await;
+        let source = open_lane(entry, &mut lane).await?;
+        let result = source.schema_comments(schemas).await;
+        if result.is_err() && source.is_closed() {
+            *lane = None;
+        }
+        result
+    }
+
+    /// O formato das coleções escolhidas (Mongo), pela faixa de prioridade
+    /// (contexto do assistente). `values`: com os valores de exemplo dos
+    /// campos categóricos (o servidor liga).
+    pub async fn infer_shape(
+        &self,
+        entry: &Arc<CatalogEntry>,
+        collections: &[String],
+        values: bool,
+    ) -> Result<Vec<CollectionShape>> {
+        entry.touch();
+        let mut lane = entry.priority_lane.lock().await;
+        let source = open_lane(entry, &mut lane).await?;
+        let result = source.infer_shape(collections, values).await;
+        if result.is_err() && source.is_closed() {
+            *lane = None;
+        }
+        result
+    }
+
+    /// Uma janela de uma pasta (views, índices, funções). Views saem das
+    /// relações do schema (carregado se preciso); índices e funções vêm da
+    /// fonte na primeira vez — o schema inteiro numa consulta, ou só `table`
+    /// (o índice do Mongo é por coleção) — e ficam em memória até a próxima
+    /// sincronização ou refresh. É também o caminho do assistente para os
+    /// índices de uma tabela e as funções de um schema.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn objects(
+        &self,
+        entry: &Arc<CatalogEntry>,
+        kind: ObjectKind,
+        schema: &str,
+        table: Option<&str>,
+        filter: Option<&str>,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Page<CatalogObject>> {
+        let not_found = || Error::NotFound(format!("schema {schema} in {}", entry.key.database));
+        if matches!(kind, ObjectKind::View | ObjectKind::MaterializedView) {
+            self.ensure_schemas(entry, &[schema.to_string()]).await?;
+            return entry
+                .read()
+                .objects(kind, schema, table, filter, offset, limit)
+                .ok_or_else(not_found);
+        }
+        if let Some(page) = entry.read().objects(kind, schema, table, filter, offset, limit) {
+            return Ok(page);
+        }
+
+        let objects = {
+            let mut lane = entry.priority_lane.lock().await;
+            // Outro pedido pode ter lido enquanto esperávamos a faixa
+            if let Some(page) = entry.read().objects(kind, schema, table, filter, offset, limit) {
+                return Ok(page);
+            }
+            let source = open_lane(entry, &mut lane).await?;
+            let result = match kind {
+                ObjectKind::Index => source
+                    .list_indexes(schema, table)
+                    .await
+                    .map(|list| list.into_iter().map(CatalogObject::Index).collect::<Vec<_>>()),
+                _ => source
+                    .list_functions(schema)
+                    .await
+                    .map(|list| list.into_iter().map(CatalogObject::Function).collect()),
+            };
+            if result.is_err() && source.is_closed() {
+                *lane = None;
+            }
+            result?
+        };
+        log::info!(
+            "catálogo server {} db {}: {} {:?} lidos de um schema",
+            entry.key.server_id,
+            entry.key.database,
+            objects.len(),
+            kind
+        );
+
+        let mut catalog = entry.catalog.write();
+        catalog.set_objects(kind, schema, table, objects);
+        catalog
+            .objects(kind, schema, table, filter, offset, limit)
+            .ok_or_else(not_found)
+    }
+
+    /// As pastas de um schema com o que já se sabe da contagem (views pelas
+    /// relações; índices e funções só depois de abertos), sem ir ao banco além
+    /// de carregar o schema.
+    pub async fn folders(
+        &self,
+        entry: &Arc<CatalogEntry>,
+        schema: &str,
+        kinds: &[ObjectKind],
+    ) -> Result<Vec<FolderSummary>> {
+        if kinds.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.ensure_schemas(entry, &[schema.to_string()]).await?;
+        entry
+            .read()
+            .folders(schema, kinds)
+            .ok_or_else(|| Error::NotFound(format!("schema {schema} in {}", entry.key.database)))
+    }
+
+    /// A definição completa de um objeto, sob demanda e sem cache (a
+    /// sidebar abre numa aba; o assistente oculta os literais antes de mandar).
+    pub async fn definition(&self, entry: &Arc<CatalogEntry>, target: &ObjectRef) -> Result<String> {
+        entry.touch();
+        let mut lane = entry.priority_lane.lock().await;
+        let source = open_lane(entry, &mut lane).await?;
+        let result = source.definition(target).await;
+        if result.is_err() && source.is_closed() {
+            *lane = None;
+        }
+        result?.ok_or_else(|| Error::NotFound(format!("{:?} {}", target.kind, target.name)))
+    }
+
     /// Recarrega um schema (refresh manual): continua visível com o conteúdo
     /// antigo até a nova carga chegar.
     pub async fn refresh_schema(&self, entry: &Arc<CatalogEntry>, schema: &str) -> Result<()> {
-        entry.catalog.write().invalidate(schema);
+        {
+            let mut catalog = entry.catalog.write();
+            catalog.invalidate(schema);
+            catalog.forget_objects(Some(schema));
+        }
         let mut lane = entry.priority_lane.lock().await;
         let source = open_lane(entry, &mut lane).await?;
         let result = source.load_schemas(&entry.catalog, &[schema.to_string()]).await;
@@ -736,9 +884,7 @@ mod tests {
     use async_trait::async_trait;
 
     use super::*;
-    use crate::catalog::{
-        RelKind, SchemaDiff, SchemaHeader, Strategy, SyncReport, TableRecord,
-    };
+    use crate::catalog::{IndexObject, RelKind, SchemaDiff, SchemaHeader, Strategy, SyncReport, TableRecord};
     use crate::models::{CatalogPathInput, DatabaseType};
     use crate::storage::vault;
 
@@ -858,6 +1004,25 @@ mod tests {
             Ok(Some(42))
         }
 
+        async fn list_indexes(&mut self, schema: &str, table: Option<&str>) -> Result<Vec<IndexObject>> {
+            self.probe.calls.lock().push(format!("indexes:{schema}"));
+            let db = self.db.lock().clone();
+            let (tables, _) = db.get(schema).cloned().unwrap_or_default();
+            Ok(tables
+                .iter()
+                .filter(|name| table.is_none_or(|table| table == **name))
+                .map(|name| IndexObject {
+                    name: format!("{name}_pkey"),
+                    table: name.to_string(),
+                    method: "btree".into(),
+                    unique: true,
+                    primary: true,
+                    columns: vec!["id".into()],
+                    predicate: None,
+                })
+                .collect())
+        }
+
         fn canceller(&self) -> Box<dyn SourceCanceller> {
             Box::new(FakeCanceller(Arc::clone(&self.cancelled)))
         }
@@ -975,6 +1140,93 @@ mod tests {
         // A mesma entrada para a mesma conexão
         let again = service.open(1, "app", "id".into(), opener(&db, &probe, Duration::ZERO)).await;
         assert!(Arc::ptr_eq(&entry, &again));
+    }
+
+    #[tokio::test]
+    async fn folder_objects_load_once_and_reset_on_sync_and_refresh() {
+        let dir = TempDir::new("objects");
+        let (service, events) = service(&dir, CatalogConfig::default());
+        let (db, probe) = (fake_db(), Probe::default());
+        let entry = service
+            .open(1, "app", "id".into(), opener(&db, &probe, Duration::ZERO))
+            .await;
+        service.ensure_fresh(&entry, true);
+        wait_until("ready", || ready_count(&events) == 1).await;
+        let reads = |probe: &Probe| {
+            probe
+                .calls
+                .lock()
+                .iter()
+                .filter(|call| call.starts_with("indexes"))
+                .count()
+        };
+
+        assert_eq!(
+            service
+                .folders(&entry, "t1", &[ObjectKind::View, ObjectKind::Index])
+                .await
+                .unwrap(),
+            [
+                FolderSummary {
+                    kind: ObjectKind::View,
+                    count: Some(0)
+                },
+                FolderSummary {
+                    kind: ObjectKind::Index,
+                    count: None
+                },
+            ]
+        );
+
+        let page = service
+            .objects(&entry, ObjectKind::Index, "t1", None, None, 0, 1)
+            .await
+            .unwrap();
+        assert_eq!((page.total, page.items.len()), (2, 1));
+        // A tabela e o filtro saem da memória
+        let of_orders = service
+            .objects(&entry, ObjectKind::Index, "t1", Some("orders"), None, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(of_orders.items[0].name(), "orders_pkey");
+        service
+            .objects(&entry, ObjectKind::Index, "t1", None, Some("cust"), 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(reads(&probe), 1);
+        assert_eq!(
+            service.folders(&entry, "t1", &[ObjectKind::Index]).await.unwrap()[0].count,
+            Some(2)
+        );
+
+        // Refresh do schema: lê de novo
+        service.refresh_schema(&entry, "t1").await.unwrap();
+        service
+            .objects(&entry, ObjectKind::Index, "t1", None, None, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(reads(&probe), 2);
+
+        // Sincronização: idem
+        service.ensure_fresh(&entry, true);
+        wait_until("ready", || ready_count(&events) == 2).await;
+        service
+            .objects(&entry, ObjectKind::Index, "t1", None, None, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(reads(&probe), 3);
+
+        // Fonte sem funções: o erro da trait chega ao chamador
+        let error = service
+            .objects(&entry, ObjectKind::Function, "t1", None, None, 0, 10)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, Error::UnsupportedType(_)));
+        // Schema que não existe, numa pasta de views
+        assert!(service
+            .objects(&entry, ObjectKind::View, "nope", None, None, 0, 10)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -1251,6 +1503,7 @@ mod tests {
             scope_databases: None,
             scope_schemas: None,
             group_id: None,
+            assistant_sample_values: false,
             created_at: 0,
         };
         let base = connection_identity(&server);

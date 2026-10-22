@@ -156,6 +156,20 @@ listagem inteira (com o tamanho de cada tabela) levava o backend ao OOM.
   schema tirado de tipos e defaults (a sequência de cada tenant não é diferença). Fontes
   sem schema respondem `UnsupportedType`.
 
+- **Pastas da árvore** (`catalog/objects.rs`): views e views materializadas saem das
+  relações do catálogo; **índices e funções** vêm da fonte só quando a pasta é aberta
+  (`CatalogSource::list_indexes(schema, table?)`, `list_functions(schema)`), um schema por
+  consulta, na faixa de prioridade, e ficam **só em memória** no `Catalog` (fora do
+  arquivo: o `FORMAT_VERSION` não muda), esquecidos a cada sincronização concluída e no
+  refresh/mudança de estrutura do schema. A definição (`definition`) vem sob demanda, sem
+  cache. Postgres: índices pelo `pg_index` (colunas pelo `pg_get_indexdef(oid, k)`, que dá
+  a expressão também), funções pelo `pg_proc` sem as de extensão (`pg_depend` `deptype =
+  'e'`) nem schemas de sistema; definições por `pg_get_viewdef`/`pg_get_indexdef`/
+  `pg_get_functiondef` (agregada monta o `CREATE AGGREGATE` pelo `pg_aggregate`). SQLite:
+  `sqlite_schema` sem os `sqlite_autoindex_*`. Mongo: índices só por coleção
+  (`listIndexes`), definição como `db.createView(...)`/`createIndex(...)`; a
+  `system.views` não entra como coleção. Nada de tamanho; log só com contagens.
+
 As fontes também respondem, só para as relações pedidas, `foreign_keys` e
 `relation_details` (SQL) e `infer_shape` (Mongo: formato por `$sample`) — contexto do
 assistente, ver §4 "Assistente de consulta". O Redis, sem catálogo, responde o dele pelo
@@ -379,6 +393,7 @@ interface CatalogNode {
 type CatalogPath =
   | { kind: 'schemas' }
   | { kind: 'schema'; schema: string }
+  | { kind: 'tables'; schema: string }   // as soltas da árvore: sem views (moram nas pastas)
   | { kind: 'partitions'; schema: string; table: string }
   | { kind: 'shape'; key: string };      // schemas de um grupo (árvore agrupada)
 
@@ -433,6 +448,24 @@ interface SchemaComparison {
                changes: { column: string; expected: ColumnSpec | null; actual: ColumnSpec | null }[] }[];
 }
 
+// Pastas da árvore (`catalog_folders`, `catalog_objects`, `catalog_object_definition`)
+type CatalogObjectKind = 'view' | 'materializedView' | 'index' | 'function';
+interface CatalogFolder { kind: CatalogObjectKind; count: number | null } // null = ainda não se sabe
+type CatalogObject =
+  | { kind: 'view' | 'materializedView'; name: string }
+  | { kind: 'index'; name: string; table: string; method: string;
+      unique: boolean; primary: boolean; columns: string[] }
+  | { kind: 'function'; name: string;
+      signature: string;          // tipos dos argumentos: distingue as sobrecargas
+      arguments: string;          // como se declaram (nomes, defaults)
+      returns: string | null;     // null numa procedure
+      functionKind: 'function' | 'procedure' | 'aggregate' | 'window'; language: string };
+interface CatalogObjectRef {      // de que objeto se quer a definição
+  kind: CatalogObjectKind; schema: string; name: string;
+  table?: string | null;          // índice do Mongo (o nome é por coleção)
+  signature?: string | null;      // função
+}
+
 // "Copiar diagnóstico": só contagens e tempos, nenhum nome
 interface CatalogDiagnostics {
   appVersion: string;
@@ -469,7 +502,10 @@ interface AdapterCapabilities {
   supportsBackup: boolean;      // só Postgres (pg_dump/pg_restore)
   supportsAtomicSave: boolean;  // Postgres/Mongo/SQLite (save_row_changes); Mongo só é atômico em replica set
   supportsAssistant: boolean;   // os quatro; o Redis pelo plano de passos, sem catálogo
+  assistantSampleValues: boolean; // só Mongo: o servidor pode mandar ao assistente valores de exemplo
   queryLanguage: 'sql' | 'mongo' | 'redis_plan'; // o que o assistente gera para o banco
+  structureFolders: CatalogObjectKind[]; // pastas de objetos de um schema aberto: Postgres view, materializedView e function; SQLite e Mongo view; Redis nenhuma
+  relationFolders: CatalogObjectKind[];  // pastas dentro de cada tabela (e view materializada): index nos três com catálogo
 }
 ```
 
@@ -554,6 +590,9 @@ por chamada.
 | `catalog_cancel` | `{ serverId, database }` | `boolean` | interrompe a sincronização em andamento |
 | `catalog_relation_size` | `{ serverId, database, schema, table }` | `number \| null` | sim (só da tabela aberta) |
 | `catalog_diagnostics` | `{ serverId, database }` | `CatalogDiagnostics` | não |
+| `catalog_folders` | `{ serverId, database, schema }` | `CatalogFolder[]` | só para carregar o schema — as pastas do `structureFolders`, com a contagem que já se sabe |
+| `catalog_objects` | `{ serverId, database, schema, kind, table?, filter?, offset, limit }` | `CatalogPage<CatalogObject>` | índices e funções na 1ª vez (o schema inteiro numa consulta; com `table`, só os da relação — como a árvore pede os índices, e no Mongo a única forma); depois da memória até a próxima sincronização |
+| `catalog_object_definition` | `{ serverId, database, target: CatalogObjectRef }` | `string` | sim, só o objeto pedido |
 
 O progresso chega pelo evento global **`catalog-event`** (`CatalogEvent`): o front escuta
 com `listen` e invalida só as fatias daquele database. No Redis, os comandos que abrem
@@ -898,6 +937,16 @@ com a pergunta, sem nunca carregar a estrutura inteira.
   `collection "orders" (100 sampled documents):` e uma linha por campo
   (`"items[].qty" int|double 100%`), no mesmo orçamento e com a mesma linha final
   (`-- Other collections (fields not shown): …`). O `list_columns` da árvore não muda.
+  As `description` do validador `$jsonSchema` (um `listCollections` filtrado pelos nomes
+  amostrados; sem permissão, nada) vão entre `«»` depois da coleção e do campo.
+  **Valores de exemplo** só com o interruptor da conexão (`Server::assistant_sample_values`,
+  desligado por padrão, gravado ligado só onde a capability `assistantSampleValues` deixa
+  — o Mongo): o campo de texto com cara de enum ganha `values: "paid" 62%, "open" 30%, …
+  2 more`. `shape::categorical` exige 10+ ocorrências na amostra, até 24 distintos, cada
+  um repetindo 4× em média, todos curtos (até 40 caracteres) e sem cara de dado; o campo
+  cujo nome tem palavra de pessoa, contato, documento ou segredo (`SENSITIVE_WORDS`:
+  `name`, `email`, `cpf`, `token`…) nunca mostra valor, e valor visto uma vez só entra
+  na conta dos de fora. Desligado, nenhum valor sai da fonte (RN-08).
 - **Redis** (`assistant/key_context.rs`): não tem catálogo, então o `assistant_turn_ask`
   desvia pelas capabilities (`hasCatalog`) e o contexto sai do próprio adapter
   (`DatabaseAdapter::sample_key_patterns`, a cada pergunta). `patterns::sample` faz um
@@ -917,7 +966,9 @@ com a pergunta, sem nunca carregar a estrutura inteira.
   `REFERENCES` (compostas numa linha própria), views como `CREATE VIEW`, em ordem de
   schema e nome. Nomes sempre entre aspas (caractere de controle vira `\u{…}`) e
   comentários entre `«»` numa linha, cortados em 200 caracteres — dado, nunca instrução
-  (RN-22).
+  (RN-22). No Postgres, o comentário de cada schema do contexto vai numa linha logo depois
+  do cabeçalho (`-- Schema "vendas": «…»`; `CatalogSource::schema_comments`, sem o
+  "standard public schema" de fábrica).
 - **Orçamento:** um oitavo do `contextWindow` do modelo, entre 1.000 e 16.000 tokens
   (estimativa: 4 caracteres por token). Ordem: (1) as citadas, que **nunca saem
   inteiras** — dividem o espaço (`share_room`, a menor primeiro) e a que não cabe perde
@@ -933,11 +984,17 @@ com a pergunta, sem nunca carregar a estrutura inteira.
 
 **Prompts, mensagens e resposta** (B5):
 
-- **Prompts** em `src-tauri/prompts/<paradigma>-v<n>.txt`. Em uso, os `-v2`
-  (`postgres-v2`, `sqlite-v2`, `mongo-v2`, `redis-v2`, contrato 1.5.0: pedido de
-  estrutura, resposta em texto sem afirmar o que o modelo não viu, recusa fora do tema);
-  os `-v1` ficam no build e no teste dos hashes (as conversas antigas foram geradas com
-  eles),
+- **Prompts** em `src-tauri/prompts/<paradigma>-v<n>.txt`. Em uso, `postgres-v5`,
+  `sqlite-v5`, `mongo-v4` e `redis-v2`, todos no contrato 1.5.0. Os v2 trouxeram o pedido de
+  estrutura, a resposta em texto sem afirmar o que o modelo não viu e a recusa fora do
+  tema; os v3 acrescentam os nomes com prefixo no pedido de estrutura (`indexes:`,
+  `functions:`, `definition:`, ver abaixo) e a regra do `?` dos literais; os v4 (só SQL)
+  pedem a consulta e o código em várias linhas, uma cláusula por linha — no Mongo e no
+  Redis a consulta é JSON e o front já indenta (`formatQueryText`); os v5 do SQL ensinam o
+  `columns:` e os comentários de schema e de função; o `mongo-v4`, os valores de exemplo
+  (e que eles não respondem pergunta sobre os dados) e as descrições do validador. O Redis
+  não tem prefixos e fica no v2. As versões antigas ficam no build e no teste dos hashes (as
+  conversas antigas foram geradas com elas),
   embutidos com `include_str!` (`assistant/prompts.rs`). A API confere o SHA-256 dos bytes
   exatos da mensagem `system` contra o prompt registrado com o mesmo id: registre **o
   próprio arquivo** no dashboard (Prompts → enviar arquivo, com o paradigma). Texto
@@ -984,7 +1041,23 @@ automática) e liga as portas reais.
    `render`; no Mongo, as coleções confirmadas com o formato inferido; no Redis, os padrões
    das chaves sob o prefixo, cujo `MATCH` passa antes pela generalização
    (`patterns::prefix_match`: o modelo não sonda chave nenhuma). Nunca uma consulta
-   escolhida pelo modelo, nunca valor. Os não encontrados voltam numa linha `-- Not
+   escolhida pelo modelo, nunca valor. Nos bancos com catálogo, um nome pode ter prefixo
+   (prompts v3), resolvido pelas mesmas funções do catálogo que as pastas da sidebar
+   (`CatalogService::objects`/`definition`): `indexes:tabela` ou `indexes:schema.*` (no
+   SQLite `indexes:*`; no Mongo só por coleção) lista os índices com método, colunas,
+   papel e a condição do parcial; `functions:schema` (só Postgres) as funções e
+   procedures sem as de extensão; `definition:nome` a definição de uma view, view
+   materializada, função (todas as sobrecargas, ou a de `nome(tipos)`) ou índice — no
+   Mongo, o pipeline da view; `columns:schema.*termo*` (SQL; sem schema, nos da conversa)
+   as colunas cujo nome casa, com tabela e tipo (`CatalogSource::search_columns`, um
+   `ILIKE` no `pg_attribute`/`pragma_table_info`, até 100, sem as partições), e
+   `columns:tabela` é a própria tabela. A lista de `functions:` leva o comentário de cada
+   função. **Literais viram `?`** antes de ir ao modelo
+   (`assistant/literals.rs`: strings, números e comentários do SQL, com o corpo da função
+   tratado como código; valores do JSON do pipeline), nas definições, nos defaults dos
+   argumentos e nas expressões e condições dos índices; a sidebar mostra tudo completo.
+   Cada bloco fica com sua parte do orçamento (uma definição longa não tira o espaço dos
+   outros). Os não encontrados voltam numa linha `-- Not
    found`. A estrutura pedida tem um orçamento próprio por turno, do tamanho do da
    estrutura (`budget_tokens`), dividido pelas rodadas; o que não cabe é recorte (RN-26),
    somado ao `schemaTruncated` e ao `schemaTokensEstimate`. É chamada utilitária: até
@@ -1012,7 +1085,9 @@ só-leitura; com `attemptId`, a primeira página completa o outcome guardado em 
 `OCTAPUS_E2E_ASSISTANT_URL=… OCTAPUS_E2E_INVITE=… cargo test --lib
 commands::assistant::e2e -- --ignored --nocapture` (o
 `e2e_real_answers_and_structure_request` cobre a dúvida conceitual, a recusa fora do tema e
-o pedido de estrutura num SQLite de 200 tabelas). E2E: `cargo test --lib read_only -- --include-ignored`
+o pedido de estrutura num SQLite de 200 tabelas;
+`e2e_real_postgres_object_requests_without_literals`, os prefixos `indexes:` e
+`definition:` com canários nos literais). E2E: `cargo test --lib read_only -- --include-ignored`
   (Postgres e Mongo dos e2e; o SQLite usa arquivo temporário) e `cargo test --lib
   shape_context -- --ignored` (contexto do Mongo com canários).
 
@@ -1130,6 +1205,11 @@ await listen<CatalogEvent>('catalog-event', ({ payload }) => { /* invalida as fa
   `childCount: null` e `state: 'unloaded'`; abrir ele carrega na hora.
 - **Partições** ficam dentro da tabela particionada (`kind: 'partitioned'`): peça
   `{ kind: 'partitions', schema, table }`.
+- **Pastas:** a árvore pede as relações soltas com `{ kind: 'tables', schema }` (sem as
+  views, na pasta Tabelas) e `catalog_folders` (as de objetos do schema); cada pasta
+  aberta pede `catalog_objects` (`kind` + janela + filtro), e a de índices de uma tabela
+  vai com `table`. Clique num índice ou função → `catalog_object_definition` numa aba de
+  query nova.
 - **Agrupado por formato:** `catalog_shapes` dá os grupos e `{ kind: 'shape', key }` os
   schemas de cada um. O `drift` de cada schema diz quantas tabelas faltam/sobram em
   relação ao formato dominante.

@@ -756,6 +756,7 @@ mod tests {
             scope_databases: None,
             scope_schemas: None,
             group_id: None,
+            assistant_sample_values: false,
             created_at: 0,
         };
 
@@ -826,6 +827,7 @@ mod tests {
             scope_databases: None,
             scope_schemas: None,
             group_id: None,
+            assistant_sample_values: false,
             created_at: 0,
         };
         let admin = PostgresAdapter::new(&server, "postgres").unwrap();
@@ -939,6 +941,7 @@ mod tests {
             scope_databases: None,
             scope_schemas: None,
             group_id: None,
+            assistant_sample_values: false,
             created_at: 0,
         };
 

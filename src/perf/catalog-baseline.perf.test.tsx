@@ -64,6 +64,7 @@ const SERVER: Server = {
   scopeDatabases: null,
   scopeSchemas: null,
   groupId: null,
+  assistantSampleValues: false,
 };
 
 const CAPABILITIES: AdapterCapabilities = {
@@ -80,7 +81,10 @@ const CAPABILITIES: AdapterCapabilities = {
   supportsBackup: true,
   supportsAtomicSave: true,
   supportsAssistant: true,
+  assistantSampleValues: false,
   queryLanguage: 'sql',
+  structureFolders: ['view', 'materializedView', 'function'],
+  relationFolders: ['index'],
 };
 
 const COLUMNS: ColumnInfo[] = [

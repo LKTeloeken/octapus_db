@@ -1,5 +1,8 @@
 import type { IconSvgElement } from '@hugeicons/react';
-import type { CatalogNodeKind } from '@/api/types/catalog.types';
+import type {
+  CatalogNodeKind,
+  CatalogObjectKind,
+} from '@/api/types/catalog.types';
 import type { DatabaseType } from '@/api/types/server.types';
 import type { NodeKind } from '@/lib/node-ref';
 
@@ -13,8 +16,22 @@ export interface NodeRowAction {
   separated?: boolean;
 }
 
-/** Os nós do catálogo mais o grupo de servidores (que fica acima do servidor) */
-export type NodeRowKind = NodeKind | 'group';
+/**
+ * Os nós do catálogo, o grupo de servidores (acima do servidor) e os itens
+ * das pastas que não são relações (índice, função)
+ */
+export type NodeRowKind = NodeKind | 'group' | 'index' | 'function';
+
+/**
+ * O que uma pasta da árvore guarda: objetos do catálogo (views, índices,
+ * funções) ou as pastas só do front que agrupam as tabelas de um schema e as
+ * colunas e partições de uma tabela
+ */
+export type TreeFolderKind =
+  | CatalogObjectKind
+  | 'tables'
+  | 'columns'
+  | 'partitions';
 
 export interface NodeRowProps {
   level: number;
@@ -35,6 +52,10 @@ export interface NodeRowProps {
   badge?: { label: string; title: string };
   /** Tipo da relação, quando o catálogo informa (view e particionada têm ícone próprio) */
   relationKind?: CatalogNodeKind;
+  /** Numa pasta: o que ela guarda (cada tipo tem o seu ícone) */
+  folderKind?: TreeFolderKind;
+  /** Texto completo ao parar o mouse (a assinatura longa de uma função) */
+  title?: string;
   /** Tabela aberta na aba ativa: a linha fica realçada (`--active`) */
   isOpen?: boolean;
   /** Nó sob o cursor do teclado (setas na árvore) */

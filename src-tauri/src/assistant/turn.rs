@@ -931,7 +931,7 @@ mod tests {
         assert_eq!(outcomes[1].1.guard.reason.as_deref(), Some("write_stage"));
         assert!(outcomes[2].1.execution.ok == Some(true));
         let requests = api.requests.lock();
-        assert_eq!(requests[0].prompt_version, "mongo-v2");
+        assert_eq!(requests[0].prompt_version, "mongo-v4");
         let correction = &requests[2].messages.last().unwrap().content;
         assert!(
             correction.contains("class=\"guard_rejected\">\n$out writes to the database and is not allowed"),
