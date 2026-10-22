@@ -8,12 +8,12 @@ import {
 } from '@/stores/assistant-store';
 
 /**
- * Histórico do servidor (C-15). Reabrir mantém o alvo da aba ativa quando o
- * banco é do mesmo paradigma; senão a aba nasce sem alvo e a pessoa escolhe.
+ * Histórico do servidor (C-15), pedido só com `enabled`. Reabrir mantém o
+ * alvo da aba ativa quando o banco é do mesmo paradigma; senão a aba nasce
+ * sem alvo e a pessoa escolhe.
  */
-export const useHistoryMenu = () => {
-  const [open, setOpen] = useState(false);
-  const conversations = useAssistantConversations(open);
+export const useConversationHistory = (enabled: boolean) => {
+  const conversations = useAssistantConversations(enabled);
   const { data: servers } = useServers();
   const activeTab = useActiveConversationTab();
   const openConversation = useAssistantStore(state => state.openConversation);
@@ -26,17 +26,30 @@ export const useHistoryMenu = () => {
         conversation.id,
         server?.dbType === conversation.paradigm ? target : null,
       );
-      setOpen(false);
     },
     [activeTab?.target, servers, openConversation],
   );
 
   return {
-    open,
-    setOpen,
     items: conversations.data?.items ?? [],
-    isLoading: conversations.isPending && open,
+    isLoading: conversations.isPending && enabled,
     error: conversations.error,
     select,
   };
+};
+
+/** O histórico no menu do cabeçalho: pede a lista ao abrir */
+export const useHistoryMenu = () => {
+  const [open, setOpen] = useState(false);
+  const history = useConversationHistory(open);
+
+  const select = useCallback(
+    (conversation: AssistantConversationSummary) => {
+      history.select(conversation);
+      setOpen(false);
+    },
+    [history],
+  );
+
+  return { open, setOpen, ...history, select };
 };

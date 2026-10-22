@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import type { ConversationTab } from '@/stores/assistant-store';
 import { TargetPicker } from './target-picker';
 import { TurnCard } from './turn-card';
@@ -23,13 +24,19 @@ import { useTargetPicker } from './use-target-picker';
 
 const tokens = new Intl.NumberFormat('pt-BR');
 
+/** No modo agente a conversa fica numa coluna centrada, com folga dos lados */
+const WIDE_COLUMN = 'mx-auto w-full max-w-4xl';
+
 /** Uma conversa: alvo, turnos e o campo da pergunta */
 export function ConversationView({
   tab,
   me,
+  wide = false,
 }: {
   tab: ConversationTab;
   me: AssistantMe;
+  /** Modo agente: a janela inteira */
+  wide?: boolean;
 }) {
   const conversation = useConversationView({ tab, me });
   const picker = useTargetPicker({
@@ -56,31 +63,38 @@ export function ConversationView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line-subtle px-3 py-2">
-        <TargetPicker {...picker} />
-        <span className="flex-1" />
-        {conversation.freeChoice && conversation.models.length > 0 ? (
-          <Select
-            value={conversation.modelId ?? ''}
-            onValueChange={conversation.setModel}
-            disabled={conversation.running}
-          >
-            <SelectTrigger size="sm" aria-label="Modelo" className="max-w-36">
-              <SelectValue placeholder="Modelo" />
-            </SelectTrigger>
-            <SelectContent>
-              {conversation.models.map(model => (
-                <SelectItem key={model.id} value={model.id}>
-                  {model.alias}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          conversation.conversation && (
-            <Badge>{conversation.conversation.model.alias}</Badge>
-          )
-        )}
+      <div className="shrink-0 border-b border-line-subtle px-3 py-2">
+        <div
+          className={cn(
+            'flex flex-wrap items-center gap-2',
+            wide && WIDE_COLUMN,
+          )}
+        >
+          <TargetPicker {...picker} />
+          <span className="flex-1" />
+          {conversation.freeChoice && conversation.models.length > 0 ? (
+            <Select
+              value={conversation.modelId ?? ''}
+              onValueChange={conversation.setModel}
+              disabled={conversation.running}
+            >
+              <SelectTrigger size="sm" aria-label="Modelo" className="max-w-36">
+                <SelectValue placeholder="Modelo" />
+              </SelectTrigger>
+              <SelectContent>
+                {conversation.models.map(model => (
+                  <SelectItem key={model.id} value={model.id}>
+                    {model.alias}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            conversation.conversation && (
+              <Badge>{conversation.conversation.model.alias}</Badge>
+            )
+          )}
+        </div>
       </div>
 
       <div
@@ -113,7 +127,7 @@ export function ConversationView({
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-6">
+          <div className={cn('flex flex-col gap-6', wide && WIDE_COLUMN)}>
             {conversation.turns.map(turn => (
               <TurnCard
                 key={turn.view.key}
@@ -132,7 +146,12 @@ export function ConversationView({
       </div>
 
       <div className="shrink-0 border-t border-line-subtle p-3">
-        <div className="rounded-md border border-line bg-field focus-within:border-iris-text focus-within:ring-3 focus-within:ring-iris-soft">
+        <div
+          className={cn(
+            'rounded-md border border-line bg-field focus-within:border-iris-text focus-within:ring-3 focus-within:ring-iris-soft',
+            wide && WIDE_COLUMN,
+          )}
+        >
           <PromptEditor
             value={conversation.draft}
             onChange={conversation.setDraft}

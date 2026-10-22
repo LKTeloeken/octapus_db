@@ -58,6 +58,21 @@ describe('assistant-store', () => {
     expect(state().tabs).toHaveLength(2);
   });
 
+  it('modo agente abre o painel com o alvo; fechar o painel sai dele', () => {
+    state().setAgentMode(true, target);
+    expect(state().panelOpen).toBe(true);
+    expect(state().agentMode).toBe(true);
+    expect(state().tabs[0].target).toEqual(target);
+
+    state().setAgentMode(false);
+    expect(state().panelOpen).toBe(true);
+    expect(state().agentMode).toBe(false);
+
+    state().setAgentMode(true);
+    state().closePanel();
+    expect(state().agentMode).toBe(false);
+  });
+
   it('resultados por tentativa somam os patches', () => {
     state().patchRun('a1', { executing: true });
     state().patchRun('a1', { executing: false, query: 'SELECT 1' });

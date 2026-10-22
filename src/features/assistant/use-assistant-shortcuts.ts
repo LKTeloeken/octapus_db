@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useCancelAssistantTurn } from '@/queries/use-assistant-conversations';
 import { useAssistantStatus } from '@/queries/use-assistant-status';
 import { useAssistantStore } from '@/stores/assistant-store';
+import { useTabsStore } from '@/stores/tabs-store';
 import { assistantShortcut, isInAssistantPanel } from './assistant-shortcuts';
-import { useToggleAssistant } from './use-toggle-assistant';
+import { useToggleAgentMode, useToggleAssistant } from './use-toggle-assistant';
 
 /** Fecha uma aba de conversa, cancelando o turno dela se ainda roda (C-18) */
 export const useCloseConversation = () => {
@@ -29,6 +30,7 @@ export const useAssistantShortcuts = () => {
   const { data: status } = useAssistantStatus();
   const configured = status?.configured === true;
   const togglePanel = useToggleAssistant();
+  const toggleAgentMode = useToggleAgentMode();
   const newTab = useAssistantStore(state => state.newTab);
   const closeConversation = useCloseConversation();
 
@@ -60,6 +62,10 @@ export const useAssistantShortcuts = () => {
         togglePanel();
         return;
       }
+      if (action === 'toggle-agent-mode') {
+        toggleAgentMode();
+        return;
+      }
       if (action === 'new-tab') {
         newTab();
         return;
@@ -76,5 +82,17 @@ export const useAssistantShortcuts = () => {
       window.removeEventListener('focusin', track, { capture: true });
       window.removeEventListener('pointerdown', track, { capture: true });
     };
-  }, [configured, togglePanel, newTab, closeConversation]);
+  }, [configured, togglePanel, toggleAgentMode, newTab, closeConversation]);
+
+  // Uma aba de query aberta ou ativada (paleta, "Abrir no editor", "Ver
+  // definição") só se vê fora do modo agente: ele sai sozinho
+  useEffect(
+    () =>
+      useTabsStore.subscribe((state, previous) => {
+        if (state.activeTabId === previous.activeTabId) return;
+        const { agentMode, setAgentMode } = useAssistantStore.getState();
+        if (agentMode) setAgentMode(false);
+      }),
+    [],
+  );
 };

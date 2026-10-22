@@ -57,6 +57,11 @@ const EMPTY_RUN: AttemptRun = {
 
 interface AssistantState {
   panelOpen: boolean;
+  /**
+   * Modo agente: o assistente toma a janela inteira (a árvore e as abas de
+   * query ficam montadas, só escondidas). Só vale com o painel aberto.
+   */
+  agentMode: boolean;
   tabs: ConversationTab[];
   activeTabId: string | null;
   /** Turno em andamento (ou recém-terminado) de cada aba */
@@ -78,6 +83,8 @@ interface AssistantState {
   openPanel: (target?: AssistantTarget | null) => void;
   closePanel: () => void;
   togglePanel: () => void;
+  /** Entra (abrindo o painel, se preciso) ou sai do modo agente */
+  setAgentMode: (agentMode: boolean, target?: AssistantTarget | null) => void;
   /** Nova aba; sem `target`, herda o da aba ativa */
   newTab: (target?: AssistantTarget | null) => string;
   closeTab: (id: string) => void;
@@ -121,6 +128,7 @@ const withoutKey = <T>(record: Record<string, T>, key: string) => {
 
 export const useAssistantStore = create<AssistantState>((set, get) => ({
   panelOpen: false,
+  agentMode: false,
   tabs: [],
   activeTabId: null,
   live: {},
@@ -171,11 +179,16 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
     }));
   },
 
-  closePanel: () => set({ panelOpen: false }),
+  closePanel: () => set({ panelOpen: false, agentMode: false }),
 
   togglePanel: () => {
     if (get().panelOpen) get().closePanel();
     else get().openPanel();
+  },
+
+  setAgentMode: (agentMode, target) => {
+    if (agentMode && !get().panelOpen) get().openPanel(target);
+    set({ agentMode });
   },
 
   newTab: target => {

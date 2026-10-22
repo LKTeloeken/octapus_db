@@ -8,19 +8,8 @@ import {
 } from '@/components/ui/popover';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip/tooltip';
+import { conversationDetail } from './conversation-labels';
 import { useHistoryMenu } from './use-history-menu';
-
-const PARADIGM_LABELS: Record<string, string> = {
-  postgres: 'PostgreSQL',
-  sqlite: 'SQLite',
-  mongodb: 'MongoDB',
-  redis: 'Redis',
-};
-
-const dateFormat = new Intl.DateTimeFormat('pt-BR', {
-  dateStyle: 'short',
-  timeStyle: 'short',
-});
 
 /** Conversas anteriores, vindas do servidor */
 export function HistoryMenu() {
@@ -61,9 +50,7 @@ export function HistoryMenu() {
                     {item.title ?? 'Sem título'}
                   </span>
                   <span className="text-small text-fg-subtle">
-                    {PARADIGM_LABELS[item.paradigm] ?? item.paradigm} ·{' '}
-                    {item.model.alias} ·{' '}
-                    {dateFormat.format(new Date(item.updatedAt))}
+                    {conversationDetail(item)}
                   </span>
                 </button>
               </li>

@@ -1,6 +1,8 @@
 import {
   Add01Icon,
   Alert02Icon,
+  ArrowExpand01Icon,
+  ArrowShrink01Icon,
   Cancel01Icon,
   CloudOffIcon,
   Download04Icon,
@@ -10,12 +12,18 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import { Button } from '@/components/ui/button';
 import { ContentState } from '@/components/ui/content-state';
 import { Kbd } from '@/components/ui/kbd';
+import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip } from '@/components/ui/tooltip/tooltip';
 import { OctapusAnimated } from '@/components/octapus-animated/octapus-animated';
 import { OctapusThinking } from '@/components/octapus-thinking/octapus-thinking';
-import { shortcut } from '@/lib/platform';
+import {
+  TrafficLights,
+  WindowControls,
+} from '@/features/window-controls/window-controls';
+import { customTitlebar, isMac, shortcut } from '@/lib/platform';
 import { cn } from '@/lib/utils';
+import { AgentSidebar } from './agent-sidebar';
 import { ConsentView } from './consent-view';
 import { ConversationView } from './conversation-view';
 import { HistoryMenu } from './history-menu';
@@ -23,10 +31,17 @@ import { LoginForm } from './login-form';
 import { useAssistantPanel } from './use-assistant-panel';
 import type { AssistantGate } from './assistant-gate';
 
+/** `Cmd/Ctrl+Shift+J` no rótulo do botão */
+const AGENT_MODE_KEY = shortcut(isMac ? '⇧J' : 'Shift+J');
+
 /**
  * O painel do assistente, à direita das abas. Tem as próprias abas de
  * conversa (em memória — RN-01) e a sequência de portas antes de perguntar:
  * configurado → no ar → login → termo.
+ *
+ * No modo agente ele é a janela inteira: as conversas vão para uma coluna à
+ * esquerda, a conversa ativa fica centrada e o cabeçalho vira a barra de
+ * título (semáforo no macOS, controles no Linux).
  */
 export function AssistantPanel() {
   const {
@@ -38,23 +53,38 @@ export function AssistantPanel() {
     closeTab,
     newTab,
     closePanel,
+    agentMode,
+    toggleAgentMode,
     retry,
     isRetrying,
   } = useAssistantPanel();
   const ready = gate.kind === 'ready';
+  const activeTitle = tabs.find(tab => tab.id === activeTabId)?.title;
 
   return (
     <section
       aria-label="Assistente"
       data-assistant-panel=""
       data-keyboard-scope="assistant"
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-line bg-surface-1"
+      className={cn(
+        'flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-line bg-surface-1',
+        agentMode && 'animate-in fade-in-0 duration-240 ease-out',
+      )}
     >
       <header
         data-tauri-drag-region="deep"
         className="flex h-11 shrink-0 items-center gap-1 border-b border-line-subtle px-1.5"
       >
-        {ready && tabs.length > 0 ? (
+        {agentMode && customTitlebar === 'mac' && (
+          <div className="pr-2 pl-2">
+            <TrafficLights />
+          </div>
+        )}
+        {agentMode ? (
+          <span className="min-w-0 truncate px-2 text-heading font-semibold text-fg">
+            {ready && activeTitle ? activeTitle : 'Assistente'}
+          </span>
+        ) : ready && tabs.length > 0 ? (
           <Tabs
             value={activeTabId ?? ''}
             onValueChange={setActiveTab}
@@ -102,7 +132,7 @@ export function AssistantPanel() {
           </span>
         )}
 
-        {ready && (
+        {ready && !agentMode && (
           <Tooltip
             content={`Nova conversa (${shortcut('T')})`}
             position="bottom"
@@ -120,7 +150,28 @@ export function AssistantPanel() {
 
         <span className="flex-1" />
 
-        {ready && <HistoryMenu />}
+        {ready && !agentMode && <HistoryMenu />}
+
+        <Tooltip
+          content={
+            agentMode
+              ? `Sair do modo agente (${AGENT_MODE_KEY})`
+              : `Modo agente (${AGENT_MODE_KEY})`
+          }
+          position="bottom"
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={agentMode ? 'Sair do modo agente' : 'Modo agente'}
+            aria-pressed={agentMode}
+            onClick={toggleAgentMode}
+          >
+            <HugeiconsIcon
+              icon={agentMode ? ArrowShrink01Icon : ArrowExpand01Icon}
+            />
+          </Button>
+        </Tooltip>
 
         <Tooltip content={`Fechar (${shortcut('J')})`} position="bottom">
           <Button
@@ -132,28 +183,54 @@ export function AssistantPanel() {
             <HugeiconsIcon icon={Cancel01Icon} />
           </Button>
         </Tooltip>
+
+        {agentMode && customTitlebar === 'linux' && (
+          <>
+            <Separator
+              orientation="vertical"
+              className="mx-1 h-[18px]! bg-line"
+            />
+            <WindowControls />
+          </>
+        )}
       </header>
 
-      <div className="min-h-0 flex-1">
-        {ready ? (
-          activeTab ? (
-            <ConversationView key={activeTab.id} tab={activeTab} me={gate.me} />
-          ) : (
-            <ContentState
-              icon={Add01Icon}
-              title="Nenhuma conversa aberta"
-              description="Comece uma conversa nova ou reabra uma do histórico."
-              action={
-                <Button variant="outline" size="sm" onClick={newTab}>
-                  Nova conversa
-                  <Kbd>{shortcut('T')}</Kbd>
-                </Button>
-              }
-            />
-          )
-        ) : (
-          <GateState gate={gate} onRetry={retry} isRetrying={isRetrying} />
+      <div className="flex min-h-0 flex-1">
+        {agentMode && ready && (
+          <AgentSidebar
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onSelect={setActiveTab}
+            onClose={closeTab}
+            onNew={newTab}
+          />
         )}
+        <div className="min-h-0 min-w-0 flex-1">
+          {ready ? (
+            activeTab ? (
+              <ConversationView
+                key={activeTab.id}
+                tab={activeTab}
+                me={gate.me}
+                wide={agentMode}
+              />
+            ) : (
+              <ContentState
+                icon={Add01Icon}
+                title="Nenhuma conversa aberta"
+                description="Comece uma conversa nova ou reabra uma do histórico."
+                action={
+                  <Button variant="outline" size="sm" onClick={newTab}>
+                    Nova conversa
+                    <Kbd>{shortcut('T')}</Kbd>
+                  </Button>
+                }
+              />
+            )
+          ) : (
+            <GateState gate={gate} onRetry={retry} isRetrying={isRetrying} />
+          )}
+        </div>
       </div>
     </section>
   );

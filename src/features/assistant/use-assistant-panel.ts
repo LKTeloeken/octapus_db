@@ -5,6 +5,7 @@ import { useAssistantStatus } from '@/queries/use-assistant-status';
 import { useAssistantStore } from '@/stores/assistant-store';
 import { assistantGate, canCallApi } from './assistant-gate';
 import { useCloseConversation } from './use-assistant-shortcuts';
+import { useToggleAgentMode } from './use-toggle-assistant';
 
 /** Rótulo de uma aba de conversa ainda sem título no servidor */
 const NEW_CONVERSATION_LABEL = 'Nova conversa';
@@ -26,6 +27,8 @@ export const useAssistantPanel = () => {
   const closeTab = useCloseConversation();
   const newTab = useAssistantStore(state => state.newTab);
   const closePanel = useAssistantStore(state => state.closePanel);
+  const agentMode = useAssistantStore(state => state.agentMode);
+  const toggleAgentMode = useToggleAgentMode();
 
   // Os títulos vêm da lista do servidor (a API dá o título na 1ª pergunta)
   const conversations = useAssistantConversations(ready);
@@ -46,6 +49,7 @@ export const useAssistantPanel = () => {
           NEW_CONVERSATION_LABEL;
         return {
           id: tab.id,
+          conversationId: tab.conversationId,
           title,
           running: !!live[tab.id] && live[tab.id].phase !== 'finished',
         };
@@ -69,6 +73,8 @@ export const useAssistantPanel = () => {
     closeTab,
     newTab: useCallback(() => void newTab(), [newTab]),
     closePanel,
+    agentMode,
+    toggleAgentMode,
     retry,
     isRetrying: status.isFetching || me.isFetching,
   };

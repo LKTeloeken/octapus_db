@@ -29,9 +29,22 @@ describe('atalhos do assistente', () => {
     expect(assistantShortcut(key('t'), false)).toBeNull();
   });
 
+  it('Cmd/Ctrl+Shift+J entra e sai do modo agente de qualquer lugar', () => {
+    expect(assistantShortcut(key('J', { shiftKey: true }), false)).toBe(
+      'toggle-agent-mode',
+    );
+    expect(
+      assistantShortcut(
+        key('j', { metaKey: false, ctrlKey: true, shiftKey: true }),
+        true,
+      ),
+    ).toBe('toggle-agent-mode');
+  });
+
   it('sem modificadora, ou com Shift/Alt, nada', () => {
     expect(assistantShortcut(key('w', { metaKey: false }), true)).toBeNull();
     expect(assistantShortcut(key('w', { shiftKey: true }), true)).toBeNull();
+    expect(assistantShortcut(key('t', { shiftKey: true }), true)).toBeNull();
     expect(assistantShortcut(key('j', { altKey: true }), true)).toBeNull();
   });
 });
