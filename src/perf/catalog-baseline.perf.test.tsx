@@ -79,6 +79,8 @@ const CAPABILITIES: AdapterCapabilities = {
   supportsSchemaCompare: true,
   supportsBackup: true,
   supportsAtomicSave: true,
+  structureFolders: ['view', 'materializedView', 'function', 'sequence'],
+  relationFolders: ['index', 'trigger', 'foreignKey'],
 };
 
 const COLUMNS: ColumnInfo[] = [

@@ -1,3 +1,4 @@
+import type { IndexInfo } from '@/api/types/structure.types';
 import type { MockColumn, MockDatabase, MockTable } from './types';
 import * as gen from './rows';
 
@@ -136,6 +137,117 @@ function tenantColumns(index: number | null, name: string): MockColumn[] {
   return TENANT_COLUMNS;
 }
 
+/** Os índices de uma tabela de tenant: a PK e um por `tenant_ref` */
+export function tenantIndexes(name: string): IndexInfo[] {
+  return [
+    {
+      name: `${name}_pkey`,
+      columns: ['id'],
+      isUnique: true,
+      isPrimary: true,
+      indexType: 'btree',
+    },
+    {
+      name: `${name}_tenant_ref_idx`,
+      columns: ['tenant_ref'],
+      isUnique: false,
+      isPrimary: false,
+      indexType: 'btree',
+    },
+  ];
+}
+
+/** Uma função do mock (o `FunctionObject` do backend, sem o tipo) */
+export interface MockFunction {
+  name: string;
+  signature: string;
+  arguments: string;
+  returns: string | null;
+  functionKind: 'function' | 'procedure' | 'aggregate' | 'window';
+  language: string;
+  body: string;
+  /** `COMMENT ON FUNCTION` */
+  comment?: string | null;
+}
+
+const fn = (
+  name: string,
+  args: string,
+  returns: string | null,
+  body: string,
+  functionKind: MockFunction['functionKind'] = 'function',
+  language = 'plpgsql',
+): MockFunction => ({
+  name,
+  // Sem os defaults: a identidade que distingue as sobrecargas
+  signature: args.replace(/ DEFAULT [^,]+/g, ''),
+  arguments: args,
+  returns,
+  functionKind,
+  language,
+  body,
+});
+
+/** As funções de cada tenant (sobrecarga em `order_total`) */
+const TENANT_FUNCTIONS: readonly MockFunction[] = [
+  fn(
+    'archive_old_orders',
+    'days integer DEFAULT 90',
+    null,
+    'DELETE FROM orders WHERE created_at < now() - make_interval(days => days);',
+    'procedure',
+  ),
+  fn(
+    'customer_balance',
+    'customer_id integer',
+    'numeric',
+    'RETURN (SELECT coalesce(sum(total), 0) FROM invoices WHERE invoices.customer_id = customer_balance.customer_id);',
+  ),
+  fn(
+    'order_total',
+    'order_id integer',
+    'numeric',
+    'RETURN (SELECT sum(qty * price) FROM orders_items WHERE orders_items.order_id = order_total.order_id);',
+  ),
+  fn(
+    'order_total',
+    'order_id integer, with_tax boolean',
+    'numeric',
+    'RETURN order_total(order_id) * CASE WHEN with_tax THEN 1.1 ELSE 1 END;',
+  ),
+  fn(
+    'touch_updated_at',
+    '',
+    'trigger',
+    'NEW.updated_at := now();\n  RETURN NEW;',
+  ),
+];
+
+/** As funções do `public` (compartilhadas) */
+const PUBLIC_FUNCTIONS: readonly MockFunction[] = [
+  fn(
+    'current_tenant',
+    '',
+    'text',
+    "RETURN current_setting('app.tenant', true);",
+    'function',
+    'plpgsql',
+  ),
+  fn(
+    'plan_limit',
+    'plan text, resource text',
+    'integer',
+    'SELECT (limits ->> resource)::int FROM plans WHERE name = plan',
+    'function',
+    'sql',
+  ),
+];
+
+export function tenantFunctions(schema: string): readonly MockFunction[] {
+  if (schema === 'public') return PUBLIC_FUNCTIONS;
+  return tenantIndex(schema) === null ? [] : TENANT_FUNCTIONS;
+}
+
 const materialized = new Map<string, MockTable>();
 
 /** A tabela de um tenant, criada no primeiro acesso; `undefined` se não existe */
@@ -160,7 +272,7 @@ export function tenantTable(
       schema,
       tableType: 'table',
       columns: tenantColumns(tenantIndex(schema), name),
-      indexes: [],
+      indexes: tenantIndexes(name),
       rowEstimate: 40,
     };
     materialized.set(key, table);

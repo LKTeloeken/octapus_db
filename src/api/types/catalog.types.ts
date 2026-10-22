@@ -1,5 +1,8 @@
 // Gerados do Rust (ts-rs) — ver src-tauri/src/models; não edite à mão
 export type { CatalogDiagnostics } from './generated/CatalogDiagnostics';
+export type { CatalogFolder } from './generated/CatalogFolder';
+export type { CatalogObject } from './generated/CatalogObject';
+export type { CatalogObjectRef } from './generated/CatalogObjectRef';
 export type { CatalogEvent } from './generated/CatalogEvent';
 export type { CatalogNode } from './generated/CatalogNode';
 export type { CatalogPathInput as CatalogPath } from './generated/CatalogPathInput';
@@ -10,8 +13,12 @@ export type { ColumnChange } from './generated/ColumnChange';
 export type { ColumnSpec } from './generated/ColumnSpec';
 export type { DriftGroup } from './generated/DriftGroup';
 export type { DriftReport as CatalogDriftReport } from './generated/DriftReport';
+export type { FunctionKind } from './generated/FunctionKind';
+export type { FunctionObject } from './generated/FunctionObject';
+export type { IndexObject as CatalogIndex } from './generated/IndexObject';
 export type { LoadState as CatalogLoadState } from './generated/LoadState';
 export type { NodeKind as CatalogNodeKind } from './generated/NodeKind';
+export type { ObjectKind as CatalogObjectKind } from './generated/ObjectKind';
 export type { Page as CatalogPage } from './generated/Page';
 export type { Resolution as CatalogResolution } from './generated/Resolution';
 export type { SchemaComparison } from './generated/SchemaComparison';

@@ -114,17 +114,15 @@ export const useResultsTableKeyboard = ({
         'l',
         'Home',
         'End',
-        'Tab',
         'Enter',
         'Space',
         ' ',
       ];
       if (!navKeys.includes(event.key)) return;
 
-      // Sem cursor ainda: a primeira tecla pousa na primeira célula. O Tab fica
-      // de fora para continuar servindo de saída da grade.
+      // Sem cursor ainda: a primeira tecla pousa na primeira célula. O Tab não
+      // passa por aqui: ele troca a visualização (`ResultsTable`).
       if (!focusedCell) {
-        if (event.key === 'Tab') return;
         event.preventDefault();
         moveTo(0, 0);
         return;
@@ -180,30 +178,6 @@ export const useResultsTableKeyboard = ({
           event.preventDefault();
           moveTo(rowIndex, lastColumn);
           return;
-
-        // Tab anda célula a célula, quebrando para a linha seguinte/anterior.
-        // Nas pontas ele NÃO é interceptado: sem isso a grade viraria uma
-        // armadilha de foco e não daria para sair dela pelo teclado.
-        case 'Tab': {
-          if (event.shiftKey) {
-            if (columnIndex > 0) {
-              event.preventDefault();
-              moveTo(rowIndex, columnIndex - 1);
-            } else if (rowIndex > 0) {
-              event.preventDefault();
-              moveTo(rowIndex - 1, lastColumn);
-            }
-            return;
-          }
-          if (columnIndex < lastColumn) {
-            event.preventDefault();
-            moveTo(rowIndex, columnIndex + 1);
-          } else if (rowIndex < lastRow) {
-            event.preventDefault();
-            moveTo(rowIndex + 1, 0);
-          }
-          return;
-        }
 
         case 'Enter':
         case 'Space':

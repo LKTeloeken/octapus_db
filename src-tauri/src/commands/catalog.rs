@@ -11,8 +11,9 @@ use crate::adapters::{create_catalog_source, has_catalog};
 use crate::catalog::CatalogPath;
 use crate::error::{Error, Result};
 use crate::models::{
-    CatalogDiagnostics, CatalogNode, CatalogPathInput, CatalogSearchHit, CatalogStatus,
-    DriftReport, NodeKind, Page, Resolution, SchemaComparison, ShapeGroup,
+    AdapterCapabilities, CatalogDiagnostics, CatalogNode, CatalogObject, CatalogPathInput, CatalogSearchHit,
+    CatalogStatus, DriftReport, FolderSummary, NodeKind, ObjectKind, ObjectRef, Page, Resolution, SchemaComparison,
+    ShapeGroup,
 };
 use crate::services::{connection_identity, CatalogEntry, SourceOpener};
 use crate::state::AppState;
@@ -296,4 +297,66 @@ pub async fn catalog_relation_size(
 ) -> Result<Option<i64>> {
     let entry = entry_for(&state, server_id, &database).await?;
     state.catalog.relation_size(&entry, &schema, &table).await
+}
+
+/// Uma janela de uma pasta da árvore (views, views materializadas, índices,
+/// funções) de um schema — no Mongo e no SQLite, o schema sem nome. Com
+/// `table`, só os índices dessa relação (o Mongo só responde assim). Índices e
+/// funções vão ao banco na primeira vez, um schema por consulta, pela faixa de
+/// prioridade.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn catalog_objects(
+    state: State<'_, AppState>,
+    server_id: i64,
+    database: String,
+    schema: String,
+    kind: ObjectKind,
+    table: Option<String>,
+    filter: Option<String>,
+    offset: usize,
+    limit: usize,
+) -> Result<Page<CatalogObject>> {
+    let entry = entry_for(&state, server_id, &database).await?;
+    state
+        .catalog
+        .objects(
+            &entry,
+            kind,
+            &schema,
+            table.as_deref(),
+            filter.as_deref(),
+            offset,
+            limit.min(MAX_PAGE),
+        )
+        .await
+}
+
+/// As pastas de um schema que o banco tem (`structureFolders` das
+/// capabilities), com a contagem quando já se sabe — sem ler índices nem
+/// funções.
+#[tauri::command]
+pub async fn catalog_folders(
+    state: State<'_, AppState>,
+    server_id: i64,
+    database: String,
+    schema: String,
+) -> Result<Vec<FolderSummary>> {
+    let meta = servers::get_by_id_meta(&state.storage, server_id)?;
+    let kinds = AdapterCapabilities::for_db_type(meta.db_type).map_or(&[][..], |caps| caps.structure_folders);
+    let entry = entry_for(&state, server_id, &database).await?;
+    state.catalog.folders(&entry, &schema, kinds).await
+}
+
+/// A definição completa de um objeto (`CREATE VIEW…`, `CREATE INDEX…`, o corpo
+/// da função), sob demanda.
+#[tauri::command]
+pub async fn catalog_object_definition(
+    state: State<'_, AppState>,
+    server_id: i64,
+    database: String,
+    target: ObjectRef,
+) -> Result<String> {
+    let entry = entry_for(&state, server_id, &database).await?;
+    state.catalog.definition(&entry, &target).await
 }

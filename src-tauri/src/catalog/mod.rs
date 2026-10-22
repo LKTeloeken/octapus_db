@@ -14,6 +14,7 @@ mod columns;
 mod drift;
 mod interner;
 mod model;
+mod objects;
 mod persist;
 mod query;
 mod scope;
@@ -33,6 +34,10 @@ pub use model::{
 };
 #[cfg(test)]
 pub use model::SchemaDrift;
+pub use objects::{
+    CatalogObject, FolderSummary, ForeignKeyObject, FunctionKind, FunctionObject, IndexObject, ObjectKind, ObjectRef,
+    SequenceObject, TriggerObject,
+};
 pub use persist::{CatalogKey, CatalogStore, Loaded};
 pub use scope::NameScope;
 pub use source::{

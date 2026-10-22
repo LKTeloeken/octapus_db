@@ -3,7 +3,12 @@ import {
   FLAT_SCHEMA,
   type CatalogDriftReport,
   type CatalogEvent,
+  type CatalogFolder,
+  type CatalogIndex,
   type CatalogNode,
+  type CatalogObject,
+  type CatalogObjectKind,
+  type CatalogObjectRef,
   type CatalogNodeKind,
   type CatalogPage,
   type CatalogPath,
@@ -17,7 +22,8 @@ import {
   type SchemaDrift,
   type ShapeGroup,
 } from '@/api/types/catalog.types';
-import type { TableType } from '@/api/types/structure.types';
+import type { DatabaseType } from '@/api/types/server.types';
+import type { IndexInfo, TableType } from '@/api/types/structure.types';
 import { fuzzyMatch } from '@/lib/fuzzy';
 import {
   requireDatabase,
@@ -30,8 +36,11 @@ import {
   TENANT_COUNT,
   tenantIndex,
   tenantSchema,
+  tenantFunctions,
+  tenantIndexes,
   tenantTable,
   tenantTables,
+  type MockFunction,
 } from './data/tenants';
 import { mockEmit } from './events';
 import { parseScope } from './scope';
@@ -313,10 +322,19 @@ function emit(
   mockEmit(CATALOG_EVENT, { serverId, database, ...event } as CatalogEvent);
 }
 
+/** Como o backend: sincronizar ou atualizar esquece índices e funções lidos */
+function forgetObjects(serverId: number, database: string, schema?: string) {
+  const prefix = `${serverId}\u0000${database}\u0000${schema === undefined ? '' : `${schema}\u0000`}`;
+  for (const key of Array.from(loadedObjects)) {
+    if (key.startsWith(prefix)) loadedObjects.delete(key);
+  }
+}
+
 function startSync(serverId: number, database: string) {
   const { shape, state } = context(serverId, database);
   if (state.syncing) return;
   state.syncing = true;
+  forgetObjects(serverId, database);
   const firstTime = state.phase === 'empty';
   emit(serverId, database, { type: 'syncing' });
 
@@ -456,15 +474,428 @@ async function children(
   // A sincronização ainda não chegou: carga prioritária só deste schema
   if (state.phase !== 'ready') await sleep(150);
 
+  // `tables`: as soltas da árvore, sem as views (moram nas pastas)
   const wanted =
     path.kind === 'schema'
       ? relations.filter(r => !r.parent)
-      : relations.filter(r => r.parent === path.table);
+      : path.kind === 'tables'
+        ? relations.filter(r => !r.parent && !isView(r.kind))
+        : relations.filter(r => r.parent === path.table);
   return page(
     wanted.filter(r => keep(r.name)).map(r => relationNode(relations, r)),
     offset,
     limit,
   );
+}
+
+const isView = (kind: CatalogNodeKind) =>
+  kind === 'view' || kind === 'materializedView';
+
+// ── Pastas: views, índices, funções ─────────────────────────────────────────
+
+/** Funções do Postgres comum do dataset (fora o `saas`, que gera as suas) */
+const SAMPLE_FUNCTIONS: Record<string, MockFunction[]> = {
+  public: [
+    {
+      name: 'atualiza_estoque',
+      signature: 'produto_id integer, delta integer',
+      arguments: 'produto_id integer, delta integer',
+      returns: 'void',
+      functionKind: 'function',
+      language: 'plpgsql',
+      body: 'UPDATE produtos SET estoque = estoque + delta WHERE id = produto_id;',
+    },
+    {
+      name: 'receita_do_mes',
+      signature: 'mes date',
+      arguments: 'mes date',
+      returns: 'numeric',
+      functionKind: 'function',
+      language: 'sql',
+      body: "SELECT sum(total) FROM pedidos WHERE date_trunc('month', criado_em) = mes",
+      comment: 'Receita bruta dos pedidos do mês informado',
+    },
+  ],
+};
+
+/** Os índices de um schema (ou de uma relação), como o `list_indexes` da fonte */
+function indexesOf(
+  db: MockDatabase,
+  schema: string,
+  flat: boolean,
+  table: string | null,
+): CatalogIndex[] {
+  const toIndex = (relation: string) => (index: IndexInfo) => ({
+    name: index.name,
+    table: relation,
+    method: index.indexType,
+    unique: index.isUnique,
+    primary: index.isPrimary,
+    columns: index.columns,
+    // Um parcial no dataset, para a árvore mostrar
+    predicate:
+      index.name === 'idx_pedidos_status_data'
+        ? "status <> 'cancelado'::text"
+        : null,
+  });
+  const fromTables =
+    db.generated === 'tenants'
+      ? (schema === 'public'
+          ? SAAS_PUBLIC_TABLES
+          : tenantTables(tenantIndex(schema) ?? 0)
+        ).flatMap(name => tenantIndexes(name).map(toIndex(name)))
+      : db.tables
+          .filter(t => (flat ? true : t.schema === schema))
+          .flatMap(t => t.indexes.map(toIndex(t.name)));
+  return fromTables
+    .filter(index => table === null || index.table === table)
+    .sort((a, b) => byteOrder(a.name, b.name));
+}
+
+type SequenceItem = Extract<CatalogObject, { kind: 'sequence' }>;
+type TriggerItem = Extract<CatalogObject, { kind: 'trigger' }>;
+type ForeignKeyItem = Extract<CatalogObject, { kind: 'foreignKey' }>;
+
+/** As tabelas comuns de um schema do dataset (o `saas` gerado não tem estes objetos) */
+const plainTables = (db: MockDatabase, schema: string, flat: boolean) =>
+  db.generated === 'tenants'
+    ? []
+    : db.tables.filter(
+        t => t.tableType === 'table' && (flat || t.schema === schema),
+      );
+
+/** Uma sequence por tabela com `id` inteiro (o `serial`) */
+function sequencesOf(db: MockDatabase, schema: string): SequenceItem[] {
+  return plainTables(db, schema, false)
+    .flatMap(t => {
+      const id = t.columns.find(c => c.name === 'id' && /int/.test(c.dataType));
+      return id
+        ? [
+            {
+              kind: 'sequence' as const,
+              name: `${t.name}_id_seq`,
+              dataType: id.dataType === 'bigint' ? 'bigint' : 'integer',
+              ownedBy: `${t.name}.id`,
+            },
+          ]
+        : [];
+    })
+    .sort((a, b) => byteOrder(a.name, b.name));
+}
+
+/** Dois triggers em `pedidos` (um desligado); no SQLite, um na primeira tabela */
+function triggersOf(
+  db: MockDatabase,
+  schema: string,
+  flat: boolean,
+  table: string | null,
+  postgres: boolean,
+): TriggerItem[] {
+  const tables = plainTables(db, schema, flat);
+  const targets = tables.filter(
+    (t, index) => t.name === 'pedidos' || (flat && index === 0),
+  );
+  return targets
+    .flatMap((t): TriggerItem[] => [
+      {
+        kind: 'trigger',
+        name: `${t.name}_atualiza_estoque`,
+        table: t.name,
+        timing: 'AFTER',
+        events: ['INSERT'],
+        function: postgres ? `${schema}.atualiza_estoque` : null,
+        enabled: true,
+      },
+      {
+        kind: 'trigger',
+        name: `${t.name}_auditoria`,
+        table: t.name,
+        timing: 'BEFORE',
+        events: ['UPDATE', 'DELETE'],
+        function: postgres ? `${schema}.registra_auditoria` : null,
+        enabled: !postgres,
+      },
+    ])
+    .filter(trigger => table === null || trigger.table === table);
+}
+
+/** Pela convenção do dataset: `usuario_id` → `usuarios` (ou `usuario`) */
+function foreignKeysOf(
+  db: MockDatabase,
+  schema: string,
+  flat: boolean,
+  table: string | null,
+): ForeignKeyItem[] {
+  const tables = plainTables(db, schema, flat);
+  return tables
+    .filter(t => table === null || t.name === table)
+    .flatMap(t =>
+      t.columns
+        .filter(c => c.name.endsWith('_id'))
+        .flatMap((c, index): ForeignKeyItem[] => {
+          const base = c.name.slice(0, -'_id'.length);
+          const target = tables.find(
+            r => r.name === base || r.name === `${base}s`,
+          );
+          if (!target) return [];
+          return [
+            {
+              kind: 'foreignKey',
+              name: flat ? `fk_${t.name}_${index}` : `${t.name}_${c.name}_fkey`,
+              table: t.name,
+              columns: [c.name],
+              refSchema: flat ? FLAT_SCHEMA : schema,
+              refTable: target.name,
+              refColumns: ['id'],
+              onDelete: t.name.includes('itens') ? 'CASCADE' : 'NO ACTION',
+              onUpdate: 'NO ACTION',
+            },
+          ];
+        }),
+    );
+}
+
+function functionsOf(db: MockDatabase, schema: string): MockFunction[] {
+  const list =
+    db.generated === 'tenants'
+      ? tenantFunctions(schema)
+      : (SAMPLE_FUNCTIONS[schema] ?? []);
+  return [...list].sort(
+    (a, b) => byteOrder(a.name, b.name) || byteOrder(a.signature, b.signature),
+  );
+}
+
+const asFunction = (f: MockFunction): CatalogObject => ({
+  kind: 'function',
+  name: f.name,
+  signature: f.signature,
+  arguments: f.arguments,
+  returns: f.returns,
+  functionKind: f.functionKind,
+  language: f.language,
+  comment: f.comment ?? null,
+});
+
+/** Índices e funções "lidos do banco": a primeira abertura demora um pouco */
+const loadedObjects = new Set<string>();
+
+async function objects(
+  serverId: number,
+  database: string,
+  schema: string,
+  kind: CatalogObjectKind,
+  table: string | null,
+  filter: string | null,
+  offset: number,
+  limit: number,
+): Promise<CatalogPage<CatalogObject>> {
+  const entry = requireServerEntry(serverId);
+  const db = requireDatabase(entry, database);
+  const { dbType } = entry.server;
+  const flat = !entry.capabilities.hasSchemas;
+  const keep = contains(filter);
+
+  if (kind === 'view' || kind === 'materializedView') {
+    const { shape } = context(serverId, database);
+    const relations = shape.relations(schema);
+    if (!relations) throw `Not found: schema ${schema} in ${database}`;
+    const items = relations
+      .filter(r => !r.parent && r.kind === kind && keep(r.name))
+      .map((r): CatalogObject => ({ kind, name: r.name }));
+    return page(items, offset, limit);
+  }
+
+  if (kind === 'function' && dbType !== 'postgres') {
+    throw 'Unsupported type: functions are only listed for PostgreSQL';
+  }
+  if (kind === 'sequence' && dbType !== 'postgres') {
+    throw 'Unsupported type: sequences are only listed for PostgreSQL';
+  }
+  if ((kind === 'trigger' || kind === 'foreignKey') && dbType === 'mongodb') {
+    throw `Unsupported type: ${kind} is not listed for this database`;
+  }
+  if (kind === 'index' && dbType === 'mongodb' && table === null) {
+    throw 'Unsupported type: MongoDB lists indexes per collection';
+  }
+  const key = `${serverId}\u0000${database}\u0000${schema}\u0000${kind}\u0000${table}`;
+  if (!loadedObjects.has(key)) {
+    await sleep(250);
+    loadedObjects.add(key);
+  }
+
+  const items: CatalogObject[] =
+    kind === 'index'
+      ? indexesOf(db, schema, flat, table)
+          .filter(index => keep(index.name) || keep(index.table))
+          .map(index => ({ kind: 'index', ...index }))
+      : kind === 'sequence'
+        ? sequencesOf(db, schema).filter(s => keep(s.name))
+        : kind === 'trigger'
+          ? triggersOf(db, schema, flat, table, dbType === 'postgres').filter(
+              t => keep(t.name) || keep(t.table),
+            )
+          : kind === 'foreignKey'
+            ? foreignKeysOf(db, schema, flat, table).filter(
+                k => keep(k.name) || keep(k.table) || keep(k.refTable),
+              )
+            : functionsOf(db, schema)
+                .filter(f => keep(f.name))
+                .map(asFunction);
+  return page(items, offset, limit);
+}
+
+function folders(
+  serverId: number,
+  database: string,
+  schema: string,
+): CatalogFolder[] {
+  const entry = requireServerEntry(serverId);
+  const { shape, state } = context(serverId, database);
+  const relations = shape.relations(schema);
+  if (!relations) throw `Not found: schema ${schema} in ${database}`;
+  const ready = state.phase === 'ready';
+  const db = requireDatabase(entry, database);
+  return entry.capabilities.structureFolders.map(kind => {
+    if (kind === 'view' || kind === 'materializedView') {
+      return {
+        kind,
+        count: ready
+          ? relations.filter(r => !r.parent && r.kind === kind).length
+          : null,
+      };
+    }
+    // Como o backend: só se sabe depois de abrir a pasta
+    const loaded = loadedObjects.has(
+      `${serverId}\u0000${database}\u0000${schema}\u0000${kind}\u0000null`,
+    );
+    if (!loaded) return { kind, count: null };
+    const flat = !entry.capabilities.hasSchemas;
+    return {
+      kind,
+      count:
+        kind === 'index'
+          ? indexesOf(db, schema, flat, null).length
+          : kind === 'sequence'
+            ? sequencesOf(db, schema).length
+            : functionsOf(db, schema).length,
+    };
+  });
+}
+
+const quoteIdent = (name: string) =>
+  /^[a-z_][a-z0-9_]*$/.test(name) ? name : `"${name.replace(/"/g, '""')}"`;
+
+function definition(
+  serverId: number,
+  database: string,
+  target: CatalogObjectRef,
+): string {
+  const entry = requireServerEntry(serverId);
+  const db = requireDatabase(entry, database);
+  const dbType: DatabaseType = entry.server.dbType;
+  const flat = !entry.capabilities.hasSchemas;
+  const qualified = flat
+    ? quoteIdent(target.name)
+    : `${quoteIdent(target.schema)}.${quoteIdent(target.name)}`;
+  const notFound = `Not found: ${target.kind} ${target.name}`;
+
+  if (target.kind === 'view' || target.kind === 'materializedView') {
+    const { shape } = context(serverId, database);
+    const found = shape
+      .relations(target.schema)
+      ?.find(r => r.name === target.name && r.kind === target.kind);
+    if (!found) throw notFound;
+    if (dbType === 'mongodb') {
+      return `db.createView("${target.name}", "produtos", [\n  {\n    "$match": {\n      "publicado": true\n    }\n  }\n])\n`;
+    }
+    const create =
+      target.kind === 'materializedView'
+        ? 'CREATE MATERIALIZED VIEW'
+        : dbType === 'sqlite'
+          ? 'CREATE VIEW'
+          : 'CREATE OR REPLACE VIEW';
+    return `${create} ${qualified} AS\n SELECT count(*) AS total\n   FROM ${flat ? 'notas' : `${quoteIdent(target.schema)}.pedidos`};\n`;
+  }
+
+  if (target.kind === 'index') {
+    const index = indexesOf(db, target.schema, flat, target.table ?? null).find(
+      candidate => candidate.name === target.name,
+    );
+    if (!index) throw notFound;
+    if (dbType === 'mongodb') {
+      const keys = index.columns.map(column => `"${column}":1`).join(',');
+      const options = index.unique && !index.primary ? ',"unique":true' : '';
+      return `db.getCollection("${index.table}").createIndex({${keys}}, {"name":"${index.name}"${options}})\n`;
+    }
+    const unique = index.unique ? 'UNIQUE ' : '';
+    const where = index.predicate ? ` WHERE (${index.predicate})` : '';
+    const on = flat
+      ? quoteIdent(index.table)
+      : `${quoteIdent(target.schema)}.${quoteIdent(index.table)}`;
+    const using = dbType === 'postgres' ? ` USING ${index.method}` : '';
+    return `CREATE ${unique}INDEX ${quoteIdent(index.name)} ON ${on}${using} (${index.columns.join(', ')})${where};\n`;
+  }
+
+  const table = (name: string) =>
+    flat
+      ? quoteIdent(name)
+      : `${quoteIdent(target.schema)}.${quoteIdent(name)}`;
+
+  if (target.kind === 'sequence') {
+    const sequence = sequencesOf(db, target.schema).find(
+      candidate => candidate.name === target.name,
+    );
+    if (!sequence) throw notFound;
+    const owner = sequence.ownedBy?.split('.') ?? [];
+    return (
+      `CREATE SEQUENCE ${qualified} AS ${sequence.dataType} INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1;\n` +
+      (owner.length === 2
+        ? `ALTER SEQUENCE ${qualified} OWNED BY ${table(owner[0])}.${owner[1]};\n`
+        : '')
+    );
+  }
+
+  if (target.kind === 'trigger') {
+    const trigger = triggersOf(
+      db,
+      target.schema,
+      flat,
+      target.table ?? null,
+      dbType === 'postgres',
+    ).find(candidate => candidate.name === target.name);
+    if (!trigger) throw notFound;
+    const when = `${trigger.timing} ${trigger.events.join(' OR ')} ON ${table(trigger.table)}`;
+    return dbType === 'postgres'
+      ? `CREATE TRIGGER ${quoteIdent(trigger.name)} ${when} FOR EACH ROW EXECUTE FUNCTION ${trigger.function}();\n`
+      : `CREATE TRIGGER ${quoteIdent(trigger.name)} ${when}\nBEGIN\n  UPDATE ${quoteIdent(trigger.table)} SET id = id WHERE id = NEW.id;\nEND;\n`;
+  }
+
+  if (target.kind === 'foreignKey') {
+    const key = foreignKeysOf(
+      db,
+      target.schema,
+      flat,
+      target.table ?? null,
+    ).find(candidate => candidate.name === target.name);
+    if (!key) throw notFound;
+    const references = `FOREIGN KEY (${key.columns.join(', ')}) REFERENCES ${table(key.refTable)}(${key.refColumns.join(', ')}) ON DELETE ${key.onDelete}`;
+    return flat
+      ? `-- Dentro do CREATE TABLE ${quoteIdent(key.table)}\n${references};\n`
+      : `ALTER TABLE ${table(key.table)} ADD CONSTRAINT ${quoteIdent(key.name)} ${references};\n`;
+  }
+
+  const fn = functionsOf(db, target.schema).find(
+    candidate =>
+      candidate.name === target.name &&
+      candidate.signature === (target.signature ?? ''),
+  );
+  if (!fn) throw notFound;
+  const header =
+    fn.functionKind === 'procedure'
+      ? `CREATE OR REPLACE PROCEDURE ${qualified}(${fn.arguments})`
+      : `CREATE OR REPLACE FUNCTION ${qualified}(${fn.arguments})\n RETURNS ${fn.returns}`;
+  const body = fn.language === 'sql' ? fn.body : `BEGIN\n  ${fn.body}\nEND;`;
+  return `${header}\n LANGUAGE ${fn.language}\nAS $function$\n${body}\n$function$;\n`;
 }
 
 /** Catálogos abertos (ou o pedido), como o `search_all` do backend */
@@ -871,6 +1302,7 @@ export const mockCatalog = {
     const id = serverId as number;
     const db = database as string;
     if (schema) {
+      forgetObjects(id, db, schema as string);
       await sleep(150);
       emit(id, db, { type: 'relations', schemas: 1 });
     } else {
@@ -957,8 +1389,44 @@ export const mockCatalog = {
     return 16_384 + (table as string).length * 8_192;
   },
 
+  objects({
+    serverId,
+    database,
+    schema,
+    kind,
+    table,
+    filter,
+    offset,
+    limit,
+  }: Args): Promise<CatalogPage<CatalogObject>> {
+    return objects(
+      serverId as number,
+      database as string,
+      schema as string,
+      kind as CatalogObjectKind,
+      (table as string | null) ?? null,
+      (filter as string | null) ?? null,
+      (offset as number) ?? 0,
+      limit as number,
+    );
+  },
+
+  folders({ serverId, database, schema }: Args): CatalogFolder[] {
+    return folders(serverId as number, database as string, schema as string);
+  },
+
+  async definition({ serverId, database, target }: Args): Promise<string> {
+    await sleep(120);
+    return definition(
+      serverId as number,
+      database as string,
+      target as CatalogObjectRef,
+    );
+  },
+
   /** Volta tudo ao estado de "nunca aberto" (reset do dataset no painel) */
   reset(): void {
     states.clear();
+    loadedObjects.clear();
   },
 };

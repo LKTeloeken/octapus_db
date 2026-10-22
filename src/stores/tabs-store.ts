@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { SortSpec } from '@/api/types/browse.types';
+import type { CatalogObjectRef } from '@/api/types/catalog.types';
 import { encodeNodeId } from '@/lib/node-ref';
 
 /**
@@ -35,7 +36,38 @@ export interface BrowseTab extends TabBase {
   hiddenColumns: string[];
 }
 
-export type WorkspaceTab = QueryTab | BrowseTab;
+/**
+ * A definição de um objeto do catálogo (índice, função, view…): só leitura,
+ * com destaque de sintaxe. Guarda o objeto, não o texto — o texto vem do
+ * catálogo ao abrir e volta certo depois de reiniciar o app.
+ */
+export interface DefinitionTab extends TabBase {
+  kind: 'definition';
+  /** Schema do objeto (null no banco sem schema), para o "Abrir em aba de query" */
+  schema: string | null;
+  target: CatalogObjectRef;
+}
+
+export type WorkspaceTab = QueryTab | BrowseTab | DefinitionTab;
+
+/** Uma aba de definição por objeto: abrir de novo só a ativa */
+export const definitionTabId = (
+  serverId: number,
+  database: string,
+  target: CatalogObjectRef,
+) =>
+  [
+    'definition',
+    serverId,
+    database,
+    target.kind,
+    target.schema,
+    target.table ?? '',
+    target.name,
+    target.signature ?? '',
+  ]
+    .map(part => encodeURIComponent(String(part)))
+    .join('|');
 
 interface TabsState {
   tabs: Map<string, WorkspaceTab>;
@@ -53,6 +85,13 @@ interface TabsState {
     database: string;
     schema: string | null;
     table: string;
+  }) => string;
+  openDefinitionTab: (params: {
+    serverId: number;
+    database: string;
+    schema: string | null;
+    target: CatalogObjectRef;
+    title: string;
   }) => string;
   closeTab: (id: string) => void;
   /** Fecha todas as abas do servidor (ex.: servidor excluído); devolve os ids fechados */
@@ -135,6 +174,29 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       activeTabId: id,
     }));
 
+    return id;
+  },
+
+  openDefinitionTab: ({ serverId, database, schema, target, title }) => {
+    const id = definitionTabId(serverId, database, target);
+    if (get().tabs.has(id)) {
+      set({ activeTabId: id });
+      return id;
+    }
+
+    const tab: DefinitionTab = {
+      id,
+      kind: 'definition',
+      title,
+      serverId,
+      database,
+      schema,
+      target,
+    };
+    set(state => ({
+      tabs: new Map(state.tabs).set(id, tab),
+      activeTabId: id,
+    }));
     return id;
   },
 

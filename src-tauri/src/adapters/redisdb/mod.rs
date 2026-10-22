@@ -2,10 +2,10 @@ mod browse;
 mod command;
 mod metadata;
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use redis::aio::ConnectionManager;
+use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use redis::{ConnectionAddr, ConnectionInfo, RedisConnectionInfo, TlsCertificates};
 use tokio::sync::OnceCell;
 
@@ -19,6 +19,21 @@ pub struct RedisAdapter {
     /// (adapter construction is sync).
     manager: OnceCell<ConnectionManager>,
     db_index: i64,
+}
+
+/// Tempo para abrir a conexão (o mesmo do Postgres).
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// O padrão do `ConnectionManager` tenta 6 vezes, com espera exponencial e
+/// sem teto por tentativa: um host que recusa só falhava depois de mais de
+/// 20 s, como "timed out", sem o motivo. Duas tentativas rápidas e um teto de
+/// conexão devolvem o erro de verdade ("Connection refused") na hora. A
+/// resposta segue sem teto: um comando longo do usuário não é cortado.
+fn manager_config() -> ConnectionManagerConfig {
+    ConnectionManagerConfig::new()
+        .set_number_of_retries(2)
+        .set_max_delay(1_000)
+        .set_connection_timeout(CONNECT_TIMEOUT)
 }
 
 impl RedisAdapter {
@@ -87,7 +102,7 @@ impl RedisAdapter {
         let manager = self
             .manager
             .get_or_try_init(|| async {
-                ConnectionManager::new(self.client.clone()).await
+                ConnectionManager::new_with_config(self.client.clone(), manager_config()).await
             })
             .await
             .map_err(|e: redis::RedisError| Error::Connection(e.to_string()))?;

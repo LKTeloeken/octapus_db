@@ -6,8 +6,8 @@
 use serde::{Deserialize, Serialize};
 
 pub use crate::catalog::{
-    CatalogNode, CatalogStats, DriftReport, NodeKind, Page, Resolution, SchemaComparison,
-    SearchHit, ShapeGroup,
+    CatalogNode, CatalogObject, CatalogStats, DriftReport, FolderSummary, NodeKind, ObjectKind, ObjectRef, Page,
+    Resolution, SchemaComparison, SearchHit, ShapeGroup,
 };
 use crate::catalog::CatalogPath;
 
@@ -15,14 +15,16 @@ use crate::catalog::CatalogPath;
 pub const CATALOG_EVENT: &str = "catalog-event";
 
 /// Nó cujos filhos o front quer: `{ kind: "schemas" }`,
-/// `{ kind: "schema", schema }`, `{ kind: "partitions", schema, table }` ou,
-/// na árvore agrupada por formato, `{ kind: "shape", key }`.
+/// `{ kind: "schema", schema }`, `{ kind: "tables", schema }` (as relações
+/// soltas da árvore, sem as views das pastas), `{ kind: "partitions", schema,
+/// table }` ou, na árvore agrupada por formato, `{ kind: "shape", key }`.
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum CatalogPathInput {
     Schemas,
     Schema { schema: String },
+    Tables { schema: String },
     Partitions { schema: String, table: String },
     Shape { key: String },
 }
@@ -32,7 +34,7 @@ impl CatalogPathInput {
     pub fn schema(&self) -> Option<&str> {
         match self {
             Self::Schemas | Self::Shape { .. } => None,
-            Self::Schema { schema } | Self::Partitions { schema, .. } => Some(schema),
+            Self::Schema { schema } | Self::Tables { schema } | Self::Partitions { schema, .. } => Some(schema),
         }
     }
 }
@@ -42,6 +44,7 @@ impl From<CatalogPathInput> for CatalogPath {
         match input {
             CatalogPathInput::Schemas => CatalogPath::Schemas,
             CatalogPathInput::Schema { schema } => CatalogPath::Schema(schema),
+            CatalogPathInput::Tables { schema } => CatalogPath::Tables(schema),
             CatalogPathInput::Partitions { schema, table } => CatalogPath::Partitions { schema, table },
             CatalogPathInput::Shape { key } => CatalogPath::ShapeSchemas(key),
         }

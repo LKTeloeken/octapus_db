@@ -159,12 +159,27 @@ const eventos: MockTable = {
   ],
 };
 
+/** View sobre `produtos` (pipeline com `$match`): mora na pasta Views */
+const produtosPublicados: MockTable = {
+  name: 'produtos_publicados',
+  schema: '',
+  tableType: 'view',
+  rowEstimate: 1_800,
+  columns: [
+    objectIdField(),
+    field('slug', 'string', gen.sku(), { isNullable: false }),
+    field('titulo', 'string', gen.productName(), { isNullable: false }),
+    field('preco', 'double', gen.decimal(9.9, 4_999)),
+  ],
+  indexes: [],
+};
+
 export function buildMongoDatabases(): MockDatabase[] {
   return [
     {
       name: 'catalogo',
       sizeBytes: 96_468_992,
-      tables: [produtos, avaliacoes, carrinhos].map(clone),
+      tables: [produtos, avaliacoes, carrinhos, produtosPublicados].map(clone),
     },
     { name: 'logs', sizeBytes: 2_147_483_648, tables: [eventos].map(clone) },
     { name: 'admin', sizeBytes: 40_960, tables: [] },

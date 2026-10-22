@@ -51,7 +51,7 @@ impl Needle {
 }
 
 /// Uma janela de `limit` itens a partir de `offset`, contando o total.
-fn paginate<I, T>(items: I, offset: usize, limit: usize, mut map: impl FnMut(I::Item) -> T) -> Page<T>
+pub(super) fn paginate<I, T>(items: I, offset: usize, limit: usize, mut map: impl FnMut(I::Item) -> T) -> Page<T>
 where
     I: Iterator,
 {
@@ -111,17 +111,20 @@ impl Catalog {
                     |(name, entry)| self.schema_node(name, entry, &mut lens),
                 ))
             }
-            CatalogPath::Schema(schema) => {
+            CatalogPath::Schema(schema) | CatalogPath::Tables(schema) => {
                 let entry = self.schemas.get(schema.as_str())?;
                 let Some(shape) = entry.shape else {
                     return Some(empty());
                 };
                 let shape = &self.shapes[shape.index()];
+                let loose = matches!(path, CatalogPath::Tables(_));
+                let is_view = |kind: RelKind| matches!(kind, RelKind::View | RelKind::MaterializedView);
                 Some(paginate(
-                    shape
-                        .tables
-                        .iter()
-                        .filter(|table| table.parent.is_none() && keep(self.names.resolve(table.name))),
+                    shape.tables.iter().filter(|table| {
+                        table.parent.is_none()
+                            && !(loose && is_view(table.kind))
+                            && keep(self.names.resolve(table.name))
+                    }),
                     offset,
                     limit,
                     |table| self.relation_node(shape, table),
@@ -324,6 +327,7 @@ impl Catalog {
         self.names.approx_heap_bytes()
             + schemas
             + shapes
+            + self.objects.approx_heap_bytes()
             + self.members.capacity() * 4
             + self.by_table.approx_heap_bytes()
     }

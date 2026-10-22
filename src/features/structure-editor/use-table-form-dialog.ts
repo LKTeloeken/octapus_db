@@ -34,15 +34,18 @@ export function useTableFormDialog({ target }: DialogOf<'createTable'>) {
 
   const dialog = useStructureChangeDialog(target, change, {
     success: `Tabela ${name.trim()} criada.`,
-    // A tabela nova aparece no schema (ou no database, no SQLite) aberto
-    onApplied: () =>
-      useTreeStore.getState().expandNode(
-        encodeNodeId({
-          serverId: target.serverId,
-          database: target.database,
-          schema: target.schema ?? undefined,
-        }),
-      ),
+    // A tabela nova aparece na pasta Tabelas do schema (ou do database, no
+    // SQLite), aberta
+    onApplied: () => {
+      const ref = {
+        serverId: target.serverId,
+        database: target.database,
+        schema: target.schema ?? undefined,
+      };
+      const { expandNode } = useTreeStore.getState();
+      expandNode(encodeNodeId(ref));
+      expandNode(encodeNodeId({ ...ref, folder: 'tables' }));
+    },
   });
 
   const updateColumn = (key: number, patch: Partial<ColumnDefinition>) =>

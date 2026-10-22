@@ -6,11 +6,18 @@ import { useServerGroups } from '@/queries/use-server-groups';
 import {
   useCreateServer,
   useDeleteServer,
+  useTestServerInput,
   useUpdateServer,
 } from '@/queries/use-servers';
+import { errorDetails, type ErrorDetails } from '@/lib/error-details';
 import { DEFAULT_DATABASES, DEFAULT_PORTS } from '@/lib/db-defaults';
 import { sslModeFor, sslModesFor, sslModeVerifies } from '@/lib/ssl-modes';
 import type { ServerFormProps } from './server-form.types';
+
+/** O resultado do "Testar conexão" (some quando um campo muda) */
+export type ConnectionTest =
+  | { status: 'ok' }
+  | { status: 'failed'; details: ErrorDetails };
 
 const emptyForm: ServerInput = {
   name: '',
@@ -41,12 +48,17 @@ export const useServerForm = ({
   const createServer = useCreateServer();
   const updateServer = useUpdateServer();
   const deleteServer = useDeleteServer();
+  const testServer = useTestServerInput();
+  const [connectionTest, setConnectionTest] = useState<ConnectionTest | null>(
+    null,
+  );
 
   const isEditMode = server != null;
   const isSaving = createServer.isPending || updateServer.isPending;
 
   useEffect(() => {
     if (!open) return;
+    setConnectionTest(null);
 
     if (server) {
       setForm({
@@ -74,9 +86,11 @@ export const useServerForm = ({
     value: ServerInput[K],
   ) => {
     setForm(prev => ({ ...prev, [key]: value }));
+    setConnectionTest(null);
   };
 
   const setDbType = (dbType: DatabaseType) => {
+    setConnectionTest(null);
     setForm(prev => {
       // O SQLite é um banco de arquivo: host/credencial não existem e a URI
       // passa a ser o caminho do .db, então o que valia para o outro tipo não
@@ -131,6 +145,22 @@ export const useServerForm = ({
     return !form.name || (!hasUri && !hasHostConfig) || isSaving;
   }, [form, isSaving]);
 
+  // Testar não pede a senha na edição: em branco, vale a salva
+  const canTest = useMemo(() => {
+    const hasUri = !!form.connectionUri?.trim();
+    return (hasUri || (!!form.host && !!form.port)) && !testServer.isPending;
+  }, [form, testServer.isPending]);
+
+  const handleTest = async () => {
+    setConnectionTest(null);
+    try {
+      await testServer.mutateAsync({ input: form, serverId: server?.id });
+      setConnectionTest({ status: 'ok' });
+    } catch (error) {
+      setConnectionTest({ status: 'failed', details: errorDetails(error) });
+    }
+  };
+
   const handleSave = async () => {
     try {
       if (isEditMode) {
@@ -164,6 +194,10 @@ export const useServerForm = ({
     isEditMode,
     isSaving,
     disableSave,
+    canTest,
+    isTesting: testServer.isPending,
+    connectionTest,
+    handleTest,
     openRemoveDialog,
     sslOptions,
     sslVerifies,

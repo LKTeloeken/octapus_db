@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   type KeyboardEvent,
   type RefObject,
 } from 'react';
@@ -17,6 +18,24 @@ interface Options {
   virtualizer: Virtualizer<HTMLDivElement, Element>;
   containerRef: RefObject<HTMLDivElement | null>;
 }
+
+/**
+ * As teclas do vim na árvore viram as setas e o Enter de sempre: `j`/`k`
+ * descem e sobem, `l` abre (ou entra) e `h` fecha (ou sobe ao pai), `o` é o
+ * Enter. `gg` e `G` (topo e fim) são tratados à parte, no `onKeyDown`.
+ */
+const VIM_KEYS: Record<string, string> = {
+  j: 'ArrowDown',
+  k: 'ArrowUp',
+  l: 'ArrowRight',
+  h: 'ArrowLeft',
+  o: 'Enter',
+};
+
+export const treeKey = (key: string) => VIM_KEYS[key] ?? key;
+
+/** O segundo `g` do `gg` vale até este tempo depois do primeiro */
+export const GG_WINDOW_MS = 600;
 
 /** Linhas que o cursor do teclado visita: nós e o "carregar mais". */
 const isNavigable = (row: FlatRow) =>
@@ -70,6 +89,8 @@ export const useTreeNavigation = ({
   const focusRequest = useFocusStore(state => state.request);
   const requestFocus = useFocusStore(state => state.requestFocus);
   const clearFocusRequest = useFocusStore(state => state.clearFocusRequest);
+  /** Quando veio o primeiro `g` de um `gg` (0 = nenhum pendente) */
+  const pendingG = useRef(0);
 
   // Só linhas de nó entram no cursor: as de erro têm id próprio e não têm
   // `props`, então nunca podem virar a posição ativa.
@@ -185,16 +206,48 @@ export const useTreeNavigation = ({
       // Acordes com modificador pertencem aos atalhos globais (Cmd/Ctrl+←/→),
       // que não podem também colapsar/expandir o nó sob o cursor.
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // Letras num campo (o filtro, que já para a propagação) são texto
+      const target = event.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      )
+        return;
+
+      // `gg` vai ao primeiro nó, `G` ao último
+      // (`G` maiúsculo, ou `g` com Shift quando a tecla chega sem o caps)
+      if (event.key === 'G' || (event.key === 'g' && event.shiftKey)) {
+        event.preventDefault();
+        pendingG.current = 0;
+        const last = findNode(rows, rows.length - 1, -1);
+        if (last !== -1) focusIndex(last);
+        return;
+      }
+      if (event.key === 'g') {
+        event.preventDefault();
+        const now = event.timeStamp;
+        if (pendingG.current && now - pendingG.current <= GG_WINDOW_MS) {
+          pendingG.current = 0;
+          const first = findNode(rows, 0, 1);
+          if (first !== -1) focusIndex(first);
+        } else {
+          pendingG.current = now;
+        }
+        return;
+      }
+      pendingG.current = 0;
+      const key = treeKey(event.key);
 
       // Sem cursor ainda (ou o nó sumiu da lista): a primeira tecla de
       // navegação pousa no primeiro nó.
       if (activeIndex === -1) {
         if (
-          event.key === 'ArrowDown' ||
-          event.key === 'ArrowUp' ||
-          event.key === 'ArrowRight' ||
-          event.key === 'ArrowLeft' ||
-          event.key === 'Enter'
+          key === 'ArrowDown' ||
+          key === 'ArrowUp' ||
+          key === 'ArrowRight' ||
+          key === 'ArrowLeft' ||
+          key === 'Enter'
         ) {
           event.preventDefault();
           const first = findNode(rows, 0, 1);
@@ -203,7 +256,7 @@ export const useTreeNavigation = ({
         return;
       }
 
-      if (event.key === '/') {
+      if (key === '/') {
         const filterIndex = findFilter(rows, activeIndex);
         if (filterIndex !== -1) {
           event.preventDefault();
@@ -216,13 +269,13 @@ export const useTreeNavigation = ({
 
       // "Carregar mais": setas passam, Enter pede a próxima janela, ← sobe
       if (current.variant === 'more') {
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (key === 'ArrowDown' || key === 'ArrowUp') {
           event.preventDefault();
-          move(event.key === 'ArrowDown' ? 1 : -1);
-        } else if (event.key === 'Enter') {
+          move(key === 'ArrowDown' ? 1 : -1);
+        } else if (key === 'Enter') {
           event.preventDefault();
           current.onMore();
-        } else if (event.key === 'ArrowLeft') {
+        } else if (key === 'ArrowLeft') {
           event.preventDefault();
           for (let i = activeIndex - 1; i >= 0; i--) {
             const candidate = rows[i];
@@ -240,7 +293,7 @@ export const useTreeNavigation = ({
 
       const row = current as NodeRow;
 
-      switch (event.key) {
+      switch (key) {
         case 'ArrowDown':
           event.preventDefault();
           move(1);
