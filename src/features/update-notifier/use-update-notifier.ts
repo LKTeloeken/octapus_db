@@ -1,63 +1,68 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { relaunch } from '@tauri-apps/plugin-process';
-import type { Update } from '@tauri-apps/plugin-updater';
-import toast from 'react-hot-toast';
-import { checkForUpdate } from '@/api/updater';
+import { useCallback, useEffect, useRef } from 'react';
+import {
+  CHECK_INTERVAL_MS,
+  FIRST_CHECK_DELAY_MS,
+  FOCUS_CHECK_MIN_MS,
+  isCheckDue,
+  SCHEDULE_TICK_MS,
+} from '@/lib/update-schedule';
 import { useSettings } from '@/queries/use-settings';
-import { flushTabsSession } from '@/stores/tabs-session';
+import { useUpdateStore } from '@/stores/update-store';
 
-/** Atraso antes de checar, para não competir com a carga inicial do app. */
-const CHECK_DELAY_MS = 5_000;
+/** Checar atualização é best-effort: falha de rede não incomoda o usuário. */
+const logCheckError = (error: unknown) =>
+  console.error('Falha ao verificar atualizações:', error);
 
-export type UpdateStatus = 'idle' | 'available' | 'downloading' | 'ready';
-
-export const useUpdateNotifier = () => {
-  const [status, setStatus] = useState<UpdateStatus>('idle');
-  const [version, setVersion] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
-
-  const updateRef = useRef<Update | null>(null);
-  /** Canal da última checagem — `null` antes da primeira */
-  const checkedChannel = useRef<boolean | null>(null);
-  const statusRef = useRef(status);
-  statusRef.current = status;
-
+/**
+ * Agenda as checagens de versão nova (ver `lib/update-schedule.ts`): uma logo
+ * depois da partida, outra ao trocar de canal e, com o app aberto, a cada
+ * `CHECK_INTERVAL_MS` — ou ao voltar o foco para a janela, se já faz
+ * `FOCUS_CHECK_MIN_MS` desde a última.
+ */
+export const useUpdateSchedule = () => {
   // O canal vem das preferências (SQLite): sem elas carregadas, não checa.
   const beta = useSettings().data?.betaUpdates;
+  const betaRef = useRef(beta);
+  betaRef.current = beta;
+  /** Canal da última checagem agendada — `null` antes da primeira */
+  const checkedChannel = useRef<boolean | null>(null);
 
+  const checkIfDue = useCallback((minIntervalMs: number) => {
+    const channel = betaRef.current;
+    if (channel === undefined) return;
+    const { lastCheckedAt, status, checking, check } =
+      useUpdateStore.getState();
+    if (
+      !isCheckDue({
+        now: Date.now(),
+        lastCheckedAt,
+        status,
+        checking,
+        minIntervalMs,
+      })
+    ) {
+      return;
+    }
+    check(channel).catch(logCheckError);
+  }, []);
+
+  // Partida e troca de canal.
   useEffect(() => {
     if (beta === undefined) return;
     // O StrictMode monta o efeito duas vezes em dev; e mudar outra preferência
     // não pode checar de novo — só a troca de canal.
     if (checkedChannel.current === beta) return;
-    // Já há um update na mão (ou baixando): trocar de canal não o descarta.
-    if (statusRef.current !== 'idle') return;
     const isFirstCheck = checkedChannel.current === null;
     checkedChannel.current = beta;
 
-    // Na partida, espera a carga inicial; ao ligar o beta, checa na hora.
+    // Na partida, espera a carga inicial; ao trocar de canal, checa na hora.
     let fired = false;
     const timer = setTimeout(
-      async () => {
+      () => {
         fired = true;
-        try {
-          const update = await checkForUpdate(beta).catch(error => {
-            // A API do GitHub fora (ou sem cota): o canal estável ainda serve.
-            if (!beta) throw error;
-            console.error('Falha no canal beta, usando o estável:', error);
-            return checkForUpdate(false);
-          });
-          if (!update) return;
-
-          updateRef.current = update;
-          setVersion(update.version);
-          setStatus('available');
-        } catch (error) {
-          // Checar atualização é best-effort: falha de rede não incomoda o usuário.
-          console.error('Falha ao verificar atualizações:', error);
-        }
+        checkIfDue(0);
       },
-      isFirstCheck ? CHECK_DELAY_MS : 0,
+      isFirstCheck ? FIRST_CHECK_DELAY_MS : 0,
     );
 
     return () => {
@@ -66,57 +71,45 @@ export const useUpdateNotifier = () => {
       // o próximo efeito é que faz a checagem.
       if (!fired) checkedChannel.current = isFirstCheck ? null : !beta;
     };
-  }, [beta]);
+  }, [beta, checkIfDue]);
 
-  const install = useCallback(async () => {
-    const update = updateRef.current;
-    if (!update) return;
+  // Com o app aberto: o relógio, conferido de tempos em tempos, e a volta do
+  // foco. Antes da primeira checagem quem manda é a da partida.
+  useEffect(() => {
+    const onTick = () => {
+      if (useUpdateStore.getState().lastCheckedAt === null) return;
+      checkIfDue(CHECK_INTERVAL_MS);
+    };
+    const onFocus = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (useUpdateStore.getState().lastCheckedAt === null) return;
+      checkIfDue(FOCUS_CHECK_MIN_MS);
+    };
 
-    setStatus('downloading');
-    setProgress(0);
+    const interval = setInterval(onTick, SCHEDULE_TICK_MS);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [checkIfDue]);
+};
 
-    try {
-      // No Windows o instalador fecha o app de dentro do downloadAndInstall —
-      // o `restart` nem chega a rodar. A sessão precisa estar em disco antes.
-      await flushTabsSession();
+export const useUpdateNotifier = () => {
+  useUpdateSchedule();
 
-      let downloaded = 0;
-      let total = 0;
+  const status = useUpdateStore(state => state.status);
+  const version = useUpdateStore(state => state.version);
+  const progress = useUpdateStore(state => state.progress);
+  const dismissed = useUpdateStore(state => state.dismissed);
+  const install = useUpdateStore(state => state.install);
+  const restart = useUpdateStore(state => state.restart);
+  const dismiss = useUpdateStore(state => state.dismiss);
 
-      await update.downloadAndInstall(event => {
-        switch (event.event) {
-          case 'Started':
-            total = event.data.contentLength ?? 0;
-            break;
-          case 'Progress':
-            downloaded += event.data.chunkLength;
-            if (total > 0) {
-              setProgress(Math.round((downloaded / total) * 100));
-            }
-            break;
-          case 'Finished':
-            setProgress(100);
-            break;
-        }
-      });
+  // O progresso do download aparece mesmo depois de um "Depois" antigo
+  const visible = status === 'downloading' || (status !== 'idle' && !dismissed);
 
-      setStatus('ready');
-    } catch (error) {
-      // Aqui o usuário pediu a ação explicitamente, então merece o aviso.
-      toast.error(error instanceof Error ? error.message : String(error));
-      setStatus('available');
-    }
-  }, []);
-
-  const restart = useCallback(async () => {
-    try {
-      // O usuário pode ter seguido editando enquanto o update baixava.
-      await flushTabsSession();
-      await relaunch();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    }
-  }, []);
-
-  return { status, version, progress, install, restart };
+  return { visible, status, version, progress, install, restart, dismiss };
 };

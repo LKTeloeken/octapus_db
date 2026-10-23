@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
 import { Spinner } from '@/components/ui/spinner';
 import { OctapusThinking } from '@/components/octapus-thinking/octapus-thinking';
-import { shortcut } from '@/lib/platform';
+import { useShortcutLabel } from '@/lib/keybindings/use-shortcuts';
 import { cn } from '@/lib/utils';
 import { conversationDetail } from './conversation-labels';
 import { useConversationHistory } from './use-history-menu';
@@ -38,6 +38,7 @@ export function AgentSidebar({
   onClose,
   onNew,
 }: AgentSidebarProps) {
+  const newKey = useShortcutLabel('assistant.newConversation');
   const history = useConversationHistory(true);
   const open = new Set(tabs.map(tab => tab.conversationId));
   const previous = history.items.filter(item => !open.has(item.id));
@@ -56,7 +57,7 @@ export function AgentSidebar({
         >
           <HugeiconsIcon icon={Add01Icon} />
           <span className="flex-1 text-left">Nova conversa</span>
-          <Kbd>{shortcut('T')}</Kbd>
+          {newKey && <Kbd>{newKey}</Kbd>}
         </Button>
       </div>
 

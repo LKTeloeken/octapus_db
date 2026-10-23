@@ -16,9 +16,16 @@ import { Sidebar } from '@/features/sidebar/sidebar';
 import { UpdateNotifier } from '@/features/update-notifier/update-notifier';
 import { cn } from '@/lib/utils';
 import { QueryProvider } from '@/providers/query-provider';
+import { useSyncKeybindings } from '@/queries/use-keybindings';
 import { useAssistantStore } from '@/stores/assistant-store';
 import { useUiStore } from '@/stores/ui-store';
 import { CustomToaster } from './components/Toaster';
+
+/** Os atalhos configurados (preferências) chegam ao store dos listeners */
+const KeybindingsSync = () => {
+  useSyncKeybindings();
+  return null;
+};
 
 const App = () => {
   const theme = useUiStore(state => state.theme);
@@ -103,6 +110,7 @@ const App = () => {
             </div>
           )}
 
+          <KeybindingsSync />
           <CommandPalette />
           <AssistantShortcutsHost />
           <BackupDialogs />

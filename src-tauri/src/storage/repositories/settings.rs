@@ -75,6 +75,9 @@ mod tests {
             beta_updates: true,
             pg_tools_dir: Some("/opt/homebrew/bin".into()),
             assistant_auto_execute: true,
+            keybindings: [("app.commandPalette".to_string(), vec!["Mod+P".to_string()])]
+                .into_iter()
+                .collect(),
         };
 
         save(&storage, &settings).unwrap();

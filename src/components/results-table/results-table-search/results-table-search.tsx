@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input/input';
 import { SegmentedControl } from '@/components/ui/segmented-control/segmented-control';
 import type { SegmentedControlOption } from '@/components/ui/segmented-control/segmented-control.types';
 import type { GridSearchColumnScope, GridSearchMode } from '@/lib/grid-search';
-import { shortcut } from '@/lib/platform';
+import { useShortcutLabel } from '@/lib/keybindings/use-shortcuts';
 import type { ResultsTableSearchProps } from './results-table-search.types';
 import { useResultsTableSearch } from './use-results-table-search';
 
@@ -45,6 +45,12 @@ const MODE_HINT: Record<GridSearchMode, string> = {
  */
 export const ResultsTableSearch = memo((props: ResultsTableSearchProps) => {
   const { search } = props;
+  const prevKey = useShortcutLabel('grid.searchPrev');
+  const nextKey = useShortcutLabel('grid.searchNext');
+  const toggleKey = useShortcutLabel('grid.search');
+  /** `Anterior (⇧↵ · ⇧⌘G)`: a tecla do campo e a do atalho, se houver */
+  const hint = (label: string, ...keys: (string | null)[]) =>
+    `${label} (${keys.filter(Boolean).join(' · ')})`;
   const {
     query,
     setQuery,
@@ -107,7 +113,7 @@ export const ResultsTableSearch = memo((props: ResultsTableSearchProps) => {
           variant="ghost"
           size="icon"
           aria-label="Resultado anterior"
-          title={`Anterior (⇧↵ · ${shortcut('⇧G')})`}
+          title={hint('Anterior', '⇧↵', prevKey)}
           disabled={matchCount === 0}
           onClick={prev}
         >
@@ -117,7 +123,7 @@ export const ResultsTableSearch = memo((props: ResultsTableSearchProps) => {
           variant="ghost"
           size="icon"
           aria-label="Próximo resultado"
-          title={`Próximo (↵ · ${shortcut('G')})`}
+          title={hint('Próximo', '↵', nextKey)}
           disabled={matchCount === 0}
           onClick={next}
         >
@@ -143,7 +149,7 @@ export const ResultsTableSearch = memo((props: ResultsTableSearchProps) => {
           variant="ghost"
           size="icon"
           aria-label="Fechar busca"
-          title={`Fechar (esc · ${shortcut('F')})`}
+          title={hint('Fechar', 'esc', toggleKey)}
           onClick={close}
         >
           <HugeiconsIcon icon={Cancel01Icon} />

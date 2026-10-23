@@ -653,6 +653,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   betaUpdates: false,
   pgToolsDir: null,
   assistantAutoExecute: false,
+  keybindings: {},
 };
 
 const settingsHandlers: Record<string, MockHandler> = {

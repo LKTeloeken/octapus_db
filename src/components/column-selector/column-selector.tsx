@@ -3,7 +3,7 @@ import {
   Search01Icon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input/input';
@@ -12,6 +12,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
 import type { ColumnSelectorProps } from './column-selector.types';
 
 /**
@@ -26,21 +27,7 @@ export const ColumnSelector = memo(
     const [search, setSearch] = useState('');
     const searchInputRef = useRef<HTMLInputElement>(null);
 
-    useEffect(() => {
-      const handler = (event: KeyboardEvent) => {
-        if (
-          (event.metaKey || event.ctrlKey) &&
-          event.shiftKey &&
-          event.key.toLowerCase() === 'h'
-        ) {
-          event.preventDefault();
-          setOpen(true);
-        }
-      };
-
-      window.addEventListener('keydown', handler);
-      return () => window.removeEventListener('keydown', handler);
-    }, []);
+    useShortcuts({ 'grid.columns': () => setOpen(true) });
 
     const filtered = useMemo(() => {
       const term = search.trim().toLowerCase();

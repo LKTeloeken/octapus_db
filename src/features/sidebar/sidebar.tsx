@@ -27,10 +27,12 @@ import { ServerForm } from '@/features/server-form/server-form';
 import { SettingsDialog } from '@/features/settings/settings-dialog';
 import { StructureEditor } from '@/features/structure-editor/structure-editor';
 import { TrafficLights } from '@/features/window-controls/window-controls';
-import { customTitlebar, shortcut } from '@/lib/platform';
+import { customTitlebar } from '@/lib/platform';
+import { useShortcutLabel } from '@/lib/keybindings/use-shortcuts';
 import { useSidebar } from './use-sidebar';
 
 export const Sidebar = memo(() => {
+  const paletteKey = useShortcutLabel('app.commandPalette');
   const {
     isFormOpen,
     editingServer,
@@ -110,7 +112,7 @@ export const Sidebar = memo(() => {
         >
           <HugeiconsIcon icon={Search01Icon} className="size-[15px]" />
           <span className="flex-1 text-left">Buscar tabelas</span>
-          <Kbd>{shortcut('K')}</Kbd>
+          {paletteKey && <Kbd>{paletteKey}</Kbd>}
         </button>
       </div>
 

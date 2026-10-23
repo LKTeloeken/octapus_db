@@ -7,10 +7,14 @@ import { useUpdateNotifier } from './use-update-notifier';
 const TOAST_ID = 'app-update';
 
 export function UpdateNotifier() {
-  const { status, version, progress, install, restart } = useUpdateNotifier();
+  const { visible, status, version, progress, install, restart, dismiss } =
+    useUpdateNotifier();
 
   useEffect(() => {
-    if (status === 'idle') return;
+    if (!visible) {
+      toast.dismiss(TOAST_ID);
+      return;
+    }
 
     toast.custom(
       () => (
@@ -22,7 +26,7 @@ export function UpdateNotifier() {
                 <p className="text-small text-fg-muted">Versão {version}</p>
               </div>
               <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => toast.dismiss(TOAST_ID)}>
+                <Button variant="ghost" onClick={dismiss}>
                   Depois
                 </Button>
                 <Button onClick={install}>Atualizar agora</Button>
@@ -52,7 +56,7 @@ export function UpdateNotifier() {
                 </p>
               </div>
               <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => toast.dismiss(TOAST_ID)}>
+                <Button variant="ghost" onClick={dismiss}>
                   Depois
                 </Button>
                 <Button onClick={restart}>Reiniciar</Button>
@@ -63,7 +67,7 @@ export function UpdateNotifier() {
       ),
       { id: TOAST_ID, duration: Infinity, position: 'bottom-right' },
     );
-  }, [status, version, progress, install, restart]);
+  }, [visible, status, version, progress, install, restart, dismiss]);
 
   return null;
 }

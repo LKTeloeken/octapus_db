@@ -21,7 +21,11 @@ import {
   TrafficLights,
   WindowControls,
 } from '@/features/window-controls/window-controls';
-import { customTitlebar, isMac, shortcut } from '@/lib/platform';
+import { customTitlebar } from '@/lib/platform';
+import {
+  useShortcutLabel,
+  withShortcut,
+} from '@/lib/keybindings/use-shortcuts';
 import { cn } from '@/lib/utils';
 import { AgentSidebar } from './agent-sidebar';
 import { ConsentView } from './consent-view';
@@ -32,7 +36,6 @@ import { useAssistantPanel } from './use-assistant-panel';
 import type { AssistantGate } from './assistant-gate';
 
 /** `Cmd/Ctrl+Shift+J` no rótulo do botão */
-const AGENT_MODE_KEY = shortcut(isMac ? '⇧J' : 'Shift+J');
 
 /**
  * O painel do assistente, à direita das abas. Tem as próprias abas de
@@ -44,6 +47,9 @@ const AGENT_MODE_KEY = shortcut(isMac ? '⇧J' : 'Shift+J');
  * título (semáforo no macOS, controles no Linux).
  */
 export function AssistantPanel() {
+  const newKey = useShortcutLabel('assistant.newConversation');
+  const agentModeKey = useShortcutLabel('assistant.toggleAgentMode');
+  const toggleKey = useShortcutLabel('assistant.togglePanel');
   const {
     gate,
     tabs,
@@ -134,7 +140,7 @@ export function AssistantPanel() {
 
         {ready && !agentMode && (
           <Tooltip
-            content={`Nova conversa (${shortcut('T')})`}
+            content={withShortcut('Nova conversa', newKey)}
             position="bottom"
           >
             <Button
@@ -155,8 +161,8 @@ export function AssistantPanel() {
         <Tooltip
           content={
             agentMode
-              ? `Sair do modo agente (${AGENT_MODE_KEY})`
-              : `Modo agente (${AGENT_MODE_KEY})`
+              ? withShortcut('Sair do modo agente', agentModeKey)
+              : withShortcut('Modo agente', agentModeKey)
           }
           position="bottom"
         >
@@ -173,7 +179,7 @@ export function AssistantPanel() {
           </Button>
         </Tooltip>
 
-        <Tooltip content={`Fechar (${shortcut('J')})`} position="bottom">
+        <Tooltip content={withShortcut('Fechar', toggleKey)} position="bottom">
           <Button
             variant="ghost"
             size="icon"
@@ -222,7 +228,7 @@ export function AssistantPanel() {
                 action={
                   <Button variant="outline" size="sm" onClick={newTab}>
                     Nova conversa
-                    <Kbd>{shortcut('T')}</Kbd>
+                    {newKey && <Kbd>{newKey}</Kbd>}
                   </Button>
                 }
               />

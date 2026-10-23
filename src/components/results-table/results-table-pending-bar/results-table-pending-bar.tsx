@@ -4,7 +4,7 @@ import { memo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
-import { shortcut } from '@/lib/platform';
+import { useShortcutLabel } from '@/lib/keybindings/use-shortcuts';
 import type { ResultsTablePendingBarProps } from './results-table-pending-bar.types';
 
 const Dot = ({ className }: { className: string }) => (
@@ -25,6 +25,7 @@ export const ResultsTablePendingBar = memo(
     onSave,
   }: ResultsTablePendingBarProps) => {
     const total = changesCount + addedCount + removedCount;
+    const saveKey = useShortcutLabel('grid.save');
 
     return (
       <div
@@ -59,7 +60,7 @@ export const ResultsTablePendingBar = memo(
         </Button>
         <Button size="sm" onClick={onSave}>
           Salvar
-          <Kbd variant="inverse">{shortcut('S')}</Kbd>
+          {saveKey && <Kbd variant="inverse">{saveKey}</Kbd>}
         </Button>
       </div>
     );

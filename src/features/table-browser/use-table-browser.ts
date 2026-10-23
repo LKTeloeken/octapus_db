@@ -4,6 +4,7 @@ import type { SortSpec } from '@/api/types/browse.types';
 import { useHiddenColumnsReset } from '@/components/column-selector/use-hidden-columns-reset';
 import { sqlFragmentContext } from '@/components/query-editor/query-editor/sql-completion/sql-fragment-context';
 import type { SaveRowChanges } from '@/components/results-table/results-table.types';
+import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
 import { persistRowChanges } from '@/lib/persist-row-changes';
 import {
   useApplyRowEdits,
@@ -142,40 +143,23 @@ export const useTableBrowser = (tab: BrowseTab) => {
   );
 
   // Cmd/Ctrl+R applies the draft WHERE (if dirty) and reloads table data.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'r') {
-        event.preventDefault();
-        applyWhere();
-      }
-    };
-
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [applyWhere]);
+  useShortcuts({ 'table.applyFilter': () => applyWhere() });
 
   // Cmd/Ctrl+I ("inspecionar") alterna o painel de valor; F7 é o mesmo toggle
   // de painéis do DBeaver. Fica aqui, e não no ResultsTable, porque o painel
   // só existe na aba de tabela — e só a aba ativa está montada.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.repeat || event.altKey || event.shiftKey) return;
-      const withMod = event.metaKey || event.ctrlKey;
-      const isToggle =
-        (withMod && event.key.toLowerCase() === 'i') ||
-        (!withMod && event.key === 'F7');
-      if (!isToggle) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      toggleValuePanel();
-    };
-
-    // Fase de captura: dentro do CodeMirror do próprio painel o Mod-i é
-    // "selecionar nó pai" e consumiria a tecla antes de chegar à janela.
-    window.addEventListener('keydown', handler, true);
-    return () => window.removeEventListener('keydown', handler, true);
-  }, [toggleValuePanel]);
+  //
+  // Fase de captura: dentro do CodeMirror do próprio painel o Mod-i é
+  // "selecionar nó pai" e consumiria a tecla antes de chegar à janela.
+  useShortcuts(
+    {
+      'table.toggleValuePanel': event => {
+        event.stopPropagation();
+        toggleValuePanel();
+      },
+    },
+    { capture: true, ignoreRepeat: true },
+  );
 
   const closeValuePanel = useCallback(
     () => setValuePanelOpen(false),

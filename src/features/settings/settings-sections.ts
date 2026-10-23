@@ -3,12 +3,14 @@ import {
   Bug01Icon,
   DatabaseIcon,
   Download04Icon,
+  KeyboardIcon,
   PaintBoardIcon,
 } from '@hugeicons/core-free-icons';
 import { AppearanceSection } from './sections/appearance-section';
 import { AssistantSection } from './sections/assistant-section';
 import { DiagnosticsSection } from './sections/diagnostics-section';
 import { PgToolsSection } from './sections/pg-tools-section';
+import { ShortcutsSection } from './sections/shortcuts-section';
 import { UpdatesSection } from './sections/updates-section';
 import type { SettingsSection } from './settings-dialog.types';
 
@@ -25,6 +27,14 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: 'Tema e visual do app.',
     icon: PaintBoardIcon,
     Component: AppearanceSection,
+  },
+  {
+    id: 'shortcuts',
+    label: 'Atalhos',
+    description:
+      'As teclas de cada ação. Uma ação aceita mais de uma tecla — as setas e o hjkl do vim, por exemplo.',
+    icon: KeyboardIcon,
+    Component: ShortcutsSection,
   },
   {
     id: 'pg-tools',

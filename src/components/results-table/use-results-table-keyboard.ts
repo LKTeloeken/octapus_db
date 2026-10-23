@@ -1,12 +1,7 @@
 import type { Virtualizer } from '@tanstack/react-virtual';
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  type KeyboardEvent,
-  type RefObject,
-} from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import type { QueryColumnInfo } from '@/api/types/query.types';
+import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
 import { useFocusStore } from '@/stores/focus-store';
 import type {
   ActivateCellFn,
@@ -91,112 +86,73 @@ export const useResultsTableKeyboard = ({
     [visibleColumns, setFocusedCell, rowVirtualizer, columnVirtualizer],
   );
 
-  const onKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      // Acordes com modificador pertencem aos atalhos globais (Cmd/Ctrl+←/→
-      // trocam de painel, Cmd/Ctrl+S salva) — Shift fica de fora por causa do
-      // Shift+Tab.
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-
-      // Enquanto um editor está aberto ele manda no teclado (o conteúdo do
-      // Popover é portal, mas o boolean é inline e fica dentro do container).
-      if (activeCell) return;
-      if (visibleColumns.length === 0 || rowCount === 0) return;
-
-      const navKeys = [
-        'ArrowDown',
-        'ArrowUp',
-        'ArrowLeft',
-        'ArrowRight',
-        'j',
-        'k',
-        'h',
-        'l',
-        'Home',
-        'End',
-        'Enter',
-        'Space',
-        ' ',
-      ];
-      if (!navKeys.includes(event.key)) return;
-
-      // Sem cursor ainda: a primeira tecla pousa na primeira célula. O Tab não
-      // passa por aqui: ele troca a visualização (`ResultsTable`).
+  /**
+   * Uma ação de navegação a partir da célula com o cursor. Sem cursor ainda,
+   * a primeira tecla pousa na primeira célula. Um refetch pode ter encolhido a
+   * tabela ou escondido a coluna — sempre partimos de uma posição válida.
+   */
+  const fromCursor =
+    (
+      action: (position: {
+        rowIndex: number;
+        columnIndex: number;
+        lastRow: number;
+        lastColumn: number;
+      }) => void,
+    ) =>
+    () => {
       if (!focusedCell) {
-        event.preventDefault();
         moveTo(0, 0);
         return;
       }
-
-      // Um refetch pode ter encolhido a tabela ou escondido a coluna — sempre
-      // partimos de uma posição válida.
       const current: CellPosition = focusedCell;
-      const rowIndex = clamp(current.rowIndex, rowCount - 1);
-      const columnIndex = Math.max(
-        visibleColumns.findIndex(column => column.name === current.columnName),
-        0,
-      );
-      const lastRow = rowCount - 1;
-      const lastColumn = visibleColumns.length - 1;
+      action({
+        rowIndex: clamp(current.rowIndex, rowCount - 1),
+        columnIndex: Math.max(
+          visibleColumns.findIndex(
+            column => column.name === current.columnName,
+          ),
+          0,
+        ),
+        lastRow: rowCount - 1,
+        lastColumn: visibleColumns.length - 1,
+      });
+    };
 
-      switch (event.key) {
-        case 'ArrowDown':
-        case 'j':
-          event.preventDefault();
-          // Bater no fim com mais páginas disponíveis puxa o próximo lote.
-          if (rowIndex === lastRow) {
-            if (hasMore) onLoadMore?.();
-            return;
-          }
-          moveTo(rowIndex + 1, columnIndex);
+  // O Tab não passa por aqui: ele troca a visualização (`useViewToggle`).
+  const { onKeyDown } = useShortcuts(
+    {
+      'grid.down': fromCursor(({ rowIndex, columnIndex, lastRow }) => {
+        // Bater no fim com mais páginas disponíveis puxa o próximo lote.
+        if (rowIndex === lastRow) {
+          if (hasMore) onLoadMore?.();
           return;
-
-        case 'ArrowUp':
-        case 'k':
-          event.preventDefault();
-          moveTo(Math.max(rowIndex - 1, 0), columnIndex);
-          return;
-
-        case 'ArrowRight':
-        case 'l':
-          event.preventDefault();
-          moveTo(rowIndex, Math.min(columnIndex + 1, lastColumn));
-          return;
-
-        case 'ArrowLeft':
-        case 'h':
-          event.preventDefault();
-          moveTo(rowIndex, Math.max(columnIndex - 1, 0));
-          return;
-
-        case 'Home':
-          event.preventDefault();
-          moveTo(rowIndex, 0);
-          return;
-
-        case 'End':
-          event.preventDefault();
-          moveTo(rowIndex, lastColumn);
-          return;
-
-        case 'Enter':
-        case 'Space':
-        case ' ':
-          event.preventDefault();
-          activateCell(rowIndex, visibleColumns[columnIndex].name);
-          return;
-      }
+        }
+        moveTo(rowIndex + 1, columnIndex);
+      }),
+      'grid.up': fromCursor(({ rowIndex, columnIndex }) =>
+        moveTo(Math.max(rowIndex - 1, 0), columnIndex),
+      ),
+      'grid.right': fromCursor(({ rowIndex, columnIndex, lastColumn }) =>
+        moveTo(rowIndex, Math.min(columnIndex + 1, lastColumn)),
+      ),
+      'grid.left': fromCursor(({ rowIndex, columnIndex }) =>
+        moveTo(rowIndex, Math.max(columnIndex - 1, 0)),
+      ),
+      'grid.rowStart': fromCursor(({ rowIndex }) => moveTo(rowIndex, 0)),
+      'grid.rowEnd': fromCursor(({ rowIndex, lastColumn }) =>
+        moveTo(rowIndex, lastColumn),
+      ),
+      'grid.edit': fromCursor(({ rowIndex, columnIndex }) =>
+        activateCell(rowIndex, visibleColumns[columnIndex].name),
+      ),
     },
-    [
-      activeCell,
-      visibleColumns,
-      rowCount,
-      focusedCell,
-      moveTo,
-      activateCell,
-      hasMore,
-      onLoadMore,
-    ],
+    {
+      target: 'element',
+      // Enquanto um editor está aberto ele manda no teclado (o conteúdo do
+      // Popover é portal, mas o boolean é inline e fica dentro do container).
+      when: () => !activeCell && visibleColumns.length > 0 && rowCount > 0,
+    },
   );
 
   return { onKeyDown };

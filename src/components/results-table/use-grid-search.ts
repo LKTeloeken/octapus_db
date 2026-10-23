@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { QueryColumnInfo } from '@/api/types/query.types';
+import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
 import { ownsKeyboardEvent } from './keyboard-scope';
 import {
   EMPTY_MATCHES,
@@ -312,41 +313,33 @@ export const useGridSearch = ({
   // Cmd/Ctrl+F alterna; Cmd/Ctrl+G / Shift+Cmd/Ctrl+G navegam. Dentro de um
   // CodeMirror (editor SQL, painel de valor) o atalho é dele. Só a aba ativa
   // monta a grade, então nunca há dois listeners disputando.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
-      const key = event.key.toLowerCase();
-      if (key !== 'f' && key !== 'g') return;
-
-      const target = event.target as HTMLElement | null;
-      if (!ownsKeyboardEvent(target, keyboardScope)) return;
-      if (target?.closest('.cm-editor')) return;
-      const inPanel = !!target?.closest('[data-grid-search]');
-      if (
-        !inPanel &&
-        target?.closest(
-          '[data-slot="dialog-content"], [data-slot="popover-content"]',
-        )
-      ) {
-        return;
-      }
-
-      if (key === 'f') {
-        if (event.shiftKey) return;
-        event.preventDefault();
-        toggle();
-        return;
-      }
-
-      if (!isOpen) return;
-      event.preventDefault();
-      if (event.shiftKey) prev();
-      else next();
-    };
-
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [toggle, isOpen, next, prev, keyboardScope]);
+  useShortcuts(
+    {
+      'grid.search': toggle,
+      'grid.searchNext': () => {
+        if (!isOpen) return false;
+        next();
+      },
+      'grid.searchPrev': () => {
+        if (!isOpen) return false;
+        prev();
+      },
+    },
+    {
+      when: event => {
+        const target = event.target as HTMLElement | null;
+        if (!ownsKeyboardEvent(target, keyboardScope)) return false;
+        if (target?.closest('.cm-editor')) return false;
+        const inPanel = !!target?.closest('[data-grid-search]');
+        return (
+          inPanel ||
+          !target?.closest(
+            '[data-slot="dialog-content"], [data-slot="popover-content"]',
+          )
+        );
+      },
+    },
+  );
 
   // ── Saída para a grade e para o painel ────────────────────────────────
 

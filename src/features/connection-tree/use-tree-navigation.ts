@@ -1,41 +1,15 @@
 import type { Virtualizer } from '@tanstack/react-virtual';
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  type KeyboardEvent,
-  type RefObject,
-} from 'react';
+import { useCallback, useEffect, useMemo, type RefObject } from 'react';
+import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
 import { useFocusStore } from '@/stores/focus-store';
 import { useTreeStore } from '@/stores/tree-store';
 import type { FlatRow } from './connection-tree.types';
-
-type NodeRow = Extract<FlatRow, { variant: 'node' }>;
 
 interface Options {
   rows: FlatRow[];
   virtualizer: Virtualizer<HTMLDivElement, Element>;
   containerRef: RefObject<HTMLDivElement | null>;
 }
-
-/**
- * As teclas do vim na árvore viram as setas e o Enter de sempre: `j`/`k`
- * descem e sobem, `l` abre (ou entra) e `h` fecha (ou sobe ao pai), `o` é o
- * Enter. `gg` e `G` (topo e fim) são tratados à parte, no `onKeyDown`.
- */
-const VIM_KEYS: Record<string, string> = {
-  j: 'ArrowDown',
-  k: 'ArrowUp',
-  l: 'ArrowRight',
-  h: 'ArrowLeft',
-  o: 'Enter',
-};
-
-export const treeKey = (key: string) => VIM_KEYS[key] ?? key;
-
-/** O segundo `g` do `gg` vale até este tempo depois do primeiro */
-export const GG_WINDOW_MS = 600;
 
 /** Linhas que o cursor do teclado visita: nós e o "carregar mais". */
 const isNavigable = (row: FlatRow) =>
@@ -89,8 +63,6 @@ export const useTreeNavigation = ({
   const focusRequest = useFocusStore(state => state.request);
   const requestFocus = useFocusStore(state => state.requestFocus);
   const clearFocusRequest = useFocusStore(state => state.clearFocusRequest);
-  /** Quando veio o primeiro `g` de um `gg` (0 = nenhum pendente) */
-  const pendingG = useRef(0);
 
   // Só linhas de nó entram no cursor: as de erro têm id próprio e não têm
   // `props`, então nunca podem virar a posição ativa.
@@ -154,39 +126,14 @@ export const useTreeNavigation = ({
 
   // Atalhos globais de painel. Moram aqui porque a árvore é o único painel
   // sempre montado do shell — o ResultsTable vai e volta com as abas.
-  //
-  // Cmd/Ctrl+B: volta para a árvore de qualquer lugar (sem guard de digitação,
-  // como o Cmd+K do palette — nenhum editor do app usa esse acorde).
-  // Cmd/Ctrl+←/→: segue a geometria da tela (árvore à esquerda, grade à
-  // direita). Esse par PRECISA do guard: em campo de texto e no CodeMirror ele
-  // é "ir para o início/fim da linha".
-  useEffect(() => {
-    const handler = (event: globalThis.KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey)) return;
-
-      if (event.key.toLowerCase() === 'b') {
-        event.preventDefault();
-        requestFocus('tree');
-        return;
-      }
-
-      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-
-      const target = event.target as HTMLElement | null;
-      const isTyping =
-        !!target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable);
-      if (isTyping) return;
-
-      event.preventDefault();
-      requestFocus(event.key === 'ArrowLeft' ? 'tree' : 'grid');
-    };
-
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [requestFocus]);
+  // Cmd/Ctrl+B volta para a árvore de qualquer lugar; Cmd/Ctrl+←/→ segue a
+  // geometria da tela (árvore à esquerda, grade à direita) e, num campo de
+  // texto ou no CodeMirror, fica com o "início/fim da linha".
+  useShortcuts({
+    'app.focusTree': () => requestFocus('tree'),
+    'app.focusLeft': () => requestFocus('tree'),
+    'app.focusRight': () => requestFocus('grid'),
+  });
 
   // Consome os pedidos endereçados à árvore.
   useEffect(() => {
@@ -201,161 +148,93 @@ export const useTreeNavigation = ({
     if (focusRequest?.panel === 'grid') clearFocusRequest();
   }, [focusRequest, clearFocusRequest]);
 
-  const onKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      // Acordes com modificador pertencem aos atalhos globais (Cmd/Ctrl+←/→),
-      // que não podem também colapsar/expandir o nó sob o cursor.
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      // Letras num campo (o filtro, que já para a propagação) são texto
-      const target = event.target as HTMLElement;
-      if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable
-      )
+  /**
+   * Uma ação sobre a linha do cursor. Sem cursor ainda (ou o nó sumiu da
+   * lista), a primeira tecla de navegação pousa no primeiro nó.
+   */
+  const atCursor =
+    (action: (row: FlatRow) => void | boolean) => (): void | boolean => {
+      if (activeIndex === -1) {
+        const first = findNode(rows, 0, 1);
+        if (first !== -1) focusIndex(first);
         return;
+      }
+      return action(rows[activeIndex]);
+    };
 
-      // `gg` vai ao primeiro nó, `G` ao último
-      // (`G` maiúsculo, ou `g` com Shift quando a tecla chega sem o caps)
-      if (event.key === 'G' || (event.key === 'g' && event.shiftKey)) {
-        event.preventDefault();
-        pendingG.current = 0;
+  /** Sobe para o pai: a linha de nó de nível menor logo acima */
+  const focusParent = (level: number) => {
+    for (let i = activeIndex - 1; i >= 0; i--) {
+      const candidate = rows[i];
+      if (candidate.variant === 'node' && candidate.props.level < level) {
+        focusIndex(i);
+        return;
+      }
+    }
+  };
+
+  // As teclas (setas e hjkl, Enter e o, gg, G, /) vêm do registro de atalhos.
+  // Letras num campo (o filtro, que já para a propagação) são texto: o
+  // `useShortcuts` não dá a elas as ações da árvore.
+  const { onKeyDown } = useShortcuts(
+    {
+      'tree.down': atCursor(() => move(1)),
+      'tree.up': atCursor(() => move(-1)),
+
+      // Colapsado com filhos → expande; já expandido → desce para o filho.
+      'tree.expand': atCursor(row => {
+        if (row.variant !== 'node') return false;
+        if (row.props.hasChildren && !row.props.isExpanded) {
+          expandNode(row.id);
+        } else if (row.props.isExpanded) {
+          move(1);
+        }
+      }),
+
+      // Expandido → colapsa; senão → sobe para o pai. No "carregar mais", sobe.
+      'tree.collapse': atCursor(row => {
+        if (row.variant === 'more') {
+          focusParent(row.level);
+          return;
+        }
+        if (row.variant !== 'node') return false;
+        if (row.props.isExpanded) collapseNode(row.id);
+        else focusParent(row.props.level);
+      }),
+
+      // No "carregar mais", pede a próxima janela
+      'tree.open': atCursor(row => {
+        if (row.variant === 'more') {
+          row.onMore();
+          return;
+        }
+        if (row.variant !== 'node') return false;
+        if (row.onEnter) row.onEnter();
+        else if (row.props.hasChildren) toggleNode(row.id);
+      }),
+
+      'tree.first': () => {
+        const first = findNode(rows, 0, 1);
+        if (first !== -1) focusIndex(first);
+      },
+      'tree.last': () => {
         const last = findNode(rows, rows.length - 1, -1);
         if (last !== -1) focusIndex(last);
-        return;
-      }
-      if (event.key === 'g') {
-        event.preventDefault();
-        const now = event.timeStamp;
-        if (pendingG.current && now - pendingG.current <= GG_WINDOW_MS) {
-          pendingG.current = 0;
-          const first = findNode(rows, 0, 1);
-          if (first !== -1) focusIndex(first);
-        } else {
-          pendingG.current = now;
-        }
-        return;
-      }
-      pendingG.current = 0;
-      const key = treeKey(event.key);
+      },
 
-      // Sem cursor ainda (ou o nó sumiu da lista): a primeira tecla de
-      // navegação pousa no primeiro nó.
-      if (activeIndex === -1) {
-        if (
-          key === 'ArrowDown' ||
-          key === 'ArrowUp' ||
-          key === 'ArrowRight' ||
-          key === 'ArrowLeft' ||
-          key === 'Enter'
-        ) {
-          event.preventDefault();
-          const first = findNode(rows, 0, 1);
-          if (first !== -1) focusIndex(first);
-        }
-        return;
-      }
-
-      if (key === '/') {
+      'tree.filter': () => {
+        if (activeIndex === -1) return false;
         const filterIndex = findFilter(rows, activeIndex);
-        if (filterIndex !== -1) {
-          event.preventDefault();
-          focusFilter(filterIndex);
-        }
-        return;
-      }
+        if (filterIndex === -1) return false;
+        focusFilter(filterIndex);
+      },
 
-      const current = rows[activeIndex];
-
-      // "Carregar mais": setas passam, Enter pede a próxima janela, ← sobe
-      if (current.variant === 'more') {
-        if (key === 'ArrowDown' || key === 'ArrowUp') {
-          event.preventDefault();
-          move(key === 'ArrowDown' ? 1 : -1);
-        } else if (key === 'Enter') {
-          event.preventDefault();
-          current.onMore();
-        } else if (key === 'ArrowLeft') {
-          event.preventDefault();
-          for (let i = activeIndex - 1; i >= 0; i--) {
-            const candidate = rows[i];
-            if (
-              candidate.variant === 'node' &&
-              candidate.props.level < current.level
-            ) {
-              focusIndex(i);
-              return;
-            }
-          }
-        }
-        return;
-      }
-
-      const row = current as NodeRow;
-
-      switch (key) {
-        case 'ArrowDown':
-          event.preventDefault();
-          move(1);
-          return;
-
-        case 'ArrowUp':
-          event.preventDefault();
-          move(-1);
-          return;
-
-        // Colapsado com filhos → expande; já expandido → desce para o filho.
-        case 'ArrowRight':
-          event.preventDefault();
-          if (row.props.hasChildren && !row.props.isExpanded) {
-            expandNode(row.id);
-          } else if (row.props.isExpanded) {
-            move(1);
-          }
-          return;
-
-        // Expandido → colapsa; senão → sobe para o pai (nível menor acima).
-        case 'ArrowLeft': {
-          event.preventDefault();
-          if (row.props.isExpanded) {
-            collapseNode(row.id);
-            return;
-          }
-          for (let i = activeIndex - 1; i >= 0; i--) {
-            const candidate = rows[i];
-            if (
-              candidate.variant === 'node' &&
-              candidate.props.level < row.props.level
-            ) {
-              focusIndex(i);
-              return;
-            }
-          }
-          return;
-        }
-
-        case 'Enter':
-          event.preventDefault();
-          if (row.onEnter) row.onEnter();
-          else if (row.props.hasChildren) toggleNode(row.id);
-          return;
-
-        case 'Escape':
-          containerRef.current?.blur();
-          return;
-      }
+      'tree.blur': () => {
+        if (activeIndex === -1) return false;
+        containerRef.current?.blur();
+      },
     },
-    [
-      activeIndex,
-      rows,
-      move,
-      focusIndex,
-      focusFilter,
-      expandNode,
-      collapseNode,
-      toggleNode,
-      containerRef,
-    ],
+    { target: 'element' },
   );
 
   return { focusedNodeId, setFocusedNode, onKeyDown, onFocus, leaveFilter };

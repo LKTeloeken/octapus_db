@@ -22,7 +22,8 @@ import { QueryEditorPanel } from '@/features/query-editor/query-editor-panel';
 import { TableBrowser } from '@/features/table-browser/table-browser';
 import { WindowControls } from '@/features/window-controls/window-controls';
 import { DB_TYPE_TEXT_COLOR } from '@/lib/db-defaults';
-import { customTitlebar, shortcut } from '@/lib/platform';
+import { customTitlebar } from '@/lib/platform';
+import { useShortcutLabel } from '@/lib/keybindings/use-shortcuts';
 import { cn } from '@/lib/utils';
 import type { WorkspaceTab } from '@/stores/tabs-store';
 import { useQueryTabs } from './use-query-tabs';
@@ -49,6 +50,8 @@ export const QueryTabs = memo(() => {
     assistantOpen,
     toggleAssistant,
   } = useQueryTabs();
+  const paletteKey = useShortcutLabel('app.commandPalette');
+  const assistantKey = useShortcutLabel('assistant.togglePanel');
 
   const assistantButton = assistantAvailable && (
     <Button
@@ -60,7 +63,7 @@ export const QueryTabs = memo(() => {
     >
       <HugeiconsIcon icon={AiChat02Icon} className="size-3.5" />
       Assistente
-      <Kbd>{shortcut('J')}</Kbd>
+      {assistantKey && <Kbd>{assistantKey}</Kbd>}
     </Button>
   );
 
@@ -75,13 +78,13 @@ export const QueryTabs = memo(() => {
             <Button variant="outline" size="sm" onClick={openPalette}>
               <HugeiconsIcon icon={Search01Icon} />
               Buscar tabelas
-              <Kbd>{shortcut('K')}</Kbd>
+              {paletteKey && <Kbd>{paletteKey}</Kbd>}
             </Button>
             {assistantAvailable && !assistantOpen && (
               <Button variant="outline" size="sm" onClick={toggleAssistant}>
                 <HugeiconsIcon icon={AiChat02Icon} />
                 Perguntar ao assistente
-                <Kbd>{shortcut('J')}</Kbd>
+                {assistantKey && <Kbd>{assistantKey}</Kbd>}
               </Button>
             )}
           </>
@@ -187,7 +190,7 @@ export const QueryTabs = memo(() => {
         >
           <HugeiconsIcon icon={CommandIcon} className="size-3.5" />
           Comandos
-          <Kbd>{shortcut('K')}</Kbd>
+          {paletteKey && <Kbd>{paletteKey}</Kbd>}
         </Button>
 
         {customTitlebar === 'linux' && (

@@ -1,5 +1,5 @@
 /**
- * Atalhos do assistente, decididos por uma função pura (testável sem DOM):
+ * Atalhos do assistente (teclas no registro, `lib/keybindings/actions.ts`):
  *
  * - `Cmd/Ctrl+J` em qualquer lugar: abre/fecha o painel;
  * - `Cmd/Ctrl+Shift+J` em qualquer lugar: entra/sai do modo agente;
@@ -7,40 +7,11 @@
  *   `Cmd/Ctrl+T` abre uma nova — sem chegar aos atalhos das abas de query.
  *
  * O listener fica na fase de captura do `window` e chama `preventDefault`;
- * o `use-query-tabs` ignora evento já tratado (`defaultPrevented`).
+ * o `useShortcuts` das abas de query ignora evento já tratado.
  */
-
-export type AssistantShortcut =
-  | 'toggle-panel'
-  | 'toggle-agent-mode'
-  | 'close-tab'
-  | 'new-tab';
 
 /** Marca o contêiner do painel: o foco dentro dele muda o `Cmd+W`/`Cmd+T` */
 export const ASSISTANT_PANEL_ATTR = 'data-assistant-panel';
-
-export interface ShortcutKey {
-  key: string;
-  metaKey: boolean;
-  ctrlKey: boolean;
-  shiftKey: boolean;
-  altKey: boolean;
-}
-
-export function assistantShortcut(
-  event: ShortcutKey,
-  focusInPanel: boolean,
-): AssistantShortcut | null {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey) return null;
-
-  const key = event.key.toLowerCase();
-  if (event.shiftKey) return key === 'j' ? 'toggle-agent-mode' : null;
-  if (key === 'j') return 'toggle-panel';
-  if (!focusInPanel) return null;
-  if (key === 'w') return 'close-tab';
-  if (key === 't') return 'new-tab';
-  return null;
-}
 
 /** O alvo do evento (ou o foco) está dentro do painel do assistente */
 export function isInAssistantPanel(target: EventTarget | null): boolean {

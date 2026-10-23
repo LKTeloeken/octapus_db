@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// Preferências do app, gravadas no SQLite local (`app_settings`).
@@ -18,6 +20,10 @@ pub struct AppSettings {
     /// O assistente executa sozinho a consulta de leitura que gerou. Desligado,
     /// ela fica para revisão com o botão Executar (RN-13).
     pub assistant_auto_execute: bool,
+    /// Atalhos que o usuário trocou: id da ação → teclas (`"Mod+K"`,
+    /// `"g g"`). Só o que difere do padrão do front (`src/lib/keybindings`);
+    /// lista vazia = ação sem atalho.
+    pub keybindings: BTreeMap<String, Vec<String>>,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -27,6 +33,7 @@ impl Default for AppSettings {
             beta_updates: false,
             pg_tools_dir: None,
             assistant_auto_execute: false,
+            keybindings: BTreeMap::new(),
         }
     }
 }

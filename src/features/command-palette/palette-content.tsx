@@ -15,6 +15,7 @@ import {
   DB_TYPE_LABELS,
   DB_TYPE_TEXT_COLOR,
 } from '@/lib/db-defaults';
+import { useShortcutLabel } from '@/lib/keybindings/use-shortcuts';
 import { cn } from '@/lib/utils';
 import type {
   PaletteItem,
@@ -112,22 +113,23 @@ export function PaletteContent({
     rows,
     virtualizer,
     onSelect: row => selectItem(row.item),
+    onPin: row => pinSchema(row?.item ?? null),
+    onUnpin: unpinSchema,
   });
+  const keys = {
+    down: useShortcutLabel('palette.down'),
+    up: useShortcutLabel('palette.up'),
+    select: useShortcutLabel('palette.select'),
+    pin: useShortcutLabel('palette.pinSchema'),
+    unpin: useShortcutLabel('palette.unpinSchema'),
+  };
 
   const resultCount = rows.filter(row => row.kind === 'item').length;
 
-  // Tab fixa um schema; Shift+Tab, ou Backspace no campo vazio, solta. O Tab
-  // nunca sai do campo — a paleta não tem outro controle focável.
+  // Backspace no começo do campo também solta o schema (como apagar um chip).
+  // O fixar/soltar configurável fica em `usePaletteNavigation`.
   const onInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Tab') {
-      event.preventDefault();
-      if (event.shiftKey) {
-        unpinSchema();
-      } else {
-        const row = rows[activeIndex];
-        pinSchema(row?.kind === 'item' ? row.item : null);
-      }
-    } else if (
+    if (
       event.key === 'Backspace' &&
       pinnedSchema !== null &&
       event.currentTarget.selectionStart === 0 &&
@@ -271,7 +273,8 @@ export function PaletteContent({
                     <Spinner className="size-3.5 text-fg-subtle" />
                   ) : isActive ? (
                     <span className="inline-flex shrink-0 items-center gap-1.5 text-small text-fg-muted">
-                      {actionOf(target)} <Kbd>↵</Kbd>
+                      {actionOf(target)}{' '}
+                      {keys.select && <Kbd>{keys.select}</Kbd>}
                     </span>
                   ) : (
                     <Badge>
@@ -294,23 +297,23 @@ export function PaletteContent({
 
       <div className="flex h-[38px] items-center gap-4 border-t border-line-subtle px-4 text-small text-fg-subtle">
         <span className="inline-flex items-center gap-1.5">
-          <Kbd>↑</Kbd>
-          <Kbd>↓</Kbd>
+          {keys.up && <Kbd>{keys.up}</Kbd>}
+          {keys.down && <Kbd>{keys.down}</Kbd>}
           navegar
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <Kbd>↵</Kbd>
+          {keys.select && <Kbd>{keys.select}</Kbd>}
           abrir
         </span>
         <span className="inline-flex items-center gap-1.5">
           {pinnedSchema === null ? (
             <>
-              <Kbd>tab</Kbd>
+              {keys.pin && <Kbd>{keys.pin}</Kbd>}
               fixar schema
             </>
           ) : (
             <>
-              <Kbd>⇧ tab</Kbd>
+              {keys.unpin && <Kbd>{keys.unpin}</Kbd>}
               soltar schema
             </>
           )}

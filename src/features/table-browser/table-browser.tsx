@@ -13,7 +13,10 @@ import { Button } from '@/components/ui/button';
 import { ContentState } from '@/components/ui/content-state';
 import { Tooltip } from '@/components/ui/tooltip/tooltip';
 import { DB_TYPE_TEXT_COLOR } from '@/lib/db-defaults';
-import { shortcut } from '@/lib/platform';
+import {
+  useShortcutLabel,
+  withShortcut,
+} from '@/lib/keybindings/use-shortcuts';
 import { cn } from '@/lib/utils';
 import { FilterInput } from './filter-input/filter-input';
 import { useTableBrowser } from './use-table-browser';
@@ -32,6 +35,8 @@ const Crumb = () => (
  * is sent as `whereExpr` — the backend still owns SELECT/ORDER/LIMIT.
  */
 export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
+  const valuePanelKey = useShortcutLabel('table.toggleValuePanel');
+  const reloadKey = useShortcutLabel('table.applyFilter');
   const {
     columns,
     rows,
@@ -112,7 +117,7 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
         />
 
         <Tooltip
-          content={`Painel de valor (${shortcut('I')})`}
+          content={withShortcut('Painel de valor', valuePanelKey)}
           position="bottom"
         >
           <Button
@@ -126,7 +131,10 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
           </Button>
         </Tooltip>
 
-        <Tooltip content={`Recarregar (${shortcut('R')})`} position="bottom">
+        <Tooltip
+          content={withShortcut('Recarregar', reloadKey)}
+          position="bottom"
+        >
           <Button
             variant="ghost"
             size="icon"

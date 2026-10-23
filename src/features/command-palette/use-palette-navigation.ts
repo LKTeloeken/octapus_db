@@ -1,5 +1,6 @@
 import type { Virtualizer } from '@tanstack/react-virtual';
-import { useCallback, useEffect, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
 import type { PaletteRow } from './command-palette.types';
 
 type ItemRow = Extract<PaletteRow, { kind: 'item' }>;
@@ -8,6 +9,9 @@ interface Options {
   rows: PaletteRow[];
   virtualizer: Virtualizer<HTMLDivElement, Element>;
   onSelect: (row: ItemRow) => void;
+  /** Fixar o schema do item ativo (`null` sem item) */
+  onPin: (row: ItemRow | null) => void;
+  onUnpin: () => void;
 }
 
 /** First selectable (item) row index walking `dir` from `from`, or -1. */
@@ -27,6 +31,8 @@ export const usePaletteNavigation = ({
   rows,
   virtualizer,
   onSelect,
+  onPin,
+  onUnpin,
 }: Options) => {
   const [activeIndex, setActiveIndex] = useState(-1);
 
@@ -51,23 +57,24 @@ export const usePaletteNavigation = ({
     [activeIndex, rows, virtualizer],
   );
 
-  const onKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        move(1);
-      } else if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        move(-1);
-      } else if (event.key === 'Enter') {
+  // Tab fixa um schema e Shift+Tab solta (padrões): o foco nunca sai do
+  // campo — a paleta não tem outro controle focável.
+  const { onKeyDown } = useShortcuts(
+    {
+      'palette.down': () => move(1),
+      'palette.up': () => move(-1),
+      'palette.select': () => {
         const row = rows[activeIndex];
-        if (row?.kind === 'item') {
-          event.preventDefault();
-          onSelect(row);
-        }
-      }
+        if (row?.kind !== 'item') return false;
+        onSelect(row);
+      },
+      'palette.pinSchema': () => {
+        const row = rows[activeIndex];
+        onPin(row?.kind === 'item' ? row : null);
+      },
+      'palette.unpinSchema': onUnpin,
     },
-    [move, rows, activeIndex, onSelect],
+    { target: 'element' },
   );
 
   return { activeIndex, setActiveIndex, onKeyDown };

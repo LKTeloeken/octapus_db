@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { DatabaseType } from '@/api/types/server.types';
 import { forgetEditorDocument } from '@/components/query-editor/query-editor/use-code-mirror-view';
+import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
 import { useToggleAssistant } from '@/features/assistant/use-toggle-assistant';
 import { useAssistantStatus } from '@/queries/use-assistant-status';
 import { useServers } from '@/queries/use-servers';
@@ -9,30 +10,6 @@ import { useCommandPaletteStore } from '@/stores/command-palette-store';
 import { useGridSearchStore } from '@/stores/grid-search-store';
 import { useQueryResultsStore } from '@/stores/query-results-store';
 import { useActiveTab, useTabsStore } from '@/stores/tabs-store';
-
-export type QueryTabShortcut =
-  | { kind: 'close' }
-  | { kind: 'goto'; index: number };
-
-/**
- * Cmd/Ctrl+W fecha a aba ativa; Cmd/Ctrl+1..9 vai à N-ésima. Evento já
- * tratado fica de fora: com o foco no assistente, o Cmd/Ctrl+W é das
- * conversas (ver `features/assistant/assistant-shortcuts.ts`).
- */
-export function queryTabShortcut(
-  event: Pick<
-    KeyboardEvent,
-    'key' | 'metaKey' | 'ctrlKey' | 'defaultPrevented'
-  >,
-): QueryTabShortcut | null {
-  if (event.defaultPrevented) return null;
-  if (!(event.metaKey || event.ctrlKey)) return null;
-  if (event.key.toLowerCase() === 'w') return { kind: 'close' };
-  if (/^[1-9]$/.test(event.key)) {
-    return { kind: 'goto', index: Number(event.key) - 1 };
-  }
-  return null;
-}
 
 export const useQueryTabs = () => {
   const tabs = useTabsStore(state => state.tabs);
@@ -84,28 +61,28 @@ export const useQueryTabs = () => {
   const assistantOpen = useAssistantStore(state => state.panelOpen);
   const toggleAssistant = useToggleAssistant();
 
-  // Cmd/Ctrl+W closes the active tab; Cmd/Ctrl+1..9 jumps to the Nth tab
-  useEffect(() => {
-    const handleShortcut = (event: KeyboardEvent) => {
-      const action = queryTabShortcut(event);
-      if (!action) return;
-
-      if (action.kind === 'close') {
-        event.preventDefault();
-        if (activeTabId) closeTab(activeTabId);
-        return;
-      }
-
-      const target = tabsList[action.index];
-      if (target) {
-        event.preventDefault();
-        setActiveTab(target.id);
-      }
-    };
-
-    window.addEventListener('keydown', handleShortcut);
-    return () => window.removeEventListener('keydown', handleShortcut);
-  }, [activeTabId, closeTab, tabsList, setActiveTab]);
+  // Fechar a aba ativa e ir à N-ésima (Cmd/Ctrl+W e Cmd/Ctrl+1..9). Evento
+  // já tratado fica de fora: com o foco no assistente, o Cmd/Ctrl+W é das
+  // conversas (ver `features/assistant/assistant-shortcuts.ts`).
+  const gotoTab = (index: number) => () => {
+    const target = tabsList[index];
+    if (!target) return false;
+    setActiveTab(target.id);
+  };
+  useShortcuts({
+    'tabs.close': () => {
+      if (activeTabId) closeTab(activeTabId);
+    },
+    'tabs.goto1': gotoTab(0),
+    'tabs.goto2': gotoTab(1),
+    'tabs.goto3': gotoTab(2),
+    'tabs.goto4': gotoTab(3),
+    'tabs.goto5': gotoTab(4),
+    'tabs.goto6': gotoTab(5),
+    'tabs.goto7': gotoTab(6),
+    'tabs.goto8': gotoTab(7),
+    'tabs.goto9': gotoTab(8),
+  });
 
   return {
     tabs: tabsList,

@@ -20,6 +20,7 @@ import {
 } from '@codemirror/state';
 import { keywordCompletionSource, sql, PostgreSQL } from '@codemirror/lang-sql';
 import { inkEditorTheme } from '@/lib/codemirror-theme';
+import { useCodeMirrorShortcuts } from '@/lib/keybindings/use-shortcuts';
 import { useLazyLanguage } from '@/lib/use-lazy-language';
 import { useUiStore } from '@/stores/ui-store';
 import { withClauseBoost } from './sql-completion/sql-clause-boost';
@@ -34,24 +35,6 @@ const disableSpellcheck = EditorView.contentAttributes.of({
   autocorrect: 'off',
   autocapitalize: 'off',
 });
-
-/**
- * Sugestão explícita. No macOS fica em `Shift+Space` — o `Cmd+Space` é engolido pelo
- * Spotlight antes de chegar na janela. Nos outros sistemas, `Ctrl+Space`.
- *
- * Ressalva: no mac o `Shift+Space` deixa de inserir espaço. O espaço sozinho segue normal,
- * e o `Ctrl+Space` / `Alt+i` da própria lib continuam valendo como alternativa.
- */
-const explicitCompletionKeymap = Prec.highest(
-  keymap.of([
-    {
-      key: 'Mod-Space',
-      mac: 'Shift-Space',
-      run: startCompletion,
-      preventDefault: true,
-    },
-  ]),
-);
 
 /**
  * Popups (autocomplete, info) montados no `body`, fora da árvore do editor. Dentro dela
@@ -627,40 +610,27 @@ export function QueryEditor({
     [],
   );
 
-  const runQueryKeymap = useMemo(() => {
-    return Prec.highest(
-      keymap.of([
-        {
-          key: 'Mod-Enter',
-          run: view => {
-            const runnableQuery = getRunnableQuery(view, runMode);
-
-            if (!runnableQuery) {
-              return true;
-            }
-
-            onRun?.(runnableQuery.query, runnableQuery.context);
-
-            return true;
-          },
-        },
-        {
-          key: 'Shift-Mod-Enter',
-          run: view => {
-            const runnableQuery = getRunnableQuery(view, runMode);
-
-            if (!runnableQuery) {
-              return true;
-            }
-
-            onRun?.(runnableQuery.query, runnableQuery.context);
-
-            return true;
-          },
-        },
-      ]),
-    );
-  }, [onRun, runMode]);
+  // Executar (Cmd/Ctrl+Enter) e sugestão explícita — teclas do registro de
+  // atalhos. A sugestão fica no macOS em `Shift+Space`: o `Cmd+Space` é
+  // engolido pelo Spotlight antes de chegar na janela; nos outros sistemas,
+  // `Ctrl+Space`. Ressalva: no mac o `Shift+Space` deixa de inserir espaço. O
+  // espaço sozinho segue normal, e o `Ctrl+Space` / `Alt+i` da própria lib
+  // continuam valendo como alternativa.
+  const runBindings = useCodeMirrorShortcuts({
+    'editor.run': view => {
+      const runnableQuery = getRunnableQuery(view, runMode);
+      if (runnableQuery) onRun?.(runnableQuery.query, runnableQuery.context);
+      return true;
+    },
+  });
+  const completionBindings = useCodeMirrorShortcuts(
+    { 'editor.complete': startCompletion },
+    { preventDefault: true },
+  );
+  const runQueryKeymap = useMemo(
+    () => Prec.highest(keymap.of([...runBindings, ...completionBindings])),
+    [runBindings, completionBindings],
+  );
 
   // Enter em `Prec.high`, abaixo do keymap do autocomplete (`Prec.highest`): com o popup
   // aberto ele aceita a sugestão; só com o popup fechado chega aqui.
@@ -762,7 +732,6 @@ export function QueryEditor({
       ...(sqlExtraExtensions ? [sqlExtraExtensions] : []),
       placeholder(placeholderText),
       runQueryKeymap,
-      explicitCompletionKeymap,
       ...singleLineExtensions,
     ];
   }, [

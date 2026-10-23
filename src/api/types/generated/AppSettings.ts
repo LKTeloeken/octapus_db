@@ -22,4 +22,10 @@ pgToolsDir: string | null,
  * O assistente executa sozinho a consulta de leitura que gerou. Desligado,
  * ela fica para revisão com o botão Executar (RN-13).
  */
-assistantAutoExecute: boolean, };
+assistantAutoExecute: boolean, 
+/**
+ * Atalhos que o usuário trocou: id da ação → teclas (`"Mod+K"`,
+ * `"g g"`). Só o que difere do padrão do front (`src/lib/keybindings`);
+ * lista vazia = ação sem atalho.
+ */
+keybindings: { [key in string]: Array<string> }, };

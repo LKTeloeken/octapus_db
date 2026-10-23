@@ -1,5 +1,6 @@
 import type { EditableInfo, QueryColumnInfo } from '@/api/types/query.types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
 import { ownsKeyboardEvent } from './keyboard-scope';
 import type {
   ActivateCellFn,
@@ -435,76 +436,41 @@ const useResultsTable = (
 
   // Keyboard: Cmd/Ctrl+S saves, Backspace removes the selected rows, Esc
   // clears the selection. Only the active tab's table is mounted, so there is
-  // never more than one listener competing.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (!ownsKeyboardEvent(target, keyboardScope)) return;
-
-      // Um diálogo aberto por cima da grade (exportação) recebe as mesmas
-      // teclas: sem isso, o Esc que fecha o modal limparia a seleção junto e o
-      // Backspace marcaria as linhas selecionadas para exclusão.
-      // O painel da busca (Cmd/Ctrl+F) também: Backspace num checkbox dele não
-      // pode remover linhas.
-      if (target?.closest('[data-slot="dialog-content"], [data-grid-search]')) {
-        return;
-      }
-
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
-        event.preventDefault();
+  // never more than one listener competing. Num campo de texto só o salvar
+  // vale — Cmd+Z/Backspace/Esc ficam com o campo (o desfazer nativo).
+  useShortcuts(
+    {
+      'grid.save': () => {
         if (pendingCount > 0) void save();
-        return;
-      }
-
-      // Don't hijack Cmd+Z/Backspace/Esc while typing in an editor — deixa o
-      // desfazer nativo do campo funcionar.
-      const isTyping =
-        !!target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable);
-      if (isTyping) return;
-
-      // Cmd/Ctrl+A seleciona todas as linhas da grade.
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
-        event.preventDefault();
-        selectAllRows();
-        return;
-      }
-
-      // Cmd/Ctrl+Z descarta todas as alterações pendentes.
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
-        event.preventDefault();
+      },
+      'grid.selectAll': selectAllRows,
+      'grid.discardChanges': () => {
         if (pendingCount > 0) discardChanges();
-        return;
-      }
-
-      if (
-        (event.key === 'Backspace' || event.key === 'Delete') &&
-        selectedRowIds.size > 0
-      ) {
-        event.preventDefault();
+      },
+      'grid.deleteRows': () => {
+        if (selectedRowIds.size === 0) return false;
         removeSelected();
-        return;
-      }
-
-      if (event.key === 'Escape' && selectedRowIds.size > 0) {
+      },
+      'grid.clearSelection': () => {
+        if (selectedRowIds.size === 0) return false;
         clearSelection();
-      }
-    };
-
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [
-    pendingCount,
-    save,
-    discardChanges,
-    selectedRowIds,
-    removeSelected,
-    clearSelection,
-    selectAllRows,
-    keyboardScope,
-  ]);
+      },
+    },
+    {
+      when: event => {
+        const target = event.target as HTMLElement | null;
+        if (!ownsKeyboardEvent(target, keyboardScope)) return false;
+        // Um diálogo aberto por cima da grade (exportação) recebe as mesmas
+        // teclas: sem isso, o Esc que fecha o modal limparia a seleção junto e
+        // o Backspace marcaria as linhas selecionadas para exclusão. O painel
+        // da busca (Cmd/Ctrl+F) também: Backspace num checkbox dele não pode
+        // remover linhas.
+        return !target?.closest(
+          '[data-slot="dialog-content"], [data-grid-search]',
+        );
+      },
+    },
+  );
 
   return {
     isEditable,

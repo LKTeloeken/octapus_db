@@ -18,6 +18,7 @@ import {
 } from '@/stores/recent-tables-store';
 import { useTabsStore } from '@/stores/tabs-store';
 import { fuzzyMatch } from '@/lib/fuzzy';
+import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
 import { encodeNodeId } from '@/lib/node-ref';
 import type {
   PaletteItem,
@@ -67,19 +68,7 @@ export const useCommandPalette = () => {
     [servers],
   );
 
-  // Toggle with Cmd/Ctrl+K
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey)) return;
-      if (event.key.toLowerCase() !== 'k') return;
-
-      event.preventDefault();
-      togglePalette();
-    };
-
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [togglePalette]);
+  useShortcuts({ 'app.commandPalette': togglePalette });
 
   // A busca do catálogo enxerga os catálogos abertos no backend: ao abrir a
   // paleta, os dos databases em uso (abas e recentes) entram — do disco, na

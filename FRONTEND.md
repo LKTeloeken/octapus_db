@@ -121,6 +121,8 @@ Só estado de **UI**, nada que o backend possa fornecer:
 | `command-palette-store` | paleta de comandos aberta/fechada — aberta pelo `Cmd/Ctrl+K`, pela busca da sidebar e pelo botão Comandos — e o schema fixado nela (em memória, sobrevive ao fechar) |
 | `structure-editor-store` | diálogo de estrutura aberto pelo menu da árvore (criar/renomear/excluir tabela, nova/editar/excluir coluna, comparar dois schemas) |
 | `value-panel-store` | painel de valor da aba de tabela: aberto/fechado e preferências de formatação (global, persistido) |
+| `keybindings-store` | atalhos em vigor (padrões do registro + trocas do usuário, sincronizados das preferências pelo `useSyncKeybindings`) e a flag de gravação da tela Atalhos |
+| `update-store` | auto-update: versão oferecida, download, última checagem e o "Depois" |
 | `assistant-store` | painel do assistente: aberto/fechado, modo agente, abas de conversa (alvo, id da conversa, modelo, rascunho), turno ao vivo de cada aba e resultados por tentativa — **só em memória**, fora do `tabs-store` (RN-01) |
 
 **Sessão das abas** ([stores/tabs-session.ts](src/stores/tabs-session.ts)): as abas
@@ -251,7 +253,14 @@ palette, dentro do `QueryProvider`.
   é uma `SettingRow`. Os valores vêm de `useSettings`/`useUpdateSettings` (SQLite do
   backend, `get_settings`/`update_settings`) — menos o tema, que segue no `ui-store`.
   A preferência **versões beta** muda o canal do `update-notifier` (`checkForUpdate` em
-  `src/api/updater.ts`); ligá-la checa na hora. A seção **PostgreSQL** mostra o
+  `src/api/updater.ts`); ligá-la checa na hora. O notifier também checa com o app aberto
+  ([lib/update-schedule.ts](src/lib/update-schedule.ts)): 5 s depois da partida, a cada
+  4 h pelo relógio (resiste à suspensão) e ao voltar o foco para a janela, se já faz
+  30 min. "Depois" esconde o toast até sair uma versão **mais nova**; a seção
+  **Atualizações** mostra a última checagem, "Verificar agora" e a versão adiada. A seção
+  **Atalhos** lista o registro de atalhos com busca: grava uma tecla nova (acorde ou
+  sequência como `g g`), avisa conflito no mesmo contexto (com "Substituir") e restaura
+  o padrão por ação ou de tudo. A seção **PostgreSQL** mostra o
   `pg_dump` em uso (`usePgToolsDetection`) e deixa escolher a pasta ou voltar à detecção
   automática (`useSetPgToolsDir`, que refaz a busca).
 - **`query-tabs`** — gerencia abas; cada aba é um editor livre (`query-editor`) ou um
@@ -483,6 +492,18 @@ dizendo qual comando falta. Detalhes e receitas em
 - **Imports** com alias `@/` para `src/`.
 - **Padrão hook + view:** `feature.tsx` só renderiza; lógica em `use-feature.ts`.
 - **Arquivos de tipos** colocados ao lado do componente como `*.types.ts`.
+- **Atalhos de teclado** — todos no registro
+  [lib/keybindings/actions.ts](src/lib/keybindings/actions.ts) (rótulo, grupo, contexto,
+  teclas padrão; uma ação aceita várias, como `['ArrowDown', 'j']`) e disparados pelo
+  hook único `useShortcuts` ([use-shortcuts.ts](src/lib/keybindings/use-shortcuts.ts)):
+  no `window` (com `capture` opcional) ou como `onKeyDown` de um contêiner
+  (`target: 'element'`). O hook resolve campo de texto (`allowWhileTyping`), evento já
+  tratado (`defaultPrevented`), sequências e `preventDefault`; handler que devolve
+  `false` deixa a tecla passar; regra de contexto da tela vai no `when`. Rótulo na tela
+  sai de `useShortcutLabel`/`withShortcut` (nunca `⌘K` escrito à mão), e o CodeMirror
+  recebe as teclas por `useCodeMirrorShortcuts`. As trocas do usuário ficam em
+  `AppSettings.keybindings` (só o que difere do padrão). Ficam fora do registro as
+  teclas de edição de campo e célula (Enter/Esc/Tab) e as setas do `SegmentedControl`.
 - **Erros do backend** chegam como `ApiError` (`message` + `code`) — trate com `toast`.
 - **Lint:** `pnpm lint` roda o ESLint (`eslint.config.js`: TypeScript, regras dos hooks e
   `jsx-a11y`) e o verificador dos tokens do DESIGN.md (`scripts/check-design-tokens.mjs`).

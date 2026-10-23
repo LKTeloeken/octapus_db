@@ -1,9 +1,21 @@
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { SettingRow } from '../setting-row';
 import { useUpdatesSection } from './use-updates-section';
 
 export function UpdatesSection() {
-  const { betaUpdates, isLoading, setBetaUpdates } = useUpdatesSection();
+  const {
+    betaUpdates,
+    isLoading,
+    setBetaUpdates,
+    status,
+    statusText,
+    checking,
+    checkNow,
+    install,
+    restart,
+  } = useUpdatesSection();
 
   return (
     <>
@@ -18,6 +30,22 @@ export function UpdatesSection() {
           disabled={isLoading}
           onCheckedChange={setBetaUpdates}
         />
+      </SettingRow>
+      <SettingRow label="Versão nova" description={statusText}>
+        {status === 'available' ? (
+          <Button onClick={install}>Atualizar agora</Button>
+        ) : status === 'ready' ? (
+          <Button onClick={restart}>Reiniciar</Button>
+        ) : (
+          <Button
+            variant="outline"
+            disabled={checking || isLoading || status === 'downloading'}
+            onClick={checkNow}
+          >
+            {checking && <Spinner className="size-3.5" />}
+            Verificar agora
+          </Button>
+        )}
       </SettingRow>
       <SettingRow label="Versão instalada">
         <span className="font-mono text-small text-fg-muted">

@@ -1,28 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { isTypingTarget, useShortcuts } from '@/lib/keybindings/use-shortcuts';
 import type { ResultsViewMode } from './results-table.types';
 
-/** O que a decisão do Tab precisa do evento (o `KeyboardEvent` do React serve) */
-type ToggleKeyEvent = Pick<
-  KeyboardEvent,
-  'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey'
-> & { target: EventTarget | null };
-
 /**
- * O Tab troca a visualização? Só o Tab sozinho, com o foco numa das vistas
- * (`data-results-view`) e fora de um campo (a busca) ou de uma célula em
- * edição — ali ele segue sendo o Tab de sempre.
+ * O atalho de trocar a visualização (Tab) vale aqui? Só com o foco numa das
+ * vistas (`data-results-view`) e fora de um campo (a busca) ou de uma célula
+ * em edição — ali ele segue sendo o Tab de sempre.
  */
-export const isViewToggle = (event: ToggleKeyEvent, editing: boolean) => {
-  if (event.key !== 'Tab' || editing) return false;
-  if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey)
-    return false;
-  const target = event.target as HTMLElement | null;
-  if (!target?.closest?.('[data-results-view]')) return false;
-  return !(
-    target.tagName === 'INPUT' ||
-    target.tagName === 'TEXTAREA' ||
-    target.isContentEditable
+export const canToggleView = (target: EventTarget | null, editing: boolean) => {
+  if (editing) return false;
+  const element = target as HTMLElement | null;
+  return (
+    !!element?.closest?.('[data-results-view]') && !isTypingTarget(element)
   );
 };
 
@@ -35,14 +24,17 @@ export const useViewToggle = (editing: boolean) => {
   const viewsRef = useRef<HTMLDivElement>(null);
   const refocusView = useRef(false);
 
-  const onViewKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (!isViewToggle(event, editing)) return;
-      event.preventDefault();
-      refocusView.current = true;
-      setViewMode(mode => (mode === 'table' ? 'vertical' : 'table'));
+  const { onKeyDown: onViewKeyDown } = useShortcuts(
+    {
+      'grid.toggleView': () => {
+        refocusView.current = true;
+        setViewMode(mode => (mode === 'table' ? 'vertical' : 'table'));
+      },
     },
-    [editing],
+    {
+      target: 'element',
+      when: event => canToggleView(event.target, editing),
+    },
   );
 
   useEffect(() => {
