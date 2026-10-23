@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { SortSpec } from '@/api/types/browse.types';
 import type { CatalogObjectRef } from '@/api/types/catalog.types';
 import { encodeNodeId } from '@/lib/node-ref';
+import { usePendingChangesStore } from './pending-changes-store';
 
 /**
  * Tabs hold only identity + intent. Data, loading and errors live in the
@@ -93,8 +94,12 @@ interface TabsState {
     target: CatalogObjectRef;
     title: string;
   }) => string;
+  /** Fecha a aba e descarta as alterações pendentes dela (sem perguntar) */
   closeTab: (id: string) => void;
-  /** Fecha todas as abas do servidor (ex.: servidor excluído); devolve os ids fechados */
+  /**
+   * Fecha todas as abas do servidor (ex.: servidor excluído), descartando as
+   * pendências delas; devolve os ids fechados
+   */
   closeServerTabs: (serverId: number) => string[];
   setActiveTab: (id: string) => void;
   setQueryContent: (id: string, content: string) => void;
@@ -218,6 +223,8 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
       return { tabs, activeTabId };
     });
+    // As pendências da grade são da aba: sem ela, não há onde salvá-las.
+    usePendingChangesStore.getState().clear(id);
   },
 
   closeServerTabs: serverId => {
@@ -243,6 +250,8 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     }
 
     set({ tabs, activeTabId });
+    const { clear: clearPending } = usePendingChangesStore.getState();
+    for (const id of closed) clearPending(id);
     return closed;
   },
 

@@ -1,6 +1,7 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { DatabaseType } from '@/api/types/server.types';
 import { forgetEditorDocument } from '@/components/query-editor/query-editor/use-code-mirror-view';
+import { countPendingChanges } from '@/components/results-table/pending-changes';
 import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
 import { useToggleAssistant } from '@/features/assistant/use-toggle-assistant';
 import { useAssistantStatus } from '@/queries/use-assistant-status';
@@ -8,8 +9,10 @@ import { useServers } from '@/queries/use-servers';
 import { useAssistantStore } from '@/stores/assistant-store';
 import { useCommandPaletteStore } from '@/stores/command-palette-store';
 import { useGridSearchStore } from '@/stores/grid-search-store';
+import { usePendingChangesStore } from '@/stores/pending-changes-store';
 import { useQueryResultsStore } from '@/stores/query-results-store';
 import { useActiveTab, useTabsStore } from '@/stores/tabs-store';
+import type { ClosingTab } from './query-tabs.types';
 
 export const useQueryTabs = () => {
   const tabs = useTabsStore(state => state.tabs);
@@ -34,7 +37,8 @@ export const useQueryTabs = () => {
     [servers],
   );
 
-  const closeTab = useCallback(
+  // Fecha de vez (o store descarta as pendências da grade junto)
+  const discardAndCloseTab = useCallback(
     (id: string) => {
       closeTabInStore(id);
       clearRun(id); // drop the ephemeral editor result of the closed tab
@@ -42,6 +46,39 @@ export const useQueryTabs = () => {
       forgetEditorDocument(id); // texto, seleção e undo guardados do editor
     },
     [closeTabInStore, clearRun, clearGridSearch],
+  );
+
+  // Fechar uma aba com alterações pendentes na grade pergunta antes ("x",
+  // clique do meio e Cmd/Ctrl+W); sem pendências, fecha na hora.
+  const [closing, setClosing] = useState<ClosingTab | null>(null);
+
+  const closeTab = useCallback(
+    (id: string) => {
+      const pending = usePendingChangesStore.getState().byScope.get(id);
+      const tab = tabs.get(id);
+      if (!pending || !tab) {
+        discardAndCloseTab(id);
+        return;
+      }
+      setClosing({
+        tabId: id,
+        title: tab.title,
+        pendingCount: countPendingChanges(pending),
+        open: true,
+      });
+    },
+    [tabs, discardAndCloseTab],
+  );
+
+  const confirmClose = useCallback(() => {
+    if (closing) discardAndCloseTab(closing.tabId);
+    setClosing(prev => prev && { ...prev, open: false });
+  }, [closing, discardAndCloseTab]);
+
+  // Mantém o resto para o diálogo sair animado com o texto no lugar
+  const cancelClose = useCallback(
+    () => setClosing(prev => prev && { ...prev, open: false }),
+    [],
   );
 
   // "+" da barra: nova consulta no mesmo servidor/banco da aba ativa.
@@ -91,6 +128,9 @@ export const useQueryTabs = () => {
     dbTypeByServer,
     setActiveTab,
     closeTab,
+    closing,
+    confirmClose,
+    cancelClose,
     newQueryTab,
     openPalette,
     assistantAvailable: assistantStatus?.configured === true,

@@ -6,6 +6,7 @@ import {
   buildEdits,
   buildInserts,
   countCellChanges,
+  countPendingChanges,
   decodePkKey,
   encodePkKey,
   pkKeyOf,
@@ -118,6 +119,21 @@ describe('pending-changes', () => {
           ],
         },
       ]);
+    });
+
+    it('o total soma edições que contam, linhas novas e removidas', () => {
+      const removed = new Set([two]);
+      const added: AddedRow[] = [
+        { tempId: 'a', cells: [null], touched: new Set() },
+      ];
+      // 2 edições (a da linha removida não conta) + 1 nova + 1 removida
+      expect(
+        countPendingChanges({
+          changes,
+          addedRows: added,
+          removedRowKeys: removed,
+        }),
+      ).toBe(4);
     });
   });
 });

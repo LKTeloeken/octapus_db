@@ -61,6 +61,7 @@ import {
   applyDeletes,
   applyEdits,
   applyInserts,
+  browseSort,
   emptyResult,
   selectFrom,
 } from './engine';
@@ -609,7 +610,7 @@ const browseHandlers: Record<string, MockHandler> = {
 
     return selectFrom(table, {
       whereExpr: typed.whereExpr,
-      sort: typed.sort,
+      sort: browseSort(table, typed.sort),
       limit: typed.limit,
       offset: typed.offset,
       countTotal: typed.countTotal,

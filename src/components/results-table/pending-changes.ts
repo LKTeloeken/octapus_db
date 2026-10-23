@@ -3,7 +3,11 @@ import type {
   RowEdit,
   RowInsert,
 } from '@/api/types/query.types';
-import type { AddedRow, ChangesMap } from './results-table.types';
+import type {
+  AddedRow,
+  ChangesMap,
+  SaveRowChanges,
+} from './results-table.types';
 
 /**
  * As regras das alterações pendentes da grade (DESIGN.md §2.4), sem React:
@@ -110,3 +114,39 @@ export function countCellChanges(
   });
   return count;
 }
+
+/** Total de alterações pendentes da grade, como a barra de pendências conta */
+export const countPendingChanges = ({
+  changes,
+  addedRows,
+  removedRowKeys,
+}: {
+  changes: ChangesMap;
+  addedRows: AddedRow[];
+  removedRowKeys: ReadonlySet<string>;
+}): number =>
+  countCellChanges(changes, removedRowKeys) +
+  addedRows.length +
+  removedRowKeys.size;
+
+/** O que o `onSave` recebe: UPDATEs, INSERTs e DELETEs das pendências */
+export const buildSaveRowChanges = (
+  {
+    changes,
+    addedRows,
+    removedRowKeys,
+  }: {
+    changes: ChangesMap;
+    addedRows: AddedRow[];
+    removedRowKeys: ReadonlySet<string>;
+  },
+  columns: QueryColumnInfo[],
+): SaveRowChanges => ({
+  edits: buildEdits(changes, removedRowKeys),
+  inserts: buildInserts(addedRows, columns),
+  deletes: buildDeletes(removedRowKeys),
+});
+
+/** "1 alteração" / "3 alterações" */
+export const pendingCountLabel = (count: number): string =>
+  `${count} alteraç${count === 1 ? 'ão' : 'ões'}`;

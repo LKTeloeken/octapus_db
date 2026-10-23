@@ -4,6 +4,7 @@ import type { SortSpec } from '@/api/types/browse.types';
 import { useHiddenColumnsReset } from '@/components/column-selector/use-hidden-columns-reset';
 import { sqlFragmentContext } from '@/components/query-editor/query-editor/sql-completion/sql-fragment-context';
 import type { SaveRowChanges } from '@/components/results-table/results-table.types';
+import { usePendingChangesGuard } from '@/components/results-table/use-pending-changes-guard';
 import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
 import { persistRowChanges } from '@/lib/persist-row-changes';
 import {
@@ -76,6 +77,53 @@ export const useTableBrowser = (tab: BrowseTab) => {
   });
   const { refetch } = data;
 
+  // Persist deletes, inserts and edits together. Each mutation invalidates the
+  // browse query, so the table only reflects changes once the backend confirms.
+  const save = useCallback(
+    async (changes: SaveRowChanges) => {
+      const editable = data.editableInfo;
+      if (!editable) return;
+
+      const base = { serverId: tab.serverId, database: tab.database, editable };
+
+      try {
+        const affected = await persistRowChanges(changes, {
+          saveAll: supportsAtomicSave
+            ? all =>
+                saveRowChangesMutation.mutateAsync({ ...base, changes: all })
+            : undefined,
+          deleteRows: pkValues =>
+            deleteRowsMutation.mutateAsync({ ...base, pkValues }),
+          insertRows: rows => insertRowsMutation.mutateAsync({ ...base, rows }),
+          applyEdits: edits =>
+            applyEditsMutation.mutateAsync({ ...base, edits }),
+        });
+        toast.success(`${affected} linhas alteradas`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+        throw error; // let ResultsTable keep the pending changes for retry
+      }
+    },
+    [
+      data.editableInfo,
+      tab.serverId,
+      tab.database,
+      applyEditsMutation,
+      insertRowsMutation,
+      deleteRowsMutation,
+      saveRowChangesMutation,
+      supportsAtomicSave,
+    ],
+  );
+
+  // Ordenar, filtrar e recarregar trocam os dados da grade: com alterações
+  // pendentes, perguntam antes (salvar, descartar ou cancelar).
+  const { guard, dialogProps: pendingDialogProps } = usePendingChangesGuard(
+    tab.id,
+    data.columns,
+    save,
+  );
+
   // The sort the backend is effectively applying: an explicit single-column
   // choice, or the PK-desc default (derived so the header can show it).
   const defaultSortColumn = data.editableInfo?.primaryKeyColumns[0];
@@ -98,9 +146,9 @@ export const useTableBrowser = (tab: BrowseTab) => {
           ? 'desc'
           : 'asc';
 
-      setBrowseSort(tab.id, [{ column, direction }]);
+      guard('sort', () => setBrowseSort(tab.id, [{ column, direction }]));
     },
-    [activeSort, tab.id, setBrowseSort],
+    [activeSort, tab.id, setBrowseSort, guard],
   );
 
   // O filtro passa o texto que acabou de executar; sem argumento (recarregar, Cmd+R),
@@ -108,13 +156,14 @@ export const useTableBrowser = (tab: BrowseTab) => {
   const applyWhere = useCallback(
     (expr: string = draftWhere) => {
       const next = expr.trim();
+      // No Cancelar, o texto digitado fica no campo, sem ser aplicado
       if (next !== tab.whereExpr) {
-        setBrowseWhere(tab.id, next);
+        guard('filter', () => setBrowseWhere(tab.id, next));
       } else {
-        void refetch();
+        guard('reload', () => void refetch());
       }
     },
-    [draftWhere, tab.id, tab.whereExpr, setBrowseWhere, refetch],
+    [draftWhere, tab.id, tab.whereExpr, setBrowseWhere, refetch, guard],
   );
 
   const resetWhere = useCallback(() => {
@@ -137,6 +186,7 @@ export const useTableBrowser = (tab: BrowseTab) => {
     [tab.id, setBrowseHiddenColumns],
   );
   useHiddenColumnsReset(
+    tab.id,
     data.columns,
     tab.hiddenColumns.length,
     resetHiddenColumns,
@@ -188,45 +238,6 @@ export const useTableBrowser = (tab: BrowseTab) => {
     tab.sort,
   ]);
 
-  // Persist deletes, inserts and edits together. Each mutation invalidates the
-  // browse query, so the table only reflects changes once the backend confirms.
-  const save = useCallback(
-    async (changes: SaveRowChanges) => {
-      const editable = data.editableInfo;
-      if (!editable) return;
-
-      const base = { serverId: tab.serverId, database: tab.database, editable };
-
-      try {
-        const affected = await persistRowChanges(changes, {
-          saveAll: supportsAtomicSave
-            ? all =>
-                saveRowChangesMutation.mutateAsync({ ...base, changes: all })
-            : undefined,
-          deleteRows: pkValues =>
-            deleteRowsMutation.mutateAsync({ ...base, pkValues }),
-          insertRows: rows => insertRowsMutation.mutateAsync({ ...base, rows }),
-          applyEdits: edits =>
-            applyEditsMutation.mutateAsync({ ...base, edits }),
-        });
-        toast.success(`${affected} linhas alteradas`);
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : String(error));
-        throw error; // let ResultsTable keep the pending changes for retry
-      }
-    },
-    [
-      data.editableInfo,
-      tab.serverId,
-      tab.database,
-      applyEditsMutation,
-      insertRowsMutation,
-      deleteRowsMutation,
-      saveRowChangesMutation,
-      supportsAtomicSave,
-    ],
-  );
-
   return {
     ...data,
     activeSort,
@@ -243,6 +254,7 @@ export const useTableBrowser = (tab: BrowseTab) => {
     setSort,
     setHiddenColumns,
     save,
+    pendingDialogProps,
     fetchAllRows,
     isValuePanelOpen,
     toggleValuePanel,

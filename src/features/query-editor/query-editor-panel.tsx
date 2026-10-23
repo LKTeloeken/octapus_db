@@ -7,6 +7,7 @@ import {
 } from '@/components/query-editor/query-editor/query-editor';
 import { QueryEditorToolbar } from '@/components/query-editor/query-editor-toolbar/query-editor-toolbar';
 import { QueryMessagesLog } from '@/components/query-messages/query-messages-log';
+import { PendingChangesDialog } from '@/components/results-table/pending-changes-dialog';
 import { ResultsTable } from '@/components/results-table/results-table';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -38,6 +39,7 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
     executeRun,
     loadMore,
     save,
+    pendingDialogProps,
     fetchAllRows,
     log,
     unreadMessages,
@@ -71,6 +73,7 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
 
   // Outra query (conjunto de colunas diferente) limpa as colunas ocultas.
   useHiddenColumnsReset(
+    tab.id,
     columns,
     tab.hiddenColumns.length,
     useCallback(
@@ -80,124 +83,130 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
   );
 
   return (
-    <ResizablePanelGroup direction="vertical" className="h-full gap-1">
-      <ResizablePanel
-        defaultSize={40}
-        minSize={20}
-        className="overflow-hidden rounded-lg border border-line bg-surface-1"
-      >
-        <div className="flex h-full flex-col overflow-hidden">
-          <QueryEditorToolbar
-            onRun={runFromToolbar}
-            isLoading={isRunning}
-            serverName={serverName}
-            database={tab.database}
-            dbType={dbType}
-          />
-          <QueryEditor
-            ref={editorRef}
-            className="min-h-0 flex-1"
-            height="100%"
-            value={tab.content}
-            documentId={tab.id}
-            dialect={supportsSql ? 'postgres' : 'mongo'}
-            sqlCompletionSource={supportsSql ? sqlCompletion.source : undefined}
-            sqlExtraExtensions={
-              supportsSql ? sqlCompletion.prefetch : undefined
-            }
-            placeholderText={placeholder}
-            onChange={setContent}
-            onRun={executeRun}
-            runMode="selection-or-all"
-          />
-        </div>
-      </ResizablePanel>
-
-      <ResizableHandle
-        withHandle
-        className="bg-transparent cursor-row-resize!"
-      />
-
-      <ResizablePanel
-        defaultSize={60}
-        minSize={20}
-        className="overflow-hidden rounded-lg border border-line bg-surface-1"
-      >
-        <Tabs
-          value={bottomTab}
-          onValueChange={handleBottomTabChange}
-          className="flex flex-col h-full gap-0"
+    <>
+      <ResizablePanelGroup direction="vertical" className="h-full gap-1">
+        <ResizablePanel
+          defaultSize={40}
+          minSize={20}
+          className="overflow-hidden rounded-lg border border-line bg-surface-1"
         >
-          <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line-subtle pr-1.5 pl-3.5">
-            <TabsList>
-              <TabsTrigger value="results">Resultados</TabsTrigger>
-              <TabsTrigger value="messages">
-                Mensagens
-                {unreadMessages > 0 && (
-                  <Badge className="h-[18px] px-1.5">{unreadMessages}</Badge>
-                )}
-              </TabsTrigger>
-            </TabsList>
-
-            {bottomTab === 'results' && (
-              <ColumnSelector
-                columns={columns}
-                hiddenColumns={hiddenColumns}
-                onChange={setHiddenColumns}
-              />
-            )}
+          <div className="flex h-full flex-col overflow-hidden">
+            <QueryEditorToolbar
+              onRun={runFromToolbar}
+              isLoading={isRunning}
+              serverName={serverName}
+              database={tab.database}
+              dbType={dbType}
+            />
+            <QueryEditor
+              ref={editorRef}
+              className="min-h-0 flex-1"
+              height="100%"
+              value={tab.content}
+              documentId={tab.id}
+              dialect={supportsSql ? 'postgres' : 'mongo'}
+              sqlCompletionSource={
+                supportsSql ? sqlCompletion.source : undefined
+              }
+              sqlExtraExtensions={
+                supportsSql ? sqlCompletion.prefetch : undefined
+              }
+              placeholderText={placeholder}
+              onChange={setContent}
+              onRun={executeRun}
+              runMode="selection-or-all"
+            />
           </div>
+        </ResizablePanel>
 
-          {/*
+        <ResizableHandle
+          withHandle
+          className="bg-transparent cursor-row-resize!"
+        />
+
+        <ResizablePanel
+          defaultSize={60}
+          minSize={20}
+          className="overflow-hidden rounded-lg border border-line bg-surface-1"
+        >
+          <Tabs
+            value={bottomTab}
+            onValueChange={handleBottomTabChange}
+            className="flex flex-col h-full gap-0"
+          >
+            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line-subtle pr-1.5 pl-3.5">
+              <TabsList>
+                <TabsTrigger value="results">Resultados</TabsTrigger>
+                <TabsTrigger value="messages">
+                  Mensagens
+                  {unreadMessages > 0 && (
+                    <Badge className="h-[18px] px-1.5">{unreadMessages}</Badge>
+                  )}
+                </TabsTrigger>
+              </TabsList>
+
+              {bottomTab === 'results' && (
+                <ColumnSelector
+                  columns={columns}
+                  hiddenColumns={hiddenColumns}
+                  onChange={setHiddenColumns}
+                />
+              )}
+            </div>
+
+            {/*
             forceMount + hidden: o Radix desmontaria o conteúdo inativo, e a
             ResultsTable perderia scroll, seleção e as edições pendentes toda
             vez que o usuário desse uma olhada no log.
           */}
-          <TabsContent
-            value="results"
-            forceMount
-            className="flex flex-col min-h-0 data-[state=inactive]:hidden"
-          >
-            <ResultsTable
-              className="flex-1 min-h-0"
-              columns={columns}
-              rows={result?.rows ?? []}
-              editableInfo={result?.editableInfo}
-              hiddenColumns={hiddenColumns}
-              isLoading={isRunning}
-              isLoadingMore={isLoadingMore}
-              hasMore={result?.hasMore ?? false}
-              executionTimeMs={result?.executionTimeMs}
-              totalCount={result?.totalCount}
-              rowCount={result?.rowCount}
-              emptyMessage={
-                result
-                  ? 'A query não retornou resultados'
-                  : 'Execute uma query para ver resultados'
-              }
-              exportFileName={tab.title}
-              searchScopeId={tab.id}
-              onSort={() => {}}
-              onLoadMore={loadMore}
-              onSave={save}
-              onFetchAllRows={fetchAllRows}
-            />
-          </TabsContent>
+            <TabsContent
+              value="results"
+              forceMount
+              className="flex flex-col min-h-0 data-[state=inactive]:hidden"
+            >
+              <ResultsTable
+                className="flex-1 min-h-0"
+                columns={columns}
+                rows={result?.rows ?? []}
+                editableInfo={result?.editableInfo}
+                hiddenColumns={hiddenColumns}
+                isLoading={isRunning}
+                isLoadingMore={isLoadingMore}
+                hasMore={result?.hasMore ?? false}
+                executionTimeMs={result?.executionTimeMs}
+                totalCount={result?.totalCount}
+                rowCount={result?.rowCount}
+                emptyMessage={
+                  result
+                    ? 'A query não retornou resultados'
+                    : 'Execute uma query para ver resultados'
+                }
+                exportFileName={tab.title}
+                searchScopeId={tab.id}
+                onSort={() => {}}
+                onLoadMore={loadMore}
+                onSave={save}
+                onFetchAllRows={fetchAllRows}
+              />
+            </TabsContent>
 
-          <TabsContent
-            value="messages"
-            forceMount
-            className="flex flex-col min-h-0 data-[state=inactive]:hidden"
-          >
-            <QueryMessagesLog
-              className="flex-1 min-h-0"
-              entries={log}
-              onClear={clearLog}
-            />
-          </TabsContent>
-        </Tabs>
-      </ResizablePanel>
-    </ResizablePanelGroup>
+            <TabsContent
+              value="messages"
+              forceMount
+              className="flex flex-col min-h-0 data-[state=inactive]:hidden"
+            >
+              <QueryMessagesLog
+                className="flex-1 min-h-0"
+                entries={log}
+                onClear={clearLog}
+              />
+            </TabsContent>
+          </Tabs>
+        </ResizablePanel>
+      </ResizablePanelGroup>
+
+      <PendingChangesDialog {...pendingDialogProps} />
+    </>
   );
 });
 

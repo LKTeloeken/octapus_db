@@ -14,17 +14,24 @@ import {
 /** Servidor Postgres do dataset do mock ("Loja (local)") */
 export const PG_SERVER = { serverId: 1, database: 'loja' } as const;
 
-export interface SeedQueryTab {
+/** Servidor e banco da aba; sem eles, o Postgres `loja` (`PG_SERVER`) */
+interface SeedTarget {
+  serverId?: number;
+  database?: string;
+}
+
+export interface SeedQueryTab extends SeedTarget {
   id: string;
   title: string;
   content: string;
 }
 
-export interface SeedBrowseTab {
+export interface SeedBrowseTab extends SeedTarget {
   id: string;
   title: string;
   table: string;
   schema?: string;
+  whereExpr?: string;
 }
 
 export type SeedTab =
@@ -42,7 +49,8 @@ function sessionSnapshot(tabs: SeedTab[], activeTabId: string): string {
     tabs: tabs.map(tab =>
       tab.kind === 'query'
         ? {
-            ...PG_SERVER,
+            serverId: tab.serverId ?? PG_SERVER.serverId,
+            database: tab.database ?? PG_SERVER.database,
             id: tab.id,
             kind: 'query',
             title: tab.title,
@@ -51,13 +59,14 @@ function sessionSnapshot(tabs: SeedTab[], activeTabId: string): string {
             hiddenColumns: [],
           }
         : {
-            ...PG_SERVER,
+            serverId: tab.serverId ?? PG_SERVER.serverId,
+            database: tab.database ?? PG_SERVER.database,
             id: tab.id,
             kind: 'browse',
             title: tab.title,
             schema: tab.schema ?? 'public',
             table: tab.table,
-            whereExpr: '',
+            whereExpr: tab.whereExpr ?? '',
             sort: [],
             hiddenColumns: [],
           },
@@ -102,6 +111,123 @@ export const activeWorkspaceTab = (page: Page): Locator =>
   page.locator(
     '[data-tauri-drag-region] > [role=tablist] [role=tab][aria-selected=true]',
   );
+
+/** Atalho com a tecla de comando da plataforma (Cmd no macOS, Ctrl fora dele) */
+export const mod = (key: string) => `ControlOrMeta+${key}`;
+
+/**
+ * Grade de resultados (`ResultsTable`) da aba ativa. Linhas e colunas pelos
+ * atributos ARIA da grade: `aria-rowindex` (base 1, o cabeçalho é a linha 1) e
+ * o nome da coluna em `data-column`. A grade é virtualizada: só as linhas e
+ * colunas visíveis existem no DOM.
+ */
+export function grid(page: Page) {
+  const root = page.getByRole('grid');
+  const row = (index: number): Locator =>
+    root.locator(`[role=row][aria-rowindex="${index + 2}"]`);
+  const cell = (index: number, column: string): Locator =>
+    row(index).locator(`[role=gridcell][data-column="${column}"]`);
+  /** O botão da célula fechada, cujo texto é o valor exibido */
+  const value = (index: number, column: string): Locator =>
+    cell(index, column).getByRole('button').first();
+  /** Editor de texto aberto pelo duplo clique (popover) */
+  const editor = page.getByRole('dialog').getByRole('textbox');
+  /** Barra flutuante de alterações pendentes */
+  const pendingBar = page.getByRole('status').filter({ hasText: /alteraç/ });
+
+  return {
+    root,
+    row,
+    cell,
+    value,
+    editor,
+    pendingBar,
+    /** Contagem total da barra ("3 alterações"); a barra some com zero */
+    pendingTotal: pendingBar.locator('span').first(),
+    /** Abre o editor da célula com duplo clique */
+    openEditor: async (index: number, column: string) => {
+      await value(index, column).dblclick();
+      await expect(editor).toBeFocused();
+    },
+    /** Edita a célula pelo editor de texto e grava com Cmd/Ctrl+Enter */
+    edit: async (index: number, column: string, text: string) => {
+      await value(index, column).dblclick();
+      await expect(editor).toBeFocused();
+      await editor.fill(text);
+      await editor.press(mod('Enter'));
+      await expect(editor).toBeHidden();
+    },
+    /** Seleciona a linha pelo gutter (o número da linha) */
+    selectRow: (index: number, modifiers?: ('Shift' | 'ControlOrMeta')[]) =>
+      row(index).getByRole('button').first().click({ modifiers }),
+    save: () => pendingBar.getByRole('button', { name: /Salvar/ }).click(),
+    discard: () =>
+      pendingBar.getByRole('button', { name: 'Descartar' }).click(),
+  };
+}
+
+export type Grid = ReturnType<typeof grid>;
+
+/**
+ * Abre um nó da árvore de conexões pelo caminho de rótulos (servidor, banco,
+ * schema, pasta, tabela), clicando um por um. Os nós do caminho precisam estar
+ * fechados: clicar num nó aberto o fecha.
+ */
+export async function openFromTree(page: Page, path: string[]) {
+  const tree = page.getByRole('tree');
+  for (const label of path) {
+    await tree.getByText(label, { exact: true }).click();
+  }
+}
+
+/** Cabeçalho da coluna na grade (some quando a coluna está oculta) */
+export const columnHeader = (page: Page, column: string): Locator =>
+  page
+    .getByRole('grid')
+    .locator(`[role=columnheader][data-column="${column}"]`);
+
+/** A próxima chamada ao backend simulado falha (`setFailMode('next')`) */
+export const failNextCommand = (page: Page): Promise<void> =>
+  page.evaluate(() => {
+    type MockControl = {
+      store: { getState(): { setFailMode(mode: 'next'): void } };
+    };
+    const mock = (window as unknown as { __octapusMock: MockControl })
+      .__octapusMock;
+    mock.store.getState().setFailMode('next');
+  });
+
+export interface SessionTab {
+  id: string;
+  kind: string;
+  title: string;
+  serverId: number;
+  database: string;
+  [key: string]: unknown;
+}
+
+/**
+ * A sessão de abas que o app gravou (no mock, no `localStorage`). A gravação
+ * tem throttle: use com `expect.poll` antes de um `reload()`.
+ */
+export const savedSession = (
+  page: Page,
+): Promise<{ activeTabId: string | null; tabs: SessionTab[] } | null> =>
+  page.evaluate(() => {
+    const raw = localStorage.getItem('octapus-mock-session');
+    return raw ? JSON.parse(raw) : null;
+  });
+
+/** Confirmação de fechar uma aba com alterações pendentes */
+export const closeTabDialog = (page: Page): Locator =>
+  page.getByRole('alertdialog', { name: /Descartar as alterações pendentes/ });
+
+/**
+ * Confirmação antes de recarregar a grade com alterações pendentes (ordenar,
+ * filtrar, recarregar, reexecutar a query): Salvar, Descartar ou Cancelar
+ */
+export const pendingChangesDialog = (page: Page): Locator =>
+  page.getByRole('alertdialog', { name: /Salvar as alterações pendentes/ });
 
 export interface EditorSnapshot {
   doc: string;

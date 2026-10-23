@@ -1,12 +1,16 @@
 import type { EditableInfo, QueryColumnInfo } from '@/api/types/query.types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
+import {
+  columnsSignature,
+  NO_PENDING_CHANGES,
+  usePendingChangesStore,
+  type PendingChanges,
+} from '@/stores/pending-changes-store';
 import { ownsKeyboardEvent } from './keyboard-scope';
 import type {
   ActivateCellFn,
   ActiveCell,
-  AddedRow,
-  ChangesMap,
   DataTableRow,
   FocusCellFn,
   FocusedCell,
@@ -23,9 +27,7 @@ import type {
 } from './results-table.types';
 import {
   applyCellChange,
-  buildDeletes,
-  buildEdits,
-  buildInserts,
+  buildSaveRowChanges,
   countCellChanges,
   pkKeyOf,
 } from './pending-changes';
@@ -42,15 +44,25 @@ const useResultsTable = (
   columns: QueryColumnInfo[],
   editableInfo: EditableInfo | null | undefined,
   onSave: (changes: SaveRowChanges) => void | Promise<void>,
+  /** Dono das pendências na store: o id da aba (o `searchScopeId`) */
+  scopeId: string,
   /** Região de teclado da grade (`keyboard-scope.ts`); `null` = a da aba */
   keyboardScope: string | null = null,
 ): UseResultsTableReturn => {
-  // Cell edits to EXISTING rows, keyed by pkKey → columnId → change.
-  const [changes, setChanges] = useState<ChangesMap>(new Map());
-  // Not-yet-persisted rows, rendered after the existing ones.
-  const [addedRows, setAddedRows] = useState<AddedRow[]>([]);
-  // pkKeys of existing rows marked for deletion (still shown, in red).
-  const [removedRowKeys, setRemovedRowKeys] = useState<Set<string>>(new Set());
+  // As pendências (edições das linhas existentes, linhas novas e linhas
+  // marcadas para remoção) moram na store, por aba: só a aba ativa fica
+  // montada, e trocar de aba não pode perdê-las.
+  const { changes, addedRows, removedRowKeys } =
+    usePendingChangesStore(state => state.byScope.get(scopeId)) ??
+    NO_PENDING_CHANGES;
+  const updatePending = usePendingChangesStore(state => state.update);
+  const clearPending = usePendingChangesStore(state => state.clear);
+  const signature = useMemo(() => columnsSignature(columns), [columns]);
+  const patchPending = useCallback(
+    (recipe: (current: PendingChanges) => Partial<PendingChanges>) =>
+      updatePending(scopeId, signature, recipe),
+    [updatePending, scopeId, signature],
+  );
   // Selection (stable ids) for bulk remove; columns are visual-only.
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(
@@ -78,18 +90,37 @@ const useResultsTable = (
     return map;
   }, [columns]);
 
-  // A new query/table (columns change) invalidates every pending change,
-  // the added rows (cells are positional) and the selection.
+  // A new query/table (columns change) invalidates every pending change and
+  // the added rows (cells are positional). Remontar não é trocar de query: a
+  // grade volta ao trocar de aba (ou a mesma instância passa a mostrar outra
+  // aba) e as pendências guardadas valem se as colunas são as mesmas. Até lá,
+  // `[]` é só o carregamento.
+  const checkedColumns = useRef<{
+    scopeId: string;
+    columns: QueryColumnInfo[];
+  } | null>(null);
   useEffect(() => {
-    setChanges(new Map());
-    setAddedRows([]);
-    setRemovedRowKeys(new Set());
+    const checked =
+      checkedColumns.current?.scopeId === scopeId
+        ? checkedColumns.current.columns
+        : null;
+    if (checked === columns) return;
+    if (checked === null && columns.length === 0) return;
+    checkedColumns.current = { scopeId, columns };
+
+    const stored = usePendingChangesStore.getState().byScope.get(scopeId);
+    if (checked === null && stored?.columnsSignature === signature) return;
+    clearPending(scopeId);
+  }, [columns, signature, scopeId, clearPending]);
+
+  // A seleção e a célula aberta são locais: outra grade começa sem elas.
+  useEffect(() => {
     setSelectedRowIds(new Set());
     setSelectedColumns(new Set());
     setActiveCell(null);
     setFocusedCell(null);
     selectionAnchor.current = null;
-  }, [columns]);
+  }, [columns, scopeId]);
 
   const existingCount = rows.length;
 
@@ -186,16 +217,16 @@ const useResultsTable = (
         const colIndex = columnIndexByName.get(columnId);
         if (colIndex === undefined) return;
 
-        setAddedRows(prev => {
+        patchPending(({ addedRows: prev }) => {
+          const target = prev[addedIndex];
+          if (!target) return {};
           const next = [...prev];
-          const target = next[addedIndex];
-          if (!target) return prev;
           const cells = [...target.cells];
           cells[colIndex] = newValue;
           const touched = new Set(target.touched);
           touched.add(colIndex);
           next[addedIndex] = { ...target, cells, touched };
-          return next;
+          return { addedRows: next };
         });
         return;
       }
@@ -203,11 +234,17 @@ const useResultsTable = (
       const pkKey = generateRowKey(rowIndex);
       if (!pkKey) return;
 
-      setChanges(prev =>
-        applyCellChange(prev, pkKey, columnId, originalValue, newValue),
-      );
+      patchPending(({ changes: prev }) => ({
+        changes: applyCellChange(
+          prev,
+          pkKey,
+          columnId,
+          originalValue,
+          newValue,
+        ),
+      }));
     },
-    [existingCount, columnIndexByName, generateRowKey],
+    [existingCount, columnIndexByName, generateRowKey, patchPending],
   );
 
   const isRowModified = useCallback<IsRowFlagFn>(
@@ -354,11 +391,13 @@ const useResultsTable = (
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random()}`;
-    setAddedRows(prev => [
-      ...prev,
-      { tempId, cells: columns.map(() => null), touched: new Set<number>() },
-    ]);
-  }, [isEditable, columns]);
+    patchPending(({ addedRows: prev }) => ({
+      addedRows: [
+        ...prev,
+        { tempId, cells: columns.map(() => null), touched: new Set<number>() },
+      ],
+    }));
+  }, [isEditable, columns, patchPending]);
 
   const removeSelected = useCallback(() => {
     if (selectedRowIds.size === 0) return;
@@ -372,20 +411,22 @@ const useResultsTable = (
     });
 
     if (removedTempIds.size > 0) {
-      setAddedRows(prev => prev.filter(r => !removedTempIds.has(r.tempId)));
+      patchPending(({ addedRows: prev }) => ({
+        addedRows: prev.filter(r => !removedTempIds.has(r.tempId)),
+      }));
     }
 
     // Marking existing rows for deletion only matters when editable.
     if (isEditable && removedPkKeys.length > 0) {
-      setRemovedRowKeys(prev => {
+      patchPending(({ removedRowKeys: prev }) => {
         const next = new Set(prev);
         removedPkKeys.forEach(key => next.add(key));
-        return next;
+        return { removedRowKeys: next };
       });
     }
 
     clearSelection();
-  }, [selectedRowIds, isEditable, clearSelection]);
+  }, [selectedRowIds, isEditable, clearSelection, patchPending]);
 
   // ── Persist ───────────────────────────────────────────────────────────
 
@@ -399,9 +440,10 @@ const useResultsTable = (
   const pendingCount = changesCount + addedCount + removedCount;
 
   const save = useCallback(async () => {
-    const edits = buildEdits(changes, removedRowKeys);
-    const inserts = buildInserts(addedRows, columns);
-    const deletes = buildDeletes(removedRowKeys);
+    const { edits, inserts, deletes } = buildSaveRowChanges(
+      { changes, addedRows, removedRowKeys },
+      columns,
+    );
 
     if (edits.length === 0 && inserts.length === 0 && deletes.length === 0) {
       return;
@@ -411,9 +453,7 @@ const useResultsTable = (
       await onSave({ edits, inserts, deletes });
       // React Query keeps the columns reference stable across a refetch, so the
       // [columns] reset effect won't fire — clear explicitly once it succeeds.
-      setChanges(new Map());
-      setAddedRows([]);
-      setRemovedRowKeys(new Set());
+      clearPending(scopeId);
       setActiveCell(null);
       // Deletar ou inserir linhas desloca os índices (a ordem padrão é PK
       // desc): o cursor voltaria para outra linha. Só edição mantém as
@@ -423,16 +463,23 @@ const useResultsTable = (
     } catch {
       // Keep the pending changes highlighted so the user can retry.
     }
-  }, [changes, removedRowKeys, addedRows, columns, onSave, clearSelection]);
+  }, [
+    changes,
+    removedRowKeys,
+    addedRows,
+    columns,
+    onSave,
+    clearPending,
+    scopeId,
+    clearSelection,
+  ]);
 
   const discardChanges = useCallback(() => {
-    setChanges(new Map());
-    setAddedRows([]);
-    setRemovedRowKeys(new Set());
+    clearPending(scopeId);
     setActiveCell(null);
     setFocusedCell(null);
     clearSelection();
-  }, [clearSelection]);
+  }, [clearPending, scopeId, clearSelection]);
 
   // Keyboard: Cmd/Ctrl+S saves, Backspace removes the selected rows, Esc
   // clears the selection. Only the active tab's table is mounted, so there is

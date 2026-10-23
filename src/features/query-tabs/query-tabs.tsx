@@ -26,6 +26,7 @@ import { customTitlebar } from '@/lib/platform';
 import { useShortcutLabel } from '@/lib/keybindings/use-shortcuts';
 import { cn } from '@/lib/utils';
 import type { WorkspaceTab } from '@/stores/tabs-store';
+import { CloseTabDialog } from './close-tab-dialog';
 import { useQueryTabs } from './use-query-tabs';
 
 /** Ícone de cada tipo de aba (a cor é a do banco) */
@@ -44,6 +45,9 @@ export const QueryTabs = memo(() => {
     dbTypeByServer,
     setActiveTab,
     closeTab,
+    closing,
+    confirmClose,
+    cancelClose,
     newQueryTab,
     openPalette,
     assistantAvailable,
@@ -221,6 +225,12 @@ export const QueryTabs = memo(() => {
           </ErrorBoundary>
         </TabsContent>
       )}
+
+      <CloseTabDialog
+        closing={closing}
+        onConfirm={confirmClose}
+        onCancel={cancelClose}
+      />
     </Tabs>
   );
 });

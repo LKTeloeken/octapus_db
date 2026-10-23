@@ -69,6 +69,18 @@ export function applySort(
   });
 }
 
+/**
+ * Ordem do browse quando nada foi pedido: PK desc, como os adapters do Rust
+ * (paginação por OFFSET determinística). Sem PK, fica a ordem do array.
+ */
+export const browseSort = (
+  table: MockTable,
+  sort: SortSpec[] | undefined,
+): SortSpec[] =>
+  sort?.length
+    ? sort
+    : primaryKeyOf(table).map(column => ({ column, direction: 'desc' }));
+
 // ── Filtro (`whereExpr`) ────────────────────────────────────────────────────
 
 type Predicate = (row: Row) => boolean;

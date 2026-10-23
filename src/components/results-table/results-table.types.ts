@@ -19,14 +19,12 @@ export interface SaveRowChanges {
   deletes: (string | null)[][];
 }
 
-/** A not-yet-persisted row; cells are aligned to `columns` by index */
-export interface AddedRow {
-  tempId: string;
-  cells: (string | null)[];
-  /** Índices de colunas editadas pelo usuário: distingue "não tocada" (o banco
-   *  aplica o default) de NULL explícito */
-  touched: Set<number>;
-}
+// O estado das pendências mora na store (por aba); os tipos vêm de lá.
+export type {
+  AddedRow,
+  CellChange,
+  ChangesMap,
+} from '@/stores/pending-changes-store';
 
 /** How a click on a row handle mutates the current selection */
 export type RowSelectionMode = 'single' | 'toggle' | 'range';
@@ -83,14 +81,6 @@ export interface ResultsTableProps {
   keyboardScope?: boolean;
   className?: string;
 }
-
-export interface CellChange {
-  columnId: string;
-  originalValue: string | null;
-  newValue: string | null;
-}
-
-export type ChangesMap = Map<string, Map<string, CellChange>>;
 
 // useResultsTable function types
 export type IsPrimaryKeyColumnFn = (columnName: string) => boolean;

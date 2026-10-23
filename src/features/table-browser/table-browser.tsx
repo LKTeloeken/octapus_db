@@ -8,6 +8,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { memo } from 'react';
 import { ColumnSelector } from '@/components/column-selector/column-selector';
+import { PendingChangesDialog } from '@/components/results-table/pending-changes-dialog';
 import { ResultsTable } from '@/components/results-table/results-table';
 import { Button } from '@/components/ui/button';
 import { ContentState } from '@/components/ui/content-state';
@@ -63,6 +64,7 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
     setSort,
     setHiddenColumns,
     save,
+    pendingDialogProps,
     fetchAllRows,
     isValuePanelOpen,
     toggleValuePanel,
@@ -193,6 +195,8 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
           onCloseValuePanel={closeValuePanel}
         />
       )}
+
+      <PendingChangesDialog {...pendingDialogProps} />
     </div>
   );
 });

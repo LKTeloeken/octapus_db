@@ -113,6 +113,7 @@ Só estado de **UI**, nada que o backend possa fornecer:
 |---|---|
 | `tabs-store` | abas abertas (query, browse e definição) e aba ativa — persistidas como sessão |
 | `query-results-store` | resultado, log de mensagens e aba inferior de cada aba de query (efêmero, por id de aba) |
+| `pending-changes-store` | alterações pendentes da grade (edições, linhas novas e removidas) por id de aba — sobrevivem à troca de aba, somem ao salvar, descartar ou fechar a aba; fora da sessão persistida |
 | `tree-store` | nós expandidos da sidebar, filtro e tamanho da janela de cada nó grande, databases agrupados por formato |
 | `recent-tables-store` | tabelas abertas recentemente (command palette) |
 | `connection-store` | registro best-effort de quais `(server, db)` já conectaram na sessão |
@@ -400,9 +401,31 @@ tanto pelo editor livre quanto pelo browse. Características:
   célula em edição nem num campo, como a busca). O cursor de célula anda pelas setas e
   pelo `hjkl`; o Tab não anda mais de célula.
 - **Virtualização** de linhas e colunas com TanStack Virtual (renderiza só o visível).
-- **Estado de edição** isolado em [use-results-table.ts](src/components/results-table/use-results-table.ts):
+- **Estado de edição** no [use-results-table.ts](src/components/results-table/use-results-table.ts):
   - edições de células (amarelo), linhas novas (verde) e linhas removidas (vermelho)
-    ficam **pendentes** — nada é aplicado na hora;
+    ficam **pendentes** — nada é aplicado na hora. Elas moram no
+    [pending-changes-store](src/stores/pending-changes-store.ts), indexadas pelo id da aba
+    (o `searchScopeId`): só a aba ativa fica montada, e trocar de aba e voltar mantém as
+    pendências. Uma query/tabela nova (outras colunas) as invalida; remontar a grade ou a
+    mesma instância passar a mostrar outra aba não — a store guarda a assinatura das
+    colunas (nome e tipo) e confere ao montar. Seleção, célula aberta e cursor continuam
+    locais ao hook;
+  - fechar uma aba com pendências (o "x", o clique do meio ou `Cmd/Ctrl+W`) pede
+    confirmação ([close-tab-dialog.tsx](src/features/query-tabs/close-tab-dialog.tsx));
+    sem pendências fecha na hora. O `closeTab`/`closeServerTabs` do `tabs-store` descarta
+    as pendências da aba — servidor excluído não pergunta (a exclusão já foi confirmada e
+    não haveria onde salvar);
+  - ordenar, filtrar (Enter ou `Cmd/Ctrl+R`), Recarregar e reexecutar a query trocam os
+    dados da grade: com pendências, o
+    [usePendingChangesGuard](src/components/results-table/use-pending-changes-guard.ts)
+    segura a ação e pergunta — **Salvar** (grava pelo mesmo `onSave` e aplica),
+    **Descartar** (descarta e aplica) ou **Cancelar** (nada muda; o WHERE digitado fica no
+    campo sem ser aplicado). Sem pendências, aplica direto. O diálogo
+    ([pending-changes-dialog.tsx](src/components/results-table/pending-changes-dialog.tsx))
+    é o mesmo do fechar aba, que só não tem o Salvar. Manter as pendências por cima do
+    resultado novo foi descartado: um filtro esconderia linhas editadas que ainda iriam
+    no Salvar, e na aba de query outra consulta com as mesmas colunas pode ser de outra
+    tabela;
   - seleção de linhas (clique no identificador, `Cmd`/`Shift` para múltipla) e de colunas
     (clique no header, visual);
   - atalhos: `Cmd/Ctrl+S` salva, `Backspace` remove as linhas selecionadas, `Esc` limpa
@@ -495,7 +518,10 @@ pnpm exec playwright show-report              # relatório da última execução
 - Na primeira vez: `pnpm exec playwright install chromium webkit`.
 - Cada teste abre num contexto limpo. `openApp` ([e2e/fixtures.ts](e2e/fixtures.ts))
   semeia as abas pela sessão do mock e zera a latência; `readEditor` lê o `EditorView`
-  do CodeMirror (doc, seleção, rolagem).
+  do CodeMirror (doc, seleção, rolagem); `grid` acha linhas e células da grade pelo ARIA
+  (`aria-rowindex`, `data-column`) e lê o estado pendente em `data-pending` (linha) e
+  `data-modified` (célula); `openFromTree`, `savedSession` e `failNextCommand` cobrem
+  árvore, sessão gravada e erro simulado.
 - Para erro, vazio e latência, o mock expõe `window.__octapusMock` (`store`, `emit`,
   `reset`) — o mesmo do painel, sem clicar nele.
 - Falhou? O relatório traz screenshot, vídeo e o trace do caso.

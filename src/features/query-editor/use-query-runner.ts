@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import type { QueryMessage } from '@/api/types/query.types';
+import type { QueryColumnInfo, QueryMessage } from '@/api/types/query.types';
 import type { SaveRowChanges } from '@/components/results-table/results-table.types';
+import { usePendingChangesGuard } from '@/components/results-table/use-pending-changes-guard';
 import { persistRowChanges } from '@/lib/persist-row-changes';
 import {
   useApplyRowEdits,
@@ -29,6 +30,7 @@ const PLACEHOLDERS: Record<string, string> = {
 
 /** Identidade estável para abas sem log, evitando re-render por referência nova */
 const EMPTY_LOG: QueryLogEntry[] = [];
+const NO_COLUMNS: QueryColumnInfo[] = [];
 
 export const useQueryRunner = (tab: QueryTab) => {
   const setQueryContent = useTabsStore(state => state.setQueryContent);
@@ -236,6 +238,19 @@ export const useQueryRunner = (tab: QueryTab) => {
     ],
   );
 
+  // Executar outra vez troca o resultado e, com ele, a grade: com alterações
+  // pendentes, pergunta antes. O `save` reexecuta a query por dentro, sem
+  // passar por aqui.
+  const { guard, dialogProps: pendingDialogProps } = usePendingChangesGuard(
+    tab.id,
+    run?.result.columns ?? NO_COLUMNS,
+    save,
+  );
+  const runQuery = useCallback(
+    (query: string) => guard('run', () => void executeRun(query)),
+    [guard, executeRun],
+  );
+
   // Identidade estável: o `useCodeMirror` reconfigura o editor quando o `onChange` muda,
   // e isso aconteceria a cada tecla.
   const setContent = useCallback(
@@ -271,9 +286,10 @@ export const useQueryRunner = (tab: QueryTab) => {
     dbType,
     sqlCompletion,
     setContent,
-    executeRun,
+    executeRun: runQuery,
     loadMore,
     save,
+    pendingDialogProps,
     fetchAllRows,
     log: log ?? EMPTY_LOG,
     unreadMessages,

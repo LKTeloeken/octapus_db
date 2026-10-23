@@ -134,7 +134,14 @@ export const ResultsTable = memo(
       addedCount,
       removedCount,
       pendingCount,
-    } = useResultsTable(rows, columns, editableInfo, onSave, ownScope);
+    } = useResultsTable(
+      rows,
+      columns,
+      editableInfo,
+      onSave,
+      searchScopeId,
+      ownScope,
+    );
 
     const { viewMode, setViewMode, viewsRef, onViewKeyDown } = useViewToggle(
       activeCell !== null,
@@ -554,6 +561,12 @@ export const ResultsTable = memo(
                 <div
                   ref={containerRef}
                   data-results-view="table"
+                  // Grade virtualizada: as contagens e os índices (aria-rowindex
+                  // / aria-colindex, base 1, cabeçalho = linha 1) dizem ao
+                  // leitor de tela onde está cada linha montada.
+                  role="grid"
+                  aria-rowcount={displayRows.length + 1}
+                  aria-colcount={visibleColumns.length}
                   tabIndex={0}
                   onKeyDown={event => {
                     onViewKeyDown(event);
@@ -563,6 +576,8 @@ export const ResultsTable = memo(
                 >
                   {/* Header — sticky gutter + only visible columns */}
                   <div
+                    role="row"
+                    aria-rowindex={1}
                     className="sticky top-0 z-20 border-b border-line bg-surface-2"
                     style={{
                       width: `${contentWidth}px`,
@@ -608,6 +623,16 @@ export const ResultsTable = memo(
                       return (
                         <div
                           key={virtualColumn.key}
+                          role="columnheader"
+                          aria-colindex={virtualColumn.index + 1}
+                          aria-sort={
+                            activeSort?.column === column.name
+                              ? activeSort.direction === 'asc'
+                                ? 'ascending'
+                                : 'descending'
+                              : undefined
+                          }
+                          data-column={column.name}
                           className="absolute top-0"
                           style={{
                             left: `${GUTTER_WIDTH + virtualColumn.start}px`,

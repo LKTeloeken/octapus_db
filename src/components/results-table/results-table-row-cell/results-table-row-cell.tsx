@@ -73,6 +73,21 @@ export const ResultsTableRowCell = memo(
 
     return (
       <div
+        role="row"
+        aria-rowindex={rowIndex + 2}
+        aria-selected={isSelected}
+        // Estado pendente legível fora da cor (testes e2e, inspeção)
+        data-pending={
+          isRemoved
+            ? 'removed'
+            : isAdded
+              ? 'added'
+              : isModified
+                ? 'modified'
+                : undefined
+        }
+        // Focável só por programa, como as células: o tab stop é o container
+        tabIndex={-1}
         onClick={event => {
           if (!startedInsideRow(event)) return;
           onSelectRowBody(rowIndex, event);
@@ -130,6 +145,7 @@ export const ResultsTableRowCell = memo(
 
           const cell = row[columnIndices[virtualColumn.index]];
           const displayValue = getCellDisplayValue(rowIndex, column.name, cell);
+          const cellModified = isCellModified(rowIndex, column.name);
           // Added rows are fully editable (incl. PK); deleted rows are frozen.
           const editable = isRemoved
             ? false
@@ -138,6 +154,11 @@ export const ResultsTableRowCell = memo(
           return (
             <div
               key={virtualColumn.key}
+              role="gridcell"
+              aria-colindex={virtualColumn.index + 1}
+              data-column={column.name}
+              data-modified={cellModified || undefined}
+              tabIndex={-1}
               // preventDefault impede que o <button> da célula fique com o foco:
               // ao rolar, a virtualização o desmontaria e o foco cairia no body,
               // matando as setas. Cliques vindos do editor aberto são ignorados
@@ -163,7 +184,7 @@ export const ResultsTableRowCell = memo(
                 value={cell}
                 columnType={column.typeName}
                 displayValue={displayValue}
-                isModified={isCellModified(rowIndex, column.name)}
+                isModified={cellModified}
                 isRemoved={isRemoved}
                 isEditable={editable}
                 rowIndex={rowIndex}
