@@ -42,7 +42,9 @@ const produtos: MockTable = {
     field(
       'categorias',
       'array',
-      gen.textArray(['casa', 'escritorio', 'eletronicos', 'moda'], 1, 3),
+      gen.textArray(['casa', 'escritorio', 'eletronicos', 'moda'], 1, 3, {
+        format: 'json',
+      }),
     ),
     field('atributos', 'object', gen.json()),
     field('publicado', 'bool', gen.bool()),
@@ -113,7 +115,7 @@ const carrinhos: MockTable = {
   columns: [
     objectIdField(),
     field('sessao', 'string', gen.uuid(), { isNullable: false }),
-    field('itens', 'array', gen.intArray(1, 2_400, 1, 6)),
+    field('itens', 'array', gen.intArray(1, 2_400, 1, 6, { format: 'json' })),
     field('total', 'double', gen.decimal(0, 8_000)),
     field('abandonado', 'bool', gen.bool()),
     field('atualizadoEm', 'date', gen.timestamp(2025, 2026)),

@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::time::Instant;
 
 use mongodb::bson::{doc, Bson, Document};
-use mongodb::{Client, ClientSession, Cursor, Database};
+use mongodb::{Client, ClientSession, Collection, Cursor, Database};
 
 use crate::error::{Error, Result};
 use crate::models::{
@@ -10,7 +11,10 @@ use crate::models::{
 };
 
 use super::command::{parse_command, MongoCommand};
-use super::types::{bson_to_string, bson_type_name, parse_scalar};
+use super::types::{
+    bson_to_string, bson_type_name, is_compound, looks_like_compound, parse_field_value,
+    parse_scalar,
+};
 
 pub async fn execute_query(
     db: &Database,
@@ -327,6 +331,7 @@ async fn update_docs(
 ) -> Result<u64> {
     let coll = db.collection::<Document>(&editable.table);
     let mut total_modified: u64 = 0;
+    let mut sampled = HashMap::new();
 
     for edit in edits {
         if edit.changes.is_empty() {
@@ -339,18 +344,46 @@ async fn update_docs(
             .and_then(|v| v.as_deref())
             .ok_or_else(|| Error::InvalidQuery("Missing _id value for edit".into()))?;
 
+        let filter = doc! { "_id": { "$in": scalar_variants(id_value) } };
+
+        // Tipo atual dos campos editados: object/array volta a ser documento
+        let projection: Document = edit
+            .changes
+            .iter()
+            .filter(|(_, value)| value.is_some())
+            .map(|(field, _)| (field.clone(), Bson::Int32(1)))
+            .collect();
+        let current = if projection.is_empty() {
+            None
+        } else {
+            find_one_in(&coll, filter.clone(), projection, session.as_deref_mut()).await?
+        };
+
         let mut set_doc = Document::new();
         for (field, value) in &edit.changes {
-            set_doc.insert(
-                field.clone(),
-                value.as_deref().map(parse_scalar).unwrap_or(Bson::Null),
-            );
+            let bson = match value {
+                None => Bson::Null,
+                Some(raw) => {
+                    let compound = match current.as_ref().and_then(|d| d.get(field)) {
+                        Some(Bson::Null) | None => {
+                            looks_like_compound(raw)
+                                && sampled_compound(
+                                    &coll,
+                                    field,
+                                    &mut sampled,
+                                    session.as_deref_mut(),
+                                )
+                                .await?
+                        }
+                        Some(existing) => is_compound(existing),
+                    };
+                    parse_field_value(field, raw, compound)?
+                }
+            };
+            set_doc.insert(field.clone(), bson);
         }
 
-        let update = coll.update_one(
-            doc! { "_id": { "$in": scalar_variants(id_value) } },
-            doc! { "$set": set_doc },
-        );
+        let update = coll.update_one(filter, doc! { "$set": set_doc });
         let result = match session.as_deref_mut() {
             Some(s) => update.session(s).await?,
             None => update.await?,
@@ -370,6 +403,7 @@ async fn insert_docs(
 ) -> Result<u64> {
     let coll = db.collection::<Document>(&editable.table);
     let mut total_inserted: u64 = 0;
+    let mut sampled = HashMap::new();
 
     for row in rows {
         // Only filled fields are written; omitting `_id` lets MongoDB
@@ -378,12 +412,19 @@ async fn insert_docs(
             continue;
         }
 
+        // Linha nova não tem documento para consultar: o tipo vem da coleção
         let mut document = Document::new();
         for (field, value) in &row.values {
-            document.insert(
-                field.clone(),
-                value.as_deref().map(parse_scalar).unwrap_or(Bson::Null),
-            );
+            let bson = match value {
+                None => Bson::Null,
+                Some(raw) => {
+                    let compound = looks_like_compound(raw)
+                        && sampled_compound(&coll, field, &mut sampled, session.as_deref_mut())
+                            .await?;
+                    parse_field_value(field, raw, compound)?
+                }
+            };
+            document.insert(field.clone(), bson);
         }
 
         let insert = coll.insert_one(document);
@@ -422,6 +463,47 @@ async fn delete_docs(
     }
 
     Ok(total_deleted)
+}
+
+async fn find_one_in(
+    coll: &Collection<Document>,
+    filter: Document,
+    projection: Document,
+    session: Option<&mut ClientSession>,
+) -> Result<Option<Document>> {
+    let find = coll.find_one(filter).projection(projection);
+    Ok(match session {
+        Some(s) => find.session(s).await?,
+        None => find.await?,
+    })
+}
+
+/// Se `field` é object/array na coleção, pelo primeiro documento em que tem
+/// valor — o mesmo critério da coluna na grade (`documents_to_table`). Vale
+/// para linhas novas e campos ausentes no documento editado; `cache` guarda a
+/// resposta por campo durante uma gravação.
+async fn sampled_compound(
+    coll: &Collection<Document>,
+    field: &str,
+    cache: &mut HashMap<String, bool>,
+    session: Option<&mut ClientSession>,
+) -> Result<bool> {
+    if let Some(&compound) = cache.get(field) {
+        return Ok(compound);
+    }
+    let sample = find_one_in(
+        coll,
+        doc! { field: { "$exists": true, "$ne": Bson::Null } },
+        doc! { field: 1 },
+        session,
+    )
+    .await?;
+    let compound = sample
+        .as_ref()
+        .and_then(|d| d.get(field))
+        .is_some_and(is_compound);
+    cache.insert(field.to_string(), compound);
+    Ok(compound)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -721,6 +803,61 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(ids(&adapter).await, vec![2, 3]);
+
+        adapter.db().drop().await.unwrap();
+    }
+
+    /// Campo object/array editado na grade volta a ser documento/array; campo
+    /// string com texto JSON continua string.
+    #[tokio::test]
+    #[ignore = "requires local mongodb on localhost:27017 (no auth)"]
+    async fn e2e_edits_keep_object_and_array_types() {
+        let adapter = MongoAdapter::new(&server("mongodb://localhost:27017"), "octapus_e2e_types")
+            .await
+            .unwrap();
+        let coll = adapter.db().collection::<Document>("pessoas");
+        coll.drop().await.unwrap();
+        coll.insert_one(doc! { "_id": 1, "meta": { "a": 1 }, "tags": ["x"], "obs": "texto" })
+            .await
+            .unwrap();
+
+        adapter
+            .save_row_changes(
+                &editable(),
+                RowChanges {
+                    deletes: vec![],
+                    inserts: vec![RowInsert {
+                        values: vec![
+                            ("_id".into(), Some("2".into())),
+                            ("tags".into(), Some(r#"["y","z"]"#.into())),
+                        ],
+                    }],
+                    edits: vec![RowEdit {
+                        pk_values: vec![Some("1".into())],
+                        changes: vec![
+                            (
+                                "meta".into(),
+                                Some(r#"{"autor": {"$oid": "507f1f77bcf86cd799439011"}}"#.into()),
+                            ),
+                            ("tags".into(), Some(r#"["x","w"]"#.into())),
+                            ("obs".into(), Some(r#"{"ainda": "string"}"#.into())),
+                        ],
+                    }],
+                },
+            )
+            .await
+            .unwrap();
+
+        let one = coll.find_one(doc! { "_id": 1 }).await.unwrap().unwrap();
+        assert!(matches!(
+            one.get_document("meta").unwrap().get("autor"),
+            Some(Bson::ObjectId(_))
+        ));
+        assert_eq!(one.get_array("tags").unwrap().len(), 2);
+        assert_eq!(one.get_str("obs").unwrap(), r#"{"ainda": "string"}"#);
+
+        let two = coll.find_one(doc! { "_id": 2_i64 }).await.unwrap().unwrap();
+        assert_eq!(two.get_array("tags").unwrap().len(), 2);
 
         adapter.db().drop().await.unwrap();
     }
