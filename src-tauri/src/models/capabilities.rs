@@ -74,9 +74,9 @@ pub struct AdapterCapabilities {
     #[cfg_attr(test, ts(as = "Vec<ObjectKind>"))]
     pub structure_folders: &'static [ObjectKind],
 
-    /// Pastas de objetos dentro de cada tabela (e view materializada), depois
-    /// da pasta das colunas: os índices vêm por relação (`catalog_objects`
-    /// com `table`), nunca do schema inteiro.
+    /// Pastas de objetos dentro de cada tabela, depois da pasta das colunas
+    /// (a view materializada só tem a de índices): vêm por relação
+    /// (`catalog_objects` com `table`), nunca do schema inteiro.
     #[cfg_attr(test, ts(as = "Vec<ObjectKind>"))]
     pub relation_folders: &'static [ObjectKind],
 }
@@ -122,8 +122,13 @@ impl AdapterCapabilities {
             supports_assistant: true,
             assistant_sample_values: false,
             query_language: QueryLanguage::Sql,
-            structure_folders: &[ObjectKind::View, ObjectKind::MaterializedView, ObjectKind::Function],
-            relation_folders: &[ObjectKind::Index],
+            structure_folders: &[
+                ObjectKind::View,
+                ObjectKind::MaterializedView,
+                ObjectKind::Function,
+                ObjectKind::Sequence,
+            ],
+            relation_folders: &[ObjectKind::Index, ObjectKind::Trigger, ObjectKind::ForeignKey],
         }
     }
 
@@ -190,7 +195,7 @@ impl AdapterCapabilities {
             assistant_sample_values: false,
             query_language: QueryLanguage::Sql,
             structure_folders: &[ObjectKind::View],
-            relation_folders: &[ObjectKind::Index],
+            relation_folders: &[ObjectKind::Index, ObjectKind::Trigger, ObjectKind::ForeignKey],
         }
     }
 
@@ -262,8 +267,8 @@ mod tests {
             if !caps.structure_folders.is_empty() || !caps.relation_folders.is_empty() {
                 assert!(caps.has_catalog, "{:?}", entry.db_type);
             }
-            // Funções e views materializadas só onde há schema
-            for kind in [ObjectKind::Function, ObjectKind::MaterializedView] {
+            // Funções, sequences e views materializadas só onde há schema
+            for kind in [ObjectKind::Function, ObjectKind::Sequence, ObjectKind::MaterializedView] {
                 if caps.structure_folders.contains(&kind) {
                     assert!(caps.has_schemas, "{:?}", entry.db_type);
                 }
@@ -271,7 +276,7 @@ mod tests {
         }
         let json = serde_json::to_value(AdapterCapabilities::sqlite()).unwrap();
         assert_eq!(json["structureFolders"], serde_json::json!(["view"]));
-        assert_eq!(json["relationFolders"], serde_json::json!(["index"]));
+        assert_eq!(json["relationFolders"], serde_json::json!(["index", "trigger", "foreignKey"]));
     }
 
     #[test]

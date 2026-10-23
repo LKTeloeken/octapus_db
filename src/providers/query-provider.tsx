@@ -82,8 +82,10 @@ export const QueryProvider = ({ children }: { children: ReactNode }) => {
         // `assistant-capabilities-v1`: `AdapterCapabilities` ganhou
         // `supportsAssistant` e `queryLanguage`. `structure-folders-v1`:
         // ganhou `structureFolders` e `relationFolders` (pastas da árvore).
-        // `structure-folders-v2`: a pasta Índices foi para dentro da tabela
-        buster: 'structure-folders-v2',
+        // `structure-folders-v2`: a pasta Índices foi para dentro da tabela.
+        // `structure-folders-v3`: pastas de sequences, triggers e chaves
+        // estrangeiras
+        buster: 'structure-folders-v3',
         dehydrateOptions: PERSIST_DEHYDRATE_OPTIONS,
       }}
     >

@@ -11,7 +11,7 @@ use super::base::Catalog;
 use super::columns::RelationColumns;
 use super::context::{CollectionShape, ColumnMatch, ForeignKey, RelationDetail};
 use super::model::{LoadState, SchemaDiff, SchemaHeader, TableRecord};
-use super::objects::{FunctionObject, IndexObject, ObjectRef};
+use super::objects::{ForeignKeyObject, FunctionObject, IndexObject, ObjectRef, SequenceObject, TriggerObject};
 use crate::error::{Error, Result};
 
 /// Bancos sem nível de schema (Mongo, SQLite) guardam as relações num schema
@@ -146,6 +146,29 @@ pub trait CatalogSource: Send {
     async fn list_functions(&mut self, _schema: &str) -> Result<Vec<FunctionObject>> {
         Err(Error::UnsupportedType(
             "functions are only listed for PostgreSQL".into(),
+        ))
+    }
+
+    /// Sequences de um schema, com a coluna dona. Só o Postgres.
+    async fn list_sequences(&mut self, _schema: &str) -> Result<Vec<SequenceObject>> {
+        Err(Error::UnsupportedType(
+            "sequences are only listed for PostgreSQL".into(),
+        ))
+    }
+
+    /// Triggers de um schema (sem `table`) ou de uma relação, sem os internos
+    /// do banco (os das chaves estrangeiras, no Postgres).
+    async fn list_triggers(&mut self, _schema: &str, _table: Option<&str>) -> Result<Vec<TriggerObject>> {
+        Err(Error::UnsupportedType(
+            "triggers are not listed for this database".into(),
+        ))
+    }
+
+    /// Chaves estrangeiras que saem de um schema (sem `table`) ou de uma
+    /// relação, com a referenciada e as ações.
+    async fn list_foreign_keys(&mut self, _schema: &str, _table: Option<&str>) -> Result<Vec<ForeignKeyObject>> {
+        Err(Error::UnsupportedType(
+            "foreign keys are not listed for this database".into(),
         ))
     }
 

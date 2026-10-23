@@ -61,6 +61,7 @@ export const ConnectionTree = memo((props: ConnectionTreeProps) => {
       <ErrorRow
         level={0}
         message={error?.message ?? 'Falha ao carregar servidores'}
+        error={error}
         onRetry={retry}
       />
     );
@@ -135,7 +136,9 @@ export const ConnectionTree = memo((props: ConnectionTreeProps) => {
                   <ErrorRow
                     level={row.level}
                     message={row.message}
+                    error={row.error}
                     onRetry={row.onRetry}
+                    onEdit={row.onEdit}
                   />
                 ) : row.variant === 'filter' ? (
                   <FilterRow

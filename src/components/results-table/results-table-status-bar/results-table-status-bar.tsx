@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { SegmentedControl } from '@/components/ui/segmented-control/segmented-control';
 import type { SegmentedControlOption } from '@/components/ui/segmented-control/segmented-control.types';
 import { Spinner } from '@/components/ui/spinner';
+import { Tooltip } from '@/components/ui/tooltip/tooltip';
 
 import type { ResultsViewMode } from '../results-table.types';
 import type { DataTableStatusBarProps } from './results-table-status-bar.types';
@@ -39,12 +40,14 @@ export const DataTableStatusBar = memo(
   }: DataTableStatusBarProps) => {
     return (
       <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line-subtle bg-surface-1 pr-1.5 pl-2 text-small text-fg-muted">
-        <SegmentedControl
-          aria-label="Visualização"
-          value={viewMode}
-          onValueChange={onViewModeChange}
-          options={VIEW_MODE_OPTIONS}
-        />
+        <Tooltip content="Trocar visualização (Tab nos resultados)">
+          <SegmentedControl
+            aria-label="Visualização"
+            value={viewMode}
+            onValueChange={onViewModeChange}
+            options={VIEW_MODE_OPTIONS}
+          />
+        </Tooltip>
 
         {rowCount !== undefined && (
           <span className="whitespace-nowrap tabular-nums">

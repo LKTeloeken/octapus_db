@@ -66,7 +66,6 @@ import {
   hasCatalog,
   isFlatCatalog,
   useCatalogDiagnostics,
-  useCatalogObjectDefinition,
   useCatalogRelationSize,
 } from '@/queries/use-catalog';
 import { useCatalogEvents } from '@/queries/use-catalog-events';
@@ -136,6 +135,12 @@ const FOLDERS: Record<CatalogObjectKind, { label: string; filter: string }> = {
   },
   index: { label: 'Índices', filter: 'Filtrar índices' },
   function: { label: 'Funções', filter: 'Filtrar funções' },
+  sequence: { label: 'Sequences', filter: 'Filtrar sequences' },
+  trigger: { label: 'Triggers', filter: 'Filtrar triggers' },
+  foreignKey: {
+    label: 'Chaves estrangeiras',
+    filter: 'Filtrar chaves estrangeiras',
+  },
 };
 
 /** Pastas cuja contagem o catálogo já sabe: vazias, nem aparecem */
@@ -148,6 +153,9 @@ const EMPTY_FOLDER: Record<CatalogObjectKind, string> = {
   materializedView: 'Nenhuma view materializada',
   index: 'Nenhum índice',
   function: 'Nenhuma função',
+  sequence: 'Nenhuma sequence',
+  trigger: 'Nenhum trigger',
+  foreignKey: 'Nenhuma chave estrangeira',
 };
 
 /** Relações com índices próprios (pasta Índices dentro delas) */
@@ -156,6 +164,21 @@ const hasIndexes = (kind: CatalogNodeKind | undefined) =>
   kind === 'table' ||
   kind === 'partitioned' ||
   kind === 'materializedView';
+
+/**
+ * A pasta de objetos vale para este tipo de relação? Índices também na view
+ * materializada; triggers e chaves estrangeiras só em tabela (comum ou
+ * particionada).
+ */
+const relationFolderApplies = (
+  folder: CatalogObjectKind,
+  relation: CatalogNodeKind | undefined,
+) =>
+  folder === 'index'
+    ? hasIndexes(relation)
+    : relation === undefined ||
+      relation === 'table' ||
+      relation === 'partitioned';
 
 /** A pasta das tabelas de um schema (`schema` null = o schema sem nome) */
 const tablesFolderId = (
@@ -198,6 +221,58 @@ const loosePath = (
 
 const folderKey = (ref: NodeRef) =>
   `${ref.serverId}|${ref.database}|${ref.schema ?? FLAT_SCHEMA}|${ref.table ?? ''}|${ref.folder}`;
+
+/**
+ * O nome e o detalhe de um item de pasta. `inRelation`: a pasta é a de uma
+ * tabela (o nome dela não se repete no detalhe).
+ */
+function objectLabels(
+  object: Exclude<CatalogObject, { kind: 'view' | 'materializedView' }>,
+  inRelation: boolean,
+): { name: string; subLabel: string } {
+  const join = (parts: (string | null | false)[]) =>
+    parts.filter(Boolean).join(' · ');
+  switch (object.kind) {
+    case 'index':
+      return { name: object.name, subLabel: indexLabel(object, inRelation) };
+    case 'function':
+      return {
+        name: `${object.name}(${object.signature})`,
+        subLabel: join([
+          object.returns ? `→ ${object.returns}` : null,
+          FUNCTION_KINDS[object.functionKind],
+          object.language,
+        ]),
+      };
+    case 'sequence':
+      return {
+        name: object.name,
+        subLabel: join([object.dataType, object.ownedBy]),
+      };
+    case 'trigger':
+      return {
+        name: object.name,
+        subLabel: join([
+          !inRelation && object.table,
+          `${object.timing} ${object.events.join(' OR ')}`,
+          object.function,
+          !object.enabled && 'desligado',
+        ]),
+      };
+    case 'foreignKey': {
+      const to = object.refColumns.length
+        ? `${object.refTable}(${object.refColumns.join(', ')})`
+        : object.refTable;
+      return {
+        name: object.name,
+        subLabel: join([
+          `${inRelation ? '' : object.table}(${object.columns.join(', ')}) → ${to}`,
+          object.onDelete !== 'NO ACTION' && `ON DELETE ${object.onDelete}`,
+        ]),
+      };
+    }
+  }
+}
 
 /** O detalhe de um índice: tabela (fora da pasta da coleção), colunas, método */
 function indexLabel(
@@ -252,6 +327,7 @@ export const useConnectionTree = ({
   const toggleShapeGrouping = useTreeStore(state => state.toggleShapeGrouping);
   const diagnostics = useCatalogDiagnostics();
   const openQueryTab = useTabsStore(state => state.openQueryTab);
+  const openDefinitionTab = useTabsStore(state => state.openDefinitionTab);
   const openBrowseTab = useTabsStore(state => state.openBrowseTab);
   // A aba de tabela tem o mesmo id do nó da árvore: basta comparar.
   const activeTabId = useTabsStore(state => state.activeTabId);
@@ -267,9 +343,13 @@ export const useConnectionTree = ({
   // chegar — junto com a linha do filtro, que sai do DOM e leva o foco do
   // campo a cada letra digitada.
   const lastPages = useRef(new Map<string, CatalogPage<unknown>>());
-  const definition = useCatalogObjectDefinition();
 
   const servers = useMemo(() => serversQuery.data ?? [], [serversQuery.data]);
+  /** O "Editar servidor" dos detalhes de um erro de conexão */
+  const editServer = (serverId: number) => {
+    const server = servers.find(item => item.id === serverId);
+    return server ? () => onEditServer(server) : undefined;
+  };
   const serverIds = useMemo(
     () => new Set(servers.map(server => server.id)),
     [servers],
@@ -779,6 +859,7 @@ export const useConnectionTree = ({
         id: `${nodeId}|err`,
         level,
         message: query.error.message,
+        error: query.error,
         onRetry: () => void query.refetch(),
       });
       return;
@@ -921,26 +1002,17 @@ export const useConnectionTree = ({
       : [];
 
   /**
-   * "Ver definição": o texto vai para uma aba de query nova, como texto comum
-   * — executar fica por conta do usuário.
+   * "Ver definição": abre (ou ativa) a aba de definição do objeto — só o
+   * texto, com destaque; de lá, "Abrir em aba de query" para editar e executar.
    */
-  const openDefinition = async (
+  const openDefinition = (
     serverId: number,
     database: string,
     schema: string | null,
     target: CatalogObjectRef,
     title: string,
   ) => {
-    try {
-      const content = await definition.mutateAsync({
-        serverId,
-        database,
-        target,
-      });
-      openQueryTab({ serverId, database, schema, title, content });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    }
+    openDefinitionTab({ serverId, database, schema, target, title });
   };
 
   const definitionAction = (onSelect: () => void): NodeRowAction => ({
@@ -950,40 +1022,47 @@ export const useConnectionTree = ({
   });
 
   /**
-   * Um item de pasta que não é relação (índice, função): o clique abre a
-   * definição numa aba nova. `table` = a pasta é a de uma coleção (Mongo).
+   * Um item de pasta que não é relação (índice, função, sequence, trigger,
+   * chave estrangeira): o clique abre a definição numa aba de definição.
+   * `table` = a pasta é a de uma tabela (índices, triggers, chaves; no Mongo,
+   * a coleção).
    */
   const pushObject = (
     serverId: number,
     database: string,
     schema: string | null,
     folderNodeId: string,
-    object: Extract<CatalogObject, { kind: 'index' | 'function' }>,
+    object: Exclude<CatalogObject, { kind: 'view' | 'materializedView' }>,
     level: number,
     table: string | null,
   ) => {
-    const isFunction = object.kind === 'function';
-    const name = isFunction
-      ? `${object.name}(${object.signature})`
-      : object.name;
-    const subLabel = isFunction
-      ? [
-          object.returns ? `→ ${object.returns}` : null,
-          FUNCTION_KINDS[object.functionKind],
-          object.language,
-        ]
-          .filter(Boolean)
-          .join(' · ')
-      : indexLabel(object, table !== null);
+    const { name, subLabel } = objectLabels(object, table !== null);
     const target: CatalogObjectRef = {
       kind: object.kind,
       schema: schema ?? FLAT_SCHEMA,
       name: object.name,
-      table: object.kind === 'index' && table !== null ? table : null,
-      signature: isFunction ? object.signature : null,
+      // O índice do Mongo é por coleção; trigger e chave, sempre da tabela
+      table:
+        object.kind === 'trigger' || object.kind === 'foreignKey'
+          ? object.table
+          : object.kind === 'index' && table !== null
+            ? table
+            : null,
+      signature: object.kind === 'function' ? object.signature : null,
     };
     const open = () =>
-      void openDefinition(serverId, database, schema, target, object.name);
+      openDefinition(serverId, database, schema, target, object.name);
+    const actions: NodeRowAction[] = [definitionAction(open)];
+    if (object.kind === 'foreignKey') {
+      const refSchema =
+        object.refSchema === FLAT_SCHEMA ? null : object.refSchema;
+      actions.unshift({
+        label: 'Abrir tabela referenciada',
+        icon: Table01Icon,
+        onSelect: () =>
+          openTable(serverId, database, refSchema, object.refTable),
+      });
+    }
 
     rows.push({
       variant: 'node',
@@ -996,12 +1075,12 @@ export const useConnectionTree = ({
         subLabel,
         // O comentário da função (`COMMENT ON FUNCTION`) só no passar do mouse
         title:
-          isFunction && object.comment
+          object.kind === 'function' && object.comment
             ? `${name} ${subLabel}\n${object.comment}`
             : `${name} ${subLabel}`,
         hasChildren: false,
         onClick: open,
-        actions: [definitionAction(open)],
+        actions,
       },
     });
   };
@@ -1188,6 +1267,7 @@ export const useConnectionTree = ({
         id: `${key}|folders-err`,
         level,
         message: query.error.message,
+        error: query.error,
         onRetry: () => void query.refetch(),
       });
       return;
@@ -1256,21 +1336,20 @@ export const useConnectionTree = ({
           },
           ...(isViewKind(relationKind)
             ? [
-                definitionAction(
-                  () =>
-                    void openDefinition(
-                      serverId,
-                      database,
-                      schema,
-                      {
-                        kind: relationKind as CatalogObjectKind,
-                        schema: schema ?? FLAT_SCHEMA,
-                        name: table,
-                        table: null,
-                        signature: null,
-                      },
-                      table,
-                    ),
+                definitionAction(() =>
+                  openDefinition(
+                    serverId,
+                    database,
+                    schema,
+                    {
+                      kind: relationKind as CatalogObjectKind,
+                      schema: schema ?? FLAT_SCHEMA,
+                      name: table,
+                      table: null,
+                      signature: null,
+                    },
+                    table,
+                  ),
                 ),
               ]
             : []),
@@ -1322,8 +1401,8 @@ export const useConnectionTree = ({
     );
     if (columnsOpen) pushColumnsUnder(columnsFolderId, level + 2);
 
-    if (hasIndexes(relationKind)) {
-      for (const kind of caps.relationFolders) {
+    for (const kind of caps.relationFolders) {
+      if (relationFolderApplies(kind, relationKind)) {
         pushFolder(serverId, database, schema, kind, null, level + 1, table);
       }
     }
@@ -1376,6 +1455,7 @@ export const useConnectionTree = ({
         id: `${parentId}|err`,
         level,
         message: colQuery.error.message,
+        error: colQuery.error,
         onRetry: () => void colQuery.refetch(),
       });
       return;
@@ -1493,7 +1573,9 @@ export const useConnectionTree = ({
         id: `${dbNodeId}|err`,
         level: 2,
         message: status.error.message,
+        error: status.error,
         onRetry: () => void status.refetch(),
+        onEdit: editServer(serverId),
       });
       return;
     }
@@ -1509,6 +1591,7 @@ export const useConnectionTree = ({
         level: 2,
         message: syncError,
         onRetry: () => void refreshDatabase(serverId, database),
+        onEdit: editServer(serverId),
       });
       return;
     }
@@ -1526,6 +1609,7 @@ export const useConnectionTree = ({
         id: `${dbNodeId}|shapes-err`,
         level: 2,
         message: shapes.error.message,
+        error: shapes.error,
         onRetry: () => void shapes.refetch(),
       });
       return;
@@ -1768,7 +1852,9 @@ export const useConnectionTree = ({
         id: `${serverNodeId}|err`,
         level: 1,
         message: dbQuery.error.message,
+        error: dbQuery.error,
         onRetry: () => void dbQuery.refetch(),
+        onEdit: () => onEditServer(server),
       });
       return;
     }
@@ -1858,7 +1944,9 @@ export const useConnectionTree = ({
           id: `${dbNodeId}|err`,
           level: 2,
           message: structureQuery.error.message,
+          error: structureQuery.error,
           onRetry: () => void structureQuery.refetch(),
+          onEdit: () => onEditServer(server),
         });
         return;
       }

@@ -184,6 +184,36 @@ pub struct ServerInput {
     pub assistant_sample_values: bool,
 }
 
+impl ServerInput {
+    /// O servidor como ficaria gravado, para conectar sem gravar (o "Testar
+    /// conexão" do formulário): o TLS ajustado ao banco e a CA só nos
+    /// `verify-*`, como no storage. O escopo e o grupo não importam aqui.
+    pub fn to_server(&self, id: Option<i64>) -> Server {
+        let ssl_mode = self.ssl_mode.unwrap_or_default().for_db_type(self.db_type);
+        Server {
+            id,
+            name: self.name.clone(),
+            db_type: self.db_type,
+            host: self.host.clone(),
+            port: self.port,
+            username: self.username.clone(),
+            password: self.password.clone(),
+            default_database: self.default_database.clone().filter(|db| !db.trim().is_empty()),
+            ssl_mode,
+            ssl_root_cert: self
+                .ssl_root_cert
+                .clone()
+                .filter(|path| !path.trim().is_empty() && ssl_mode.verifies()),
+            connection_uri: self.connection_uri.clone().filter(|uri| !uri.trim().is_empty()),
+            created_at: 0,
+            scope_databases: None,
+            scope_schemas: None,
+            group_id: None,
+            assistant_sample_values: self.assistant_sample_values,
+        }
+    }
+}
+
 /// Grupo de servidores na sidebar (pasta de um nível). Excluir o grupo não
 /// exclui os servidores: eles voltam para fora de qualquer grupo.
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
@@ -228,6 +258,40 @@ mod tests {
             // O JSON usa os mesmos nomes
             assert_eq!(serde_json::to_value(mode).unwrap(), mode.as_str());
         }
+    }
+
+    #[test]
+    fn input_becomes_the_server_it_would_save() {
+        let input = ServerInput {
+            name: "atlas".into(),
+            db_type: DatabaseType::Mongodb,
+            host: "h".into(),
+            port: 27017,
+            username: "u".into(),
+            password: "p".into(),
+            default_database: Some("  ".into()),
+            ssl_mode: Some(SslMode::VerifyCa),
+            ssl_root_cert: Some("/ca.pem".into()),
+            connection_uri: Some(String::new()),
+            scope_databases: Some("a*".into()),
+            scope_schemas: None,
+            group_id: Some(3),
+            assistant_sample_values: true,
+        };
+        let server = input.to_server(Some(7));
+        assert_eq!(server.id, Some(7));
+        // O Mongo não verifica só a CA: sobe para verify-full, e a CA fica
+        assert_eq!(server.ssl_mode, SslMode::VerifyFull);
+        assert_eq!(server.ssl_root_cert.as_deref(), Some("/ca.pem"));
+        assert_eq!((server.default_database, server.connection_uri), (None, None));
+        assert_eq!(server.password, "p");
+        assert!(server.assistant_sample_values);
+
+        let plain = ServerInput {
+            ssl_mode: Some(SslMode::Require),
+            ..input
+        };
+        assert_eq!(plain.to_server(None).ssl_root_cert, None, "CA só nos verify-*");
     }
 
     #[test]

@@ -36,8 +36,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsAssistant: true,
     assistantSampleValues: false,
     queryLanguage: 'sql',
-    structureFolders: ['view', 'materializedView', 'function'],
-    relationFolders: ['index'],
+    structureFolders: ['view', 'materializedView', 'function', 'sequence'],
+    relationFolders: ['index', 'trigger', 'foreignKey'],
   },
   mongodb: {
     hasSchemas: false,
@@ -94,7 +94,7 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     assistantSampleValues: false,
     queryLanguage: 'sql',
     structureFolders: ['view'],
-    relationFolders: ['index'],
+    relationFolders: ['index', 'trigger', 'foreignKey'],
   },
 };
 

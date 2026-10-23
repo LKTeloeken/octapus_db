@@ -3,4 +3,4 @@
 /**
  * Tipo de objeto de uma pasta.
  */
-export type ObjectKind = "view" | "materializedView" | "index" | "function";
+export type ObjectKind = "view" | "materializedView" | "index" | "function" | "sequence" | "trigger" | "foreignKey";

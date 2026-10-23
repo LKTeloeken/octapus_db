@@ -1,12 +1,13 @@
 //! Objetos de um schema fora das relações soltas: views, views materializadas,
-//! índices e funções — as pastas da árvore.
+//! índices, funções, sequences, triggers e chaves estrangeiras — as pastas da
+//! árvore.
 //!
-//! Views e views materializadas já estão no catálogo (são relações). Índices e
-//! funções vêm da fonte sob demanda, um schema por vez, e ficam aqui só **em
-//! memória**: não vão para o disco (o arquivo do catálogo não muda) e somem a
-//! cada sincronização ou refresh. O índice do Mongo é por coleção (o banco não
-//! lista os índices de todas), então a chave do cache leva a relação quando
-//! veio de uma só.
+//! Views e views materializadas já estão no catálogo (são relações). O resto
+//! vem da fonte sob demanda, um schema (ou uma tabela) por vez, e fica aqui só
+//! **em memória**: não vai para o disco (o arquivo do catálogo não muda) e some
+//! a cada sincronização ou refresh. O índice do Mongo é por coleção (o banco
+//! não lista os índices de todas), então a chave do cache leva a relação
+//! quando veio de uma só.
 //!
 //! O assistente (parte 2) pede pelas mesmas funções: índices de uma tabela,
 //! funções de um schema e a definição de um objeto.
@@ -29,6 +30,9 @@ pub enum ObjectKind {
     MaterializedView,
     Index,
     Function,
+    Sequence,
+    Trigger,
+    ForeignKey,
 }
 
 impl ObjectKind {
@@ -37,8 +41,13 @@ impl ObjectKind {
         match self {
             Self::View => Some(RelKind::View),
             Self::MaterializedView => Some(RelKind::MaterializedView),
-            Self::Index | Self::Function => None,
+            Self::Index | Self::Function | Self::Sequence | Self::Trigger | Self::ForeignKey => None,
         }
+    }
+
+    /// Objeto que pertence a uma tabela (a pasta dentro dela filtra por ela)
+    fn per_table(self) -> bool {
+        matches!(self, Self::Index | Self::Trigger | Self::ForeignKey)
     }
 }
 
@@ -89,6 +98,50 @@ pub struct FunctionObject {
     pub comment: Option<String>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SequenceObject {
+    pub name: String,
+    /// `bigint`, `integer`…
+    pub data_type: String,
+    /// A coluna dona (`serial`/`identity`), como `tabela.coluna`
+    pub owned_by: Option<String>,
+}
+
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerObject {
+    pub name: String,
+    pub table: String,
+    /// `BEFORE`, `AFTER` ou `INSTEAD OF`
+    pub timing: String,
+    /// `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`
+    pub events: Vec<String>,
+    /// A função chamada (Postgres); `None` no SQLite (o corpo vai inline)
+    pub function: Option<String>,
+    /// Desligado (`ALTER TABLE … DISABLE TRIGGER`)
+    pub enabled: bool,
+}
+
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignKeyObject {
+    /// O nome da constraint (no SQLite, que não tem, `fk_<tabela>_<n>`)
+    pub name: String,
+    pub table: String,
+    pub columns: Vec<String>,
+    pub ref_schema: String,
+    pub ref_table: String,
+    /// Vazio no SQLite quando a referência é a chave primária implícita
+    pub ref_columns: Vec<String>,
+    /// `CASCADE`, `SET NULL`, `RESTRICT`, `NO ACTION`, `SET DEFAULT`
+    pub on_delete: String,
+    pub on_update: String,
+}
+
 /// Um item de pasta.
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -98,6 +151,9 @@ pub enum CatalogObject {
     MaterializedView { name: String },
     Index(IndexObject),
     Function(FunctionObject),
+    Sequence(SequenceObject),
+    Trigger(TriggerObject),
+    ForeignKey(ForeignKeyObject),
 }
 
 impl CatalogObject {
@@ -106,12 +162,28 @@ impl CatalogObject {
             Self::View { name } | Self::MaterializedView { name } => name,
             Self::Index(index) => &index.name,
             Self::Function(function) => &function.name,
+            Self::Sequence(sequence) => &sequence.name,
+            Self::Trigger(trigger) => &trigger.name,
+            Self::ForeignKey(key) => &key.name,
         }
     }
 
-    /// O filtro da pasta: o nome ou, num índice, a tabela dele.
+    /// A tabela do objeto que pertence a uma (índice, trigger, chave estrangeira)
+    fn table(&self) -> Option<&str> {
+        match self {
+            Self::Index(index) => Some(&index.table),
+            Self::Trigger(trigger) => Some(&trigger.table),
+            Self::ForeignKey(key) => Some(&key.table),
+            _ => None,
+        }
+    }
+
+    /// O filtro da pasta: o nome ou a tabela do objeto (e, na chave
+    /// estrangeira, também a tabela referenciada).
     fn matches(&self, needle: &Needle) -> bool {
-        needle.matches(self.name()) || matches!(self, Self::Index(index) if needle.matches(&index.table))
+        needle.matches(self.name())
+            || self.table().is_some_and(|table| needle.matches(table))
+            || matches!(self, Self::ForeignKey(key) if needle.matches(&key.ref_table))
     }
 }
 
@@ -226,14 +298,11 @@ impl Catalog {
 
         let (list, by_table) = match self.objects.get(kind, schema, table) {
             Some(list) => (list, None),
-            None => (self.objects.get(kind, schema, None)?, table),
+            None => (self.objects.get(kind, schema, None)?, table.filter(|_| kind.per_table())),
         };
         Some(paginate(
             list.iter()
-                .filter(|object| match (by_table, object) {
-                    (Some(table), CatalogObject::Index(index)) => index.table == table,
-                    _ => true,
-                })
+                .filter(|object| by_table.is_none_or(|table| object.table() == Some(table)))
                 .filter(|object| needle.as_ref().is_none_or(|needle| object.matches(needle))),
             offset,
             limit,
@@ -516,5 +585,48 @@ mod tests {
         let target: ObjectRef =
             serde_json::from_value(serde_json::json!({ "kind": "function", "schema": "app", "name": "add" })).unwrap();
         assert_eq!((target.table, target.signature), (None, None));
+    }
+
+    #[test]
+    fn table_folders_filter_triggers_and_foreign_keys_by_table() {
+        let mut catalog = catalog();
+        let trigger = |name: &str, table: &str| {
+            CatalogObject::Trigger(TriggerObject {
+                name: name.into(),
+                table: table.into(),
+                timing: "AFTER".into(),
+                events: vec!["INSERT".into()],
+                function: None,
+                enabled: true,
+            })
+        };
+        catalog.set_objects(
+            ObjectKind::Trigger,
+            "app",
+            None,
+            vec![trigger("t2", "orders"), trigger("t1", "users")],
+        );
+        let of_orders = catalog.objects(ObjectKind::Trigger, "app", Some("orders"), None, 0, 10).unwrap();
+        assert_eq!(names(&of_orders), ["t2"]);
+        // O filtro também acha pela tabela, e a de uma FK pela referenciada
+        let by_table = catalog.objects(ObjectKind::Trigger, "app", None, Some("user"), 0, 10).unwrap();
+        assert_eq!(names(&by_table), ["t1"]);
+        let key = CatalogObject::ForeignKey(ForeignKeyObject {
+            name: "orders_user_fkey".into(),
+            table: "orders".into(),
+            columns: vec!["user_id".into()],
+            ref_schema: "app".into(),
+            ref_table: "customers".into(),
+            ref_columns: vec!["id".into()],
+            on_delete: "CASCADE".into(),
+            on_update: "NO ACTION".into(),
+        });
+        catalog.set_objects(ObjectKind::ForeignKey, "app", Some("orders"), vec![key]);
+        let found = catalog
+            .objects(ObjectKind::ForeignKey, "app", Some("orders"), Some("custom"), 0, 10)
+            .unwrap();
+        assert_eq!(names(&found), ["orders_user_fkey"]);
+        // As sequences são do schema: o `table` não filtra
+        assert!(catalog.objects(ObjectKind::Sequence, "app", None, None, 0, 10).is_none());
     }
 }

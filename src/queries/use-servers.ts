@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { testServerInput } from '@/api/connection';
 import {
   createServer,
   deleteServer,
@@ -66,5 +67,21 @@ export function useDeleteServer() {
         clearGridSearch(tabId);
       }
     },
+  });
+}
+
+/**
+ * "Testar conexão" do formulário: conecta com o que está digitado, sem gravar
+ * e sem tocar no cache (nada muda no app).
+ */
+export function useTestServerInput() {
+  return useMutation({
+    mutationFn: ({
+      input,
+      serverId,
+    }: {
+      input: ServerInput;
+      serverId?: number | null;
+    }) => testServerInput(input, serverId),
   });
 }

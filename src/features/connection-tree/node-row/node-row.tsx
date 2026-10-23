@@ -1,19 +1,26 @@
 import {
+  Activity01Icon,
   ArrowRight01Icon,
   DatabaseIcon,
   Folder01Icon,
   Folder02Icon,
   FolderCodeIcon,
+  FolderCogIcon,
   FolderDetailsIcon,
   FolderKeyIcon,
   FolderLibraryIcon,
+  FolderLinksIcon,
+  FolderSyncIcon,
   FolderViewIcon,
   FoldersIcon,
   FunctionSquareIcon,
   HashtagIcon,
   Layers01Icon,
+  Link01Icon,
   MoreHorizontalIcon,
+  PackageIcon,
   ServerStack01Icon,
+  SortingOneNineIcon,
   TableIcon,
   ViewIcon,
   ZapIcon,
@@ -44,11 +51,15 @@ const KIND_ICONS: Record<NodeRowKind, typeof DatabaseIcon> = {
   server: ServerStack01Icon,
   database: DatabaseIcon,
   shape: FolderLibraryIcon,
-  schema: Folder01Icon,
+  // Caixa, não pasta: a pasta é dos agrupamentos (grupo, Tabelas, Índices…)
+  schema: PackageIcon,
   table: TableIcon,
   folder: Folder01Icon,
   index: ZapIcon,
   function: FunctionSquareIcon,
+  sequence: SortingOneNineIcon,
+  trigger: Activity01Icon,
+  foreignKey: Link01Icon,
   column: HashtagIcon,
 };
 
@@ -61,6 +72,9 @@ const FOLDER_ICONS: Record<TreeFolderKind, typeof DatabaseIcon> = {
   materializedView: FolderViewIcon,
   index: FolderKeyIcon,
   function: FolderCodeIcon,
+  sequence: FolderSyncIcon,
+  trigger: FolderCogIcon,
+  foreignKey: FolderLinksIcon,
 };
 
 /** Views e tabelas particionadas se distinguem da tabela comum pelo ícone */

@@ -29,7 +29,11 @@ export type FlatRow =
       id: string;
       level: number;
       message: string;
+      /** O erro em si (código e mensagem inteira, para os detalhes) */
+      error?: unknown;
       onRetry: () => void;
+      /** Falha de conexão: atalho para corrigir o servidor */
+      onEdit?: () => void;
     }
   | {
       /** Filtro dos filhos de um nó grande (schemas de tenant, tabelas) */

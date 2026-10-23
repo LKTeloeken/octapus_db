@@ -565,6 +565,109 @@ function indexesOf(
     .sort((a, b) => byteOrder(a.name, b.name));
 }
 
+type SequenceItem = Extract<CatalogObject, { kind: 'sequence' }>;
+type TriggerItem = Extract<CatalogObject, { kind: 'trigger' }>;
+type ForeignKeyItem = Extract<CatalogObject, { kind: 'foreignKey' }>;
+
+/** As tabelas comuns de um schema do dataset (o `saas` gerado não tem estes objetos) */
+const plainTables = (db: MockDatabase, schema: string, flat: boolean) =>
+  db.generated === 'tenants'
+    ? []
+    : db.tables.filter(
+        t => t.tableType === 'table' && (flat || t.schema === schema),
+      );
+
+/** Uma sequence por tabela com `id` inteiro (o `serial`) */
+function sequencesOf(db: MockDatabase, schema: string): SequenceItem[] {
+  return plainTables(db, schema, false)
+    .flatMap(t => {
+      const id = t.columns.find(c => c.name === 'id' && /int/.test(c.dataType));
+      return id
+        ? [
+            {
+              kind: 'sequence' as const,
+              name: `${t.name}_id_seq`,
+              dataType: id.dataType === 'bigint' ? 'bigint' : 'integer',
+              ownedBy: `${t.name}.id`,
+            },
+          ]
+        : [];
+    })
+    .sort((a, b) => byteOrder(a.name, b.name));
+}
+
+/** Dois triggers em `pedidos` (um desligado); no SQLite, um na primeira tabela */
+function triggersOf(
+  db: MockDatabase,
+  schema: string,
+  flat: boolean,
+  table: string | null,
+  postgres: boolean,
+): TriggerItem[] {
+  const tables = plainTables(db, schema, flat);
+  const targets = tables.filter(
+    (t, index) => t.name === 'pedidos' || (flat && index === 0),
+  );
+  return targets
+    .flatMap((t): TriggerItem[] => [
+      {
+        kind: 'trigger',
+        name: `${t.name}_atualiza_estoque`,
+        table: t.name,
+        timing: 'AFTER',
+        events: ['INSERT'],
+        function: postgres ? `${schema}.atualiza_estoque` : null,
+        enabled: true,
+      },
+      {
+        kind: 'trigger',
+        name: `${t.name}_auditoria`,
+        table: t.name,
+        timing: 'BEFORE',
+        events: ['UPDATE', 'DELETE'],
+        function: postgres ? `${schema}.registra_auditoria` : null,
+        enabled: !postgres,
+      },
+    ])
+    .filter(trigger => table === null || trigger.table === table);
+}
+
+/** Pela convenção do dataset: `usuario_id` → `usuarios` (ou `usuario`) */
+function foreignKeysOf(
+  db: MockDatabase,
+  schema: string,
+  flat: boolean,
+  table: string | null,
+): ForeignKeyItem[] {
+  const tables = plainTables(db, schema, flat);
+  return tables
+    .filter(t => table === null || t.name === table)
+    .flatMap(t =>
+      t.columns
+        .filter(c => c.name.endsWith('_id'))
+        .flatMap((c, index): ForeignKeyItem[] => {
+          const base = c.name.slice(0, -'_id'.length);
+          const target = tables.find(
+            r => r.name === base || r.name === `${base}s`,
+          );
+          if (!target) return [];
+          return [
+            {
+              kind: 'foreignKey',
+              name: flat ? `fk_${t.name}_${index}` : `${t.name}_${c.name}_fkey`,
+              table: t.name,
+              columns: [c.name],
+              refSchema: flat ? FLAT_SCHEMA : schema,
+              refTable: target.name,
+              refColumns: ['id'],
+              onDelete: t.name.includes('itens') ? 'CASCADE' : 'NO ACTION',
+              onUpdate: 'NO ACTION',
+            },
+          ];
+        }),
+    );
+}
+
 function functionsOf(db: MockDatabase, schema: string): MockFunction[] {
   const list =
     db.generated === 'tenants'
@@ -618,6 +721,12 @@ async function objects(
   if (kind === 'function' && dbType !== 'postgres') {
     throw 'Unsupported type: functions are only listed for PostgreSQL';
   }
+  if (kind === 'sequence' && dbType !== 'postgres') {
+    throw 'Unsupported type: sequences are only listed for PostgreSQL';
+  }
+  if ((kind === 'trigger' || kind === 'foreignKey') && dbType === 'mongodb') {
+    throw `Unsupported type: ${kind} is not listed for this database`;
+  }
   if (kind === 'index' && dbType === 'mongodb' && table === null) {
     throw 'Unsupported type: MongoDB lists indexes per collection';
   }
@@ -632,9 +741,19 @@ async function objects(
       ? indexesOf(db, schema, flat, table)
           .filter(index => keep(index.name) || keep(index.table))
           .map(index => ({ kind: 'index', ...index }))
-      : functionsOf(db, schema)
-          .filter(f => keep(f.name))
-          .map(asFunction);
+      : kind === 'sequence'
+        ? sequencesOf(db, schema).filter(s => keep(s.name))
+        : kind === 'trigger'
+          ? triggersOf(db, schema, flat, table, dbType === 'postgres').filter(
+              t => keep(t.name) || keep(t.table),
+            )
+          : kind === 'foreignKey'
+            ? foreignKeysOf(db, schema, flat, table).filter(
+                k => keep(k.name) || keep(k.table) || keep(k.refTable),
+              )
+            : functionsOf(db, schema)
+                .filter(f => keep(f.name))
+                .map(asFunction);
   return page(items, offset, limit);
 }
 
@@ -669,7 +788,9 @@ function folders(
       count:
         kind === 'index'
           ? indexesOf(db, schema, flat, null).length
-          : functionsOf(db, schema).length,
+          : kind === 'sequence'
+            ? sequencesOf(db, schema).length
+            : functionsOf(db, schema).length,
     };
   });
 }
@@ -726,6 +847,54 @@ function definition(
       : `${quoteIdent(target.schema)}.${quoteIdent(index.table)}`;
     const using = dbType === 'postgres' ? ` USING ${index.method}` : '';
     return `CREATE ${unique}INDEX ${quoteIdent(index.name)} ON ${on}${using} (${index.columns.join(', ')})${where};\n`;
+  }
+
+  const table = (name: string) =>
+    flat
+      ? quoteIdent(name)
+      : `${quoteIdent(target.schema)}.${quoteIdent(name)}`;
+
+  if (target.kind === 'sequence') {
+    const sequence = sequencesOf(db, target.schema).find(
+      candidate => candidate.name === target.name,
+    );
+    if (!sequence) throw notFound;
+    const owner = sequence.ownedBy?.split('.') ?? [];
+    return (
+      `CREATE SEQUENCE ${qualified} AS ${sequence.dataType} INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1;\n` +
+      (owner.length === 2
+        ? `ALTER SEQUENCE ${qualified} OWNED BY ${table(owner[0])}.${owner[1]};\n`
+        : '')
+    );
+  }
+
+  if (target.kind === 'trigger') {
+    const trigger = triggersOf(
+      db,
+      target.schema,
+      flat,
+      target.table ?? null,
+      dbType === 'postgres',
+    ).find(candidate => candidate.name === target.name);
+    if (!trigger) throw notFound;
+    const when = `${trigger.timing} ${trigger.events.join(' OR ')} ON ${table(trigger.table)}`;
+    return dbType === 'postgres'
+      ? `CREATE TRIGGER ${quoteIdent(trigger.name)} ${when} FOR EACH ROW EXECUTE FUNCTION ${trigger.function}();\n`
+      : `CREATE TRIGGER ${quoteIdent(trigger.name)} ${when}\nBEGIN\n  UPDATE ${quoteIdent(trigger.table)} SET id = id WHERE id = NEW.id;\nEND;\n`;
+  }
+
+  if (target.kind === 'foreignKey') {
+    const key = foreignKeysOf(
+      db,
+      target.schema,
+      flat,
+      target.table ?? null,
+    ).find(candidate => candidate.name === target.name);
+    if (!key) throw notFound;
+    const references = `FOREIGN KEY (${key.columns.join(', ')}) REFERENCES ${table(key.refTable)}(${key.refColumns.join(', ')}) ON DELETE ${key.onDelete}`;
+    return flat
+      ? `-- Dentro do CREATE TABLE ${quoteIdent(key.table)}\n${references};\n`
+      : `ALTER TABLE ${table(key.table)} ADD CONSTRAINT ${quoteIdent(key.name)} ${references};\n`;
   }
 
   const fn = functionsOf(db, target.schema).find(

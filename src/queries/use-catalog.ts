@@ -158,18 +158,16 @@ export function catalogObjectsQuery(
  * Definição de um objeto, sob demanda e sempre do momento ("Ver definição"):
  * a árvore abre o texto numa aba de query nova.
  */
-export function useCatalogObjectDefinition() {
-  return useMutation({
-    mutationFn: (request: {
-      serverId: number;
-      database: string;
-      target: CatalogObjectRef;
-    }) =>
-      catalogObjectDefinition(
-        request.serverId,
-        request.database,
-        request.target,
-      ),
+export function catalogDefinitionQuery(
+  serverId: number,
+  database: string,
+  target: CatalogObjectRef,
+) {
+  return queryOptions({
+    queryKey: queryKeys.catalogDefinition(serverId, database, target),
+    queryFn: () => catalogObjectDefinition(serverId, database, target),
+    // Muda só com a estrutura: os eventos do catálogo invalidam a key
+    staleTime: 5 * 60 * 1000,
   });
 }
 

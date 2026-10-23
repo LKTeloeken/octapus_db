@@ -1,7 +1,6 @@
 import { cn } from '@/lib/utils';
 import type {
   ResultsTableProps,
-  ResultsViewMode,
   RowSelectionMode,
 } from './results-table.types';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -19,6 +18,7 @@ import {
 } from './results-table-cell/use-resolve-cell-editor';
 import useResultsTable from './use-results-table';
 import { useResultsTableKeyboard } from './use-results-table-keyboard';
+import { useViewToggle } from './use-view-toggle';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { DataTableStatusBar } from './results-table-status-bar/results-table-status-bar';
 import { EmptyState } from './empty-state';
@@ -89,7 +89,6 @@ export const ResultsTable = memo(
     const ownScope = keyboardScope ? searchScopeId : null;
     const scopeProps = ownScope ? { [KEYBOARD_SCOPE_ATTR]: ownScope } : {};
     const containerRef = useRef<HTMLDivElement>(null);
-    const [viewMode, setViewMode] = useState<ResultsViewMode>('table');
     const [isExportOpen, setIsExportOpen] = useState(false);
 
     // Larguras ajustadas manualmente (arraste no header), por nome de coluna —
@@ -136,6 +135,10 @@ export const ResultsTable = memo(
       removedCount,
       pendingCount,
     } = useResultsTable(rows, columns, editableInfo, onSave, ownScope);
+
+    const { viewMode, setViewMode, viewsRef, onViewKeyDown } = useViewToggle(
+      activeCell !== null,
+    );
 
     // Colunas ocultas afetam só a renderização: filtramos quais colunas desenhar
     // e guardamos o índice original de cada uma para ler `row[índiceOriginal]`.
@@ -502,7 +505,7 @@ export const ResultsTable = memo(
         {...scopeProps}
         className={cn('flex h-full flex-col overflow-hidden', className)}
       >
-        <div className="relative flex-1 min-h-0">
+        <div ref={viewsRef} className="relative flex-1 min-h-0">
           {/* O grupo existe mesmo com o painel fechado: abrir/fechar só
               acrescenta o irmão, sem remontar a grade (e perder a rolagem). */}
           <ResizablePanelGroup
@@ -545,12 +548,17 @@ export const ResultsTable = memo(
                   hasMore={hasMore}
                   isLoadingMore={isLoadingMore}
                   onLoadMore={onLoadMore}
+                  onKeyDown={onViewKeyDown}
                 />
               ) : (
                 <div
                   ref={containerRef}
+                  data-results-view="table"
                   tabIndex={0}
-                  onKeyDown={onKeyDown}
+                  onKeyDown={event => {
+                    onViewKeyDown(event);
+                    onKeyDown(event);
+                  }}
                   className="relative h-full w-full overflow-auto scrollbar-thin outline-none"
                 >
                   {/* Header — sticky gutter + only visible columns */}

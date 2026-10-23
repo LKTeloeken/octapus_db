@@ -39,7 +39,10 @@ pub use model::{
 };
 #[cfg(test)]
 pub use model::SchemaDrift;
-pub use objects::{CatalogObject, FolderSummary, FunctionKind, FunctionObject, IndexObject, ObjectKind, ObjectRef};
+pub use objects::{
+    CatalogObject, FolderSummary, ForeignKeyObject, FunctionKind, FunctionObject, IndexObject, ObjectKind, ObjectRef,
+    SequenceObject, TriggerObject,
+};
 pub use persist::{CatalogKey, CatalogStore, Loaded};
 pub use scope::NameScope;
 pub use source::{

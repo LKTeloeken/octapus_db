@@ -13,8 +13,9 @@ use parking_lot::{Mutex, RwLock};
 use rusqlite::{Connection, InterruptHandle, OptionalExtension};
 
 use crate::catalog::{
-    sync_flat, Catalog, CatalogSource, ColumnDetail, ColumnMatch, ForeignKey, IndexObject, ObjectKind, ObjectRef,
-    RelKind, RelationDetail, SourceCanceller, SyncEvent, SyncReport, TableRecord, FLAT_SCHEMA,
+    sync_flat, Catalog, CatalogSource, ColumnDetail, ColumnMatch, ForeignKey, ForeignKeyObject, IndexObject,
+    ObjectKind, ObjectRef, RelKind, RelationDetail, SourceCanceller, SyncEvent, SyncReport, TableRecord,
+    TriggerObject, FLAT_SCHEMA,
 };
 use crate::error::{Error, Result};
 use crate::models::Server;
@@ -115,7 +116,7 @@ fn table_size(conn: &Connection, database: &str, table: &str) -> rusqlite::Resul
 /// Todas as chaves estrangeiras do arquivo, numa consulta (`pragma_foreign_key_list`
 /// de cada tabela). Banco local e pequeno: filtrar depois sai mais barato que
 /// uma consulta por tabela. `to` nulo = a chave primária da referenciada.
-fn read_foreign_keys(conn: &Connection, database: &str) -> rusqlite::Result<Vec<ForeignKey>> {
+fn read_all_foreign_keys(conn: &Connection, database: &str) -> rusqlite::Result<Vec<ForeignKey>> {
     let schema = quote_ident(database);
     let mut stmt = conn.prepare(&format!(
         "SELECT m.name, f.id, f.\"table\", f.\"from\", f.\"to\"
@@ -286,6 +287,133 @@ fn partial_predicate(sql: &str) -> Option<String> {
     (!predicate.is_empty()).then(|| predicate.to_string())
 }
 
+/// Triggers do arquivo (ou de uma tabela), do `sqlite_schema`. O momento e os
+/// eventos saem do cabeçalho do `CREATE TRIGGER` guardado ([`trigger_header`]).
+fn read_triggers(conn: &Connection, database: &str, table: Option<&str>) -> rusqlite::Result<Vec<TriggerObject>> {
+    let schema = quote_ident(database);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT name, tbl_name, sql FROM {schema}.sqlite_schema
+         WHERE type = 'trigger' AND (?1 IS NULL OR tbl_name = ?1)
+         ORDER BY tbl_name, name"
+    ))?;
+    let rows = stmt.query_map([table], |row| {
+        let sql: Option<String> = row.get(2)?;
+        let (timing, events) = trigger_header(sql.as_deref().unwrap_or_default());
+        Ok(TriggerObject {
+            name: row.get(0)?,
+            table: row.get(1)?,
+            timing,
+            events,
+            function: None,
+            enabled: true,
+        })
+    })?;
+    rows.collect()
+}
+
+/// `CREATE TRIGGER nome [BEFORE|AFTER|INSTEAD OF] INSERT|UPDATE [OF …]|DELETE ON …`:
+/// o momento (sem ele, o SQLite assume `BEFORE`) e o evento, do trecho antes
+/// do `ON`.
+fn trigger_header(sql: &str) -> (String, Vec<String>) {
+    let upper = sql.to_ascii_uppercase();
+    let words: Vec<&str> = upper.split_whitespace().collect();
+    let on = words.iter().position(|word| *word == "ON").unwrap_or(words.len());
+    let head = &words[..on];
+    let timing = if head.windows(2).any(|pair| pair == ["INSTEAD", "OF"]) {
+        "INSTEAD OF"
+    } else if head.contains(&"AFTER") {
+        "AFTER"
+    } else {
+        "BEFORE"
+    };
+    let events = ["INSERT", "UPDATE", "DELETE"]
+        .iter()
+        .filter(|event| head.contains(event))
+        .map(|event| event.to_string())
+        .collect();
+    (timing.to_string(), events)
+}
+
+/// O nome sintético de uma chave estrangeira do SQLite (que não tem nome): a
+/// tabela e o `id` do `pragma_foreign_key_list`.
+fn foreign_key_name(table: &str, id: i64) -> String {
+    format!("fk_{table}_{id}")
+}
+
+/// Chaves estrangeiras do arquivo (ou de uma tabela), pelo
+/// `pragma_foreign_key_list` de cada tabela, uma linha por coluna da chave.
+fn read_foreign_keys(
+    conn: &Connection,
+    database: &str,
+    table: Option<&str>,
+) -> rusqlite::Result<Vec<ForeignKeyObject>> {
+    let schema = quote_ident(database);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT m.name, f.id, f.\"table\", f.\"from\", f.\"to\", f.on_delete, f.on_update
+         FROM {schema}.sqlite_schema AS m, pragma_foreign_key_list(m.name, ?1) AS f
+         WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' AND (?2 IS NULL OR m.name = ?2)
+         ORDER BY m.name, f.id, f.seq"
+    ))?;
+    let rows = stmt.query_map(rusqlite::params![database, table], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, String>(6)?,
+        ))
+    })?;
+
+    let mut keys: Vec<(i64, ForeignKeyObject)> = Vec::new();
+    for row in rows {
+        let (table, id, ref_table, from, to, on_delete, on_update) = row?;
+        let same = keys.last().is_some_and(|(last_id, key)| *last_id == id && key.table == table);
+        if !same {
+            keys.push((
+                id,
+                ForeignKeyObject {
+                    name: foreign_key_name(&table, id),
+                    table,
+                    columns: Vec::new(),
+                    ref_schema: FLAT_SCHEMA.to_string(),
+                    ref_table,
+                    ref_columns: Vec::new(),
+                    on_delete,
+                    on_update,
+                },
+            ));
+        }
+        let key = &mut keys.last_mut().expect("chave aberta acima").1;
+        key.columns.push(from);
+        // `to` nulo = a chave primária da referenciada (fica implícito)
+        if let Some(to) = to {
+            key.ref_columns.push(to);
+        }
+    }
+    Ok(keys.into_iter().map(|(_, key)| key).collect())
+}
+
+/// A cláusula `FOREIGN KEY` de uma chave (o SQLite só a guarda dentro do
+/// `CREATE TABLE`), remontada do pragma.
+fn foreign_key_definition(key: &ForeignKeyObject) -> String {
+    let list = |names: &[String]| names.iter().map(|name| quote_ident(name)).collect::<Vec<_>>().join(", ");
+    let to = if key.ref_columns.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", list(&key.ref_columns))
+    };
+    format!(
+        "-- Dentro do CREATE TABLE {}\nFOREIGN KEY ({}) REFERENCES {}{to}\n  ON DELETE {}\n  ON UPDATE {};\n",
+        quote_ident(&key.table),
+        list(&key.columns),
+        quote_ident(&key.ref_table),
+        key.on_delete,
+        key.on_update
+    )
+}
+
 /// O `CREATE` guardado no `sqlite_schema` de uma view ou de um índice.
 fn read_definition(conn: &Connection, database: &str, kind: &str, name: &str) -> rusqlite::Result<Option<String>> {
     let schema = quote_ident(database);
@@ -349,7 +477,7 @@ impl CatalogSource for SqliteSource {
         if scope.is_empty() || of.is_empty() {
             return Ok(Vec::new());
         }
-        let all = self.with_conn(read_foreign_keys).await?;
+        let all = self.with_conn(read_all_foreign_keys).await?;
         let scope: std::collections::HashSet<&str> = scope.iter().map(|(_, table)| table.as_str()).collect();
         let of: std::collections::HashSet<&str> = of.iter().map(|(_, table)| table.as_str()).collect();
         Ok(all
@@ -387,15 +515,43 @@ impl CatalogSource for SqliteSource {
             .await
     }
 
+    async fn list_triggers(&mut self, schema: &str, table: Option<&str>) -> Result<Vec<TriggerObject>> {
+        if schema != FLAT_SCHEMA {
+            return Ok(Vec::new());
+        }
+        let table = table.map(str::to_string);
+        self.with_conn(move |conn, database| read_triggers(conn, database, table.as_deref()))
+            .await
+    }
+
+    async fn list_foreign_keys(&mut self, schema: &str, table: Option<&str>) -> Result<Vec<ForeignKeyObject>> {
+        if schema != FLAT_SCHEMA {
+            return Ok(Vec::new());
+        }
+        let table = table.map(str::to_string);
+        self.with_conn(move |conn, database| read_foreign_keys(conn, database, table.as_deref()))
+            .await
+    }
+
     async fn definition(&mut self, target: &ObjectRef) -> Result<Option<String>> {
-        let kind = match target.kind {
-            ObjectKind::View => "view",
-            ObjectKind::Index => "index",
-            ObjectKind::MaterializedView | ObjectKind::Function => return Ok(None),
-        };
         if target.schema != FLAT_SCHEMA {
             return Ok(None);
         }
+        let kind = match target.kind {
+            ObjectKind::View => "view",
+            ObjectKind::Index => "index",
+            ObjectKind::Trigger => "trigger",
+            ObjectKind::ForeignKey => {
+                let (Some(table), name) = (target.table.clone(), target.name.clone()) else {
+                    return Ok(None);
+                };
+                let keys = self
+                    .with_conn(move |conn, database| read_foreign_keys(conn, database, Some(&table)))
+                    .await?;
+                return Ok(keys.iter().find(|key| key.name == name).map(foreign_key_definition));
+            }
+            ObjectKind::MaterializedView | ObjectKind::Function | ObjectKind::Sequence => return Ok(None),
+        };
         let name = target.name.clone();
         self.with_conn(move |conn, database| read_definition(conn, database, kind, &name))
             .await
@@ -501,6 +657,92 @@ mod tests {
         let size = source.relation_size(FLAT_SCHEMA, "users").await.unwrap();
         assert!(size.is_some_and(|bytes| bytes > 0));
         assert_eq!(source.relation_size(FLAT_SCHEMA, "active").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn lists_triggers_and_foreign_keys_with_definitions() {
+        let path = fresh_file("triggers");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT);
+                 CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users ON DELETE CASCADE,
+                                      a INTEGER, b INTEGER,
+                                      FOREIGN KEY (a, b) REFERENCES pairs (x, y));
+                 CREATE TABLE pairs (x INTEGER, y INTEGER, PRIMARY KEY (x, y));
+                 CREATE TABLE audit (msg TEXT);
+                 CREATE TRIGGER orders_log AFTER INSERT ON orders BEGIN INSERT INTO audit VALUES ('x'); END;
+                 CREATE TRIGGER users_guard BEFORE UPDATE OF email ON users BEGIN SELECT 1; END;",
+            )
+            .unwrap();
+        let mut source = SqliteSource::connect(&server(path.to_str().unwrap()), "main")
+            .await
+            .unwrap();
+
+        let triggers = source.list_triggers(FLAT_SCHEMA, None).await.unwrap();
+        let summary: Vec<(&str, &str, &str, Vec<String>)> = triggers
+            .iter()
+            .map(|t| (t.name.as_str(), t.table.as_str(), t.timing.as_str(), t.events.clone()))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("orders_log", "orders", "AFTER", vec!["INSERT".to_string()]),
+                ("users_guard", "users", "BEFORE", vec!["UPDATE".to_string()]),
+            ]
+        );
+        assert_eq!(source.list_triggers(FLAT_SCHEMA, Some("users")).await.unwrap().len(), 1);
+
+        let keys = source.list_foreign_keys(FLAT_SCHEMA, Some("orders")).await.unwrap();
+        assert_eq!(keys.len(), 2);
+        let to_users = keys.iter().find(|key| key.ref_table == "users").unwrap();
+        // Sem coluna referenciada: a chave primária implícita
+        assert_eq!(to_users.columns, ["user_id"]);
+        assert!(to_users.ref_columns.is_empty());
+        assert_eq!(to_users.on_delete, "CASCADE");
+        let pair = keys.iter().find(|key| key.ref_table == "pairs").unwrap();
+        assert_eq!((pair.columns.as_slice(), pair.ref_columns.as_slice()),
+            (["a", "b"].map(String::from).as_slice(), ["x", "y"].map(String::from).as_slice())
+        );
+        assert!(source.list_foreign_keys(FLAT_SCHEMA, Some("audit")).await.unwrap().is_empty());
+
+        let target = |kind, name: &str, table: Option<&str>| ObjectRef {
+            kind,
+            schema: FLAT_SCHEMA.into(),
+            name: name.into(),
+            table: table.map(str::to_string),
+            signature: None,
+        };
+        let trigger = source
+            .definition(&target(ObjectKind::Trigger, "orders_log", Some("orders")))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(trigger.starts_with("CREATE TRIGGER orders_log AFTER INSERT ON orders"), "{trigger}");
+        let key = source
+            .definition(&target(ObjectKind::ForeignKey, &pair.name, Some("orders")))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            key.contains("FOREIGN KEY (\"a\", \"b\") REFERENCES \"pairs\" (\"x\", \"y\")"),
+            "{key}"
+        );
+        let missing = target(ObjectKind::ForeignKey, "fk_x_9", Some("orders"));
+        assert!(source.definition(&missing).await.unwrap().is_none());
+    }
+
+    #[test]
+    fn reads_trigger_headers() {
+        assert_eq!(
+            trigger_header("CREATE TRIGGER t INSTEAD OF DELETE ON v BEGIN SELECT 1; END"),
+            ("INSTEAD OF".to_string(), vec!["DELETE".to_string()])
+        );
+        // Sem momento, BEFORE; o UPDATE OF col conta como UPDATE; o corpo não entra
+        assert_eq!(
+            trigger_header("create trigger t update of a, b on x begin insert into y values (1); end"),
+            ("BEFORE".to_string(), vec!["UPDATE".to_string()])
+        );
     }
 
     #[tokio::test]

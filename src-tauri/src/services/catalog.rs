@@ -628,6 +628,18 @@ impl CatalogService {
                     .list_indexes(schema, table)
                     .await
                     .map(|list| list.into_iter().map(CatalogObject::Index).collect::<Vec<_>>()),
+                ObjectKind::Trigger => source
+                    .list_triggers(schema, table)
+                    .await
+                    .map(|list| list.into_iter().map(CatalogObject::Trigger).collect()),
+                ObjectKind::ForeignKey => source
+                    .list_foreign_keys(schema, table)
+                    .await
+                    .map(|list| list.into_iter().map(CatalogObject::ForeignKey).collect()),
+                ObjectKind::Sequence => source
+                    .list_sequences(schema)
+                    .await
+                    .map(|list| list.into_iter().map(CatalogObject::Sequence).collect()),
                 _ => source
                     .list_functions(schema)
                     .await

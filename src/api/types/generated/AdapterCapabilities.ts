@@ -89,8 +89,8 @@ queryLanguage: QueryLanguage,
  */
 structureFolders: Array<ObjectKind>, 
 /**
- * Pastas de objetos dentro de cada tabela (e view materializada), depois
- * da pasta das colunas: os índices vêm por relação (`catalog_objects`
- * com `table`), nunca do schema inteiro.
+ * Pastas de objetos dentro de cada tabela, depois da pasta das colunas
+ * (a view materializada só tem a de índices): vêm por relação
+ * (`catalog_objects` com `table`), nunca do schema inteiro.
  */
 relationFolders: Array<ObjectKind>, };

@@ -3,6 +3,7 @@ import {
   AiChat02Icon,
   Cancel01Icon,
   CommandIcon,
+  FileCodeIcon,
   Search01Icon,
   SourceCodeIcon,
   TableIcon,
@@ -16,13 +17,22 @@ import { Kbd } from '@/components/ui/kbd';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip } from '@/components/ui/tooltip/tooltip';
+import { DefinitionTab } from '@/features/definition-viewer/definition-tab';
 import { QueryEditorPanel } from '@/features/query-editor/query-editor-panel';
 import { TableBrowser } from '@/features/table-browser/table-browser';
 import { WindowControls } from '@/features/window-controls/window-controls';
 import { DB_TYPE_TEXT_COLOR } from '@/lib/db-defaults';
 import { customTitlebar, shortcut } from '@/lib/platform';
 import { cn } from '@/lib/utils';
+import type { WorkspaceTab } from '@/stores/tabs-store';
 import { useQueryTabs } from './use-query-tabs';
+
+/** Ícone de cada tipo de aba (a cor é a do banco) */
+const TAB_ICONS: Record<WorkspaceTab['kind'], typeof TableIcon> = {
+  query: SourceCodeIcon,
+  browse: TableIcon,
+  definition: FileCodeIcon,
+};
 
 /** Tab bar + active tab content (browse → TableBrowser, query → QueryEditorPanel) */
 export const QueryTabs = memo(() => {
@@ -127,7 +137,7 @@ export const QueryTabs = memo(() => {
               >
                 <TabsTrigger value={tab.id} className="gap-[7px] pr-7">
                   <HugeiconsIcon
-                    icon={tab.kind === 'browse' ? TableIcon : SourceCodeIcon}
+                    icon={TAB_ICONS[tab.kind]}
                     className={cn(
                       'size-[15px]',
                       dbType ? DB_TYPE_TEXT_COLOR[dbType] : 'text-fg-subtle',
@@ -200,6 +210,8 @@ export const QueryTabs = memo(() => {
           <ErrorBoundary area="nesta aba" resetKeys={[activeTab.id]}>
             {activeTab.kind === 'browse' ? (
               <TableBrowser tab={activeTab} />
+            ) : activeTab.kind === 'definition' ? (
+              <DefinitionTab tab={activeTab} />
             ) : (
               <QueryEditorPanel tab={activeTab} />
             )}

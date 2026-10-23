@@ -349,6 +349,32 @@ const connectionHandlers: Record<string, MockHandler> = {
     return true;
   },
 
+  /**
+   * O "Testar conexão" do formulário. Para ver as falhas no mock: porta 1
+   * recusa, senha `errada` falha a autenticação, host `lento` estoura o tempo;
+   * SQLite sem caminho não abre.
+   */
+  [RustCommand.TestServerInput]: async ({ input }: Args): Promise<void> => {
+    const server = input as ServerInput;
+    await new Promise(resolve => setTimeout(resolve, 500));
+    if (server.dbType === 'sqlite') {
+      if (!server.connectionUri?.trim())
+        throw new Error(
+          'Connection error: unable to open database file: Error code 14',
+        );
+      return;
+    }
+    if (server.host === 'lento') throw new Error('Connection timed out');
+    if (server.port === 1)
+      throw new Error(
+        'Connection error: Error occurred while creating a new object: error connecting to server: Connection refused (os error 61)',
+      );
+    if (server.password === 'errada')
+      throw new Error(
+        `Connection error: Error occurred while creating a new object: db error: FATAL: password authentication failed for user "${server.username}"`,
+      );
+  },
+
   [RustCommand.Disconnect]: (): void => undefined,
 
   /** Só o Postgres devolve stats; nos demais o trait default é `None` */

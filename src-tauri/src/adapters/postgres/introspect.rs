@@ -29,9 +29,10 @@ use tokio_postgres::types::{ToSql, Type};
 use tokio_postgres::{Client, Row};
 
 use crate::catalog::{
-    Catalog, CatalogSource, ColumnDetail, ColumnMatch, ColumnSpec, ForeignKey, FunctionKind, FunctionObject,
-    IndexObject, LoadState, NameScope, ObjectKind, ObjectRef, RelKind, RelationColumns, RelationDetail, SchemaDiff, SchemaHeader,
-    SourceCanceller, Strategy, SyncEvent, SyncReport, TableRecord,
+    Catalog, CatalogSource, ColumnDetail, ColumnMatch, ColumnSpec, ForeignKey, ForeignKeyObject, FunctionKind,
+    FunctionObject, IndexObject, LoadState, NameScope, ObjectKind, ObjectRef, RelKind, RelationColumns, RelationDetail,
+    SchemaDiff, SchemaHeader, SequenceObject, SourceCanceller, Strategy, SyncEvent, SyncReport, TableRecord,
+    TriggerObject,
 };
 use crate::error::{Error, Result};
 use crate::models::Server;
@@ -410,6 +411,157 @@ fn function_definition_sql(info: &ServerInfo) -> String {
          WHERE n.nspname = $1 AND p.proname = $2 AND pg_get_function_identity_arguments(p.oid) = $3",
         kind = prokind_expr(info),
     )
+}
+
+/// `pg_sequence` (o tipo e os parâmetros da sequence) só existe do PG 10 em diante.
+fn has_pg_sequence(info: &ServerInfo) -> bool {
+    info.flavor == Flavor::Postgres && info.version_num >= 100_000
+}
+
+/// A coluna dona de uma sequence (`c.oid`): `serial` (`deptype 'a'`) ou
+/// `identity` (`'i'`), como `tabela.coluna`.
+const SEQUENCE_OWNER_EXPR: &str = "(SELECT format('%s.%s', t.relname, a.attname)
+             FROM pg_depend d
+             JOIN pg_class t ON t.oid = d.refobjid
+             JOIN pg_attribute a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid
+             WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype IN ('a', 'i')
+             LIMIT 1)";
+
+/// Sequences de um schema (`$1`), com o tipo (PG 10+) e a coluna dona.
+fn sequences_sql(info: &ServerInfo) -> String {
+    let (data_type, join) = if has_pg_sequence(info) {
+        ("format_type(s.seqtypid, NULL)", "JOIN pg_sequence s ON s.seqrelid = c.oid")
+    } else {
+        ("'bigint'", "")
+    };
+    format!(
+        "SELECT c.relname::text, {data_type}, {SEQUENCE_OWNER_EXPR}
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         {join}
+         WHERE n.nspname = $1 AND {USER_SCHEMA} AND c.relkind = 'S'
+         ORDER BY c.relname COLLATE \"C\""
+    )
+}
+
+/// Triggers de um schema (`$1`), ou só os da relação `$2`, sem os internos
+/// (os que o Postgres cria para as chaves estrangeiras). `tgtype` é decodificado
+/// em [`trigger_timing`] e [`trigger_events`].
+fn triggers_sql() -> String {
+    format!(
+        "SELECT tg.tgname::text, t.relname::text, tg.tgtype::int4,
+                format('%I.%I', pn.nspname, p.proname), tg.tgenabled <> 'D'
+         FROM pg_trigger tg
+         JOIN pg_class t ON t.oid = tg.tgrelid
+         JOIN pg_namespace n ON n.oid = t.relnamespace
+         JOIN pg_proc p ON p.oid = tg.tgfoid
+         JOIN pg_namespace pn ON pn.oid = p.pronamespace
+         WHERE n.nspname = $1 AND {USER_SCHEMA} AND NOT tg.tgisinternal
+           AND ($2::text IS NULL OR t.relname = $2::text)
+         ORDER BY t.relname COLLATE \"C\", tg.tgname COLLATE \"C\""
+    )
+}
+
+/// Chaves estrangeiras que saem de um schema (`$1`) ou da relação `$2`: as
+/// colunas nas duas pontas na ordem da chave e as ações.
+fn foreign_keys_list_sql() -> String {
+    let columns = |key: &str, rel: &str| {
+        format!(
+            "ARRAY(SELECT a.attname::text
+                   FROM unnest(con.{key}) WITH ORDINALITY AS k(attnum, ord)
+                   JOIN pg_attribute a ON a.attrelid = con.{rel} AND a.attnum = k.attnum
+                   ORDER BY k.ord)"
+        )
+    };
+    format!(
+        "SELECT con.conname::text, t.relname::text, {from}, rn.nspname::text, r.relname::text, {to},
+                con.confdeltype::text, con.confupdtype::text
+         FROM pg_constraint con
+         JOIN pg_class t ON t.oid = con.conrelid
+         JOIN pg_namespace n ON n.oid = t.relnamespace
+         JOIN pg_class r ON r.oid = con.confrelid
+         JOIN pg_namespace rn ON rn.oid = r.relnamespace
+         WHERE con.contype = 'f' AND n.nspname = $1 AND {USER_SCHEMA}
+           AND ($2::text IS NULL OR t.relname = $2::text)
+         ORDER BY t.relname COLLATE \"C\", con.conname COLLATE \"C\"",
+        from = columns("conkey", "conrelid"),
+        to = columns("confkey", "confrelid"),
+    )
+}
+
+/// `CREATE SEQUENCE` com os parâmetros e, numa `serial`, o `OWNED BY` (PG 10+).
+const SEQUENCE_DEFINITION_SQL: &str = "SELECT format('CREATE SEQUENCE %I.%I AS %s INCREMENT BY %s MINVALUE %s MAXVALUE %s START WITH %s CACHE %s%s;',
+                  n.nspname, c.relname, format_type(s.seqtypid, NULL), s.seqincrement, s.seqmin,
+                  s.seqmax, s.seqstart, s.seqcache, CASE WHEN s.seqcycle THEN ' CYCLE' ELSE '' END)
+         || coalesce((SELECT format(E'\\nALTER SEQUENCE %I.%I OWNED BY %I.%I.%I;',
+                                    n.nspname, c.relname, tn.nspname, t.relname, a.attname)
+                      FROM pg_depend d
+                      JOIN pg_class t ON t.oid = d.refobjid
+                      JOIN pg_namespace tn ON tn.oid = t.relnamespace
+                      JOIN pg_attribute a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid
+                      WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'a'
+                      LIMIT 1), '')
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     JOIN pg_sequence s ON s.seqrelid = c.oid
+     WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'S'";
+
+/// `CREATE TRIGGER …` (`$1` schema, `$2` trigger, `$3` tabela).
+const TRIGGER_DEFINITION_SQL: &str = "SELECT pg_get_triggerdef(tg.oid, true)
+     FROM pg_trigger tg
+     JOIN pg_class t ON t.oid = tg.tgrelid
+     JOIN pg_namespace n ON n.oid = t.relnamespace
+     WHERE n.nspname = $1 AND tg.tgname = $2 AND t.relname = $3 AND NOT tg.tgisinternal";
+
+/// `ALTER TABLE … ADD CONSTRAINT … FOREIGN KEY …` (`$1` schema, `$2` constraint, `$3` tabela).
+const FOREIGN_KEY_DEFINITION_SQL: &str = "SELECT format('ALTER TABLE %I.%I ADD CONSTRAINT %I ', n.nspname, t.relname, con.conname)
+         || pg_get_constraintdef(con.oid, true)
+     FROM pg_constraint con
+     JOIN pg_class t ON t.oid = con.conrelid
+     JOIN pg_namespace n ON n.oid = t.relnamespace
+     WHERE n.nspname = $1 AND con.conname = $2 AND t.relname = $3 AND con.contype = 'f'";
+
+/// Bits do `pg_trigger.tgtype` (`include/catalog/pg_trigger.h`)
+const TRIGGER_BEFORE: i32 = 1 << 1;
+const TRIGGER_INSERT: i32 = 1 << 2;
+const TRIGGER_DELETE: i32 = 1 << 3;
+const TRIGGER_UPDATE: i32 = 1 << 4;
+const TRIGGER_TRUNCATE: i32 = 1 << 5;
+const TRIGGER_INSTEAD: i32 = 1 << 6;
+
+fn trigger_timing(tgtype: i32) -> &'static str {
+    if tgtype & TRIGGER_INSTEAD != 0 {
+        "INSTEAD OF"
+    } else if tgtype & TRIGGER_BEFORE != 0 {
+        "BEFORE"
+    } else {
+        "AFTER"
+    }
+}
+
+fn trigger_events(tgtype: i32) -> Vec<String> {
+    [
+        (TRIGGER_INSERT, "INSERT"),
+        (TRIGGER_UPDATE, "UPDATE"),
+        (TRIGGER_DELETE, "DELETE"),
+        (TRIGGER_TRUNCATE, "TRUNCATE"),
+    ]
+    .iter()
+    .filter(|(bit, _)| tgtype & bit != 0)
+    .map(|(_, event)| event.to_string())
+    .collect()
+}
+
+/// `confdeltype`/`confupdtype` → a ação como se escreve no SQL.
+fn foreign_key_action(code: &str) -> String {
+    match code {
+        "c" => "CASCADE",
+        "n" => "SET NULL",
+        "d" => "SET DEFAULT",
+        "r" => "RESTRICT",
+        _ => "NO ACTION",
+    }
+    .to_string()
 }
 
 fn function_kind(code: &str) -> FunctionKind {
@@ -1115,6 +1267,78 @@ impl Introspector {
             .collect()
     }
 
+    /// Sequences de um schema.
+    pub async fn list_sequences(&mut self, schema: &str) -> Result<Vec<SequenceObject>> {
+        let sql = sequences_sql(&self.info);
+        let rows = self
+            .read_rows(&sql, &[(&schema as &(dyn ToSql + Sync), Type::TEXT)])
+            .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(SequenceObject {
+                    name: row.try_get(0)?,
+                    data_type: row.try_get(1)?,
+                    owned_by: row.try_get(2)?,
+                })
+            })
+            .collect()
+    }
+
+    /// Triggers de um schema, ou de uma relação dele.
+    pub async fn list_triggers(&mut self, schema: &str, table: Option<&str>) -> Result<Vec<TriggerObject>> {
+        let rows = self
+            .read_rows(
+                &triggers_sql(),
+                &[
+                    (&schema as &(dyn ToSql + Sync), Type::TEXT),
+                    (&table as &(dyn ToSql + Sync), Type::TEXT),
+                ],
+            )
+            .await?;
+        rows.iter()
+            .map(|row| {
+                let tgtype: i32 = row.try_get(2)?;
+                Ok(TriggerObject {
+                    name: row.try_get(0)?,
+                    table: row.try_get(1)?,
+                    timing: trigger_timing(tgtype).to_string(),
+                    events: trigger_events(tgtype),
+                    function: row.try_get(3)?,
+                    enabled: row.try_get(4)?,
+                })
+            })
+            .collect()
+    }
+
+    /// Chaves estrangeiras que saem de um schema, ou de uma relação dele.
+    pub async fn list_foreign_keys(&mut self, schema: &str, table: Option<&str>) -> Result<Vec<ForeignKeyObject>> {
+        let rows = self
+            .read_rows(
+                &foreign_keys_list_sql(),
+                &[
+                    (&schema as &(dyn ToSql + Sync), Type::TEXT),
+                    (&table as &(dyn ToSql + Sync), Type::TEXT),
+                ],
+            )
+            .await?;
+        rows.iter()
+            .map(|row| {
+                let on_delete: String = row.try_get(6)?;
+                let on_update: String = row.try_get(7)?;
+                Ok(ForeignKeyObject {
+                    name: row.try_get(0)?,
+                    table: row.try_get(1)?,
+                    columns: row.try_get(2)?,
+                    ref_schema: row.try_get(3)?,
+                    ref_table: row.try_get(4)?,
+                    ref_columns: row.try_get(5)?,
+                    on_delete: foreign_key_action(&on_delete),
+                    on_update: foreign_key_action(&on_update),
+                })
+            })
+            .collect()
+    }
+
     /// Colunas de um schema pelo nome (ver [`CatalogSource::search_columns`]).
     pub async fn search_columns(&mut self, schema: &str, pattern: &str, limit: usize) -> Result<Vec<ColumnMatch>> {
         let sql = search_columns_sql(&self.info.caps);
@@ -1155,18 +1379,24 @@ impl Introspector {
 
     /// A definição completa de uma view, índice ou função, terminada em `;`.
     pub async fn definition(&mut self, target: &ObjectRef) -> Result<Option<String>> {
+        // O terceiro parâmetro: a assinatura (função) ou a tabela (trigger, FK)
         let signature = target.signature.clone().unwrap_or_default();
-        let (sql, with_signature) = match target.kind {
-            ObjectKind::View | ObjectKind::MaterializedView => (VIEW_DEFINITION_SQL.to_string(), false),
-            ObjectKind::Index => (INDEX_DEFINITION_SQL.to_string(), false),
-            ObjectKind::Function => (function_definition_sql(&self.info), true),
+        let table = target.table.clone().unwrap_or_default();
+        let (sql, third) = match target.kind {
+            ObjectKind::View | ObjectKind::MaterializedView => (VIEW_DEFINITION_SQL.to_string(), None),
+            ObjectKind::Index => (INDEX_DEFINITION_SQL.to_string(), None),
+            ObjectKind::Function => (function_definition_sql(&self.info), Some(&signature)),
+            ObjectKind::Sequence if !has_pg_sequence(&self.info) => return Ok(None),
+            ObjectKind::Sequence => (SEQUENCE_DEFINITION_SQL.to_string(), None),
+            ObjectKind::Trigger => (TRIGGER_DEFINITION_SQL.to_string(), Some(&table)),
+            ObjectKind::ForeignKey => (FOREIGN_KEY_DEFINITION_SQL.to_string(), Some(&table)),
         };
         let mut params: Vec<(&(dyn ToSql + Sync), Type)> = vec![
             (&target.schema as &(dyn ToSql + Sync), Type::TEXT),
             (&target.name as &(dyn ToSql + Sync), Type::TEXT),
         ];
-        if with_signature {
-            params.push((&signature as &(dyn ToSql + Sync), Type::TEXT));
+        if let Some(third) = third {
+            params.push((third as &(dyn ToSql + Sync), Type::TEXT));
         }
         let rows = self.read_rows(&sql, &params).await?;
         let Some(row) = rows.first() else {
@@ -1272,8 +1502,16 @@ impl CatalogSource for Introspector {
         Introspector::list_functions(self, schema).await
     }
 
-    async fn definition(&mut self, target: &ObjectRef) -> Result<Option<String>> {
-        Introspector::definition(self, target).await
+    async fn list_sequences(&mut self, schema: &str) -> Result<Vec<SequenceObject>> {
+        Introspector::list_sequences(self, schema).await
+    }
+
+    async fn list_triggers(&mut self, schema: &str, table: Option<&str>) -> Result<Vec<TriggerObject>> {
+        Introspector::list_triggers(self, schema, table).await
+    }
+
+    async fn list_foreign_keys(&mut self, schema: &str, table: Option<&str>) -> Result<Vec<ForeignKeyObject>> {
+        Introspector::list_foreign_keys(self, schema, table).await
     }
 
     async fn search_columns(&mut self, schema: &str, pattern: &str, limit: usize) -> Result<Vec<ColumnMatch>> {
@@ -1282,6 +1520,10 @@ impl CatalogSource for Introspector {
 
     async fn schema_comments(&mut self, schemas: &[String]) -> Result<Vec<(String, String)>> {
         Introspector::schema_comments(self, schemas).await
+    }
+
+    async fn definition(&mut self, target: &ObjectRef) -> Result<Option<String>> {
+        Introspector::definition(self, target).await
     }
 
     fn canceller(&self) -> Box<dyn SourceCanceller> {
@@ -1657,6 +1899,137 @@ mod e2e {
         drop(source);
         admin
             .execute_statement(&format!("DROP DATABASE IF EXISTS {DATABASE} WITH (FORCE)"))
+            .await
+            .unwrap();
+    }
+
+    /// Sequences, triggers e chaves estrangeiras: listas e definições.
+    /// `cargo test --lib adapters::postgres::introspect -- --ignored`
+    #[tokio::test]
+    #[ignore = "requires local postgres on localhost:5432 (postgres/1234)"]
+    async fn e2e_sequences_triggers_and_foreign_keys() {
+        const DB: &str = "octapus_db_e2e_folders_more";
+        let admin = PostgresAdapter::new(&server(), "postgres").unwrap();
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DB} WITH (FORCE)"))
+            .await
+            .unwrap();
+        admin.execute_statement(&format!("CREATE DATABASE {DB}")).await.unwrap();
+        let setup = PostgresAdapter::new(&server(), DB).unwrap();
+        setup
+            .execute_transaction(
+                [
+                    "CREATE SCHEMA app",
+                    "CREATE TABLE app.customers (id serial PRIMARY KEY, name text)",
+                    "CREATE TABLE app.orders (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                                              customer_id int REFERENCES app.customers (id) ON DELETE CASCADE,
+                                              total numeric)",
+                    "CREATE SEQUENCE app.invoice_number AS integer INCREMENT BY 5 START WITH 100",
+                    "CREATE FUNCTION app.touch() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RETURN NEW; END'",
+                    "CREATE TRIGGER orders_touch BEFORE INSERT OR UPDATE ON app.orders
+                         FOR EACH ROW EXECUTE FUNCTION app.touch()",
+                    "CREATE TRIGGER orders_off AFTER DELETE ON app.orders FOR EACH STATEMENT EXECUTE FUNCTION app.touch()",
+                    "ALTER TABLE app.orders DISABLE TRIGGER orders_off",
+                ]
+                .map(String::from)
+                .to_vec(),
+            )
+            .await
+            .unwrap();
+        drop(setup);
+
+        let mut source = Introspector::connect(&server(), DB, IntrospectOptions::default())
+            .await
+            .unwrap();
+
+        let sequences = source.list_sequences("app").await.unwrap();
+        let listed: Vec<(&str, &str, Option<&str>)> = sequences
+            .iter()
+            .map(|s| (s.name.as_str(), s.data_type.as_str(), s.owned_by.as_deref()))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("customers_id_seq", "integer", Some("customers.id")),
+                ("invoice_number", "integer", None),
+                ("orders_id_seq", "bigint", Some("orders.id")),
+            ]
+        );
+
+        // Os triggers internos da FK ficam de fora
+        let triggers = source.list_triggers("app", Some("orders")).await.unwrap();
+        let listed: Vec<(&str, &str, Vec<String>, bool)> = triggers
+            .iter()
+            .map(|t| (t.name.as_str(), t.timing.as_str(), t.events.clone(), t.enabled))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("orders_off", "AFTER", vec!["DELETE".to_string()], false),
+                ("orders_touch", "BEFORE", vec!["INSERT".to_string(), "UPDATE".to_string()], true),
+            ]
+        );
+        assert_eq!(triggers[1].function.as_deref(), Some("app.touch"));
+        assert!(source.list_triggers("app", Some("customers")).await.unwrap().is_empty());
+
+        let keys = source.list_foreign_keys("app", Some("orders")).await.unwrap();
+        assert_eq!(keys.len(), 1);
+        let key = &keys[0];
+        assert_eq!(key.name, "orders_customer_id_fkey");
+        assert_eq!(key.columns, ["customer_id"]);
+        assert_eq!((key.ref_schema.as_str(), key.ref_table.as_str()), ("app", "customers"));
+        assert_eq!(key.ref_columns, ["id"]);
+        assert_eq!((key.on_delete.as_str(), key.on_update.as_str()), ("CASCADE", "NO ACTION"));
+        assert!(source.list_foreign_keys("app", Some("customers")).await.unwrap().is_empty());
+
+        let object = |kind, name: &str, table: Option<&str>| ObjectRef {
+            kind,
+            schema: "app".into(),
+            name: name.into(),
+            table: table.map(str::to_string),
+            signature: None,
+        };
+        let sequence = source
+            .definition(&object(ObjectKind::Sequence, "customers_id_seq", None))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            sequence.starts_with("CREATE SEQUENCE app.customers_id_seq AS integer INCREMENT BY 1"),
+            "{sequence}"
+        );
+        assert!(
+            sequence.contains("\nALTER SEQUENCE app.customers_id_seq OWNED BY app.customers.id;"),
+            "{sequence}"
+        );
+        let trigger = source
+            .definition(&object(ObjectKind::Trigger, "orders_touch", Some("orders")))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            trigger.starts_with("CREATE TRIGGER orders_touch BEFORE INSERT OR UPDATE ON app.orders"),
+            "{trigger}"
+        );
+        let foreign = source
+            .definition(&object(ObjectKind::ForeignKey, "orders_customer_id_fkey", Some("orders")))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            foreign,
+            "ALTER TABLE app.orders ADD CONSTRAINT orders_customer_id_fkey \
+             FOREIGN KEY (customer_id) REFERENCES app.customers(id) ON DELETE CASCADE;\n"
+        );
+        assert!(source
+            .definition(&object(ObjectKind::Trigger, "orders_touch", Some("customers")))
+            .await
+            .unwrap()
+            .is_none());
+
+        drop(source);
+        admin
+            .execute_statement(&format!("DROP DATABASE IF EXISTS {DB} WITH (FORCE)"))
             .await
             .unwrap();
     }

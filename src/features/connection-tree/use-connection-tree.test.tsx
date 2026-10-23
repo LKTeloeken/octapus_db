@@ -11,6 +11,7 @@ import {
 import type { DatabaseType, Server } from '@/api/types/server.types';
 import { encodeNodeId, groupNodeId } from '@/lib/node-ref';
 import { CAPABILITIES } from '@/mocks/data';
+import { useTabsStore } from '@/stores/tabs-store';
 import { queryKeys } from '@/queries/keys';
 import { CATALOG_PAGE_SIZE } from '@/queries/use-catalog';
 import { useTreeStore } from '@/stores/tree-store';
@@ -324,10 +325,12 @@ describe('useConnectionTree com catálogo', () => {
 
     const tree = rows(queryClient);
     const at = tree.findIndex(row => row.id === parent);
-    expect(tree.slice(at, at + 5).map(describeRow)).toEqual([
+    expect(tree.slice(at, at + 7).map(describeRow)).toEqual([
       'table:event_log',
       'folder:Colunas',
       'folder:Índices',
+      'folder:Triggers',
+      'folder:Chaves estrangeiras',
       'folder:Partições',
       'table:event_log_p1',
     ]);
@@ -336,7 +339,7 @@ describe('useConnectionTree com catálogo', () => {
     const partition = nodes.find(row => row.props.name === 'event_log_p1')!;
     expect(log.props.relationKind).toBe('partitioned');
     expect(partition.props.level).toBe(log.props.level + 2);
-    const folderRow = tree[at + 3];
+    const folderRow = tree[at + 5];
     expect(folderRow.variant === 'node' && folderRow.props.subLabel).toBe('2');
   });
 
@@ -366,6 +369,9 @@ describe('useConnectionTree com catálogo', () => {
     expect(describeRow(tree[dbIndex + 1])).toBe(
       'error:Connection error: timeout',
     );
+    // Falha de conexão: os detalhes levam a "Editar servidor"
+    const error = tree[dbIndex + 1];
+    expect(error.variant === 'error' && typeof error.onEdit).toBe('function');
   });
 
   it('sem schema (SQLite): pastas direto sob o database, do schema sem nome', () => {
@@ -924,7 +930,7 @@ describe('useConnectionTree: pastas de tabelas, colunas, views, índices e funç
 
   const objects = (
     queryClient: QueryClient,
-    kind: 'index' | 'function',
+    kind: CatalogObject['kind'],
     data: CatalogPage<CatalogObject>,
     table: string | null = null,
     server = PG,
@@ -1046,6 +1052,81 @@ describe('useConnectionTree: pastas de tabelas, colunas, views, índices e funç
     expect(filter.variant === 'filter' && filter.placeholder).toBe(
       'Filtrar índices',
     );
+  });
+
+  it('triggers e chaves estrangeiras na tabela, e a FK abre a referenciada', () => {
+    treeState([
+      serverNode,
+      dbNode,
+      schema,
+      folder('tables'),
+      orders,
+      ordersFolder('trigger'),
+      ordersFolder('foreignKey'),
+    ]);
+    const queryClient = pgClient();
+    objects(
+      queryClient,
+      'trigger',
+      objectPage([
+        {
+          kind: 'trigger',
+          name: 'orders_audit',
+          table: 'orders',
+          timing: 'BEFORE',
+          events: ['UPDATE', 'DELETE'],
+          function: 'app.audit',
+          enabled: false,
+        },
+      ]),
+      'orders',
+    );
+    objects(
+      queryClient,
+      'foreignKey',
+      objectPage([
+        {
+          kind: 'foreignKey',
+          name: 'orders_customer_id_fkey',
+          table: 'orders',
+          columns: ['customer_id'],
+          refSchema: 'crm',
+          refTable: 'customers',
+          refColumns: ['id'],
+          onDelete: 'CASCADE',
+          onUpdate: 'NO ACTION',
+        },
+      ]),
+      'orders',
+    );
+
+    const tree = afterSchema(rows(queryClient));
+    expect(tree.slice(1, 8).map(describeRow)).toEqual([
+      'table:orders',
+      'folder:Colunas',
+      'folder:Índices',
+      'folder:Triggers',
+      'trigger:orders_audit',
+      'folder:Chaves estrangeiras',
+      'foreignKey:orders_customer_id_fkey',
+    ]);
+    const [trigger, key] = [tree[5], tree[7]];
+    expect(trigger.variant === 'node' && trigger.props.subLabel).toBe(
+      'BEFORE UPDATE OR DELETE · app.audit · desligado',
+    );
+    expect(key.variant === 'node' && key.props.subLabel).toBe(
+      '(customer_id) → customers(id) · ON DELETE CASCADE',
+    );
+    expect(
+      key.variant === 'node' && key.props.actions?.map(action => action.label),
+    ).toEqual(['Abrir tabela referenciada', 'Ver definição']);
+    // Abrir a referenciada leva o schema dela, não o da tabela
+    if (key.variant === 'node') key.props.actions?.[0].onSelect();
+    const opened = Array.from(useTabsStore.getState().tabs.values()).pop();
+    expect(opened?.kind === 'browse' && [opened.schema, opened.table]).toEqual([
+      'crm',
+      'customers',
+    ]);
   });
 
   it('funções com assinatura, retorno, tipo e linguagem; sobrecargas distintas', () => {

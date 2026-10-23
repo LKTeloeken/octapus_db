@@ -23,6 +23,7 @@ export enum RustCommand {
   // Connection
   Connect = 'connect',
   TestConnection = 'test_connection',
+  TestServerInput = 'test_server_input',
   Disconnect = 'disconnect',
   GetPoolStats = 'get_pool_stats',
   GetCapabilities = 'get_capabilities',

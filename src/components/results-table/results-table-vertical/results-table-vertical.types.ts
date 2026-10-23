@@ -48,4 +48,6 @@ export interface ResultsTableVerticalProps {
   hasMore?: boolean;
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
+  /** Teclas com o foco na vista (o Tab que volta para a tabela) */
+  onKeyDown?: (event: React.KeyboardEvent) => void;
 }

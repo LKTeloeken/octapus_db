@@ -18,9 +18,17 @@ export interface NodeRowAction {
 
 /**
  * Os nós do catálogo, o grupo de servidores (acima do servidor) e os itens
- * das pastas que não são relações (índice, função)
+ * das pastas que não são relações (índice, função, sequence, trigger, chave
+ * estrangeira)
  */
-export type NodeRowKind = NodeKind | 'group' | 'index' | 'function';
+export type NodeRowKind =
+  | NodeKind
+  | 'group'
+  | 'index'
+  | 'function'
+  | 'sequence'
+  | 'trigger'
+  | 'foreignKey';
 
 /**
  * O que uma pasta da árvore guarda: objetos do catálogo (views, índices,

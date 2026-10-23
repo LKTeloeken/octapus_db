@@ -40,6 +40,7 @@ export const ResultsTableVertical = memo(
     hasMore,
     isLoadingMore,
     onLoadMore,
+    onKeyDown,
   }: ResultsTableVerticalProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -97,7 +98,13 @@ export const ResultsTableVertical = memo(
     return (
       <div
         ref={containerRef}
-        className="relative h-full w-full overflow-auto scrollbar-thin"
+        // Focável para o Tab que troca a visualização (`ResultsTable`)
+        data-results-view="vertical"
+        role="grid"
+        aria-label="Resultados na vertical"
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        className="relative h-full w-full overflow-auto scrollbar-thin outline-none"
       >
         {/* Header: pinned corner + one label per visible record */}
         <div

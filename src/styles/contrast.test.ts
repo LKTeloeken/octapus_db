@@ -155,6 +155,24 @@ function pairs(): Pair[] {
       composite(t('surface-3'), t('danger-soft')),
       TEXT_AA,
     );
+    // Detalhes de um erro (diálogo do servidor, popover da árvore): mensagem
+    // em --fg e ações ghost em --fg-muted sobre --danger-soft na superfície 3
+    for (const text of ['fg', 'fg-muted']) {
+      add(
+        `--${text}`,
+        t(text),
+        'surface-3 + danger-soft',
+        composite(t('surface-3'), t('danger-soft')),
+        TEXT_AA,
+      );
+      add(
+        `--${text}`,
+        t(text),
+        'surface-3 + danger-soft + hover',
+        composite(t('surface-3'), t('danger-soft'), t('hover')),
+        TEXT_AA,
+      );
+    }
 
     // Assistente: avisos (recorte, código não executado, falha) em --fg sobre
     // o -soft, ícone no sólido; menção (fundo --active) no campo e na pergunta

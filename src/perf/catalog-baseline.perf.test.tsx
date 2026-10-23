@@ -83,8 +83,8 @@ const CAPABILITIES: AdapterCapabilities = {
   supportsAssistant: true,
   assistantSampleValues: false,
   queryLanguage: 'sql',
-  structureFolders: ['view', 'materializedView', 'function'],
-  relationFolders: ['index'],
+  structureFolders: ['view', 'materializedView', 'function', 'sequence'],
+  relationFolders: ['index', 'trigger', 'foreignKey'],
 };
 
 const COLUMNS: ColumnInfo[] = [

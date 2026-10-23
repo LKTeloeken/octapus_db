@@ -122,6 +122,7 @@ pub fn run() {
             commands::connect,
             commands::disconnect,
             commands::test_connection,
+            commands::test_server_input,
             commands::get_pool_stats,
             // Queries
             commands::execute_query,

@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { BackupRequest, RestoreRequest } from '@/api/types/backup.types';
 import type { SortSpec } from '@/api/types/browse.types';
-import type { CatalogPath } from '@/api/types/catalog.types';
+import type { CatalogObjectRef, CatalogPath } from '@/api/types/catalog.types';
 import type { StructureChange } from '@/api/types/structure.types';
 
 /** Identidade de um nó do catálogo dentro da key (`\u0000` não aparece em nomes) */
@@ -142,6 +142,24 @@ export const queryKeys = {
       kind,
       table,
       { filter, limit },
+    ] as const,
+
+  /** A definição de um objeto (a aba de definição) */
+  catalogDefinition: (
+    serverId: number,
+    database: string,
+    target: CatalogObjectRef,
+  ) =>
+    [
+      'catalog',
+      serverId,
+      database,
+      'definition',
+      target.kind,
+      target.schema,
+      target.table ?? null,
+      target.name,
+      target.signature ?? null,
     ] as const,
 
   /** Tamanho exato de uma relação (sob demanda: só da tabela aberta) */
