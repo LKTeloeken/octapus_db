@@ -45,6 +45,10 @@ tsconfig.tsbuildinfo
 # src-tauri/.cargo/config.toml continua versionado
 /.cargo/
 
+# Playwright (pnpm test:e2e): relatório, traces e vídeos de cada execução
+playwright-report/
+test-results/
+
 # Medições de desempenho (perf/catalog): dados brutos de cada máquina, regerados
 # pelos testes `perf::` e `pnpm perf:front` — os relatórios (*.md) ficam versionados
 perf/catalog/results/

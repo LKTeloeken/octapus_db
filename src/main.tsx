@@ -20,11 +20,11 @@ if (!container) {
 /**
  * Em `pnpm dev:mock` o backend Rust não existe: o IPC simulado precisa estar
  * instalado antes do primeiro render, senão as queries iniciais já falham.
- * Em produção `VITE_MOCK` é `undefined`, o `if` vira código morto e o
- * `import()` some do bundle.
+ * O modo vem do `--mode mock` do script, sem arquivo `.env`: em `pnpm build` o
+ * `MODE` é `production`, o `if` vira código morto e o `import()` some do bundle.
  */
 async function bootstrap() {
-  if (import.meta.env.VITE_MOCK === 'true') {
+  if (import.meta.env.MODE === 'mock') {
     const { installMocks } = await import('@/mocks/install');
     installMocks();
   }

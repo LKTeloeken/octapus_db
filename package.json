@@ -13,10 +13,12 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint . && node scripts/check-design-tokens.mjs",
     "lint:tokens": "node scripts/check-design-tokens.mjs",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"*.{ts,js,json}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"*.{ts,js,json}\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"e2e/**/*.ts\" \"*.{ts,js,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"e2e/**/*.ts\" \"*.{ts,js,json}\"",
     "gen:types": "rm -rf src/api/types/generated && cd src-tauri && cargo test --lib export_bindings -q",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "perf:front": "OCTAPUS_PERF=1 vitest run",
     "release:version": "node scripts/release-version.mjs"
   },
@@ -76,6 +78,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9",
+    "@playwright/test": "1.64.1",
     "@tauri-apps/cli": "^2.11.5",
     "@types/node": "^22.15.3",
     "@types/react": "^19.1.2",

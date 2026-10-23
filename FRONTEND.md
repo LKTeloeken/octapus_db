@@ -451,8 +451,9 @@ telas sem compilar o backend. O mock é instalado no **IPC** (`mockIPC` do
 `@tauri-apps/api/mocks`), então `api/`, `queries/` e as features rodam idênticas ao
 produção — inclusive o `Channel` de mensagens e o plugin de updater.
 
-- Liga por `VITE_MOCK` (arquivo `.env.mock`); em `pnpm build` a variável não existe e o
-  `import()` de `src/mocks/` é eliminado do bundle.
+- Liga pelo modo do Vite (`--mode mock` ⇒ `import.meta.env.MODE === 'mock'`), sem arquivo
+  `.env`; em `pnpm build` o modo é `production` e o `import()` de `src/mocks/` é eliminado
+  do bundle.
 - Porta própria ⇒ origin própria ⇒ `localStorage` e IndexedDB isolados do app real.
 - Badge **MOCK** no canto controla latência, injeção de erro, respostas vazias e reset
   dos dados — para desenhar loading, erro e empty state sem editar código.
@@ -476,6 +477,29 @@ produção — inclusive o `Channel` de mensagens e o plugin de updater.
   "explique" ou "diferença" dão uma resposta em texto (com um bloco SQL); "futebol",
   "receita" ou "piada", a recusa fora do tema; "estrutura" faz a primeira tentativa
   pedir estrutura (com um nome `fantasma` que não existe) antes da consulta.
+
+### Testes de ponta a ponta (`e2e/`)
+
+O [Playwright](https://playwright.dev) roda o app inteiro sobre o mock, num navegador de
+verdade — **WebKit** (o motor do WKWebView do macOS) e **Chromium** (perto do WebView2) —
+com clique e teclado reais. Substitui o teste "na mão" de fluxos que o Vitest não
+alcança (troca de abas, editor, grade, filtro).
+
+```
+pnpm test:e2e      # headless, os dois navegadores; sobe o dev:mock (ou reusa o aberto)
+pnpm test:e2e:ui   # interface: roda um caso e mostra cada passo com o DOM daquele momento
+pnpm exec playwright codegen localhost:1430   # grava os cliques e gera o código
+pnpm exec playwright show-report              # relatório da última execução
+```
+
+- Na primeira vez: `pnpm exec playwright install chromium webkit`.
+- Cada teste abre num contexto limpo. `openApp` ([e2e/fixtures.ts](e2e/fixtures.ts))
+  semeia as abas pela sessão do mock e zera a latência; `readEditor` lê o `EditorView`
+  do CodeMirror (doc, seleção, rolagem).
+- Para erro, vazio e latência, o mock expõe `window.__octapusMock` (`store`, `emit`,
+  `reset`) — o mesmo do painel, sem clicar nele.
+- Falhou? O relatório traz screenshot, vídeo e o trace do caso.
+- Achou um bug que só se via na mão? Escreva o caso em `e2e/` antes da correção.
 
 **Regra de manutenção:** comando novo no backend ⇒ handler novo em
 `src/mocks/handlers.ts`, na mesma lista do `RustCommand`. Sem handler o mock rejeita
@@ -512,6 +536,7 @@ dizendo qual comando falta. Detalhes e receitas em
   estrutura ARIA de grid/tree/listbox). `no-autofocus` está desligado: só há autoFocus em
   campo que o usuário acabou de abrir. `pnpm format` / `pnpm format:check` (Prettier;
   os tipos gerados ficam de fora pelo `.prettierignore`).
+- Mexeu em fluxo de tela coberto por `e2e/` (abas, editor)? Rode `pnpm test:e2e`.
 - Rode `pnpm type-check` e `pnpm lint` antes de concluir mudanças no front, e `pnpm test` (Vitest) —
   hooks testados com `renderToString`: o zustand lê o estado **inicial** da store no SSR,
   então os testes preenchem `useTreeStore.getInitialState()`.

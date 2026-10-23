@@ -14,9 +14,9 @@ IndexedDB ficam isolados — mexer no mock não contamina o app real.
 
 ## Como funciona
 
-`src/main.tsx` só carrega esta pasta quando `import.meta.env.VITE_MOCK === 'true'`
-(definido em `.env.mock`). Em `pnpm build` a variável não existe, o `if` vira código morto
-e o `import()` some do bundle.
+`src/main.tsx` só carrega esta pasta quando `import.meta.env.MODE === 'mock'` (o
+`--mode mock` do script, sem arquivo `.env`). Em `pnpm build` o modo é `production`, o
+`if` vira código morto e o `import()` some do bundle.
 
 `installMocks()` chama o `mockIPC` oficial do `@tauri-apps/api/mocks`, que preenche
 `window.__TAURI_INTERNALS__.invoke` e `.transformCallback`. Com isso funcionam sem o Rust:

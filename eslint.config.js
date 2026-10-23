@@ -10,9 +10,23 @@ import tseslint from 'typescript-eslint';
  * que o compilador não vê: regras dos hooks e acessibilidade.
  */
 export default tseslint.config(
-  { ignores: ['dist', 'src-tauri', 'node_modules', 'perf'] },
   {
-    files: ['src/**/*.{ts,tsx}', '*.config.{js,ts}', 'scripts/**/*.mjs'],
+    ignores: [
+      'dist',
+      'src-tauri',
+      'node_modules',
+      'perf',
+      'playwright-report',
+      'test-results',
+    ],
+  },
+  {
+    files: [
+      'src/**/*.{ts,tsx}',
+      'e2e/**/*.ts',
+      '*.config.{js,ts}',
+      'scripts/**/*.mjs',
+    ],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
       ecmaVersion: 2022,

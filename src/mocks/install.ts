@@ -1,10 +1,33 @@
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import { mockCatalog } from './catalog';
+import { resetDataset } from './data';
 import { MockDevPanel } from './dev-panel';
+import { mockEmit } from './events';
+import { useMockStore } from './mock-store';
 import { route } from './router';
 
 const PANEL_ID = 'octapus-mock-panel';
+
+/**
+ * Controle do mock para os testes de ponta a ponta (e2e/, Playwright): o mesmo
+ * que o painel faz, sem precisar clicar nele.
+ */
+export interface MockControl {
+  /** Latência, injeção de erro, modo vazio, update fake */
+  store: typeof useMockStore;
+  /** Dispara um evento global, como o `emit` do Rust */
+  emit: typeof mockEmit;
+  /** Volta o dataset e o catálogo ao estado inicial */
+  reset: () => void;
+}
+
+declare global {
+  interface Window {
+    __octapusMock?: MockControl;
+  }
+}
 
 /**
  * Instala o backend simulado no nível do IPC.
@@ -25,6 +48,15 @@ export function installMocks(): void {
   );
   // `getCurrentWindow()` (barra de título) lê a janela atual dos metadados.
   mockWindows('main');
+
+  window.__octapusMock = {
+    store: useMockStore,
+    emit: mockEmit,
+    reset: () => {
+      resetDataset();
+      mockCatalog.reset();
+    },
+  };
 
   mountDevPanel();
 
