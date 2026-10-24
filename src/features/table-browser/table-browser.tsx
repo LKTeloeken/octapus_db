@@ -72,8 +72,12 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
   } = useTableBrowser(tab);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-lg border border-line bg-surface-1">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line-subtle pr-2 pl-3">
+    // `overflow-clip`, não `hidden`: o foco no filtro não pode rolar o painel
+    // por dentro (sumia o breadcrumb, sem barra para voltar)
+    <div className="flex h-full flex-col overflow-clip rounded-lg border border-line bg-surface-1">
+      {/* A barra encolhe pela largura do painel (container query), não da
+          janela: primeiro somem servidor e schema, depois os rótulos dos botões */}
+      <div className="@container flex h-11 shrink-0 items-center gap-2 border-b border-line-subtle pr-2 pl-3">
         <nav
           aria-label="Local"
           className="flex min-w-0 shrink-0 items-center gap-1.5 text-body text-fg-subtle"
@@ -85,13 +89,20 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
               dbType ? DB_TYPE_TEXT_COLOR[dbType] : 'text-fg-subtle',
             )}
           />
-          <span className="max-w-40 truncate">{serverName}</span>
-          <Crumb />
-          <span className="max-w-32 truncate">
-            {tab.schema ?? tab.database}
+          <span className="flex items-center gap-1.5 @max-3xl:hidden">
+            <span className="max-w-40 truncate">{serverName}</span>
+            <Crumb />
           </span>
-          <Crumb />
-          <span className="max-w-48 truncate font-medium text-fg">
+          <span className="flex items-center gap-1.5 @max-xl:hidden">
+            <span className="max-w-32 truncate">
+              {tab.schema ?? tab.database}
+            </span>
+            <Crumb />
+          </span>
+          <span
+            className="max-w-32 truncate font-medium text-fg @2xl:max-w-48"
+            title={tab.table}
+          >
             {tab.table}
           </span>
         </nav>
@@ -129,7 +140,7 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
             onClick={toggleValuePanel}
           >
             <HugeiconsIcon icon={PanelRightIcon} />
-            Valor
+            <span className="@max-2xl:sr-only">Valor</span>
           </Button>
         </Tooltip>
 

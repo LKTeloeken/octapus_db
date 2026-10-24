@@ -10,6 +10,9 @@ import { defineConfig, devices } from '@playwright/test';
  */
 const ci = !!process.env.CI;
 
+/** Menor janela do app (`minWidth`/`minHeight` no src-tauri/tauri.conf.json) */
+const MIN_WINDOW = { width: 720, height: 480 };
+
 export default defineConfig({
   testDir: 'e2e',
   fullyParallel: true,
@@ -25,6 +28,14 @@ export default defineConfig({
   projects: [
     { name: 'webkit', use: { ...devices['Desktop Safari'] } },
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // A suíte inteira também na menor janela que o app aceita (minWidth/
+    // minHeight do tauri.conf.json). O responsive.spec escolhe os próprios
+    // tamanhos e roda só nos dois de cima.
+    {
+      name: 'chromium-min-window',
+      use: { ...devices['Desktop Chrome'], viewport: MIN_WINDOW },
+      testIgnore: /responsive\.spec\.ts/,
+    },
   ],
   webServer: {
     command: 'pnpm dev:mock',

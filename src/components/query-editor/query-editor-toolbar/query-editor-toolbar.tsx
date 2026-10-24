@@ -25,7 +25,8 @@ export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
     const runKey = useShortcutLabel('editor.run');
 
     return (
-      <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line-subtle px-2">
+      // `@container`: a dica some quando a barra (não a janela) fica estreita
+      <div className="@container flex h-11 shrink-0 items-center gap-1.5 border-b border-line-subtle px-2">
         <Button size="sm" onClick={onRun} disabled={disabled || isLoading}>
           {isLoading ? (
             <Spinner className="size-4" />
@@ -53,7 +54,7 @@ export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
 
         <span className="flex-1" />
 
-        <span className="shrink-0 pr-1 text-small text-fg-subtle">
+        <span className="shrink-0 pr-1 text-small text-fg-subtle @max-xl:hidden">
           Seleção executa só o trecho
         </span>
       </div>

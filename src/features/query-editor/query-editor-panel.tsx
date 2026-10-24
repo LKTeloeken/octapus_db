@@ -134,7 +134,7 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
             onValueChange={handleBottomTabChange}
             className="flex flex-col h-full gap-0"
           >
-            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line-subtle pr-1.5 pl-3.5">
+            <div className="@container flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line-subtle pr-1.5 pl-3.5">
               <TabsList>
                 <TabsTrigger value="results">Resultados</TabsTrigger>
                 <TabsTrigger value="messages">

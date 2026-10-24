@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DatabaseType } from '@/api/types/server.types';
 import { forgetEditorDocument } from '@/components/query-editor/query-editor/use-code-mirror-view';
 import { countPendingChanges } from '@/components/results-table/pending-changes';
@@ -81,6 +81,31 @@ export const useQueryTabs = () => {
     [],
   );
 
+  // A aba ativa fica sempre à vista: a lista rola ao trocar de aba e quando
+  // encolhe (janela, assistente). Rola só a lista — o `scrollIntoView` também
+  // rolaria os ancestrais com overflow escondido.
+  const tabListRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const list = tabListRef.current;
+    if (!list) return;
+    const reveal = () => {
+      const tab = list.querySelector<HTMLElement>(
+        '[role=tab][data-state=active]',
+      )?.parentElement;
+      if (!tab) return;
+      const bounds = list.getBoundingClientRect();
+      const rect = tab.getBoundingClientRect();
+      if (rect.left < bounds.left) list.scrollLeft -= bounds.left - rect.left;
+      else if (rect.right > bounds.right)
+        list.scrollLeft += rect.right - bounds.right;
+    };
+    reveal();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(reveal);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [activeTabId, tabsList.length]);
+
   // "+" da barra: nova consulta no mesmo servidor/banco da aba ativa.
   const newQueryTab = useCallback(() => {
     if (!activeTab) return;
@@ -123,6 +148,7 @@ export const useQueryTabs = () => {
 
   return {
     tabs: tabsList,
+    tabListRef,
     activeTab,
     activeTabId,
     dbTypeByServer,

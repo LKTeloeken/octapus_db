@@ -509,13 +509,19 @@ com clique e teclado reais. Substitui o teste "na mão" de fluxos que o Vitest n
 alcança (troca de abas, editor, grade, filtro).
 
 ```
-pnpm test:e2e      # headless, os dois navegadores; sobe o dev:mock (ou reusa o aberto)
+pnpm test:e2e      # headless, os dois navegadores + a janela mínima; sobe o dev:mock (ou reusa o aberto)
 pnpm test:e2e:ui   # interface: roda um caso e mostra cada passo com o DOM daquele momento
 pnpm exec playwright codegen localhost:1430   # grava os cliques e gera o código
 pnpm exec playwright show-report              # relatório da última execução
 ```
 
 - Na primeira vez: `pnpm exec playwright install chromium webkit`.
+- Telas pequenas: o projeto `chromium-min-window` roda a suíte inteira em 720×480, a
+  menor janela do app (`minWidth`/`minHeight` no `tauri.conf.json`), e o
+  [e2e/responsive.spec.ts](e2e/responsive.spec.ts) confere de 720 a 1040 px que nada
+  das barras, da árvore e da linha de abas some, fica cortado ou coberto, e que o
+  assistente abre na janela inteira abaixo de 1040 px (`COMPACT_WINDOW_PX`). As barras
+  encolhem pela largura do painel (`@container` do Tailwind), não da janela.
 - Cada teste abre num contexto limpo. `openApp` ([e2e/fixtures.ts](e2e/fixtures.ts))
   semeia as abas pela sessão do mock e zera a latência; `readEditor` lê o `EditorView`
   do CodeMirror (doc, seleção, rolagem); `grid` acha linhas e células da grade pelo ARIA

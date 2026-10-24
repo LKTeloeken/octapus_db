@@ -25,7 +25,7 @@ export const FilterInput = memo(
       <div
         className={cn(
           inputControlVariants({ size: 'sm' }),
-          'min-w-0 flex-1 cursor-text',
+          'min-w-40 flex-1 cursor-text',
         )}
       >
         <span className="flex shrink-0 items-center font-mono text-[11px] tracking-[0.04em] text-fg-subtle">

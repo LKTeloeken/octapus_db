@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useAssistantConversations } from '@/queries/use-assistant-conversations';
 import { useAssistantMe } from '@/queries/use-assistant-me';
 import { useAssistantStatus } from '@/queries/use-assistant-status';
+import { useCompactWindow } from '@/lib/window-size';
 import { useAssistantStore } from '@/stores/assistant-store';
 import { assistantGate, canCallApi } from './assistant-gate';
 import { useCloseConversation } from './use-assistant-shortcuts';
@@ -27,7 +28,9 @@ export const useAssistantPanel = () => {
   const closeTab = useCloseConversation();
   const newTab = useAssistantStore(state => state.newTab);
   const closePanel = useAssistantStore(state => state.closePanel);
-  const agentMode = useAssistantStore(state => state.agentMode);
+  // Janela compacta: modo agente sempre, sem como sair dele (só fechar)
+  const compact = useCompactWindow();
+  const agentMode = useAssistantStore(state => state.agentMode) || compact;
   const toggleAgentMode = useToggleAgentMode();
 
   // Os títulos vêm da lista do servidor (a API dá o título na 1ª pergunta)
@@ -74,6 +77,7 @@ export const useAssistantPanel = () => {
     newTab: useCallback(() => void newTab(), [newTab]),
     closePanel,
     agentMode,
+    canToggleAgentMode: !compact,
     toggleAgentMode,
     retry,
     isRetrying: status.isFetching || me.isFetching,

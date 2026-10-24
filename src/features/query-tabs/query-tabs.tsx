@@ -23,7 +23,10 @@ import { TableBrowser } from '@/features/table-browser/table-browser';
 import { WindowControls } from '@/features/window-controls/window-controls';
 import { DB_TYPE_TEXT_COLOR } from '@/lib/db-defaults';
 import { customTitlebar } from '@/lib/platform';
-import { useShortcutLabel } from '@/lib/keybindings/use-shortcuts';
+import {
+  useShortcutLabel,
+  withShortcut,
+} from '@/lib/keybindings/use-shortcuts';
 import { cn } from '@/lib/utils';
 import type { WorkspaceTab } from '@/stores/tabs-store';
 import { CloseTabDialog } from './close-tab-dialog';
@@ -36,10 +39,15 @@ const TAB_ICONS: Record<WorkspaceTab['kind'], typeof TableIcon> = {
   definition: FileCodeIcon,
 };
 
+/** Assistente e Comandos; na barra estreita só o ícone (padding simétrico) */
+const HEADER_BUTTON_CLASS =
+  'shrink-0 gap-2 border border-line pr-1.5 pl-2.5 text-small text-fg-subtle @max-2xl:px-2';
+
 /** Tab bar + active tab content (browse → TableBrowser, query → QueryEditorPanel) */
 export const QueryTabs = memo(() => {
   const {
     tabs,
+    tabListRef,
     activeTab,
     activeTabId,
     dbTypeByServer,
@@ -58,17 +66,22 @@ export const QueryTabs = memo(() => {
   const assistantKey = useShortcutLabel('assistant.togglePanel');
 
   const assistantButton = assistantAvailable && (
-    <Button
-      variant="ghost"
-      size="sm"
-      aria-pressed={assistantOpen}
-      className="shrink-0 gap-2 border border-line pr-1.5 pl-2.5 text-small text-fg-subtle"
-      onClick={toggleAssistant}
+    <Tooltip
+      content={withShortcut('Assistente', assistantKey)}
+      position="bottom"
     >
-      <HugeiconsIcon icon={AiChat02Icon} className="size-3.5" />
-      Assistente
-      {assistantKey && <Kbd>{assistantKey}</Kbd>}
-    </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-pressed={assistantOpen}
+        className={HEADER_BUTTON_CLASS}
+        onClick={toggleAssistant}
+      >
+        <HugeiconsIcon icon={AiChat02Icon} className="size-3.5" />
+        <span className="@max-2xl:sr-only">Assistente</span>
+        {assistantKey && <Kbd className="@max-2xl:hidden">{assistantKey}</Kbd>}
+      </Button>
+    </Tooltip>
   );
 
   if (tabs.length === 0) {
@@ -119,12 +132,15 @@ export const QueryTabs = memo(() => {
       onValueChange={setActiveTab}
       className="h-full w-full flex flex-col gap-1.5"
     >
-      {/* Também é a barra de título (ver Sidebar): o espaço livre arrasta. */}
+      {/* Também é a barra de título (ver Sidebar): o espaço livre arrasta.
+          Estreita (container query), Assistente e Comandos ficam só com o
+          ícone e as abas ganham o espaço. */}
       <div
         data-tauri-drag-region="deep"
-        className="flex h-9 shrink-0 items-center gap-1"
+        className="@container flex h-9 shrink-0 items-center gap-1"
       >
         <TabsList
+          ref={tabListRef}
           variant="document"
           className="min-w-0 shrink justify-start overflow-x-auto overflow-y-hidden no-scrollbar px-0.5"
         >
@@ -186,16 +202,21 @@ export const QueryTabs = memo(() => {
 
         {assistantButton}
 
-        <Button
-          variant="ghost"
-          size="sm"
-          className="shrink-0 gap-2 border border-line pr-1.5 pl-2.5 text-small text-fg-subtle"
-          onClick={openPalette}
+        <Tooltip
+          content={withShortcut('Comandos', paletteKey)}
+          position="bottom"
         >
-          <HugeiconsIcon icon={CommandIcon} className="size-3.5" />
-          Comandos
-          {paletteKey && <Kbd>{paletteKey}</Kbd>}
-        </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={HEADER_BUTTON_CLASS}
+            onClick={openPalette}
+          >
+            <HugeiconsIcon icon={CommandIcon} className="size-3.5" />
+            <span className="@max-2xl:sr-only">Comandos</span>
+            {paletteKey && <Kbd className="@max-2xl:hidden">{paletteKey}</Kbd>}
+          </Button>
+        </Tooltip>
 
         {customTitlebar === 'linux' && (
           <>

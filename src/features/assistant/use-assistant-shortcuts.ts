@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
+import { isCompactWindow } from '@/lib/window-size';
 import { useCancelAssistantTurn } from '@/queries/use-assistant-conversations';
 import { useAssistantStatus } from '@/queries/use-assistant-status';
 import { useAssistantStore } from '@/stores/assistant-store';
@@ -85,13 +86,16 @@ export const useAssistantShortcuts = () => {
   );
 
   // Uma aba de query aberta ou ativada (paleta, "Abrir no editor", "Ver
-  // definição") só se vê fora do modo agente: ele sai sozinho
+  // definição") só se vê fora do modo agente: ele sai sozinho. Na janela
+  // compacta não há modo sem ser o agente: o painel fecha (as conversas ficam)
   useEffect(
     () =>
       useTabsStore.subscribe((state, previous) => {
         if (state.activeTabId === previous.activeTabId) return;
-        const { agentMode, setAgentMode } = useAssistantStore.getState();
-        if (agentMode) setAgentMode(false);
+        const { panelOpen, agentMode, setAgentMode, closePanel } =
+          useAssistantStore.getState();
+        if (panelOpen && isCompactWindow()) closePanel();
+        else if (agentMode) setAgentMode(false);
       }),
     [],
   );

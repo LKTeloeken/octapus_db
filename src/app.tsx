@@ -14,12 +14,22 @@ import { CommandPalette } from '@/features/command-palette/command-palette';
 import { QueryTabs } from '@/features/query-tabs/query-tabs';
 import { Sidebar } from '@/features/sidebar/sidebar';
 import { UpdateNotifier } from '@/features/update-notifier/update-notifier';
+import { useMainGroupWidth, usePixelPanel } from '@/lib/panel-sizes';
 import { cn } from '@/lib/utils';
+import { useCompactWindow } from '@/lib/window-size';
 import { QueryProvider } from '@/providers/query-provider';
 import { useSyncKeybindings } from '@/queries/use-keybindings';
 import { useAssistantStore } from '@/stores/assistant-store';
 import { useUiStore } from '@/stores/ui-store';
 import { CustomToaster } from './components/Toaster';
+
+/** Painéis laterais em px (convertidos em % da largura atual, ver panel-sizes) */
+const SIDEBAR_MIN_PX = 200;
+const SIDEBAR_DEFAULT_PX = 240;
+const SIDEBAR_MAX_PERCENT = 50;
+const ASSISTANT_MIN_PX = 300;
+const ASSISTANT_DEFAULT_PX = 380;
+const ASSISTANT_MAX_PERCENT = 55;
 
 /** Os atalhos configurados (preferências) chegam ao store dos listeners */
 const KeybindingsSync = () => {
@@ -30,9 +40,22 @@ const KeybindingsSync = () => {
 const App = () => {
   const theme = useUiStore(state => state.theme);
   const assistantOpen = useAssistantStore(state => state.panelOpen);
+  // Em janela compacta não cabe o painel ao lado: o assistente é a janela toda
+  const compact = useCompactWindow();
   const agentMode = useAssistantStore(
-    state => state.panelOpen && state.agentMode,
+    state => state.panelOpen && (state.agentMode || compact),
   );
+  const groupWidth = useMainGroupWidth();
+  const sidebar = usePixelPanel(groupWidth, {
+    defaultPx: SIDEBAR_DEFAULT_PX,
+    minPx: SIDEBAR_MIN_PX,
+    maxPercent: SIDEBAR_MAX_PERCENT,
+  });
+  const assistant = usePixelPanel(groupWidth, {
+    defaultPx: ASSISTANT_DEFAULT_PX,
+    minPx: ASSISTANT_MIN_PX,
+    maxPercent: ASSISTANT_MAX_PERCENT,
+  });
 
   useEffect(() => {
     const root = document.documentElement;
@@ -60,9 +83,7 @@ const App = () => {
               <ResizablePanel
                 id="sidebar"
                 order={1}
-                defaultSize={20}
-                minSize={20}
-                maxSize={50}
+                {...sidebar.panelProps}
                 className="overflow-hidden rounded-lg border border-line bg-surface-1"
               >
                 <ErrorBoundary area="na barra lateral">
@@ -70,7 +91,10 @@ const App = () => {
                 </ErrorBoundary>
               </ResizablePanel>
 
-              <ResizableHandle className="cursor-col-resize! bg-transparent" />
+              <ResizableHandle
+                className="cursor-col-resize! bg-transparent"
+                onDragging={sidebar.onDragging}
+              />
 
               <ResizablePanel id="workspace" order={2}>
                 <QueryTabs />
@@ -80,13 +104,14 @@ const App = () => {
                 (fora do tabs-store, que vai para o disco — RN-01) */}
               {assistantOpen && !agentMode && (
                 <>
-                  <ResizableHandle className="cursor-col-resize! bg-transparent" />
+                  <ResizableHandle
+                    className="cursor-col-resize! bg-transparent"
+                    onDragging={assistant.onDragging}
+                  />
                   <ResizablePanel
                     id="assistant"
                     order={3}
-                    defaultSize={30}
-                    minSize={22}
-                    maxSize={55}
+                    {...assistant.panelProps}
                     className="overflow-hidden"
                   >
                     <ErrorBoundary area="no assistente">

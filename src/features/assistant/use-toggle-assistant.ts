@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { isCompactWindow } from '@/lib/window-size';
 import { useDbCapabilities } from '@/queries/use-capabilities';
 import { useServers } from '@/queries/use-servers';
 import {
@@ -48,18 +49,24 @@ export const useToggleAssistant = () => {
 
 /**
  * Entra ou sai do modo agente (botão do painel e `Cmd/Ctrl+Shift+J`). Com o
- * painel fechado, entrar abre o painel como o `Cmd/Ctrl+J`.
+ * painel fechado, entrar abre o painel como o `Cmd/Ctrl+J`. Na janela
+ * compacta o assistente aberto já é a janela toda: sair dele é fechar.
  */
 export const useToggleAgentMode = () => {
   const activeTarget = useActiveTabTarget();
   const setAgentMode = useAssistantStore(state => state.setAgentMode);
+  const closePanel = useAssistantStore(state => state.closePanel);
 
   return useCallback(() => {
     const { panelOpen, agentMode } = useAssistantStore.getState();
+    if (panelOpen && isCompactWindow()) {
+      closePanel();
+      return;
+    }
     if (panelOpen && agentMode) {
       setAgentMode(false);
       return;
     }
     setAgentMode(true, panelOpen ? undefined : activeTarget());
-  }, [activeTarget, setAgentMode]);
+  }, [activeTarget, setAgentMode, closePanel]);
 };

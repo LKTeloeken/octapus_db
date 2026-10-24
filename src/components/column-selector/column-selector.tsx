@@ -74,8 +74,9 @@ export const ColumnSelector = memo(
             title="Filtrar colunas (Cmd/Ctrl+Shift+H)"
           >
             <HugeiconsIcon icon={LayoutThreeColumnIcon} />
-            Colunas
-            <span className="tabular-nums text-fg-subtle">
+            {/* Numa barra estreita (container query do pai) fica só o ícone */}
+            <span className="@max-2xl:sr-only">Colunas</span>
+            <span className="tabular-nums text-fg-subtle @max-2xl:sr-only">
               {visibleCount}/{columns.length}
             </span>
           </Button>

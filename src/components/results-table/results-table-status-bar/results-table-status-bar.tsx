@@ -23,6 +23,8 @@ const VIEW_MODE_OPTIONS: SegmentedControlOption<ResultsViewMode>[] = [
 /**
  * Barra de status da grade (32 px): visualização, contagem e tempo à esquerda;
  * ações à direita. As pendências ficam na barra flutuante (ResultsTablePendingBar).
+ * Numa grade estreita (container query) somem o aviso de "mais resultados" e o
+ * tempo, e as ações ficam só com o ícone.
  */
 export const DataTableStatusBar = memo(
   ({
@@ -39,7 +41,7 @@ export const DataTableStatusBar = memo(
     onExport,
   }: DataTableStatusBarProps) => {
     return (
-      <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line-subtle bg-surface-1 pr-1.5 pl-2 text-small text-fg-muted">
+      <div className="@container flex h-8 shrink-0 items-center gap-3 border-t border-line-subtle bg-surface-1 pr-1.5 pl-2 text-small text-fg-muted">
         <Tooltip content="Trocar visualização (Tab nos resultados)">
           <SegmentedControl
             aria-label="Visualização"
@@ -57,7 +59,7 @@ export const DataTableStatusBar = memo(
         )}
 
         {executionTimeMs !== undefined && (
-          <span className="inline-flex items-center gap-1.5 font-mono text-[11px] whitespace-nowrap text-fg-subtle">
+          <span className="inline-flex items-center gap-1.5 font-mono text-[11px] whitespace-nowrap text-fg-subtle @max-md:hidden">
             <HugeiconsIcon icon={Clock01Icon} className="size-[13px]" />
             {executionTimeMs} ms
           </span>
@@ -72,7 +74,7 @@ export const DataTableStatusBar = memo(
           </span>
         )}
         {hasMore && !isLoadingMore && (
-          <span className="whitespace-nowrap text-fg-subtle">
+          <span className="whitespace-nowrap text-fg-subtle @max-2xl:hidden">
             Mais resultados disponíveis
           </span>
         )}
@@ -80,20 +82,24 @@ export const DataTableStatusBar = memo(
         <span className="flex-1" />
 
         {isEditable && (
-          <Button variant="ghost" size="xs" onClick={onAddRow}>
-            <HugeiconsIcon icon={Add01Icon} />
-            Nova linha
-          </Button>
+          <Tooltip content="Nova linha">
+            <Button variant="ghost" size="xs" onClick={onAddRow}>
+              <HugeiconsIcon icon={Add01Icon} />
+              <span className="@max-xl:sr-only">Nova linha</span>
+            </Button>
+          </Tooltip>
         )}
-        <Button
-          variant="ghost"
-          size="xs"
-          disabled={rowsLength === 0}
-          onClick={onExport}
-        >
-          <HugeiconsIcon icon={Download04Icon} />
-          Exportar
-        </Button>
+        <Tooltip content="Exportar">
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={rowsLength === 0}
+            onClick={onExport}
+          >
+            <HugeiconsIcon icon={Download04Icon} />
+            <span className="@max-xl:sr-only">Exportar</span>
+          </Button>
+        </Tooltip>
       </div>
     );
   },

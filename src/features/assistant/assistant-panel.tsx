@@ -60,6 +60,7 @@ export function AssistantPanel() {
     newTab,
     closePanel,
     agentMode,
+    canToggleAgentMode,
     toggleAgentMode,
     retry,
     isRetrying,
@@ -158,26 +159,28 @@ export function AssistantPanel() {
 
         {ready && !agentMode && <HistoryMenu />}
 
-        <Tooltip
-          content={
-            agentMode
-              ? withShortcut('Sair do modo agente', agentModeKey)
-              : withShortcut('Modo agente', agentModeKey)
-          }
-          position="bottom"
-        >
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={agentMode ? 'Sair do modo agente' : 'Modo agente'}
-            aria-pressed={agentMode}
-            onClick={toggleAgentMode}
+        {canToggleAgentMode && (
+          <Tooltip
+            content={
+              agentMode
+                ? withShortcut('Sair do modo agente', agentModeKey)
+                : withShortcut('Modo agente', agentModeKey)
+            }
+            position="bottom"
           >
-            <HugeiconsIcon
-              icon={agentMode ? ArrowShrink01Icon : ArrowExpand01Icon}
-            />
-          </Button>
-        </Tooltip>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={agentMode ? 'Sair do modo agente' : 'Modo agente'}
+              aria-pressed={agentMode}
+              onClick={toggleAgentMode}
+            >
+              <HugeiconsIcon
+                icon={agentMode ? ArrowShrink01Icon : ArrowExpand01Icon}
+              />
+            </Button>
+          </Tooltip>
+        )}
 
         <Tooltip content={withShortcut('Fechar', toggleKey)} position="bottom">
           <Button
