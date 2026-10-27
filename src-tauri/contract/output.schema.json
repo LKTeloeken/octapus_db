@@ -12,23 +12,24 @@
     "explanation",
     "assumptions",
     "clarificationQuestion",
-    "structureRequest"
+    "structureRequest",
+    "choices"
   ],
   "properties": {
     "kind": {
-      "description": "query = consulta de leitura que responde à pergunta; code = qualquer outro código (DDL, função, escrita), nunca executado; clarification = a estrutura não permite responder; structure_request = o modelo pede mais estrutura antes de responder (nomes em structureRequest); answer = resposta só em texto, sem consulta (dúvida de banco de dados, pergunta sobre a estrutura ou recusa fora do tema), em explanation.",
+      "description": "query = consulta de leitura que responde à pergunta; code = qualquer outro código (DDL, função, escrita), nunca executado; clarification = a estrutura não permite responder (encerra o turno); ask_user = o modelo pergunta ao usuário algo que só ele sabe (a pergunta em clarificationQuestion, opções em choices) e continua o turno com a resposta; structure_request = o modelo pede mais estrutura antes de responder (nomes em structureRequest); answer = resposta só em texto, sem consulta (dúvida de banco de dados, pergunta sobre a estrutura ou recusa fora do tema), em explanation.",
       "type": "string",
-      "enum": ["query", "code", "clarification", "structure_request", "answer"]
+      "enum": ["query", "code", "clarification", "ask_user", "structure_request", "answer"]
     },
     "language": {
-      "description": "Linguagem de `query`. null quando kind = clarification, structure_request ou answer.",
+      "description": "Linguagem de `query`. null quando kind = clarification, ask_user, structure_request ou answer.",
       "anyOf": [
         { "type": "string", "enum": ["sql", "mongo", "redis_plan"] },
         { "type": "null" }
       ]
     },
     "query": {
-      "description": "A consulta ou o código gerado. null quando kind = clarification, structure_request ou answer.",
+      "description": "A consulta ou o código gerado. null quando kind = clarification, ask_user, structure_request ou answer.",
       "anyOf": [{ "type": "string" }, { "type": "null" }]
     },
     "explanation": {
@@ -41,11 +42,18 @@
       "items": { "type": "string" }
     },
     "clarificationQuestion": {
-      "description": "O que falta para responder. Obrigatório quando kind = clarification; null nos demais.",
+      "description": "A pergunta ao usuário: o que falta para responder. Obrigatório quando kind = clarification ou ask_user; null nos demais.",
       "anyOf": [{ "type": "string" }, { "type": "null" }]
     },
     "structureRequest": {
       "description": "Nomes de estrutura que o modelo quer ver antes de responder: `schema.tabela` ou `tabela` (SQL), a coleção (Mongo) ou um prefixo de chave (Redis). Obrigatório e não vazio quando kind = structure_request, com no máximo 20 nomes; null nos demais.",
+      "anyOf": [
+        { "type": "array", "items": { "type": "string" } },
+        { "type": "null" }
+      ]
+    },
+    "choices": {
+      "description": "Respostas curtas sugeridas para a pergunta de kind = ask_user (de 2 a 6), que o usuário escolhe com um clique; null quando a resposta é livre. O usuário sempre pode responder com outro texto. null nos demais kinds.",
       "anyOf": [
         { "type": "array", "items": { "type": "string" } },
         { "type": "null" }

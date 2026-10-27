@@ -21,6 +21,7 @@ pub mod messages;
 pub mod output;
 pub mod prompts;
 pub mod read_only;
+mod reply;
 pub mod requested;
 pub mod schema_context;
 pub mod shape_context;
@@ -35,6 +36,7 @@ use parking_lot::Mutex;
 pub use cancel::CancelFlag;
 pub use client::ApiClient;
 pub use error::{AssistantCode, AssistantError};
+pub use reply::ReplySlot;
 
 use crate::error::{Error, Result};
 use crate::models::AttemptOutcome;
@@ -43,12 +45,20 @@ use crate::models::AttemptOutcome;
 /// manual da revisão completar o da tentativa.
 const OUTCOMES_KEPT: usize = 256;
 
+/// O que a tela alcança de um turno em andamento: a parada e a espera da
+/// resposta a uma pergunta do modelo.
+#[derive(Clone, Default)]
+pub struct TurnHandle {
+    pub cancel: CancelFlag,
+    pub reply: ReplySlot,
+}
+
 /// A API configurada e o cliente HTTP, montado no primeiro uso; os turnos em
-/// andamento (para o cancelar) e os últimos outcomes enviados.
+/// andamento (para cancelar e responder) e os últimos outcomes enviados.
 pub struct AssistantService {
     base_url: Option<String>,
     client: OnceLock<ApiClient>,
-    turns: Mutex<HashMap<String, CancelFlag>>,
+    turns: Mutex<HashMap<String, TurnHandle>>,
     outcomes: Mutex<(HashMap<String, AttemptOutcome>, VecDeque<String>)>,
 }
 
@@ -68,11 +78,12 @@ impl AssistantService {
         }
     }
 
-    /// Registra o turno (pelo `clientTurnId`) e devolve a parada dele.
-    pub fn start_turn(&self, client_turn_id: &str) -> CancelFlag {
-        let flag = CancelFlag::default();
-        self.turns.lock().insert(client_turn_id.to_string(), flag.clone());
-        flag
+    /// Registra o turno (pelo `clientTurnId`) e devolve a parada e a espera
+    /// da resposta dele.
+    pub fn start_turn(&self, client_turn_id: &str) -> TurnHandle {
+        let handle = TurnHandle::default();
+        self.turns.lock().insert(client_turn_id.to_string(), handle.clone());
+        handle
     }
 
     pub fn end_turn(&self, client_turn_id: &str) {
@@ -82,12 +93,19 @@ impl AssistantService {
     /// Cancela o turno em andamento; `false` se ele já terminou.
     pub fn cancel_turn(&self, client_turn_id: &str) -> bool {
         match self.turns.lock().get(client_turn_id) {
-            Some(flag) => {
-                flag.cancel();
+            Some(handle) => {
+                handle.cancel.cancel();
                 true
             }
             None => false,
         }
+    }
+
+    /// Entrega a resposta do usuário à pergunta do modelo; `false` se o turno
+    /// já terminou ou não está esperando resposta.
+    pub fn reply_turn(&self, client_turn_id: &str, text: String) -> bool {
+        let handle = self.turns.lock().get(client_turn_id).cloned();
+        handle.is_some_and(|handle| handle.reply.reply(text))
     }
 
     pub fn remember_outcome(&self, attempt_id: &str, outcome: &AttemptOutcome) {

@@ -20,6 +20,9 @@ export function turnScene(
       return 'tables';
     case 'waiting':
       return 'hourglass';
+    case 'asking':
+      // Esperando a pessoa responder: o polvo fica pensando junto
+      return 'thinking';
     case 'finished':
       return 'thinking';
   }

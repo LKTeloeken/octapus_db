@@ -755,6 +755,7 @@ consulta de leitura que gerou; desligado, ela fica para revisão.
 | `assistant_conversation_create` | `{ serverId, modelId?, title? }` | `AssistantConversationSummary` — paradigma do banco do servidor; o modelo fica fixo |
 | `assistant_turn_ask` | `{ serverId, database, conversationId, question, clientTurnId, schemas?, mentions?, pastMentions?, onEvent: Channel }` | `AssistantTurnFinish`; o andamento chega pelo canal (`AssistantTurnEvent`). `mentions`/`pastMentions`: `AssistantMention[]` (`{ schema, table }`, `null` = sem schema / o schema inteiro) |
 | `assistant_turn_cancel` | `{ clientTurnId }` | `boolean` (`false` = já terminou) |
+| `assistant_turn_reply` | `{ clientTurnId, reply }` | `boolean` — responde à pergunta do modelo (evento `question`); `false` = o turno não espera resposta. Vazia ou com mais de 2000 caracteres → `INVALID_QUERY` |
 | `assistant_execute` | `{ serverId, database, query, page, attemptId?, userEdited }` | `QueryResult` — execução manual, sempre só-leitura |
 | `assistant_feedback_set` | `{ turnId, feedback: AssistantFeedbackInput }` (`{ rating, reasons, comment, attemptId }`) | `void` — avalia o turno (👍/👎, B11); repetir sobrescreve |
 | `assistant_feedback_clear` | `{ turnId }` | `void` — remove a avaliação (sem avaliação não é erro) |
@@ -1003,8 +1004,10 @@ com a pergunta, sem nunca carregar a estrutura inteira.
 
 **Prompts, mensagens e resposta** (B5):
 
-- **Prompts** em `src-tauri/prompts/<paradigma>-v<n>.txt`. Em uso, `postgres-v5`,
-  `sqlite-v5`, `mongo-v4` e `redis-v2`, todos no contrato 1.5.0. Os v2 trouxeram o pedido de
+- **Prompts** em `src-tauri/prompts/<paradigma>-v<n>.txt`. Em uso, `postgres-v6`,
+  `sqlite-v6`, `mongo-v5` e `redis-v3`, todos no contrato 1.6.0 (a pergunta ao usuário,
+  `ask_user`, com `choices` e o `<user_reply>`; o `clarification` fica para quando a
+  estrutura não permite responder). Os v2 trouxeram o pedido de
   estrutura, a resposta em texto sem afirmar o que o modelo não viu e a recusa fora do
   tema; os v3 acrescentam os nomes com prefixo no pedido de estrutura (`indexes:`,
   `functions:`, `definition:`, ver abaixo) e a regra do `?` dos literais; os v4 (só SQL)
@@ -1012,7 +1015,7 @@ com a pergunta, sem nunca carregar a estrutura inteira.
   Redis a consulta é JSON e o front já indenta (`formatQueryText`); os v5 do SQL ensinam o
   `columns:` e os comentários de schema e de função; o `mongo-v4`, os valores de exemplo
   (e que eles não respondem pergunta sobre os dados) e as descrições do validador. O Redis
-  não tem prefixos e fica no v2. As versões antigas ficam no build e no teste dos hashes (as
+  não tem prefixos e pulou do v2 para o v3 (só a pergunta ao usuário). As versões antigas ficam no build e no teste dos hashes (as
   conversas antigas foram geradas com elas),
   embutidos com `include_str!` (`assistant/prompts.rs`). A API confere o SHA-256 dos bytes
   exatos da mensagem `system` contra o prompt registrado com o mesmo id: registre **o
@@ -1084,6 +1087,18 @@ automática) e liga as portas reais.
    (`TURN_MAX_STRUCTURE_REQUESTS`) —; o seguinte não busca nada, conta, e o modelo recebe
    `limit_reached`. A tela recebe o evento `structureLookup` (pedidos, achados, não
    achados) e não o pedido como resposta. Falha do catálogo encerra como `failed`.
+   `ask_user` (contrato 1.6.0, prompts SQL v6, Mongo v5, Redis v3): falta uma decisão que
+   só o usuário sabe (qual data, que status conta como "ativo"). O turno **pausa**: abre a
+   espera no `ReplySlot` (`assistant/reply.rs`, guardado com a parada no `TurnHandle` do
+   `AssistantService`), manda o evento `question` (a pergunta e as `choices`) e espera o
+   `assistant_turn_reply` — ou o cancelamento, ou `REPLY_TIMEOUT` (30 min), que encerra
+   como `clarification` com a pergunta como resposta. A resposta volta ao modelo como
+   `<user_reply>` e à API em `context.userReply` (só na tentativa logo depois dela; a API
+   grava em `attempts.user_reply` e não conta a espera no `TURN_MAX_DURATION`). Até
+   `MAX_USER_QUESTIONS` (2) por turno não conta como tentativa (`TURN_MAX_USER_QUESTIONS`
+   na API); a seguinte não vai à tela, conta, e o modelo recebe `limit_reached` (outcome
+   `user_question_limit`). A resposta é texto do usuário, como a pergunta: vai ao modelo
+   e à API, mas nunca ao log.
 4. `query`: guard → preflight → execução (só com `assistantAutoExecute`; desligada, a
    consulta e o plano ficam para a revisão). Falha da consulta → outcome com a classe e o
    erro sanitizado → nova tentativa com a resposta que falhou e o erro (C-11). Falha que
@@ -1091,8 +1106,9 @@ automática) e liga as portas reais.
 5. A API corta em 4 tentativas (`turn_limit_exceeded`; o app tem teto próprio de 6):
    `exhausted`, entregando a última consulta gerada (RN-24).
 6. Cada tentativa com resposta ganha um outcome; o turno termina com `finish`. Para `code`,
-   `clarification`, `answer` e `structure_request` o guard não roda: vai `allowed: false`
-   com o motivo `kind_<kind>` (`structure_limit` no pedido além do teto), separado da
+   `clarification`, `answer`, `structure_request` e `ask_user` o guard não roda: vai
+   `allowed: false` com o motivo `kind_<kind>` (`structure_limit` no pedido além do teto,
+   `user_question_limit` na pergunta além do teto), separado da
    recusa de verdade na análise. No log, só contagens dos nomes pedidos.
 
 Cancelar (`assistant_turn_cancel`, pelo `clientTurnId`) acorda quem está esperando: fecha

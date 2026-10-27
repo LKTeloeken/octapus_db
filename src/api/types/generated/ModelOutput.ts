@@ -19,4 +19,9 @@ assumptions: Array<string>, clarificationQuestion: string | null,
  * `schema.tabela`, coleção ou prefixo de chave. Falta nas respostas de
  * antes do contrato 1.5.0, no histórico
  */
-structureRequest: Array<string> | null, };
+structureRequest: Array<string> | null, 
+/**
+ * Respostas sugeridas para a pergunta (`kind = ask_user`), de 2 a 6;
+ * `None` = resposta livre. Falta nas respostas de antes do 1.6.0
+ */
+choices: Array<string> | null, };

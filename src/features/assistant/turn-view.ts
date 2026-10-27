@@ -9,6 +9,7 @@ import type {
 } from '@/api/types/assistant.types';
 import type { PartialModelOutput } from '@/lib/assistant/partial-output';
 import {
+  isQuestionAttempt,
   isStructureAttempt,
   type LiveAttempt,
   type LiveTurn,
@@ -53,6 +54,8 @@ export interface TurnView {
   /** `turnId`, ou o `clientTurnId` enquanto o turno não abriu */
   key: string;
   turnId: string | null;
+  /** O id do turno desta sessão, para responder às perguntas (só ao vivo) */
+  clientTurnId: string | null;
   question: string;
   live: boolean;
   phase: TurnPhase;
@@ -72,6 +75,12 @@ export interface TurnView {
    * nulos
    */
   structureLookups: StructureLookupView[];
+  /**
+   * As perguntas do modelo ao usuário no turno (`ask_user`), na ordem, com a
+   * resposta. A última fica sem resposta enquanto o turno espera (fase
+   * `asking`) ou quando ninguém respondeu
+   */
+  questions: QuestionView[];
   /** Recorte da estrutura (RN-26); `null` = não se sabe (histórico) */
   truncated: boolean | null;
   /** Citadas com `@` que não existem no banco (aviso) */
@@ -89,6 +98,14 @@ export interface TurnView {
   errorMessage: string | null;
   waitUntil: number | null;
   feedback: AssistantFeedback | null;
+}
+
+export interface QuestionView {
+  attemptId: string;
+  question: string;
+  /** Sugestões de resposta; vazio = resposta livre */
+  choices: string[];
+  reply: string | null;
 }
 
 export interface StructureLookupView {
@@ -140,15 +157,19 @@ function liveFailure(attempt: LiveAttempt): AttemptFailureView | null {
 
 export function liveTurnView(turn: LiveTurn): TurnView {
   const finished = turn.phase === 'finished';
-  // O pedido de estrutura é do meio do turno: nem resposta, nem falha
-  const answers = turn.attempts.filter(attempt => !isStructureAttempt(attempt));
+  // O pedido de estrutura e a pergunta ao usuário são do meio do turno: nem
+  // resposta, nem falha
+  const answers = turn.attempts.filter(
+    attempt => !isStructureAttempt(attempt) && !isQuestionAttempt(attempt),
+  );
   const last = answers.at(-1) ?? null;
   const shownId = turn.finish?.attemptId ?? last?.attemptId ?? null;
   const shown = answers.find(attempt => attempt.attemptId === shownId) ?? null;
 
   let output: PartialModelOutput | null = null;
   let streaming = false;
-  if (turn.finish?.output) {
+  // A pergunta que ficou sem resposta já aparece em `questions`
+  if (turn.finish?.output && turn.finish.output.kind !== 'ask_user') {
     output = toDisplay(turn.finish.output);
   } else if (shown?.output) {
     output = toDisplay(shown.output);
@@ -164,6 +185,7 @@ export function liveTurnView(turn: LiveTurn): TurnView {
   return {
     key: turn.turnId ?? turn.clientTurnId,
     turnId: turn.turnId,
+    clientTurnId: turn.clientTurnId,
     question: turn.question,
     live: true,
     phase: turn.phase,
@@ -190,6 +212,9 @@ export function liveTurnView(turn: LiveTurn): TurnView {
       })),
     structureLookups: turn.attempts.flatMap(attempt =>
       attempt.lookup ? [lookupView(attempt.lookup)] : [],
+    ),
+    questions: turn.attempts.flatMap(({ attemptId, ask }) =>
+      ask ? [{ attemptId, ...ask }] : [],
     ),
     truncated: turn.context?.truncated ?? null,
     missingMentions: turn.context?.missingMentions ?? [],
@@ -296,7 +321,11 @@ export function serverTurnView(
   const sorted = [...turn.attempts].sort((a, b) => a.index - b.index);
   const isRequest = (attempt: AssistantAttempt) =>
     attempt.output?.kind === 'structure_request';
-  const attempts = sorted.filter(attempt => !isRequest(attempt));
+  const isQuestion = (attempt: AssistantAttempt) =>
+    attempt.output?.kind === 'ask_user';
+  const attempts = sorted.filter(
+    attempt => !isRequest(attempt) && !isQuestion(attempt),
+  );
   const shown = attempts.filter(attempt => attempt.output).at(-1) ?? null;
   const outcome = outcomeOf(turn.status);
   const execution = shown?.outcome?.execution;
@@ -304,6 +333,7 @@ export function serverTurnView(
   return {
     key: turn.id,
     turnId: turn.id,
+    clientTurnId: null,
     question: turn.question,
     live: false,
     phase: 'finished',
@@ -329,6 +359,21 @@ export function serverTurnView(
       missing: null,
       limitReached: attempt.outcome?.guard.reason === 'structure_limit',
     })),
+    // A resposta fica na tentativa que veio dela, a seguinte. A pergunta além
+    // do teto não foi mostrada a ninguém
+    questions: sorted.flatMap((attempt, position) =>
+      isQuestion(attempt) &&
+      attempt.outcome?.guard.reason !== 'user_question_limit'
+        ? [
+            {
+              attemptId: attempt.id,
+              question: attempt.output?.clarificationQuestion ?? '',
+              choices: attempt.output?.choices ?? [],
+              reply: sorted[position + 1]?.userReply ?? null,
+            },
+          ]
+        : [],
+    ),
     truncated: context?.truncated ?? null,
     missingMentions: context?.missingMentions ?? [],
     shortenedMentions: context?.shortenedMentions ?? [],

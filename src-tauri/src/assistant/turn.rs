@@ -7,6 +7,9 @@
 //!   answer ─▶ encerra (texto, nada executa)
 //!   structure_request ─▶ o app busca os nomes no catálogo ─▶ nova tentativa
 //!                        (não conta no limite, até MAX_STRUCTURE_REQUESTS)
+//!   ask_user ─▶ a tela mostra a pergunta e espera a resposta ─▶ nova tentativa
+//!               (não conta no limite, até MAX_USER_QUESTIONS; sem resposta,
+//!               encerra como clarification)
 //!   query ─▶ guard ─▶ preflight ─▶ execução (só com a automática ligada)
 //!            └── falhou: outcome + erro sanitizado ─▶ nova tentativa (C-11)
 //! limite da API (turn_limit_exceeded) ─▶ entrega a última consulta (RN-24)
@@ -15,19 +18,24 @@
 //! Cada tentativa com resposta ganha um outcome na API. O loop depende de três
 //! portas — a API ([`TurnApi`]), o banco ([`TurnDatabase`]) e a estrutura
 //! pedida pelo modelo ([`TurnStructure`]) —, o que deixa os testes rodarem com
-//! as três simuladas. Log só com ids, contagens e códigos.
+//! as três simuladas; a resposta do usuário chega pelo [`ReplySlot`]. Log só
+//! com ids, contagens e códigos (nunca a pergunta ou a resposta).
 
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 
 use super::cancel::CancelFlag;
+use super::reply::ReplySlot;
 use super::client::{AttemptProgress, AttemptReply};
 use super::error::AssistantCode;
 use super::failure::{classify, sanitize, FailureClass};
 use super::guard;
 use super::language::Language;
-use super::messages::{attempt_request, AttemptRequest, Correction, HistoryTurn, Round, StructureReply, StructureRound};
+use super::messages::{
+    attempt_request, AttemptRequest, Correction, HistoryTurn, QuestionReply, QuestionRound, Round, StructureReply,
+    StructureRound,
+};
 use super::output::{self, ModelOutput, OutputKind};
 use super::prompts::Prompt;
 use super::requested::RequestedStructure;
@@ -47,6 +55,13 @@ const MAX_ATTEMPTS: usize = 6;
 /// `TURN_MAX_STRUCTURE_REQUESTS` padrão da API). O seguinte não busca nada,
 /// conta como tentativa e o modelo é avisado de que acabou: sem laço.
 pub const MAX_STRUCTURE_REQUESTS: usize = 3;
+/// Perguntas ao usuário por turno que não contam como tentativa (o
+/// `TURN_MAX_USER_QUESTIONS` padrão da API). A seguinte não é mostrada: conta
+/// como tentativa e o modelo é avisado de que não dá para perguntar mais.
+pub const MAX_USER_QUESTIONS: usize = 2;
+/// Quanto esperar a resposta do usuário antes de encerrar o turno como
+/// `clarification` (a API não conta essa espera no tempo do turno).
+pub const REPLY_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// Rate limit antes do stream: quantas vezes esperar e tentar de novo.
 const RATE_LIMIT_RETRIES: usize = 3;
 /// Espera sem `Retry-After`.
@@ -111,6 +126,8 @@ pub struct TurnSetup {
     pub history: Vec<HistoryTurn>,
     pub context_window: i64,
     pub auto_execute: bool,
+    /// Espera máxima pela resposta a uma pergunta do modelo ([`REPLY_TIMEOUT`])
+    pub reply_timeout: Duration,
     /// Primeira página da execução: `limit`, `schema` do `search_path` e o
     /// `query_id` (= `client_turn_id`)
     pub page: QueryOptions,
@@ -159,6 +176,7 @@ pub async fn run_turn(
     setup: &TurnSetup,
     emit: &(dyn Fn(AssistantTurnEvent) + Send + Sync),
     cancel: &CancelFlag,
+    replies: &ReplySlot,
 ) -> Result<AssistantTurnFinish> {
     let turn = api
         .create_turn(
@@ -184,6 +202,9 @@ pub async fn run_turn(
     let mut retry_invalid = false;
     let mut attempts = 0;
     let mut structure_requests = 0;
+    let mut user_questions = 0;
+    // A resposta do usuário vai à API só na tentativa logo depois dela
+    let mut user_reply: Option<String> = None;
     // A estrutura pedida tem um orçamento próprio por turno, do tamanho do
     // da estrutura da pergunta, dividido pelas rodadas
     let mut requested_tokens = 0;
@@ -207,9 +228,13 @@ pub async fn run_turn(
         if retry_invalid {
             request.context.previous_failure = Some(FailureClass::InvalidOutput);
         }
+        request.context.user_reply = user_reply.clone();
 
         let reply = match create_attempt(api, &turn.id, &request, cancel, emit).await {
-            Ok(reply) => reply,
+            Ok(reply) => {
+                user_reply = None;
+                reply
+            }
             Err(Error::Cancelled) => break (AssistantTurnStatus::Cancelled, None),
             Err(error) if is_api(&error, AssistantCode::TurnLimitExceeded) => {
                 break (AssistantTurnStatus::Exhausted, None)
@@ -309,6 +334,50 @@ pub async fn run_turn(
             continue;
         }
 
+        if output.kind == OutputKind::AskUser {
+            let reply = if user_questions < MAX_USER_QUESTIONS {
+                user_questions += 1;
+                attempts -= 1;
+                // A espera abre antes de a pergunta ir para a tela: uma
+                // resposta rápida não se perde
+                let waiting = replies.open();
+                emit(AssistantTurnEvent::Question {
+                    attempt_id: attempt_id.clone(),
+                    question: output.clarification_question.clone().unwrap_or_default(),
+                    choices: output.choices.clone().unwrap_or_default(),
+                });
+                report(api, &attempt_id, &not_run("kind_ask_user", setup.auto_execute)).await;
+                log::info!("assistente: tentativa {attempt_id} perguntou ao usuário; esperando a resposta");
+                match wait_reply(waiting, cancel, setup.reply_timeout).await {
+                    Waited::Reply(text) => {
+                        emit(AssistantTurnEvent::UserReplied {
+                            attempt_id: attempt_id.clone(),
+                            reply: text.clone(),
+                        });
+                        user_reply = Some(text.clone());
+                        QuestionReply::Answered(text)
+                    }
+                    Waited::Cancelled => {
+                        replies.close();
+                        break (AssistantTurnStatus::Cancelled, None);
+                    }
+                    Waited::Unanswered => {
+                        // A pergunta fica como a resposta do turno
+                        replies.close();
+                        log::info!("assistente: tentativa {attempt_id} ficou sem resposta do usuário");
+                        last = Some((attempt_id.clone(), output.clone()));
+                        break (AssistantTurnStatus::Clarification, None);
+                    }
+                }
+            } else {
+                log::info!("assistente: tentativa {attempt_id} perguntou além do teto do turno");
+                report(api, &attempt_id, &not_run("user_question_limit", setup.auto_execute)).await;
+                QuestionReply::LimitReached
+            };
+            rounds.push(Round::Question(QuestionRound { output, reply }));
+            continue;
+        }
+
         emit(AssistantTurnEvent::Output {
             attempt_id: attempt_id.clone(),
             output: output.clone(),
@@ -330,8 +399,8 @@ pub async fn run_turn(
                 report(api, &attempt_id, &not_run("kind_answer", setup.auto_execute)).await;
                 break (AssistantTurnStatus::Replied, None);
             }
-            // O `parse` já recusa os dois
-            OutputKind::StructureRequest | OutputKind::Unknown => {
+            // Tratados acima; o `parse` recusa o `Unknown`
+            OutputKind::AskUser | OutputKind::StructureRequest | OutputKind::Unknown => {
                 retry_invalid = true;
                 continue;
             }
@@ -354,7 +423,7 @@ pub async fn run_turn(
         log::warn!("assistente: falha ao encerrar o turno {} ({})", turn.id, error.code());
     }
     log::info!(
-        "assistente: turno {} encerrado ({status:?}, {attempts} tentativa(s), {structure_requests} pedido(s) de estrutura)",
+        "assistente: turno {} encerrado ({status:?}, {attempts} tentativa(s), {structure_requests} pedido(s) de estrutura, {user_questions} pergunta(s) ao usuário)",
         turn.id
     );
 
@@ -366,6 +435,29 @@ pub async fn run_turn(
         output,
         error_code,
     })
+}
+
+/// Como terminou a espera pela resposta do usuário.
+enum Waited {
+    Reply(String),
+    Cancelled,
+    /// O tempo acabou (ou a espera foi fechada sem resposta)
+    Unanswered,
+}
+
+async fn wait_reply(
+    waiting: tokio::sync::oneshot::Receiver<String>,
+    cancel: &CancelFlag,
+    timeout: Duration,
+) -> Waited {
+    tokio::select! {
+        reply = waiting => match reply {
+            Ok(text) => Waited::Reply(text),
+            Err(_) => Waited::Unanswered,
+        },
+        _ = cancel.cancelled() => Waited::Cancelled,
+        _ = tokio::time::sleep(timeout) => Waited::Unanswered,
+    }
 }
 
 /// Pede a tentativa, esperando e repetindo quando a API pede calma (429).
@@ -563,6 +655,7 @@ fn placeholder_output() -> ModelOutput {
         assumptions: Vec::new(),
         clarification_question: None,
         structure_request: None,
+        choices: None,
     }
 }
 
@@ -792,6 +885,7 @@ mod tests {
             "assumptions": [],
             "clarificationQuestion": if kind == "clarification" { json!("Qual tabela?") } else { Value::Null },
             "structureRequest": null,
+            "choices": null,
         })
     }
 
@@ -799,6 +893,7 @@ mod tests {
         json!({
             "kind": "structure_request", "language": null, "query": null, "explanation": "",
             "assumptions": [], "clarificationQuestion": null, "structureRequest": names,
+            "choices": null,
         })
     }
 
@@ -806,6 +901,15 @@ mod tests {
         json!({
             "kind": "answer", "language": null, "query": null, "explanation": explanation,
             "assumptions": [], "clarificationQuestion": null, "structureRequest": null,
+            "choices": null,
+        })
+    }
+
+    fn ask_user(question: &str) -> Value {
+        json!({
+            "kind": "ask_user", "language": null, "query": null, "explanation": "",
+            "assumptions": [], "clarificationQuestion": question, "structureRequest": null,
+            "choices": ["Do pedido", "Do pagamento"],
         })
     }
 
@@ -862,6 +966,7 @@ mod tests {
             history: vec![],
             context_window: 200_000,
             auto_execute,
+            reply_timeout: Duration::from_secs(5),
             page: QueryOptions {
                 limit: 200,
                 query_id: Some("client-1".into()),
@@ -882,7 +987,30 @@ mod tests {
     async fn run_with(api: &FakeApi, db: &FakeDb, structure: &FakeStructure, setup: &TurnSetup, cancel: &CancelFlag) -> Run {
         let events: Arc<Mutex<Vec<AssistantTurnEvent>>> = Arc::default();
         let sink = Arc::clone(&events);
-        let finish = run_turn(api, db, structure, setup, &move |event| sink.lock().push(event), cancel)
+        let finish = run_turn(api, db, structure, setup, &move |event| sink.lock().push(event), cancel, &ReplySlot::default())
+            .await
+            .unwrap();
+        let events = events.lock().clone();
+        Run { finish, events }
+    }
+
+    /// Como a tela: a cada pergunta do modelo, responde com a próxima de
+    /// `answers` (acabou = não responde).
+    async fn run_replying(api: &FakeApi, db: &FakeDb, setup: &TurnSetup, cancel: &CancelFlag, answers: &[&str]) -> Run {
+        let events: Arc<Mutex<Vec<AssistantTurnEvent>>> = Arc::default();
+        let sink = Arc::clone(&events);
+        let replies = ReplySlot::default();
+        let screen = replies.clone();
+        let answers = Mutex::new(answers.iter().map(|answer| answer.to_string()).collect::<VecDeque<_>>());
+        let emit = move |event: AssistantTurnEvent| {
+            if matches!(event, AssistantTurnEvent::Question { .. }) {
+                if let Some(answer) = answers.lock().pop_front() {
+                    assert!(screen.reply(answer), "a espera abre antes da pergunta ir para a tela");
+                }
+            }
+            sink.lock().push(event);
+        };
+        let finish = run_turn(api, db, &FakeStructure::default(), setup, &emit, cancel, &replies)
             .await
             .unwrap();
         let events = events.lock().clone();
@@ -931,7 +1059,7 @@ mod tests {
         assert_eq!(outcomes[1].1.guard.reason.as_deref(), Some("write_stage"));
         assert!(outcomes[2].1.execution.ok == Some(true));
         let requests = api.requests.lock();
-        assert_eq!(requests[0].prompt_version, "mongo-v4");
+        assert_eq!(requests[0].prompt_version, "mongo-v5");
         let correction = &requests[2].messages.last().unwrap().content;
         assert!(
             correction.contains("class=\"guard_rejected\">\n$out writes to the database and is not allowed"),
@@ -966,7 +1094,7 @@ mod tests {
         assert_eq!(outcomes[0].1.guard.reason.as_deref(), Some("keys"));
         assert!(outcomes[1].1.execution.ok == Some(true));
         let requests = api.requests.lock();
-        assert_eq!(requests[0].prompt_version, "redis-v2");
+        assert_eq!(requests[0].prompt_version, "redis-v3");
         let correction = &requests[1].messages.last().unwrap().content;
         assert!(
             correction.contains("class=\"guard_rejected\">\nKEYS is not allowed: use SCAN with MATCH"),
@@ -1149,6 +1277,100 @@ mod tests {
         assert!(run.finish.output.is_none());
     }
 
+    /// A pergunta ao usuário pausa o turno: a resposta volta ao modelo (e à
+    /// API, só na tentativa logo depois dela) e não conta como tentativa.
+    #[tokio::test]
+    async fn ask_user_waits_for_the_reply_and_continues() {
+        let api = FakeApi::new(vec![
+            Scripted::Output(ask_user("Pela data do pedido ou do pagamento?")),
+            Scripted::StreamError(AssistantCode::InvalidOutput),
+            Scripted::Output(output("query", Some("SELECT count(*) FROM orders"))),
+        ]);
+
+        let run = run_replying(&api, &FakeDb::default(), &setup(true), &CancelFlag::default(), &["Do pagamento"]).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Answered);
+        assert_eq!(run.finish.output.unwrap().kind, OutputKind::Query);
+        let question = run.events.iter().find_map(|event| match event {
+            AssistantTurnEvent::Question { attempt_id, question, choices } => Some((attempt_id, question, choices)),
+            _ => None,
+        });
+        let (attempt_id, question, choices) = question.expect("a pergunta foi para a tela");
+        assert_eq!((attempt_id.as_str(), question.as_str()), ("attempt-0", "Pela data do pedido ou do pagamento?"));
+        assert_eq!(choices, &["Do pedido", "Do pagamento"]);
+        assert!(run.events.iter().any(|event| matches!(event,
+            AssistantTurnEvent::UserReplied { attempt_id, reply } if attempt_id == "attempt-0" && reply == "Do pagamento")));
+        // A pergunta não é a resposta do turno
+        assert!(!run.events.iter().any(|event| matches!(event, AssistantTurnEvent::Output { attempt_id, .. } if attempt_id == "attempt-0")));
+
+        let requests = api.requests.lock();
+        let user_replies: Vec<Option<&str>> = requests.iter().map(|request| request.context.user_reply.as_deref()).collect();
+        assert_eq!(user_replies, [None, Some("Do pagamento"), None]);
+        assert!(requests[1].messages.last().unwrap().content.starts_with("<user_reply>\nDo pagamento\n</user_reply>"));
+        assert!(requests[2].messages.iter().any(|message| message.content.starts_with("<user_reply>")));
+        assert_eq!(api.outcomes.lock()[0].1.guard.reason.as_deref(), Some("kind_ask_user"));
+    }
+
+    /// Sem resposta no tempo, o turno termina como esclarecimento, com a
+    /// pergunta como resposta.
+    #[tokio::test]
+    async fn unanswered_question_ends_as_clarification() {
+        let api = FakeApi::new(vec![Scripted::Output(ask_user("Qual status conta como ativo?"))]);
+        let mut setup = setup(true);
+        setup.reply_timeout = Duration::from_millis(20);
+
+        let run = run_replying(&api, &FakeDb::default(), &setup, &CancelFlag::default(), &[]).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Clarification);
+        let output = run.finish.output.unwrap();
+        assert_eq!(output.kind, OutputKind::AskUser);
+        assert_eq!(output.clarification_question.as_deref(), Some("Qual status conta como ativo?"));
+        assert_eq!(*api.finished.lock(), Some(AssistantTurnStatus::Clarification));
+    }
+
+    #[tokio::test]
+    async fn cancel_while_waiting_for_the_reply() {
+        let api = Arc::new(FakeApi::new(vec![Scripted::Output(ask_user("Qual data?"))]));
+        let db = Arc::new(FakeDb::default());
+        let cancel = CancelFlag::default();
+        let replies = ReplySlot::default();
+        let setup = setup(true);
+
+        let running = {
+            let (api, db, cancel, replies) = (Arc::clone(&api), Arc::clone(&db), cancel.clone(), replies.clone());
+            tokio::spawn(async move { run_turn(&*api, &*db, &FakeStructure::default(), &setup, &|_| {}, &cancel, &replies).await })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        cancel.cancel();
+        let finish = tokio::time::timeout(Duration::from_secs(2), running).await.unwrap().unwrap().unwrap();
+
+        assert_eq!(finish.status, AssistantTurnStatus::Cancelled);
+        assert!(!replies.reply("tarde".into()), "a espera fecha com o cancelamento");
+    }
+
+    /// Além do teto, a pergunta não vai para a tela: conta como tentativa e o
+    /// modelo é avisado de que tem que responder com o que tem.
+    #[tokio::test]
+    async fn user_questions_stop_at_the_ceiling() {
+        let mut script: Vec<Scripted> = (0..MAX_USER_QUESTIONS + 1)
+            .map(|i| Scripted::Output(ask_user(&format!("Pergunta {i}?"))))
+            .collect();
+        script.push(Scripted::Output(output("query", Some("SELECT 1"))));
+        let api = FakeApi::new(script);
+        let answers: Vec<String> = (0..MAX_USER_QUESTIONS).map(|i| format!("resposta {i}")).collect();
+        let answers: Vec<&str> = answers.iter().map(String::as_str).collect();
+
+        let run = run_replying(&api, &FakeDb::default(), &setup(true), &CancelFlag::default(), &answers).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Answered);
+        let shown = run.events.iter().filter(|event| matches!(event, AssistantTurnEvent::Question { .. })).count();
+        assert_eq!(shown, MAX_USER_QUESTIONS);
+        let requests = api.requests.lock();
+        let last = requests.last().unwrap().messages.last().unwrap();
+        assert!(last.content.starts_with("<user_reply limit_reached=\"true\">"), "{}", last.content);
+        assert_eq!(api.outcomes.lock()[MAX_USER_QUESTIONS].1.guard.reason.as_deref(), Some("user_question_limit"));
+    }
+
     #[tokio::test]
     async fn structure_lookup_failure_fails_the_turn() {
         let api = FakeApi::new(vec![Scripted::Output(structure_request(&["sales.orders"]))]);
@@ -1316,7 +1538,7 @@ mod tests {
 
         let running = {
             let (api, db, cancel) = (Arc::clone(&api), Arc::clone(&db), cancel.clone());
-            tokio::spawn(async move { run_turn(&*api, &*db, &FakeStructure::default(), &setup, &|_| {}, &cancel).await })
+            tokio::spawn(async move { run_turn(&*api, &*db, &FakeStructure::default(), &setup, &|_| {}, &cancel, &ReplySlot::default()).await })
         };
         tokio::time::sleep(Duration::from_millis(20)).await;
         cancel.cancel();
@@ -1338,7 +1560,7 @@ mod tests {
 
         let running = {
             let (api, db, cancel) = (Arc::clone(&api), Arc::clone(&db), cancel.clone());
-            tokio::spawn(async move { run_turn(&*api, &*db, &FakeStructure::default(), &setup, &|_| {}, &cancel).await })
+            tokio::spawn(async move { run_turn(&*api, &*db, &FakeStructure::default(), &setup, &|_| {}, &cancel, &ReplySlot::default()).await })
         };
         tokio::time::sleep(Duration::from_millis(20)).await;
         cancel.cancel();
@@ -1369,6 +1591,7 @@ mod tests {
             usage: None,
             latency_ms: None,
             outcome: None,
+            user_reply: None,
             created_at: String::new(),
         };
         let turn = |question: &str, attempts| AssistantTurn {

@@ -338,7 +338,14 @@ palette, dentro do `QueryProvider`.
     fase vira `structure` ("Consultando a estrutura…", polvo da lupa) até a próxima
     tentativa; o evento `structureLookup` guarda na tentativa as contagens (pedidos,
     achados, não achados) e liga o recorte se a estrutura pedida não coube.
-    `isStructureAttempt` tira essa tentativa da resposta e das falhas.
+    `isStructureAttempt` tira essa tentativa da resposta e das falhas. A pergunta ao
+    usuário (`ask_user`, contrato 1.6.0) também: o evento `question` guarda na tentativa a
+    pergunta e as opções e põe a fase em `asking` ("Esperando a sua resposta…"); o
+    `userReplied` grava a resposta e volta a `generating`. `isQuestionAttempt` a tira da
+    resposta e das falhas; `turn-view.ts` monta `questions` (ao vivo, das tentativas; no
+    histórico, a resposta vem do `userReply` da tentativa seguinte) e `turn-question.tsx`
+    mostra cada uma com a resposta, ou, enquanto o turno espera, as opções clicáveis e o
+    campo livre (`use-turn-question.ts`, pelo `assistant_turn_reply`).
   - **Resposta** (`turn-view.ts` + `turn-card.tsx`): consulta sempre visível com
     destaque (RN-18), premissas (RN-20), aviso de recorte (RN-26, nomeando as citadas
     que entraram encurtadas — `shortenedMentions`), aviso das citadas que não existem no

@@ -11,6 +11,7 @@ import { QuestionText } from './question-text';
 import { QueryBlock } from './query-block';
 import { ResultBlock } from './result-block';
 import { TurnFeedback } from './turn-feedback';
+import { TurnQuestion } from './turn-question';
 import {
   STAGE_LABELS,
   phaseLabel,
@@ -122,6 +123,18 @@ export function TurnCard({
           {structureSummary(view.structureLookups)}
         </p>
       )}
+
+      {view.questions.map((question, index) => (
+        <TurnQuestion
+          key={question.attemptId}
+          question={question}
+          waiting={
+            view.phase === 'asking' && index === view.questions.length - 1
+          }
+          finished={!running}
+          clientTurnId={view.clientTurnId}
+        />
+      ))}
 
       {output?.clarificationQuestion && (
         <p className="text-body whitespace-pre-wrap text-fg">

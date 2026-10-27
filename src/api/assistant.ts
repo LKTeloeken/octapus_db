@@ -133,6 +133,20 @@ export function cancelAssistantTurn(clientTurnId: string): Promise<boolean> {
   return call<boolean>(RustCommand.AssistantTurnCancel, { clientTurnId });
 }
 
+/**
+ * Responde à pergunta que o modelo fez no turno (evento `question`); o turno
+ * segue com a resposta. `false` se o turno já não espera resposta
+ */
+export function replyAssistantTurn(
+  clientTurnId: string,
+  reply: string,
+): Promise<boolean> {
+  return call<boolean>(RustCommand.AssistantTurnReply, {
+    clientTurnId,
+    reply,
+  });
+}
+
 export interface ExecuteAssistantQueryInput {
   serverId: number;
   database: string;

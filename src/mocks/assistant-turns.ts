@@ -56,6 +56,9 @@ import type { MockHandler } from './handlers';
  * - "futebol", "receita", "piada" → recusa curta fora do tema (`answer`);
  * - "estrutura" → a primeira tentativa pede estrutura (`structure_request`,
  *   com um nome que não existe) e a seguinte responde com a contagem;
+ * - "vendas" ou "ativos" → a primeira tentativa pergunta ao usuário
+ *   (`ask_user`, com opções) e o turno espera o `assistant_turn_reply`; a
+ *   resposta vira premissa da contagem. Cancelar acorda a espera;
  * - o resto → contagem da primeira tabela do database.
  *
  * No Mongo (`queryLanguage: 'mongo'` das capabilities) as respostas são a
@@ -124,7 +127,15 @@ const SETTINGS_STORAGE_KEY = 'octapus-mock-settings';
 
 const conversations = new Map<string, AssistantConversation>();
 /** Turnos em andamento, pelo `clientTurnId`: `true` = cancelado */
-const runningTurns = new Map<string, { cancelled: boolean }>();
+interface RunningTurn {
+  cancelled: boolean;
+  /** Acorda a espera da resposta (cancelamento) */
+  wake?: () => void;
+  /** Entrega a resposta, enquanto o turno espera uma */
+  reply?: (text: string) => void;
+}
+
+const runningTurns = new Map<string, RunningTurn>();
 let sequence = 0;
 
 const nextId = () => {
@@ -205,6 +216,7 @@ function redisOutputFor(question: string, table: string): ModelOutput {
       assumptions: [],
       clarificationQuestion: `Sobre qual padrão de chave é a pergunta? Por exemplo, "${prefix}:{id}".`,
       structureRequest: null,
+      choices: null,
     };
   }
   if (/apag|exclu|delet|insert|cadastr|atualiz/.test(text)) {
@@ -216,6 +228,7 @@ function redisOutputFor(question: string, table: string): ModelOutput {
       assumptions: [`"${prefix}:1" é a chave do registro`],
       clarificationQuestion: null,
       structureRequest: null,
+      choices: null,
     };
   }
   if (/lista|todos|todas/.test(text)) {
@@ -232,6 +245,7 @@ function redisOutputFor(question: string, table: string): ModelOutput {
       assumptions: ['Os hashes guardam os campos "nome" e "email"'],
       clarificationQuestion: null,
       structureRequest: null,
+      choices: null,
     };
   }
   return {
@@ -242,6 +256,7 @@ function redisOutputFor(question: string, table: string): ModelOutput {
     assumptions: ['Todo hash com esse prefixo conta'],
     clarificationQuestion: null,
     structureRequest: null,
+    choices: null,
   };
 }
 
@@ -259,6 +274,7 @@ function answerFor(question: string): ModelOutput | null {
     assumptions: [],
     clarificationQuestion: null,
     structureRequest: null,
+    choices: null,
   });
   if (/futebol|receita|piada/.test(text)) {
     return answer(
@@ -271,6 +287,33 @@ function answerFor(question: string): ModelOutput | null {
     );
   }
   return null;
+}
+
+/** A pergunta do mock ao usuário, com opções (`ask_user`) */
+const QUESTION_OUTPUT: ModelOutput = {
+  kind: 'ask_user',
+  language: null,
+  query: null,
+  explanation: '',
+  assumptions: [],
+  clarificationQuestion:
+    'Para contar, qual data vale: a do pedido ou a do pagamento?',
+  structureRequest: null,
+  choices: ['Data do pedido', 'Data do pagamento'],
+};
+
+/** Espera a resposta do usuário; `null` = cancelado */
+function waitReply(running: RunningTurn): Promise<string | null> {
+  return new Promise(resolve => {
+    running.reply = text => {
+      running.reply = undefined;
+      resolve(text);
+    };
+    running.wake = () => {
+      running.reply = undefined;
+      resolve(null);
+    };
+  });
 }
 
 /** O pedido de estrutura do mock: a tabela (coleção, prefixo) e um nome que não existe */
@@ -290,6 +333,7 @@ function structureRequestFor(
     assumptions: [],
     clarificationQuestion: null,
     structureRequest: names,
+    choices: null,
   };
 }
 
@@ -324,6 +368,7 @@ function outputFor(
       assumptions: [],
       clarificationQuestion: `Sobre qual ${mongo ? 'coleção' : 'tabela'} é a pergunta? Por exemplo, "${table}".`,
       structureRequest: null,
+      choices: null,
     };
   }
   if (/apag|exclu|delet|insert|cadastr|atualiz/.test(text)) {
@@ -337,6 +382,7 @@ function outputFor(
       assumptions: ['"id" identifica a linha'],
       clarificationQuestion: null,
       structureRequest: null,
+      choices: null,
     };
   }
   if (/lista|todos|todas/.test(text)) {
@@ -355,6 +401,7 @@ function outputFor(
       assumptions: ['"nome" e "email" são as colunas que interessam'],
       clarificationQuestion: null,
       structureRequest: null,
+      choices: null,
     };
   }
   return {
@@ -367,6 +414,7 @@ function outputFor(
     assumptions: ['Todas as linhas contam, sem filtro de data'],
     clarificationQuestion: null,
     structureRequest: null,
+    choices: null,
   };
 }
 
@@ -658,6 +706,7 @@ function attempt(index: number, output: ModelOutput): AssistantAttempt {
     },
     latencyMs: 1_800,
     outcome: null,
+    userReply: null,
     createdAt: now(),
   };
 }
@@ -735,7 +784,7 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
 
     const channel = onEvent as Channel<AssistantTurnEvent> | undefined;
     const emit = (event: AssistantTurnEvent) => channel?.onmessage(event);
-    const running = { cancelled: false };
+    const running: RunningTurn = { cancelled: false };
     runningTurns.set(clientTurnId as string, running);
     const auto = autoExecute();
 
@@ -743,6 +792,8 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
     const attempts: AssistantAttempt[] = [];
     let status: AssistantTurnStatus = 'answered';
     let errorCode: string | null = null;
+    // A resposta do usuário vai na tentativa logo depois da pergunta
+    let pendingReply: string | null = null;
     try {
       emit({ type: 'turnOpened', turnId });
       await sleep(STEP_MS / 2);
@@ -788,7 +839,9 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
           ? [broken, final]
           : /estrutura/i.test(text) && final.kind === 'query'
             ? [structureRequestFor(table, language), final]
-            : [final];
+            : /vendas|ativos/i.test(text) && final.kind === 'query'
+              ? [QUESTION_OUTPUT, final]
+              : [final];
 
       // Cancelar acorda a espera, como no Rust
       if (running.cancelled) status = 'cancelled';
@@ -798,8 +851,20 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
         index < plan.length && !running.cancelled;
         index += 1
       ) {
-        const output = plan[index];
+        const answered = pendingReply;
+        const output: ModelOutput =
+          answered && plan[index].kind === 'query'
+            ? {
+                ...plan[index],
+                assumptions: [
+                  ...plan[index].assumptions,
+                  `Contei pela ${answered.toLowerCase()}.`,
+                ],
+              }
+            : plan[index];
         const current = attempt(index, output);
+        current.userReply = answered;
+        pendingReply = null;
         attempts.push(current);
         spendAssistantQuota(2_580);
         emit({ type: 'attemptStarted', attemptId: current.id, index });
@@ -842,6 +907,25 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
             limitReached: false,
           });
           current.outcome = outcome('kind_structure_request', auto);
+          continue;
+        }
+        if (output.kind === 'ask_user') {
+          // O turno pausa até a resposta; a seguinte tentativa a registra
+          current.outcome = outcome('kind_ask_user', auto);
+          const waiting = waitReply(running);
+          emit({
+            type: 'question',
+            attemptId: current.id,
+            question: output.clarificationQuestion ?? '',
+            choices: output.choices ?? [],
+          });
+          const reply = await waiting;
+          if (reply === null) {
+            status = 'cancelled';
+            break;
+          }
+          emit({ type: 'userReplied', attemptId: current.id, reply });
+          pendingReply = reply;
           continue;
         }
         emit({ type: 'output', attemptId: current.id, output });
@@ -938,6 +1022,22 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
     const running = runningTurns.get(clientTurnId as string);
     if (!running) return false;
     running.cancelled = true;
+    running.wake?.();
+    return true;
+  },
+
+  [RustCommand.AssistantTurnReply]: ({
+    clientTurnId,
+    reply,
+  }: Args): boolean => {
+    const text = String(reply ?? '').trim();
+    if (!text) throw 'Invalid query: Empty reply';
+    if (text.length > 2_000) {
+      throw 'Invalid query: The reply is longer than 2000 characters';
+    }
+    const running = runningTurns.get(clientTurnId as string);
+    if (!running?.reply) return false;
+    running.reply(text);
     return true;
   },
 

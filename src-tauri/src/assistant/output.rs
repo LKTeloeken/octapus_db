@@ -18,7 +18,7 @@ use crate::models::QueryLanguage;
 
 /// Versão do contrato da API que este app segue (`info.version` do openapi).
 #[allow(dead_code)] // nos testes da cópia do contrato e no diagnóstico (B6)
-pub const CONTRACT_VERSION: &str = "1.5.0";
+pub const CONTRACT_VERSION: &str = "1.6.0";
 
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -28,8 +28,12 @@ pub enum OutputKind {
     Query,
     /// Qualquer outro código (DDL, escrita, função): nunca executado (RN-14)
     Code,
-    /// A estrutura não permite responder (C-08)
+    /// A estrutura não permite responder (C-08): encerra o turno
     Clarification,
+    /// O modelo pergunta ao usuário algo que só ele sabe (a pergunta em
+    /// `clarificationQuestion`, sugestões em `choices`); o turno espera a
+    /// resposta e continua com ela (contrato 1.6.0)
+    AskUser,
     /// O modelo pede mais estrutura antes de responder (os nomes em
     /// `structureRequest`); o app busca no catálogo e pergunta de novo
     StructureRequest,
@@ -41,7 +45,7 @@ pub enum OutputKind {
 }
 
 crate::models::assistant::lenient_deserialize!(OutputKind {
-    Query, Code, Clarification, StructureRequest, Answer
+    Query, Code, Clarification, AskUser, StructureRequest, Answer
 } else Unknown);
 
 /// A resposta de uma tentativa, já conferida.
@@ -62,10 +66,14 @@ pub struct ModelOutput {
     /// antes do contrato 1.5.0, no histórico
     #[serde(default)]
     pub structure_request: Option<Vec<String>>,
+    /// Respostas sugeridas para a pergunta (`kind = ask_user`), de 2 a 6;
+    /// `None` = resposta livre. Falta nas respostas de antes do 1.6.0
+    #[serde(default)]
+    pub choices: Option<Vec<String>>,
 }
 
 /// Os campos do contrato: todos obrigatórios, os opcionais podem ser `null`.
-const FIELDS: [&str; 7] = [
+const FIELDS: [&str; 8] = [
     "kind",
     "language",
     "query",
@@ -73,10 +81,14 @@ const FIELDS: [&str; 7] = [
     "assumptions",
     "clarificationQuestion",
     "structureRequest",
+    "choices",
 ];
 
 /// Nomes num pedido de estrutura, no máximo (a API confere o mesmo teto).
 pub const MAX_STRUCTURE_REQUEST_NAMES: usize = 20;
+/// Opções de uma pergunta ao usuário, no mínimo e no máximo (os da API).
+pub const MIN_CHOICES: usize = 2;
+pub const MAX_CHOICES: usize = 6;
 
 /// Confere a resposta (o `data` do evento `result`) e a linguagem esperada
 /// para o banco. `Err` traz o motivo, para o registro da tentativa — nunca o
@@ -99,6 +111,9 @@ pub fn parse(value: Value, expected: QueryLanguage) -> Result<ModelOutput, Strin
     let blank = |text: &Option<String>| text.as_deref().is_none_or(|text| text.trim().is_empty());
     if output.kind != OutputKind::StructureRequest && output.structure_request.is_some() {
         return Err(format!("{:?} with structureRequest", output.kind).to_lowercase());
+    }
+    if output.kind != OutputKind::AskUser && output.choices.is_some() {
+        return Err(format!("{:?} with choices", output.kind).to_lowercase());
     }
     let only_text = output.query.is_none() && output.language.is_none() && output.clarification_question.is_none();
     match output.kind {
@@ -129,6 +144,22 @@ pub fn parse(value: Value, expected: QueryLanguage) -> Result<ModelOutput, Strin
             }
             if output.query.is_some() || output.language.is_some() {
                 return Err("clarification with query or language".into());
+            }
+        }
+        OutputKind::AskUser => {
+            if blank(&output.clarification_question) {
+                return Err("ask_user without clarificationQuestion".into());
+            }
+            if output.query.is_some() || output.language.is_some() {
+                return Err("ask_user with query or language".into());
+            }
+            if let Some(choices) = &output.choices {
+                if !(MIN_CHOICES..=MAX_CHOICES).contains(&choices.len()) {
+                    return Err(format!("choices must have {MIN_CHOICES} to {MAX_CHOICES} options"));
+                }
+                if choices.iter().any(|choice| choice.trim().is_empty()) {
+                    return Err("choices with an empty option".into());
+                }
             }
         }
         OutputKind::Query | OutputKind::Code => {
@@ -164,6 +195,7 @@ mod tests {
             "assumptions": ["total inclui impostos"],
             "clarificationQuestion": null,
             "structureRequest": null,
+            "choices": null,
         })
     }
 
@@ -171,6 +203,7 @@ mod tests {
         json!({
             "kind": kind, "language": null, "query": null, "explanation": explanation,
             "assumptions": [], "clarificationQuestion": null, "structureRequest": names,
+            "choices": null,
         })
     }
 
@@ -183,14 +216,14 @@ mod tests {
         let code = json!({
             "kind": "code", "language": "sql", "query": "DELETE FROM t",
             "explanation": "Apaga tudo", "assumptions": [], "clarificationQuestion": null,
-            "structureRequest": null,
+            "structureRequest": null, "choices": null,
         });
         assert_eq!(parse(code, QueryLanguage::Sql).unwrap().kind, OutputKind::Code);
 
         let ask = json!({
             "kind": "clarification", "language": null, "query": null,
             "explanation": "", "assumptions": [], "clarificationQuestion": "Qual tabela?",
-            "structureRequest": null,
+            "structureRequest": null, "choices": null,
         });
         assert_eq!(parse(ask, QueryLanguage::Sql).unwrap().kind, OutputKind::Clarification);
 
@@ -199,6 +232,20 @@ mod tests {
         let request = parse(text_only("structure_request", "", json!(["sales.orders", "customers"])), QueryLanguage::Sql).unwrap();
         assert_eq!(request.kind, OutputKind::StructureRequest);
         assert_eq!(request.structure_request.unwrap(), ["sales.orders", "customers"]);
+
+        let free = parse(ask_user(Value::Null), QueryLanguage::Sql).unwrap();
+        assert_eq!(free.kind, OutputKind::AskUser);
+        assert_eq!(free.choices, None);
+        let options = parse(ask_user(json!(["Do pedido", "Do pagamento"])), QueryLanguage::RedisPlan).unwrap();
+        assert_eq!(options.choices.unwrap(), ["Do pedido", "Do pagamento"]);
+    }
+
+    fn ask_user(choices: Value) -> Value {
+        json!({
+            "kind": "ask_user", "language": null, "query": null, "explanation": "",
+            "assumptions": [], "clarificationQuestion": "Pela data do pedido ou do pagamento?",
+            "structureRequest": null, "choices": choices,
+        })
     }
 
     /// O tipo aceita o que uma API mais nova mandar (o histórico abre); quem
@@ -217,6 +264,12 @@ mod tests {
         old.as_object_mut().unwrap().remove("structureRequest");
         let output: ModelOutput = serde_json::from_value(old).unwrap();
         assert_eq!(output.structure_request, None);
+
+        // Antes do 1.6.0, sem choices
+        let mut old = query("SELECT 1");
+        old.as_object_mut().unwrap().remove("choices");
+        let output: ModelOutput = serde_json::from_value(old).unwrap();
+        assert_eq!(output.choices, None);
     }
 
     #[test]
@@ -234,12 +287,12 @@ mod tests {
         let clarification_with_query = json!({
             "kind": "clarification", "language": "sql", "query": "SELECT 1",
             "explanation": "", "assumptions": [], "clarificationQuestion": "Qual?",
-            "structureRequest": null,
+            "structureRequest": null, "choices": null,
         });
         let clarification_without_question = json!({
             "kind": "clarification", "language": null, "query": null,
             "explanation": "", "assumptions": [], "clarificationQuestion": " ",
-            "structureRequest": null,
+            "structureRequest": null, "choices": null,
         });
         let mut query_with_names = query("SELECT 1");
         query_with_names["structureRequest"] = json!(["t"]);
@@ -249,8 +302,27 @@ mod tests {
         let mut request_with_question = text_only("structure_request", "", json!(["t"]));
         request_with_question["clarificationQuestion"] = json!("?");
         let too_many: Vec<String> = (0..=MAX_STRUCTURE_REQUEST_NAMES).map(|i| format!("t{i}")).collect();
+        let mut ask_with_query = ask_user(Value::Null);
+        ask_with_query["query"] = json!("SELECT 1");
+        ask_with_query["language"] = json!("sql");
+        let mut ask_without_question = ask_user(Value::Null);
+        ask_without_question["clarificationQuestion"] = json!(" ");
+        let mut clarification_with_choices = ask_user(json!(["a", "b"]));
+        clarification_with_choices["kind"] = json!("clarification");
+        let mut query_with_choices = query("SELECT 1");
+        query_with_choices["choices"] = json!([]);
+        let mut without_choices = query("SELECT 1");
+        without_choices.as_object_mut().unwrap().remove("choices");
 
         for value in [
+            ask_with_query,
+            ask_without_question,
+            clarification_with_choices,
+            query_with_choices,
+            without_choices,
+            ask_user(json!(["só uma"])),
+            ask_user(json!(["a", " "])),
+            ask_user(json!(["1", "2", "3", "4", "5", "6", "7"])),
             query_with_names,
             answer_with_query,
             request_with_question,
@@ -288,7 +360,7 @@ mod tests {
         (
             "output.schema.json",
             include_str!("../../contract/output.schema.json"),
-            "b23297fa8f5091de0d05c61547ecebd2ef74748e9e68570912536df889404923",
+            "653145ac4027c44949a5a27f9d303b163d95148ea1c5db64caa6363d453ececc",
         ),
         (
             "mongo-operation.schema.json",
@@ -336,8 +408,8 @@ mod tests {
         assert_eq!(required, FIELDS);
 
         let kinds = &schema["properties"]["kind"]["enum"];
-        assert_eq!(*kinds, json!(["query", "code", "clarification", "structure_request", "answer"]));
-        for kind in [OutputKind::Query, OutputKind::Code, OutputKind::Clarification, OutputKind::StructureRequest, OutputKind::Answer] {
+        assert_eq!(*kinds, json!(["query", "code", "clarification", "ask_user", "structure_request", "answer"]));
+        for kind in [OutputKind::Query, OutputKind::Code, OutputKind::Clarification, OutputKind::AskUser, OutputKind::StructureRequest, OutputKind::Answer] {
             assert!(kinds.as_array().unwrap().contains(&serde_json::to_value(kind).unwrap()), "{kind:?}");
         }
         let languages = &schema["properties"]["language"]["anyOf"][0]["enum"];

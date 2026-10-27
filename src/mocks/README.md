@@ -88,6 +88,8 @@ pedaços, como na API. Pela pergunta:
 - "lista"/"todos" → listagem de 450 linhas, paginada pelo `assistant_execute`;
 - "espera"/"lento" → espera de rate limit (`waiting`, 3 s);
 - "falha" → o provedor falha (`ASSISTANT_PROVIDER_ERROR`);
+- "vendas"/"ativos" → o assistente pergunta qual data vale (`ask_user`, com opções) e o
+  turno espera a resposta (`assistant_turn_reply`); a resposta vira premissa da contagem;
 - "cota" → gasta a cota inteira (daí em diante, `ASSISTANT_QUOTA_EXCEEDED`; o reset volta);
 - o resto → conta as linhas da primeira tabela do database.
 

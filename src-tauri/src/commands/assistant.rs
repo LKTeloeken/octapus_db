@@ -35,6 +35,8 @@ use super::connect_adapter;
 const FIRST_PAGE_ROWS: i64 = 200;
 /// Conversas por página na lista.
 const CONVERSATIONS_PAGE: u32 = 30;
+/// Tamanho máximo da resposta a uma pergunta do modelo (o mesmo teto da API).
+const USER_REPLY_MAX: usize = 2000;
 
 /// Configurado? A API está no ar? Há login? Nunca rejeita por causa da API:
 /// sem URL ou com a API fora, o status diz isso e o resto do app segue (C-19).
@@ -204,7 +206,7 @@ pub async fn assistant_turn_ask(
     let (api_url, client) = state.assistant.endpoint()?;
     let token = assistant_store::load_token(&state.storage, api_url)?.ok_or_else(not_signed_in)?;
 
-    let cancel = state.assistant.start_turn(&client_turn_id);
+    let handle = state.assistant.start_turn(&client_turn_id);
     let result = async {
         let conversation = client
             .conversation(&token, &conversation_id)
@@ -256,6 +258,7 @@ pub async fn assistant_turn_ask(
             history,
             context_window,
             auto_execute,
+            reply_timeout: turn::REPLY_TIMEOUT,
             page: QueryOptions {
                 limit: FIRST_PAGE_ROWS,
                 schema: schemas.first().filter(|schema| schema.as_str() != FLAT_SCHEMA).cloned(),
@@ -281,7 +284,7 @@ pub async fn assistant_turn_ask(
             // Aba fechada: ninguém ouvindo, o turno segue até o fim
             let _ = on_event.send(event);
         };
-        turn::run_turn(&api, &db, &lookup, &setup, &emit, &cancel).await
+        turn::run_turn(&api, &db, &lookup, &setup, &emit, &handle.cancel, &handle.reply).await
     }
     .await;
     state.assistant.end_turn(&client_turn_id);
@@ -325,6 +328,22 @@ async fn structure_context(
 #[tauri::command]
 pub fn assistant_turn_cancel(state: State<'_, AppState>, client_turn_id: String) -> Result<bool> {
     Ok(state.assistant.cancel_turn(&client_turn_id))
+}
+
+/// Responde à pergunta que o modelo fez no turno em andamento (evento
+/// `question`, `kind: ask_user`); o turno segue com a resposta. `false` se o
+/// turno já terminou ou não está esperando resposta. A resposta vai ao modelo
+/// e à API como o usuário escreveu, como a própria pergunta do turno.
+#[tauri::command]
+pub fn assistant_turn_reply(state: State<'_, AppState>, client_turn_id: String, reply: String) -> Result<bool> {
+    let reply = reply.trim();
+    if reply.is_empty() {
+        return Err(Error::InvalidQuery("Empty reply".into()));
+    }
+    if reply.chars().count() > USER_REPLY_MAX {
+        return Err(Error::InvalidQuery(format!("The reply is longer than {USER_REPLY_MAX} characters")));
+    }
+    Ok(state.assistant.reply_turn(&client_turn_id, reply.to_string()))
 }
 
 /// Execução manual de uma consulta do assistente: na revisão (execução
@@ -694,6 +713,7 @@ mod e2e {
 
     use super::*;
     use crate::adapters::mongo::MongoAdapter;
+    use crate::assistant::ReplySlot;
     use crate::adapters::redisdb::RedisAdapter;
     use crate::adapters::sqlite::SqliteAdapter;
     use crate::models::{Server, SslMode};
@@ -865,6 +885,8 @@ mod e2e {
             history,
             context_window,
             auto_execute: true,
+            // Ninguém responde nos testes de turno real: a pergunta encerra
+            reply_timeout: std::time::Duration::from_secs(1),
             page: QueryOptions {
                 limit: FIRST_PAGE_ROWS,
                 ..QueryOptions::default()
@@ -898,6 +920,7 @@ mod e2e {
                 events.lock().push(line);
             },
             &CancelFlag::default(),
+            &ReplySlot::default(),
         )
         .await
         .unwrap();

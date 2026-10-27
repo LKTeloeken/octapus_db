@@ -30,6 +30,7 @@ const OUTPUT_KINDS: readonly OutputKind[] = [
   'query',
   'code',
   'clarification',
+  'ask_user',
   'structure_request',
   'answer',
 ];

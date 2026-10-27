@@ -6,6 +6,7 @@ import {
   executeAssistantQuery,
   getAssistantConversation,
   listAssistantConversations,
+  replyAssistantTurn,
   type AskAssistantInput,
   type ExecuteAssistantQueryInput,
 } from '@/api/assistant';
@@ -88,6 +89,19 @@ export function useAskAssistant(onEvent: (event: AssistantTurnEvent) => void) {
 
 export function useCancelAssistantTurn() {
   return useMutation({ mutationFn: cancelAssistantTurn });
+}
+
+/** A resposta a uma pergunta do modelo no turno em andamento */
+export function useReplyAssistantTurn() {
+  return useMutation({
+    mutationFn: ({
+      clientTurnId,
+      reply,
+    }: {
+      clientTurnId: string;
+      reply: string;
+    }) => replyAssistantTurn(clientTurnId, reply),
+  });
 }
 
 /** Execução manual (revisão e páginas seguintes), sempre só-leitura */

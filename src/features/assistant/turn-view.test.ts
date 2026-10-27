@@ -22,6 +22,7 @@ const QUERY: ModelOutput = {
   assumptions: ['Todos contam'],
   clarificationQuestion: null,
   structureRequest: null,
+  choices: null,
 };
 
 const run = (turn: LiveTurn, events: AssistantTurnEvent[], now = 1_000) =>
@@ -236,6 +237,7 @@ const attempt = (patch: Partial<AssistantAttempt>): AssistantAttempt => ({
   usage: null,
   latencyMs: null,
   outcome: null,
+  userReply: null,
   createdAt: '2026-10-20T00:00:00Z',
   ...patch,
 });
@@ -376,6 +378,7 @@ const REQUEST: ModelOutput = {
   assumptions: [],
   clarificationQuestion: null,
   structureRequest: ['sales.orders', 'ghost'],
+  choices: null,
 };
 
 const ANSWER: ModelOutput = {
@@ -387,6 +390,7 @@ const ANSWER: ModelOutput = {
   assumptions: [],
   clarificationQuestion: null,
   structureRequest: null,
+  choices: null,
 };
 
 describe('pedido de estrutura e resposta em texto', () => {
@@ -503,5 +507,153 @@ describe('pedido de estrutura e resposta em texto', () => {
     expect(view.structureLookups).toEqual([
       { requested: 2, found: null, missing: null, limitReached: false },
     ]);
+  });
+});
+
+describe('pergunta ao usuário (ask_user)', () => {
+  const ASK: ModelOutput = {
+    kind: 'ask_user',
+    language: null,
+    query: null,
+    explanation: '',
+    assumptions: [],
+    clarificationQuestion: 'Qual data vale?',
+    structureRequest: null,
+    choices: ['Do pedido', 'Do pagamento'],
+  };
+  const notRun = (reason: string) => ({
+    guard: { allowed: false, reason },
+    preflight: stage(false, null),
+    execution: stage(false, null),
+    rowCount: null,
+    autoExecute: true,
+    userEdited: false,
+  });
+
+  it('ao vivo: espera a resposta e segue, sem virar resposta nem falha', () => {
+    const asking = run(startTurn('c1', 'vendas de outubro', true), [
+      { type: 'turnOpened', turnId: 't1' },
+      { type: 'attemptStarted', attemptId: 'a1', index: 0 },
+      ...streamOf(ASK),
+      {
+        type: 'question',
+        attemptId: 'a1',
+        question: 'Qual data vale?',
+        choices: ['Do pedido', 'Do pagamento'],
+      },
+    ]);
+    let view = liveTurnView(asking);
+    expect(view.phase).toBe('asking');
+    expect(view.clientTurnId).toBe('c1');
+    expect(view.output).toBeNull();
+    expect(view.questions).toEqual([
+      {
+        attemptId: 'a1',
+        question: 'Qual data vale?',
+        choices: ['Do pedido', 'Do pagamento'],
+        reply: null,
+      },
+    ]);
+
+    const answered = run(asking, [
+      { type: 'userReplied', attemptId: 'a1', reply: 'Do pagamento' },
+      { type: 'attemptStarted', attemptId: 'a2', index: 1 },
+      { type: 'output', attemptId: 'a2', output: QUERY },
+    ]);
+    view = liveTurnView(
+      finishTurn(answered, {
+        turnId: 't1',
+        status: 'answered',
+        attemptId: 'a2',
+        output: QUERY,
+        errorCode: null,
+      }),
+    );
+    expect(view.questions[0].reply).toBe('Do pagamento');
+    expect(view.output?.query).toBe(QUERY.query);
+    expect(view.failedAttempts).toEqual([]);
+  });
+
+  it('ao vivo: a pergunta além do teto não aparece nem conta como falha', () => {
+    const turn = run(startTurn('c1', 'vendas', true), [
+      { type: 'attemptStarted', attemptId: 'a1', index: 0 },
+      ...streamOf(ASK),
+      { type: 'attemptStarted', attemptId: 'a2', index: 1 },
+      { type: 'output', attemptId: 'a2', output: QUERY },
+    ]);
+    const view = liveTurnView(
+      finishTurn(turn, {
+        turnId: 't1',
+        status: 'answered',
+        attemptId: 'a2',
+        output: QUERY,
+        errorCode: null,
+      }),
+    );
+    expect(view.questions).toEqual([]);
+    expect(view.failedAttempts).toEqual([]);
+  });
+
+  it('ao vivo: sem resposta, a pergunta não se repete como resposta', () => {
+    const turn = run(startTurn('c1', 'clientes ativos', true), [
+      { type: 'attemptStarted', attemptId: 'a1', index: 0 },
+      ...streamOf(ASK),
+      { type: 'question', attemptId: 'a1', question: 'Qual?', choices: [] },
+    ]);
+    const view = liveTurnView(
+      finishTurn(turn, {
+        turnId: 't1',
+        status: 'clarification',
+        attemptId: 'a1',
+        output: ASK,
+        errorCode: null,
+      }),
+    );
+    expect(view.outcome).toBe('clarification');
+    expect(view.output).toBeNull();
+    expect(view.failure).toBeNull();
+    expect(view.questions).toHaveLength(1);
+  });
+
+  it('histórico: a resposta vem da tentativa seguinte; a além do teto some', () => {
+    const view = serverTurnView(
+      {
+        id: 't1',
+        index: 0,
+        question: 'vendas de outubro',
+        language: 'pt',
+        status: 'answered',
+        createdAt: '2026-10-20T00:00:00Z',
+        attempts: [
+          attempt({
+            id: 'a1',
+            index: 0,
+            output: ASK,
+            outcome: notRun('kind_ask_user'),
+          }),
+          attempt({
+            id: 'a2',
+            index: 1,
+            output: ASK,
+            userReply: 'Do pagamento',
+            outcome: notRun('user_question_limit'),
+          }),
+          attempt({ id: 'a3', index: 2, output: QUERY }),
+        ],
+        feedback: null,
+      },
+      null,
+    );
+    expect(view.questions).toEqual([
+      {
+        attemptId: 'a1',
+        question: 'Qual data vale?',
+        choices: ['Do pedido', 'Do pagamento'],
+        reply: 'Do pagamento',
+      },
+    ]);
+    expect(view.attemptId).toBe('a3');
+    expect(view.failedAttempts).toEqual([]);
+    expect(view.clientTurnId).toBeNull();
   });
 });

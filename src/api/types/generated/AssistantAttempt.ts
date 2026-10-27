@@ -4,4 +4,9 @@ import type { AssistantUsage } from "./AssistantUsage";
 import type { AttemptOutcome } from "./AttemptOutcome";
 import type { ModelOutput } from "./ModelOutput";
 
-export type AssistantAttempt = { id: string, index: number, status: AssistantAttemptStatus, output: ModelOutput | null, usage: AssistantUsage | null, latencyMs: number | null, outcome: AttemptOutcome | null, createdAt: string, };
+export type AssistantAttempt = { id: string, index: number, status: AssistantAttemptStatus, output: ModelOutput | null, usage: AssistantUsage | null, latencyMs: number | null, outcome: AttemptOutcome | null, 
+/**
+ * A resposta do usuário à pergunta da tentativa anterior (`ask_user`),
+ * quando esta veio dela (contrato 1.6.0)
+ */
+userReply: string | null, createdAt: string, };

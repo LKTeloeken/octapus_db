@@ -35,6 +35,8 @@ export type TurnPhase =
   | 'executing'
   /** Rate limit: esperando o `Retry-After` */
   | 'waiting'
+  /** O modelo perguntou (`ask_user`): esperando a resposta do usuário */
+  | 'asking'
   | 'finished';
 
 export interface AttemptFailure {
@@ -55,6 +57,15 @@ export interface StructureLookup {
   limitReached: boolean;
 }
 
+/** A pergunta do modelo ao usuário (`kind: ask_user`) e a resposta */
+export interface LiveQuestion {
+  question: string;
+  /** Sugestões de resposta; vazio = resposta livre */
+  choices: string[];
+  /** Chega pelo `userReplied`; `null` enquanto espera */
+  reply: string | null;
+}
+
 export interface LiveAttempt {
   attemptId: string;
   index: number;
@@ -69,6 +80,8 @@ export interface LiveAttempt {
   executed: boolean;
   /** A tentativa foi um pedido de estrutura (evento `structureLookup`) */
   lookup: StructureLookup | null;
+  /** A tentativa foi uma pergunta ao usuário (evento `question`) */
+  ask: LiveQuestion | null;
 }
 
 /**
@@ -77,6 +90,14 @@ export interface LiveAttempt {
  */
 export const isStructureAttempt = (attempt: LiveAttempt) =>
   attempt.lookup !== null || attempt.partial.kind === 'structure_request';
+
+/**
+ * Tentativa que é (ou está virando) uma pergunta ao usuário: também não é
+ * resposta nem falha. A que passou do teto do turno não chega à tela (sem
+ * `question`), mas também não conta
+ */
+export const isQuestionAttempt = (attempt: LiveAttempt) =>
+  attempt.ask !== null || attempt.partial.kind === 'ask_user';
 
 /** O que o evento `context` disse da estrutura enviada ao modelo */
 export interface TurnContext {
@@ -176,6 +197,7 @@ export function reduceTurn(
             planned: false,
             executed: false,
             lookup: null,
+            ask: null,
           },
         ],
       };
@@ -213,6 +235,29 @@ export function reduceTurn(
         attempts: patchAttempt(turn, event.attemptId, () => ({ lookup })),
       };
     }
+
+    case 'question':
+      return {
+        ...turn,
+        // Até a resposta chegar
+        phase: 'asking',
+        attempts: patchAttempt(turn, event.attemptId, () => ({
+          ask: {
+            question: event.question,
+            choices: event.choices,
+            reply: null,
+          },
+        })),
+      };
+
+    case 'userReplied':
+      return {
+        ...turn,
+        phase: 'generating',
+        attempts: patchAttempt(turn, event.attemptId, attempt => ({
+          ask: attempt.ask ? { ...attempt.ask, reply: event.reply } : null,
+        })),
+      };
 
     case 'output':
       return {

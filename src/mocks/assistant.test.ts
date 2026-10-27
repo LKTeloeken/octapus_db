@@ -323,6 +323,58 @@ describe('assistente no mock', () => {
       expect(kinds).toEqual(['structure_request', 'query']);
     });
 
+    it('pergunta ao usuário: espera a resposta e segue com ela', async () => {
+      const { id } = await conversation();
+      // Antes de perguntar, não há o que responder
+      expect(
+        await route(RustCommand.AssistantTurnReply, {
+          clientTurnId: 'turn-q',
+          reply: 'cedo',
+        }),
+      ).toBe(false);
+
+      const running = ask(id, 'quantas vendas tivemos em outubro?', 'turn-q');
+      // Espera a pergunta chegar
+      for (let i = 0; i < 100; i += 1) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        const answered = await route(RustCommand.AssistantTurnReply, {
+          clientTurnId: 'turn-q',
+          reply: '  Data do pagamento ',
+        });
+        if (answered) break;
+      }
+      const { finish, events } = await running;
+
+      expect(finish.status).toBe('answered');
+      expect(finish.output?.assumptions.at(-1)).toMatch(/data do pagamento/);
+      expect(events.find(event => event.type === 'question')).toMatchObject({
+        choices: ['Data do pedido', 'Data do pagamento'],
+      });
+      expect(events.find(event => event.type === 'userReplied')).toMatchObject({
+        reply: 'Data do pagamento',
+      });
+
+      const saved = (await route(RustCommand.AssistantConversation, {
+        conversationId: id,
+      })) as AssistantConversation;
+      const [question, answer] = saved.turns[0].attempts;
+      expect(question.output?.kind).toBe('ask_user');
+      expect(question.userReply).toBeNull();
+      expect(answer.userReply).toBe('Data do pagamento');
+    });
+
+    it('cancelar enquanto espera a resposta encerra o turno', async () => {
+      const { id } = await conversation();
+      const running = ask(id, 'quantos clientes ativos temos?', 'turn-c');
+      await new Promise(resolve => setTimeout(resolve, 1_200));
+      expect(
+        await route(RustCommand.AssistantTurnCancel, {
+          clientTurnId: 'turn-c',
+        }),
+      ).toBe(true);
+      expect((await running).finish.status).toBe('cancelled');
+    });
+
     it('cancelar no meio encerra o turno como cancelado', async () => {
       const { id } = await conversation();
       const running = ask(id, 'quantos pedidos existem no total?', 'turn-x');

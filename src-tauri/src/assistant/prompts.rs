@@ -84,6 +84,7 @@ const MONGO_V2: Prompt = Prompt {
     text: include_str!("../../prompts/mongo-v2.txt"),
 };
 
+#[cfg_attr(not(test), allow(dead_code))]
 const REDIS_V2: Prompt = Prompt {
     version: "redis-v2",
     paradigm: "redis",
@@ -139,27 +140,59 @@ const SQLITE_V4: Prompt = Prompt {
 // texto. v4 do Mongo: os valores de exemplo dos campos categóricos (quando o
 // servidor liga) e as descrições do `$jsonSchema`.
 
+#[cfg_attr(not(test), allow(dead_code))]
 const POSTGRES_V5: Prompt = Prompt {
     version: "postgres-v5",
     paradigm: "postgres",
     text: include_str!("../../prompts/postgres-v5.txt"),
 };
 
+#[cfg_attr(not(test), allow(dead_code))]
 const SQLITE_V5: Prompt = Prompt {
     version: "sqlite-v5",
     paradigm: "sqlite",
     text: include_str!("../../prompts/sqlite-v5.txt"),
 };
 
+#[cfg_attr(not(test), allow(dead_code))]
 const MONGO_V4: Prompt = Prompt {
     version: "mongo-v4",
     paradigm: "mongodb",
     text: include_str!("../../prompts/mongo-v4.txt"),
 };
 
+// v6 do SQL, v5 do Mongo e v3 do Redis (contrato 1.6.0): o modelo pode
+// perguntar ao usuário no meio do turno (`ask_user`, com `choices`) e segue
+// com a resposta (`<user_reply>`); o `clarification` fica para quando a
+// estrutura não permite responder.
+
+const POSTGRES_V6: Prompt = Prompt {
+    version: "postgres-v6",
+    paradigm: "postgres",
+    text: include_str!("../../prompts/postgres-v6.txt"),
+};
+
+const SQLITE_V6: Prompt = Prompt {
+    version: "sqlite-v6",
+    paradigm: "sqlite",
+    text: include_str!("../../prompts/sqlite-v6.txt"),
+};
+
+const MONGO_V5: Prompt = Prompt {
+    version: "mongo-v5",
+    paradigm: "mongodb",
+    text: include_str!("../../prompts/mongo-v5.txt"),
+};
+
+const REDIS_V3: Prompt = Prompt {
+    version: "redis-v3",
+    paradigm: "redis",
+    text: include_str!("../../prompts/redis-v3.txt"),
+};
+
 /// Todos os prompts que este build conhece.
 #[cfg(test)]
-pub const ALL: [Prompt; 16] = [
+pub const ALL: [Prompt; 20] = [
     POSTGRES_V1,
     SQLITE_V1,
     MONGO_V1,
@@ -176,16 +209,20 @@ pub const ALL: [Prompt; 16] = [
     POSTGRES_V5,
     SQLITE_V5,
     MONGO_V4,
+    POSTGRES_V6,
+    SQLITE_V6,
+    MONGO_V5,
+    REDIS_V3,
 ];
 
 /// O prompt em uso para o banco. `None` = o assistente não atende o
 /// paradigma.
 pub fn for_db(db_type: DatabaseType) -> Option<Prompt> {
     match db_type {
-        DatabaseType::Postgres => Some(POSTGRES_V5),
-        DatabaseType::Sqlite => Some(SQLITE_V5),
-        DatabaseType::Mongodb => Some(MONGO_V4),
-        DatabaseType::Redis => Some(REDIS_V2),
+        DatabaseType::Postgres => Some(POSTGRES_V6),
+        DatabaseType::Sqlite => Some(SQLITE_V6),
+        DatabaseType::Mongodb => Some(MONGO_V5),
+        DatabaseType::Redis => Some(REDIS_V3),
         DatabaseType::Mysql => None,
     }
 }
@@ -215,7 +252,7 @@ mod tests {
     /// Os hashes registrados (ou a registrar) no dashboard. Mudou o texto?
     /// Este teste falha: crie uma versão nova do arquivo em vez de editar a
     /// antiga — a API recusaria o texto editado com `prompt_not_registered`.
-    const REGISTERED: [(&str, &str); 16] = [
+    const REGISTERED: [(&str, &str); 20] = [
         ("postgres-v1", "283ab7d457abafce41bcb2795c8fe5ae71810da48d7ec3d2bee5c551ec653755"),
         ("sqlite-v1", "6a46cc1011b1a10a7eeb20d5e0601adbb8ba38ec78a78b92038dbc13f3fca73c"),
         ("mongo-v1", "7d7e35fe891ba078e5f741deaec9aa58fd427666c9dad05da88caa54341dfb0e"),
@@ -232,6 +269,10 @@ mod tests {
         ("postgres-v5", "3dd6911343c8dade5aae66e4c9805fd667f12650e48bead226c11f969063b8fc"),
         ("sqlite-v5", "77bb535b295c4531335de02eb5f8ef8bef16ec0ec76eb5329c2034c6c9c8de75"),
         ("mongo-v4", "80331cb55a74c77de2c450f6f230356bea53dd83fae1e43d42415f4619f4a6c2"),
+        ("postgres-v6", "0e169f4efccae14b0da76471a48bc69082c228e3f847651e338ddc637c0ac236"),
+        ("sqlite-v6", "53e9e10215113a3dd16d0f2881bb6b4ea8ac3d77e58701d5a81b4ec0e4d0e545"),
+        ("mongo-v5", "c5f3b98a4d51723aa69968ff648b1cc57ba6015f656b81e0cec56a1da16846ad"),
+        ("redis-v3", "744314a450a56d621e3457f911bd114773eaf606da583a7dc70c6b2966690557"),
     ];
 
     #[test]
@@ -260,15 +301,24 @@ mod tests {
             assert!(prompt.paradigm.starts_with(prompt.name()), "{}", prompt.version);
             assert!(prompt.text.contains("<schema>") && prompt.text.contains("clarificationQuestion"));
         }
-        // Os em uso conhecem os tipos do contrato 1.5.0
+        // Os em uso conhecem os tipos do contrato 1.6.0
         for db_type in [DatabaseType::Postgres, DatabaseType::Sqlite, DatabaseType::Mongodb, DatabaseType::Redis] {
             let prompt = for_db(db_type).unwrap();
-            for needle in ["structure_request", "structureRequest", "<requested_structure>", "\"answer\"", "limit_reached"] {
+            for needle in [
+                "structure_request",
+                "structureRequest",
+                "<requested_structure>",
+                "\"answer\"",
+                "limit_reached",
+                "\"ask_user\"",
+                "\"choices\"",
+                "<user_reply>",
+            ] {
                 assert!(prompt.text.contains(needle), "{} sem {needle}", prompt.version);
             }
         }
         // Os de banco com catálogo pedem índices e definições (desde o v3), com
-        // o `?` dos literais; funções só no Postgres. O Redis segue no v2
+        // o `?` dos literais; funções só no Postgres. O Redis não tem
         for db_type in [DatabaseType::Postgres, DatabaseType::Sqlite, DatabaseType::Mongodb] {
             let prompt = for_db(db_type).unwrap();
             for needle in ["\"indexes:", "\"definition:", "with ?"] {
@@ -281,21 +331,21 @@ mod tests {
                 prompt.version
             );
         }
-        // O SQL em várias linhas (desde o v4) e a busca de colunas (v5); Mongo
-        // e Redis o app indenta
+        // O SQL em várias linhas (desde o v4) e a busca de colunas (desde o
+        // v5); Mongo e Redis o app indenta
         for db_type in [DatabaseType::Postgres, DatabaseType::Sqlite] {
             let prompt = for_db(db_type).unwrap();
-            assert!(prompt.version.ends_with("-v5"), "{}", prompt.version);
+            assert!(prompt.version.ends_with("-v6"), "{}", prompt.version);
             for needle in ["Lay the SQL out on several lines", "\"columns:"] {
                 assert!(prompt.text.contains(needle), "{} sem {needle}", prompt.version);
             }
         }
-        // Mongo v4: os valores de exemplo e as descrições do validador
+        // Mongo (desde o v4): os valores de exemplo e as descrições do validador
         let mongo = for_db(DatabaseType::Mongodb).unwrap();
-        assert_eq!(mongo.version, "mongo-v4");
+        assert_eq!(mongo.version, "mongo-v5");
         assert!(mongo.text.contains("values:") && mongo.text.contains("$jsonSchema"));
         assert!(!mongo.text.contains("\"columns:"));
-        assert_eq!(for_db(DatabaseType::Redis).unwrap().version, "redis-v2");
+        assert_eq!(for_db(DatabaseType::Redis).unwrap().version, "redis-v3");
         assert_eq!(for_db(DatabaseType::Postgres).unwrap().paradigm, "postgres");
         assert_eq!(for_db(DatabaseType::Sqlite).unwrap().paradigm, "sqlite");
         assert_eq!(for_db(DatabaseType::Mongodb).unwrap().paradigm, "mongodb");

@@ -109,6 +109,7 @@ export enum RustCommand {
   AssistantConversationCreate = 'assistant_conversation_create',
   AssistantTurnAsk = 'assistant_turn_ask',
   AssistantTurnCancel = 'assistant_turn_cancel',
+  AssistantTurnReply = 'assistant_turn_reply',
   AssistantExecute = 'assistant_execute',
   AssistantFeedbackSet = 'assistant_feedback_set',
   AssistantFeedbackClear = 'assistant_feedback_clear',

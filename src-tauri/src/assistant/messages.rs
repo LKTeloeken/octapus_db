@@ -7,8 +7,9 @@
 //!    preferindo os mais recentes;
 //! 3. o turno atual: a estrutura (`<schema>`) e a pergunta;
 //! 4. as rodadas deste turno, na ordem ([`Round`]): cada tentativa que falhou
-//!    e o erro sanitizado dela (`<previous_attempt_failed>`), e cada pedido de
-//!    estrutura do modelo com o que o app achou (`<requested_structure>`) — a
+//!    e o erro sanitizado dela (`<previous_attempt_failed>`), cada pedido de
+//!    estrutura do modelo com o que o app achou (`<requested_structure>`) e
+//!    cada pergunta do modelo com a resposta do usuário (`<user_reply>`) — a
 //!    última mensagem é sempre do usuário, como o contrato exige.
 //!
 //! Mudar o formato daqui muda o que o modelo vê: trate como uma versão nova
@@ -53,6 +54,12 @@ pub struct AttemptContext {
     pub schema_tokens_estimate: usize,
     /// Classe da falha da tentativa anterior, quando esta é uma correção (C-11)
     pub previous_failure: Option<FailureClass>,
+    /// A resposta do usuário à pergunta da tentativa anterior (`ask_user`),
+    /// quando esta vem dela: a API grava à parte, para a análise. Quem
+    /// preenche é o turno, só na primeira tentativa depois da resposta. Sem
+    /// resposta, o campo nem vai (a API anterior ao 1.6.0 recusa campo novo)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_reply: Option<String>,
 }
 
 /// Um turno anterior da conversa: a pergunta e a resposta que o modelo deu
@@ -101,11 +108,29 @@ pub enum StructureReply {
     LimitReached,
 }
 
+/// Uma pergunta do modelo ao usuário neste turno (`kind: ask_user`) e o que
+/// voltou.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuestionRound {
+    pub output: ModelOutput,
+    pub reply: QuestionReply,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuestionReply {
+    /// O que o usuário respondeu
+    Answered(String),
+    /// O teto de perguntas do turno já tinha sido atingido: nada foi
+    /// perguntado ao usuário
+    LimitReached,
+}
+
 /// O que aconteceu depois da pergunta, neste turno, na ordem.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Round {
     Correction(Correction),
     Structure(StructureRound),
+    Question(QuestionRound),
 }
 
 impl Round {
@@ -113,6 +138,7 @@ impl Round {
         match self {
             Round::Correction(correction) => &correction.output,
             Round::Structure(round) => &round.output,
+            Round::Question(round) => &round.output,
         }
     }
 }
@@ -157,6 +183,7 @@ pub fn attempt_request(
                 }
                 structure_text(&round.reply)
             }
+            Round::Question(round) => reply_text(&round.reply),
         };
         messages.push(Message {
             role: Role::User,
@@ -176,6 +203,7 @@ pub fn attempt_request(
                 Some(Round::Correction(correction)) => Some(correction.class),
                 _ => None,
             },
+            user_reply: None,
         },
     }
 }
@@ -247,6 +275,22 @@ fn structure_text(reply: &StructureReply) -> String {
     }
 }
 
+/// A resposta do usuário a uma pergunta do modelo. É texto do usuário, como a
+/// pergunta do turno: vai como ele escreveu.
+fn reply_text(reply: &QuestionReply) -> String {
+    match reply {
+        QuestionReply::Answered(text) => format!(
+            "<user_reply>\n{}\n</user_reply>\n\
+             Continue with this answer, in the same JSON format.",
+            text.trim()
+        ),
+        QuestionReply::LimitReached => "<user_reply limit_reached=\"true\">\n\
+             -- No more questions can be asked to the user for this question.\n</user_reply>\n\
+             Answer now with what you have: take the most likely reading as an assumption and say so, in the same JSON format."
+            .to_string(),
+    }
+}
+
 fn correction_text(correction: &Correction) -> String {
     let class = serde_json::to_value(correction.class)
         .ok()
@@ -281,6 +325,7 @@ mod tests {
             assumptions: vec![],
             clarification_question: None,
             structure_request: None,
+            choices: None,
         }
     }
 
@@ -307,7 +352,7 @@ mod tests {
         let prompt = prompts::for_db(DatabaseType::Postgres).unwrap();
         let request = attempt_request(prompt, &schema(false), &[], "  quantos pedidos?  ", &[], 200_000);
 
-        assert_eq!(request.prompt_version, "postgres-v5");
+        assert_eq!(request.prompt_version, "postgres-v6");
         assert_eq!(request.messages.len(), 2);
         // A system é o arquivo inteiro, byte a byte (a API confere o hash)
         assert_eq!(request.messages[0].role, Role::System);
@@ -322,6 +367,7 @@ mod tests {
                 schema_truncated: false,
                 schema_tokens_estimate: schema(false).tokens_estimate,
                 previous_failure: None,
+                user_reply: None,
             }
         );
     }
@@ -340,7 +386,7 @@ mod tests {
         assert_eq!(request.messages[1].content, "<question>\nprimeira\n</question>");
         assert_eq!(
             request.messages[2].content,
-            r#"{"kind":"query","language":"sql","query":"SELECT 1","explanation":"Lista","assumptions":[],"clarificationQuestion":null,"structureRequest":null}"#
+            r#"{"kind":"query","language":"sql","query":"SELECT 1","explanation":"Lista","assumptions":[],"clarificationQuestion":null,"structureRequest":null,"choices":null}"#
         );
         assert!(request.messages[7].content.starts_with("<schema truncated=\"true\">\n"));
         assert!(request.context.schema_truncated);
@@ -393,6 +439,7 @@ mod tests {
             assumptions: vec![],
             clarification_question: None,
             structure_request: Some(names.iter().map(|name| name.to_string()).collect()),
+            choices: None,
         }
     }
 
@@ -434,7 +481,7 @@ mod tests {
         );
         assert_eq!(
             request.messages[2].content,
-            r#"{"kind":"structure_request","language":null,"query":null,"explanation":"","assumptions":[],"clarificationQuestion":null,"structureRequest":["sales.orders","ghost"]}"#
+            r#"{"kind":"structure_request","language":null,"query":null,"explanation":"","assumptions":[],"clarificationQuestion":null,"structureRequest":["sales.orders","ghost"],"choices":null}"#
         );
         assert!(request.messages[3].content.starts_with("<requested_structure truncated=\"true\">\n-- PostgreSQL"));
         assert!(request.messages[3].content.contains("-- Not found: \"ghost\"\n</requested_structure>\nAnswer the question now"));
@@ -446,8 +493,54 @@ mod tests {
                 schema_tokens_estimate: schema(false).tokens_estimate + 30,
                 // A última rodada é de estrutura: não há falha antes desta
                 previous_failure: None,
+                user_reply: None,
             }
         );
+    }
+
+    fn ask_user(question: &str) -> ModelOutput {
+        ModelOutput {
+            kind: OutputKind::AskUser,
+            language: None,
+            query: None,
+            explanation: String::new(),
+            assumptions: vec![],
+            clarification_question: Some(question.into()),
+            structure_request: None,
+            choices: Some(vec!["Do pedido".into(), "Do pagamento".into()]),
+        }
+    }
+
+    /// A pergunta ao usuário vira a mensagem do modelo com a pergunta e a do
+    /// usuário com a resposta dele (ou o aviso de que não dá para perguntar
+    /// mais).
+    #[test]
+    fn question_rounds_carry_the_user_reply() {
+        let prompt = prompts::for_db(DatabaseType::Postgres).unwrap();
+        let rounds = [
+            Round::Question(QuestionRound {
+                output: ask_user("Qual data?"),
+                reply: QuestionReply::Answered("  Do pagamento \n".into()),
+            }),
+            Round::Question(QuestionRound {
+                output: ask_user("E o status?"),
+                reply: QuestionReply::LimitReached,
+            }),
+        ];
+        let request = attempt_request(prompt, &schema(false), &[], "vendas de outubro", &rounds, 200_000);
+
+        let roles: Vec<Role> = request.messages.iter().map(|m| m.role).collect();
+        assert_eq!(roles, [Role::System, Role::User, Role::Assistant, Role::User, Role::Assistant, Role::User]);
+        assert!(request.messages[2].content.contains(r#""kind":"ask_user""#));
+        assert!(request.messages[2].content.contains(r#""choices":["Do pedido","Do pagamento"]"#));
+        assert_eq!(
+            request.messages[3].content,
+            "<user_reply>\nDo pagamento\n</user_reply>\nContinue with this answer, in the same JSON format."
+        );
+        assert!(request.messages[5].content.starts_with("<user_reply limit_reached=\"true\">"));
+        // Quem marca a resposta no context é o turno, na tentativa logo depois dela
+        assert_eq!(request.context.user_reply, None);
+        assert_eq!(request.context.previous_failure, None);
     }
 
     /// A resposta em texto vai no histórico como o modelo deu: o texto
@@ -465,6 +558,7 @@ mod tests {
                 assumptions: vec![],
                 clarification_question: None,
                 structure_request: None,
+                choices: None,
             },
         }];
         let request = attempt_request(prompt, &schema(false), &history, "e um composto?", &[], 200_000);
@@ -477,7 +571,7 @@ mod tests {
         let prompt = prompts::for_db(DatabaseType::Postgres).unwrap();
         let request = attempt_request(prompt, &schema(false), &[], "x", &[], 8_000);
         let value = serde_json::to_value(&request).unwrap();
-        assert_eq!(value["promptVersion"], "postgres-v5");
+        assert_eq!(value["promptVersion"], "postgres-v6");
         assert_eq!(value["messages"][0]["role"], "system");
         assert_eq!(
             value["context"],

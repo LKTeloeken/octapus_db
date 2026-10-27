@@ -11,6 +11,7 @@ const FULL: ModelOutput = {
   assumptions: ['"ativo" quer dizer status = 1', 'Sem filtro de data'],
   clarificationQuestion: null,
   structureRequest: null,
+  choices: null,
 };
 
 describe('extractPartialOutput', () => {
@@ -64,6 +65,7 @@ describe('extractPartialOutput', () => {
     expect(extractPartialOutput('{"kind":"structure_request"').kind).toBe(
       'structure_request',
     );
+    expect(extractPartialOutput('{"kind":"ask_user"').kind).toBe('ask_user');
   });
 
   it('descarta escape cortado no meio', () => {

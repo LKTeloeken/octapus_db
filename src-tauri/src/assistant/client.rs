@@ -534,6 +534,7 @@ mod tests {
                 schema_truncated: false,
                 schema_tokens_estimate: 1,
                 previous_failure: None,
+                user_reply: None,
             },
         }
     }

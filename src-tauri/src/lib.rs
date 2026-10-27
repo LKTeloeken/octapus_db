@@ -195,6 +195,7 @@ pub fn run() {
             commands::assistant_conversation_create,
             commands::assistant_turn_ask,
             commands::assistant_turn_cancel,
+            commands::assistant_turn_reply,
             commands::assistant_execute,
             commands::assistant_feedback_set,
             commands::assistant_feedback_clear,

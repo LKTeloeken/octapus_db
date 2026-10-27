@@ -381,6 +381,10 @@ pub struct AssistantAttempt {
     pub usage: Option<AssistantUsage>,
     pub latency_ms: Option<i64>,
     pub outcome: Option<AttemptOutcome>,
+    /// A resposta do usuário à pergunta da tentativa anterior (`ask_user`),
+    /// quando esta veio dela (contrato 1.6.0)
+    #[serde(default)]
+    pub user_reply: Option<String>,
     pub created_at: String,
 }
 
@@ -495,6 +499,17 @@ pub enum AssistantTurnEvent {
         truncated: bool,
         limit_reached: bool,
     },
+    /// O modelo perguntou ao usuário (`kind: ask_user`): o turno espera a
+    /// resposta pelo `assistant_turn_reply`. `choices` vazio = resposta livre
+    #[serde(rename_all = "camelCase")]
+    Question {
+        attempt_id: String,
+        question: String,
+        choices: Vec<String>,
+    },
+    /// A resposta do usuário chegou; o turno segue com ela
+    #[serde(rename_all = "camelCase")]
+    UserReplied { attempt_id: String, reply: String },
     /// A resposta conferida da tentativa
     #[serde(rename_all = "camelCase")]
     Output { attempt_id: String, output: crate::assistant::output::ModelOutput },

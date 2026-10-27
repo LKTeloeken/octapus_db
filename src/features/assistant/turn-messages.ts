@@ -9,6 +9,7 @@ export const PHASE_LABELS: Record<TurnPhase, string> = {
   checking: 'Conferindo a consulta…',
   executing: 'Executando a consulta…',
   waiting: 'Aguardando a vez…',
+  asking: 'Esperando a sua resposta…',
   finished: '',
 };
 
