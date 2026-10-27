@@ -342,6 +342,13 @@
   * {
     @apply border-line outline-ring/50;
   }
+  /* O app ocupa sempre a janela: o documento nunca rola (nem com o elástico
+     do WKWebView). A rolagem fica nas áreas de cada painel. */
+  html,
+  body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
   body {
     @apply bg-bg text-fg;
   }

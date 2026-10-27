@@ -80,22 +80,41 @@ function sessionSnapshot(tabs: SeedTab[], activeTabId: string): string {
  */
 export async function openApp(
   page: Page,
-  { tabs = [], active }: { tabs?: SeedTab[]; active?: string } = {},
+  {
+    tabs = [],
+    active,
+    assistant = false,
+  }: {
+    tabs?: SeedTab[];
+    active?: string;
+    /** Já entrou no assistente e aceitou o termo do mock */
+    assistant?: boolean;
+  } = {},
 ) {
   const session = tabs.length
     ? sessionSnapshot(tabs, active ?? tabs[0].id)
     : null;
 
-  await page.addInitScript(session => {
-    if (sessionStorage.getItem('e2e-seeded')) return;
-    sessionStorage.setItem('e2e-seeded', '1');
-    // Sem latência artificial: a espera fica por conta do auto-wait do Playwright
-    localStorage.setItem(
-      'octapus-mock',
-      JSON.stringify({ state: { latencyMs: 0 }, version: 0 }),
-    );
-    if (session) localStorage.setItem('octapus-mock-session', session);
-  }, session);
+  await page.addInitScript(
+    ({ session, assistant }) => {
+      if (sessionStorage.getItem('e2e-seeded')) return;
+      sessionStorage.setItem('e2e-seeded', '1');
+      // Sem latência artificial: a espera fica por conta do auto-wait do Playwright
+      localStorage.setItem(
+        'octapus-mock',
+        JSON.stringify({ state: { latencyMs: 0 }, version: 0 }),
+      );
+      if (session) localStorage.setItem('octapus-mock-session', session);
+      // A versão é a do termo do mock (src/mocks/assistant.ts)
+      if (assistant) {
+        localStorage.setItem(
+          'octapus-mock-assistant',
+          JSON.stringify({ loggedIn: true, acceptedVersion: '2026-10-v1' }),
+        );
+      }
+    },
+    { session, assistant },
+  );
 
   await page.goto('/');
   await expect(page.locator('#root')).not.toBeEmpty();

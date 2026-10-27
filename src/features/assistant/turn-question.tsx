@@ -24,7 +24,6 @@ export function TurnQuestion({
   clientTurnId,
 }: TurnQuestionProps) {
   const reply = useTurnQuestion({ clientTurnId });
-  const fieldId = useId();
   const countId = useId();
 
   return (
@@ -69,11 +68,11 @@ export function TurnQuestion({
               ))}
             </div>
           )}
-          <label htmlFor={fieldId} className="sr-only">
-            Sua resposta
-          </label>
+          {/* Sem `<label className="sr-only">`: absoluto e sem ancestral
+              posicionado, ele escapava da rolagem da conversa e dava scroll
+              ao documento */}
           <textarea
-            id={fieldId}
+            aria-label="Sua resposta"
             rows={2}
             value={reply.draft}
             placeholder={

@@ -99,7 +99,9 @@ export function ConversationView({
 
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto px-4 py-4 scrollbar-thin"
+        // `relative`: o que for absoluto dentro de um turno rola junto e fica
+        // preso aqui, em vez de esticar o documento
+        className="relative min-h-0 flex-1 overflow-y-auto px-4 py-4 scrollbar-thin"
       >
         {conversation.conversationLoading ? (
           <div className="flex h-full items-center justify-center">
@@ -111,7 +113,9 @@ export function ConversationView({
             <p className="text-title font-semibold text-fg">
               Pergunte sobre o banco
             </p>
-            {conversation.mentions ? (
+            {/* Sem alvo ainda (linguagem desconhecida), o texto padrão: o da
+                amostra é só dos bancos sem catálogo (Redis) */}
+            {conversation.mentions || !conversation.queryLanguage ? (
               <p className="text-body text-fg-muted">
                 Em português ou inglês. Cite {conversation.nouns.many} com @ —
                 por exemplo,

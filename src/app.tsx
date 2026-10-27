@@ -101,8 +101,11 @@ const App = () => {
               </ResizablePanel>
 
               {/* Assistente: painel próprio, com abas de conversa em memória
-                (fora do tabs-store, que vai para o disco — RN-01) */}
-              {assistantOpen && !agentMode && (
+                (fora do tabs-store, que vai para o disco — RN-01). No modo
+                agente o painel fica no grupo (escondido), vazio: tirá-lo
+                junto com a mudança de largura que cruza a janela compacta
+                quebrava o react-resizable-panels ("Panel data not found") */}
+              {assistantOpen && (
                 <>
                   <ResizableHandle
                     className="cursor-col-resize! bg-transparent"
@@ -114,9 +117,11 @@ const App = () => {
                     {...assistant.panelProps}
                     className="overflow-hidden"
                   >
-                    <ErrorBoundary area="no assistente">
-                      <AssistantPanel />
-                    </ErrorBoundary>
+                    {!agentMode && (
+                      <ErrorBoundary area="no assistente">
+                        <AssistantPanel />
+                      </ErrorBoundary>
+                    )}
                   </ResizablePanel>
                 </>
               )}
