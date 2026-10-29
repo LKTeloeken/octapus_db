@@ -51,6 +51,10 @@ export const QueryTabs = memo(() => {
     activeTab,
     activeTabId,
     dbTypeByServer,
+    descriptions,
+    locationOf,
+    drag,
+    onTabPointerDown,
     setActiveTab,
     closeTab,
     closing,
@@ -83,6 +87,9 @@ export const QueryTabs = memo(() => {
       </Button>
     </Tooltip>
   );
+
+  // Posição da aba arrastada, para não marcar onde soltar não muda nada
+  const dragFrom = drag ? tabs.findIndex(item => item.id === drag.tabId) : -1;
 
   if (tabs.length === 0) {
     const emptyState = (
@@ -144,13 +151,31 @@ export const QueryTabs = memo(() => {
           variant="document"
           className="min-w-0 shrink justify-start overflow-x-auto overflow-y-hidden no-scrollbar px-0.5"
         >
-          {tabs.map(tab => {
+          {tabs.map((tab, index) => {
             const dbType = dbTypeByServer.get(tab.serverId);
+            const description = descriptions.get(tab.id);
+            // Marca de inserção à esquerda desta aba (ou à direita da última),
+            // fora das posições em que soltar não muda nada
+            const dropHere =
+              drag !== null &&
+              drag.dropIndex !== dragFrom &&
+              drag.dropIndex !== dragFrom + 1;
+            const dropBefore = dropHere && drag.dropIndex === index;
+            const dropAfter =
+              dropHere &&
+              index === tabs.length - 1 &&
+              drag.dropIndex === tabs.length;
 
             return (
               <div
                 key={tab.id}
-                className="group relative shrink-0"
+                data-tab-id={tab.id}
+                title={locationOf(tab)}
+                className={cn(
+                  'group relative shrink-0',
+                  drag?.tabId === tab.id && 'opacity-50',
+                )}
+                onPointerDown={event => onTabPointerDown(tab.id, event)}
                 onMouseDown={event => {
                   if (event.button === 1) event.preventDefault();
                 }}
@@ -167,9 +192,26 @@ export const QueryTabs = memo(() => {
                     )}
                   />
                   <span className="max-w-48 truncate">{tab.title}</span>
+                  {description && (
+                    <span className="max-w-32 truncate text-small text-fg-subtle">
+                      {/* Leitor de tela: "events em tenant_00001" */}
+                      <span className="sr-only"> em </span>
+                      {description}
+                    </span>
+                  )}
                 </TabsTrigger>
+                {(dropBefore || dropAfter) && (
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'pointer-events-none absolute top-1 bottom-1 z-20 w-0.5 rounded-full bg-iris',
+                      dropBefore ? '-left-0.5' : '-right-0.5',
+                    )}
+                  />
+                )}
                 <button
                   type="button"
+                  data-tab-close
                   aria-label={`Fechar aba ${tab.title}`}
                   className={cn(
                     'absolute top-1/2 right-1.5 z-10 inline-flex size-[18px] -translate-y-1/2 cursor-pointer items-center justify-center rounded-xs text-fg-subtle transition-[opacity,color,background-color] outline-none hover:bg-hover hover:text-fg focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring',

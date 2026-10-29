@@ -13,5 +13,7 @@ export interface DataTableStatusBarProps {
   viewMode: ResultsViewMode;
   onViewModeChange: (mode: ResultsViewMode) => void;
   onAddRow: () => void;
+  /** Duplicar as linhas selecionadas (ou a do cursor); sem ela, sem botão */
+  onDuplicateRows?: () => void;
   onExport: () => void;
 }

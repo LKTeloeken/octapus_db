@@ -2,6 +2,7 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import {
   Add01Icon,
   Clock01Icon,
+  Copy01Icon,
   Download04Icon,
 } from '@hugeicons/core-free-icons';
 import { memo } from 'react';
@@ -11,6 +12,10 @@ import { SegmentedControl } from '@/components/ui/segmented-control/segmented-co
 import type { SegmentedControlOption } from '@/components/ui/segmented-control/segmented-control.types';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip/tooltip';
+import {
+  useShortcutLabel,
+  withShortcut,
+} from '@/lib/keybindings/use-shortcuts';
 
 import type { ResultsViewMode } from '../results-table.types';
 import type { DataTableStatusBarProps } from './results-table-status-bar.types';
@@ -38,8 +43,10 @@ export const DataTableStatusBar = memo(
     viewMode,
     onViewModeChange,
     onAddRow,
+    onDuplicateRows,
     onExport,
   }: DataTableStatusBarProps) => {
+    const duplicateKey = useShortcutLabel('grid.duplicateRows');
     return (
       <div className="@container flex h-8 shrink-0 items-center gap-3 border-t border-line-subtle bg-surface-1 pr-1.5 pl-2 text-small text-fg-muted">
         <Tooltip content="Trocar visualização (Tab nos resultados)">
@@ -81,6 +88,19 @@ export const DataTableStatusBar = memo(
 
         <span className="flex-1" />
 
+        {isEditable && onDuplicateRows && (
+          <Tooltip
+            content={withShortcut(
+              'Duplicar as linhas selecionadas (ou a do cursor)',
+              duplicateKey,
+            )}
+          >
+            <Button variant="ghost" size="xs" onClick={onDuplicateRows}>
+              <HugeiconsIcon icon={Copy01Icon} />
+              <span className="@max-xl:sr-only">Duplicar</span>
+            </Button>
+          </Tooltip>
+        )}
         {isEditable && (
           <Tooltip content="Nova linha">
             <Button variant="ghost" size="xs" onClick={onAddRow}>

@@ -47,6 +47,10 @@ pub struct ColumnInfo {
     pub data_type: String,
     pub is_nullable: bool,
     pub default_value: Option<String>,
+    /// O banco gera o valor sem um DEFAULT declarado: identity do Postgres,
+    /// `INTEGER PRIMARY KEY` do SQLite (apelido do rowid), `_id` do Mongo.
+    /// Junto com `default_value`, diz que a coluna pode ficar fora do INSERT.
+    pub is_auto_generated: bool,
     pub is_primary_key: bool,
     pub is_foreign_key: bool,
 }

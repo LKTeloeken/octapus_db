@@ -29,6 +29,9 @@ export const ExportDialog = memo((props: ExportDialogProps) => {
     setDelimiter,
     includeHeader,
     setIncludeHeader,
+    defaultColumnNames,
+    useDefaults,
+    setUseDefaults,
     hasSelection,
     selectedCount,
     onlySelected,
@@ -107,6 +110,25 @@ export const ExportDialog = memo((props: ExportDialogProps) => {
             </SelectContent>
           </Select>
         </div>
+
+        {format === 'sql' && defaultColumnNames.length > 0 && (
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="export-sql-defaults">
+                Usar DEFAULT nas colunas geradas pelo banco
+              </Label>
+              <span className="text-small text-fg-muted">
+                {defaultColumnNames.join(', ')} ficam fora dos INSERTs e o banco
+                gera os valores
+              </span>
+            </div>
+            <Switch
+              id="export-sql-defaults"
+              checked={useDefaults}
+              onCheckedChange={setUseDefaults}
+            />
+          </div>
+        )}
 
         {format === 'csv' && (
           <>

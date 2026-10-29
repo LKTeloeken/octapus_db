@@ -1,16 +1,19 @@
 import type { EditableInfo, QueryColumnInfo } from '@/api/types/query.types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShortcuts } from '@/lib/keybindings/use-shortcuts';
+import type { CopiedCell, CopiedRows } from '@/stores/grid-clipboard-store';
 import {
   columnsSignature,
   NO_PENDING_CHANGES,
   usePendingChangesStore,
   type PendingChanges,
 } from '@/stores/pending-changes-store';
-import { ownsKeyboardEvent } from './keyboard-scope';
+import { buildAddedRows } from './grid-clipboard';
+import { ownsGridShortcut } from './keyboard-scope';
 import type {
   ActivateCellFn,
   ActiveCell,
+  CellPosition,
   DataTableRow,
   FocusCellFn,
   FocusedCell,
@@ -38,6 +41,14 @@ const addedRowId = (tempId: string) => `a:${tempId}`;
 
 /** Identidade estável para "nada selecionado", o caso comum */
 const NO_ROWS: DataTableRow[] = [];
+const NO_DEFAULTS: ReadonlySet<string> = new Set();
+
+/** Cursor de teclado + origem do bloco de células (Shift+clique/setas, arraste) */
+interface CellCursor {
+  focused: FocusedCell;
+  anchor: CellPosition | null;
+}
+const NO_CURSOR: CellCursor = { focused: null, anchor: null };
 
 const useResultsTable = (
   rows: DataTableRow[],
@@ -48,6 +59,8 @@ const useResultsTable = (
   scopeId: string,
   /** Região de teclado da grade (`keyboard-scope.ts`); `null` = a da aba */
   keyboardScope: string | null = null,
+  /** Colunas com valor padrão: duplicar/colar na mesma grade as deixa vazias */
+  defaultColumns: ReadonlySet<string> = NO_DEFAULTS,
 ): UseResultsTableReturn => {
   // As pendências (edições das linhas existentes, linhas novas e linhas
   // marcadas para remoção) moram na store, por aba: só a aba ativa fica
@@ -73,8 +86,18 @@ const useResultsTable = (
   // The single cell currently being edited/viewed (only one Popover mounts).
   const [activeCell, setActiveCell] = useState<ActiveCell>(null);
   // Cursor de navegação por teclado — separado da célula aberta: mover a
-  // moldura não abre editor nenhum.
-  const [focusedCell, setFocusedCell] = useState<FocusedCell>(null);
+  // moldura não abre editor nenhum. Com origem (`anchor`), cursor e origem
+  // são os cantos de um bloco de células selecionado.
+  const [cursor, setCursor] = useState<CellCursor>(NO_CURSOR);
+  const focusedCell = cursor.focused;
+  // A última seleção feita (linhas no gutter ou células) decide o que o
+  // Cmd/Ctrl+C copia quando as duas estão na tela.
+  const lastSelection = useRef<'rows' | 'cells'>('cells');
+
+  const setFocusedCell = useCallback((cell: FocusedCell) => {
+    lastSelection.current = 'cells';
+    setCursor({ focused: cell, anchor: null });
+  }, []);
 
   const isEditable =
     !!editableInfo && editableInfo.primaryKeyColumns.length > 0;
@@ -118,7 +141,7 @@ const useResultsTable = (
     setSelectedRowIds(new Set());
     setSelectedColumns(new Set());
     setActiveCell(null);
-    setFocusedCell(null);
+    setCursor(NO_CURSOR);
     selectionAnchor.current = null;
   }, [columns, scopeId]);
 
@@ -267,6 +290,16 @@ const useResultsTable = (
     [existingCount, changes, generateRowKey],
   );
 
+  const isCellDefault = useCallback(
+    (rowIndex: number, columnIndex: number) => {
+      const added = addedRows[rowIndex - existingCount];
+      return (
+        rowIndex >= existingCount && !!added && !added.touched.has(columnIndex)
+      );
+    },
+    [addedRows, existingCount],
+  );
+
   const getCellDisplayValue = useCallback<GetCellDisplayValueFn>(
     (rowIndex, columnId, originalValue) => {
       // Added rows hold their value directly in the passed cell.
@@ -289,9 +322,23 @@ const useResultsTable = (
 
   const deactivateCell = useCallback(() => setActiveCell(null), []);
 
-  const focusCell = useCallback<FocusCellFn>((rowIndex, columnName) => {
-    setFocusedCell({ rowIndex, columnName });
-  }, []);
+  const focusCell = useCallback<FocusCellFn>(
+    (rowIndex, columnName) => setFocusedCell({ rowIndex, columnName }),
+    [setFocusedCell],
+  );
+
+  // Leva o cursor até a célula mantendo a origem: o bloco vai da primeira
+  // célula (onde a seleção começou) até esta.
+  const extendCellSelection = useCallback<FocusCellFn>(
+    (rowIndex, columnName) => {
+      lastSelection.current = 'cells';
+      setCursor(prev => {
+        const focused = { rowIndex, columnName };
+        return { focused, anchor: prev.anchor ?? prev.focused ?? focused };
+      });
+    },
+    [],
+  );
 
   // ── Selection ──────────────────────────────────────────────────────────
 
@@ -303,6 +350,7 @@ const useResultsTable = (
       // Snapshot the anchor now: the updater below runs during render, after
       // the `selectionAnchor.current = rowIndex` line would have mutated it.
       const anchor = selectionAnchor.current;
+      lastSelection.current = 'rows';
 
       setSelectedRowIds(prev => {
         if (mode === 'range' && anchor !== null) {
@@ -355,6 +403,7 @@ const useResultsTable = (
 
   const selectAllRows = useCallback<SelectAllRowsFn>(() => {
     if (allRowIds.length === 0) return;
+    lastSelection.current = 'rows';
     setSelectedRowIds(new Set(allRowIds));
     selectionAnchor.current = null;
   }, [allRowIds]);
@@ -398,6 +447,85 @@ const useResultsTable = (
       ],
     }));
   }, [isEditable, columns, patchPending]);
+
+  // Índices (na grade) das linhas selecionadas, em ordem — sob demanda, para
+  // copiar e duplicar: com milhares de linhas não vale manter isso em memo.
+  const selectedRowIndices = useCallback((): number[] => {
+    if (selectedRowIds.size === 0) return [];
+    const indices: number[] = [];
+    for (let i = 0; i < displayRows.length; i++) {
+      const id = rowId(i);
+      if (id && selectedRowIds.has(id)) indices.push(i);
+    }
+    return indices;
+  }, [selectedRowIds, displayRows.length, rowId]);
+
+  // A linha como a grade mostra (com as edições pendentes), em todas as
+  // colunas. Na linha nova, coluna não tocada sai `undefined` (default).
+  const rowCells = useCallback(
+    (rowIndex: number): CopiedCell[] => {
+      const row = displayRows[rowIndex];
+      if (!row) return [];
+      const added =
+        rowIndex >= existingCount ? addedRows[rowIndex - existingCount] : null;
+      return columns.map((column, index) => {
+        if (added) return added.touched.has(index) ? row[index] : undefined;
+        return getCellDisplayValue(rowIndex, column.name, row[index] ?? null);
+      });
+    },
+    [displayRows, existingCount, addedRows, columns, getCellDisplayValue],
+  );
+
+  const appendRows = useCallback(
+    (
+      source: { columns: string[]; rows: CopiedCell[][] },
+      sameGrid: boolean,
+    ) => {
+      if (!isEditable) return 0;
+      const added = buildAddedRows(
+        source,
+        columns,
+        sameGrid ? defaultColumns : NO_DEFAULTS,
+      );
+      if (added.length > 0) {
+        patchPending(({ addedRows: prev }) => ({
+          addedRows: [...prev, ...added],
+        }));
+      }
+      return added.length;
+    },
+    [isEditable, columns, defaultColumns, patchPending],
+  );
+
+  // Cmd/Ctrl+D: cópias pendentes das linhas selecionadas (ou da do cursor),
+  // com as colunas de valor padrão (id serial, created_at…) vazias para o
+  // banco preencher. Linha marcada para remoção não se duplica.
+  const duplicateRows = useCallback(() => {
+    const selected = selectedRowIndices();
+    const sources = (
+      selected.length > 0 ? selected : focusedCell ? [focusedCell.rowIndex] : []
+    ).filter(index => index < displayRows.length && !isRowRemoved(index));
+    return appendRows(
+      { columns: columns.map(c => c.name), rows: sources.map(rowCells) },
+      true,
+    );
+  }, [
+    selectedRowIndices,
+    focusedCell,
+    displayRows.length,
+    isRowRemoved,
+    appendRows,
+    columns,
+    rowCells,
+  ]);
+
+  // Colar linhas copiadas (desta ou de outra aba) como linhas novas. Na mesma
+  // grade é uma duplicação; noutra, os valores vão como estão (PK incluída —
+  // copiar entre ambientes é o caso de uso).
+  const pasteRows = useCallback(
+    (copied: CopiedRows) => appendRows(copied, copied.scopeId === scopeId),
+    [appendRows, scopeId],
+  );
 
   const removeSelected = useCallback(() => {
     if (selectedRowIds.size === 0) return;
@@ -459,6 +587,7 @@ const useResultsTable = (
       // desc): o cursor voltaria para outra linha. Só edição mantém as
       // posições — e o painel de valor segue na célula recém-salva.
       if (deletes.length > 0 || inserts.length > 0) setFocusedCell(null);
+      else setCursor(prev => ({ ...prev, anchor: null }));
       clearSelection();
     } catch {
       // Keep the pending changes highlighted so the user can retry.
@@ -472,6 +601,7 @@ const useResultsTable = (
     clearPending,
     scopeId,
     clearSelection,
+    setFocusedCell,
   ]);
 
   const discardChanges = useCallback(() => {
@@ -479,7 +609,7 @@ const useResultsTable = (
     setActiveCell(null);
     setFocusedCell(null);
     clearSelection();
-  }, [clearPending, scopeId, clearSelection]);
+  }, [clearPending, scopeId, clearSelection, setFocusedCell]);
 
   // Keyboard: Cmd/Ctrl+S saves, Backspace removes the selected rows, Esc
   // clears the selection. Only the active tab's table is mounted, so there is
@@ -494,29 +624,25 @@ const useResultsTable = (
       'grid.discardChanges': () => {
         if (pendingCount > 0) discardChanges();
       },
+      'grid.duplicateRows': () => {
+        if (!isEditable) return false;
+        duplicateRows();
+      },
       'grid.deleteRows': () => {
         if (selectedRowIds.size === 0) return false;
         removeSelected();
       },
       'grid.clearSelection': () => {
+        // Esc desfaz primeiro o bloco de células, depois a seleção de linhas
+        if (cursor.anchor) {
+          setCursor(prev => ({ ...prev, anchor: null }));
+          return;
+        }
         if (selectedRowIds.size === 0) return false;
         clearSelection();
       },
     },
-    {
-      when: event => {
-        const target = event.target as HTMLElement | null;
-        if (!ownsKeyboardEvent(target, keyboardScope)) return false;
-        // Um diálogo aberto por cima da grade (exportação) recebe as mesmas
-        // teclas: sem isso, o Esc que fecha o modal limparia a seleção junto e
-        // o Backspace marcaria as linhas selecionadas para exclusão. O painel
-        // da busca (Cmd/Ctrl+F) também: Backspace num checkbox dele não pode
-        // remover linhas.
-        return !target?.closest(
-          '[data-slot="dialog-content"], [data-grid-search]',
-        );
-      },
-    },
+    { when: event => ownsGridShortcut(event, keyboardScope) },
   );
 
   return {
@@ -527,6 +653,7 @@ const useResultsTable = (
     updateCell,
     isRowModified,
     isCellModified,
+    isCellDefault,
     isRowAdded,
     isRowRemoved,
     isRowSelected,
@@ -539,6 +666,13 @@ const useResultsTable = (
     focusedCell,
     focusCell,
     setFocusedCell,
+    cellAnchor: cursor.anchor,
+    extendCellSelection,
+    getLastSelection: () => lastSelection.current,
+    selectedRowIndices,
+    rowCells,
+    duplicateRows,
+    pasteRows,
     toggleRowSelection,
     selectAllRows,
     toggleAllRowsSelection,

@@ -27,3 +27,19 @@ export const ownsKeyboardEvent = (
   target: EventTarget | null,
   ownScope: string | null,
 ) => keyboardScopeOf(target) === ownScope;
+
+/**
+ * Um atalho de grade (`window`) vale para esta grade? O evento tem de nascer
+ * na região dela e fora de um diálogo aberto por cima (exportação) — sem isso,
+ * o Esc que fecha o modal limparia a seleção junto e o Backspace marcaria as
+ * linhas selecionadas para exclusão. O painel da busca (Cmd/Ctrl+F) também:
+ * Backspace num checkbox dele não pode remover linhas.
+ */
+export function ownsGridShortcut(
+  event: { target: EventTarget | null },
+  ownScope: string | null,
+): boolean {
+  const target = event.target as HTMLElement | null;
+  if (!ownsKeyboardEvent(target, ownScope)) return false;
+  return !target?.closest('[data-slot="dialog-content"], [data-grid-search]');
+}

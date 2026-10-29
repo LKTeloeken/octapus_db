@@ -18,6 +18,12 @@ export interface ExportOptions {
   includeHeader: boolean;
   /** SQL: tabela alvo dos INSERTs, já qualificada e escapada */
   sqlTable: string;
+  /**
+   * SQL: colunas deixadas fora dos INSERTs para o banco aplicar o valor
+   * padrão (DEFAULT, serial, identity) — vale em qualquer dialeto, ao
+   * contrário da palavra `DEFAULT` no VALUES, que o SQLite não aceita
+   */
+  sqlDefaultColumns?: ReadonlySet<string>;
 }
 
 export interface ExportDialogProps {
@@ -36,6 +42,8 @@ export interface ExportDialogProps {
   fileName: string;
   /** Sem ela o formato SQL não é oferecido (não há tabela para o INSERT) */
   editableInfo?: EditableInfo | null;
+  /** Colunas cujo valor o banco gera: o SQL pode deixá-las para ele */
+  defaultColumns?: ReadonlySet<string>;
   /** Busca o resultado inteiro no banco; sem ela só dá para exportar o carregado */
   onFetchAllRows?: () => Promise<DataTableRow[]>;
 }

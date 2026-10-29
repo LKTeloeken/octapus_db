@@ -972,6 +972,33 @@ describe('useConnectionTree: pastas de tabelas, colunas, views, índices e funç
     );
   });
 
+  it('catálogo sincronizando: pasta de views sem contagem fica de fora até saber', () => {
+    // Aparecer e sumir ao chegar o 0 deslocaria as linhas sob o mouse
+    const client = pgClient();
+    client.setQueryData(queryKeys.catalogFolders(PG, 'saas', 'app'), [
+      { kind: 'view', count: null },
+      { kind: 'materializedView', count: null },
+      { kind: 'function', count: null },
+    ]);
+    treeState([serverNode, dbNode, schema]);
+    expect(afterSchema(rows(client)).map(describeRow)).toEqual([
+      'folder:Tabelas',
+      'folder:Funções',
+    ]);
+
+    // Já aberta pelo usuário, continua no lugar
+    const views = encodeNodeId({
+      serverId: PG,
+      database: 'saas',
+      schema: 'app',
+      folder: 'view',
+    });
+    treeState([serverNode, dbNode, schema, views]);
+    expect(afterSchema(rows(client)).map(describeRow)).toContain(
+      'folder:Views',
+    );
+  });
+
   it('tabela aberta: Colunas e Índices, cada um na sua pasta', () => {
     treeState([serverNode, dbNode, schema, folder('tables'), orders]);
     let tree = afterSchema(rows(pgClient()));

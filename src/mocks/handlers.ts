@@ -1417,6 +1417,15 @@ const pluginHandlers: Record<string, MockHandler> = {
     }
   },
 
+  'plugin:clipboard-manager|read_text': async () => {
+    try {
+      return await navigator.clipboard.readText();
+    } catch {
+      console.info('[octapus-mock] leitura do clipboard recusada');
+      return '';
+    }
+  },
+
   // Barra de título: não há janela nativa, só o estado que o front consulta.
   'plugin:window|minimize': () => null,
   'plugin:window|toggle_maximize': () => {

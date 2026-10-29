@@ -30,6 +30,7 @@ export const DataTableCell = memo(
     isEditable,
     isModified,
     isRemoved = false,
+    isDefault = false,
     columnType,
     rowIndex,
     columnName,
@@ -45,7 +46,8 @@ export const DataTableCell = memo(
     // Olha o valor exibido (inclui mudança pendente), não só o original —
     // assim um NULL pendente aparece como NULL.
     const isNull = displayValue === null;
-    const text = displayValue ?? 'NULL';
+    const nullLabel = isDefault ? 'DEFAULT' : 'NULL';
+    const text = displayValue ?? nullLabel;
     const editText = displayValue ?? '';
 
     // NULL nunca casa com a busca; o resto destaca o trecho no texto exibido.
@@ -99,7 +101,7 @@ export const DataTableCell = memo(
               isRemoved && 'text-fg-subtle line-through',
             )}
           >
-            {isNull ? 'NULL' : renderText(isTrue ? 'true' : 'false')}
+            {isNull ? nullLabel : renderText(isTrue ? 'true' : 'false')}
           </span>
           {isEditable && !isNull && (
             <button

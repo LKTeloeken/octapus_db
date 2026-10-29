@@ -72,12 +72,22 @@ pub fn list_tables(conn: &Connection, schema_name: &str) -> Result<Vec<TableInfo
 pub fn list_columns(conn: &Connection, table: &str) -> Result<Vec<ColumnInfo>> {
     let columns = table_columns(conn, table)?;
     let foreign_keys = foreign_key_columns(conn, table)?;
+    // Uma PK de coluna única declarada exatamente `INTEGER` é apelido do
+    // rowid: o SQLite gera o valor quando o INSERT não traz a coluna.
+    let rowid_alias = match columns.iter().filter(|c| c.pk_position > 0).count() {
+        1 => columns
+            .iter()
+            .find(|c| c.pk_position > 0 && c.declared_type.eq_ignore_ascii_case("INTEGER"))
+            .map(|c| c.name.clone()),
+        _ => None,
+    };
 
     Ok(columns
         .into_iter()
         .enumerate()
         .map(|(index, column)| ColumnInfo {
             ordinal: index as i32 + 1,
+            is_auto_generated: rowid_alias.as_deref() == Some(column.name.as_str()),
             is_primary_key: column.pk_position > 0,
             is_foreign_key: foreign_keys.contains(&column.name),
             data_type: column.declared_type,
@@ -147,4 +157,40 @@ pub fn list_indexes(conn: &Connection, table: &str) -> Result<Vec<IndexInfo>> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn auto_generated(sql: &str) -> Vec<(String, bool)> {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(sql).unwrap();
+        list_columns(&conn, "t")
+            .unwrap()
+            .into_iter()
+            .map(|c| (c.name, c.is_auto_generated))
+            .collect()
+    }
+
+    #[test]
+    fn integer_primary_key_is_auto_generated() {
+        assert_eq!(
+            auto_generated("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"),
+            vec![("id".into(), true), ("name".into(), false)],
+        );
+    }
+
+    #[test]
+    fn other_primary_keys_are_not_auto_generated() {
+        // `INT` não é apelido do rowid, nem PK composta
+        assert_eq!(
+            auto_generated("CREATE TABLE t (id INT PRIMARY KEY)"),
+            vec![("id".into(), false)],
+        );
+        assert_eq!(
+            auto_generated("CREATE TABLE t (a INTEGER, b INTEGER, PRIMARY KEY (a, b))"),
+            vec![("a".into(), false), ("b".into(), false)],
+        );
+    }
 }

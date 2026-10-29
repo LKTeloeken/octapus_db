@@ -29,15 +29,19 @@ export const ResultsTableRowCell = memo(
     virtualColumns,
     getCellDisplayValue,
     isCellModified,
+    isCellDefault,
     isColumnEditable,
     updateCell,
     activeColumnName,
     focusedColumnName,
     getColumnMatcher,
     currentMatchColumnName,
+    cellRange,
     onActivateCell,
     onCloseCell,
     onFocusCell,
+    onExtendCell,
+    onHoverCell,
     onSelectRowBody,
     onSelectRowGutter,
   }: ResultsTableRowCellProps) => {
@@ -143,13 +147,18 @@ export const ResultsTableRowCell = memo(
           const column = columns[virtualColumn.index];
           if (!column) return null;
 
-          const cell = row[columnIndices[virtualColumn.index]];
+          const columnIndex = columnIndices[virtualColumn.index];
+          const cell = row[columnIndex];
           const displayValue = getCellDisplayValue(rowIndex, column.name, cell);
           const cellModified = isCellModified(rowIndex, column.name);
           // Added rows are fully editable (incl. PK); deleted rows are frozen.
           const editable = isRemoved
             ? false
             : isAdded || isColumnEditable(column.name);
+          const inRange =
+            cellRange !== null &&
+            virtualColumn.index >= cellRange.left &&
+            virtualColumn.index <= cellRange.right;
 
           return (
             <div
@@ -158,18 +167,25 @@ export const ResultsTableRowCell = memo(
               aria-colindex={virtualColumn.index + 1}
               data-column={column.name}
               data-modified={cellModified || undefined}
+              aria-selected={inRange || undefined}
               tabIndex={-1}
               // preventDefault impede que o <button> da célula fique com o foco:
               // ao rolar, a virtualização o desmontaria e o foco cairia no body,
               // matando as setas. Cliques vindos do editor aberto são ignorados
               // — roubar o foco deles fecharia o Popover.
               onMouseDown={event => {
-                if (!startedInsideRow(event)) return;
+                if (!startedInsideRow(event) || event.button !== 0) return;
                 event.preventDefault();
-                onFocusCell(rowIndex, column.name);
+                if (event.shiftKey) onExtendCell(rowIndex, column.name);
+                else onFocusCell(rowIndex, column.name);
               }}
+              onMouseEnter={event =>
+                onHoverCell(rowIndex, column.name, event.buttons)
+              }
               className={cn(
                 'absolute top-0 border-r border-b border-line-subtle',
+                // Bloco de células selecionado: o mesmo tom da linha marcada
+                inRange && 'bg-iris-soft',
                 // Cursor de teclado: anel inset de 1,5 px, sem fundo.
                 focusedColumnName === column.name &&
                   'z-10 ring-[1.5px] ring-inset ring-ring',
@@ -186,6 +202,7 @@ export const ResultsTableRowCell = memo(
                 displayValue={displayValue}
                 isModified={cellModified}
                 isRemoved={isRemoved}
+                isDefault={isAdded && isCellDefault(rowIndex, columnIndex)}
                 isEditable={editable}
                 rowIndex={rowIndex}
                 columnName={column.name}

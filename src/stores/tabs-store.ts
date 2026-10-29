@@ -102,6 +102,8 @@ interface TabsState {
    */
   closeServerTabs: (serverId: number) => string[];
   setActiveTab: (id: string) => void;
+  /** Leva a aba para a posição `toIndex` (arrastar na barra); a ordem é a do Map */
+  moveTab: (id: string, toIndex: number) => void;
   setQueryContent: (id: string, content: string) => void;
   setQueryHiddenColumns: (id: string, hiddenColumns: string[]) => void;
   setBrowseSort: (id: string, sort: SortSpec[]) => void;
@@ -257,6 +259,18 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
   setActiveTab: id => {
     if (get().tabs.has(id)) set({ activeTabId: id });
+  },
+
+  moveTab: (id, toIndex) => {
+    set(state => {
+      const entries = Array.from(state.tabs.entries());
+      const from = entries.findIndex(([key]) => key === id);
+      const to = Math.min(Math.max(toIndex, 0), entries.length - 1);
+      if (from === -1 || from === to) return state;
+      const [moved] = entries.splice(from, 1);
+      entries.splice(to, 0, moved);
+      return { tabs: new Map(entries) };
+    });
   },
 
   setQueryContent: (id, content) => {

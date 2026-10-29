@@ -29,6 +29,8 @@ import { ResultsTableVertical } from './results-table-vertical/results-table-ver
 import { ResultsTableValuePanel } from './results-table-value-panel/results-table-value-panel';
 import { ResultsTableSearch } from './results-table-search/results-table-search';
 import { KEYBOARD_SCOPE_ATTR } from './keyboard-scope';
+import { cellRangeOf } from './grid-clipboard';
+import { useGridClipboard } from './use-grid-clipboard';
 import { useGridSearch } from './use-grid-search';
 import type { ValuePanelTarget } from './results-table-value-panel/results-table-value-panel.types';
 
@@ -40,13 +42,16 @@ const MIN_COLUMN_WIDTH = 60;
 const GUTTER_WIDTH = 44;
 const OVERSCAN_Y = 10;
 const OVERSCAN_X = 3;
+/** Respiro no fim da grade enquanto a barra de pendências flutua sobre ela */
+const PENDING_BAR_SPACE = 64;
 
-/** Modo de seleção de um clique no corpo da linha, ou `null` quando o clique é
- *  simples — nesse caso ele só move o cursor de célula, sem mexer na seleção. */
+/** Modo de seleção de um clique no corpo da linha: Cmd/Ctrl alterna a linha.
+ *  Sem modificador o clique só move o cursor; com Shift estende o bloco de
+ *  células (tratado na célula) — a faixa de linhas é Shift no gutter. */
 const selectionModeFromEvent = (
   event: React.MouseEvent,
 ): RowSelectionMode | null => {
-  if (event.shiftKey) return 'range';
+  if (event.shiftKey) return null;
   if (event.metaKey || event.ctrlKey) return 'toggle';
   return null;
 };
@@ -69,6 +74,7 @@ export const ResultsTable = memo(
     onSave,
     onFetchAllRows,
     exportFileName,
+    defaultColumns,
     editableInfo,
     hiddenColumns,
     activeSort,
@@ -88,6 +94,7 @@ export const ResultsTable = memo(
     // Região de teclado própria: só com várias grades na tela (assistente)
     const ownScope = keyboardScope ? searchScopeId : null;
     const scopeProps = ownScope ? { [KEYBOARD_SCOPE_ATTR]: ownScope } : {};
+    const rootRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [isExportOpen, setIsExportOpen] = useState(false);
 
@@ -111,6 +118,7 @@ export const ResultsTable = memo(
       updateCell,
       isRowModified,
       isCellModified,
+      isCellDefault,
       isRowAdded,
       isRowRemoved,
       isRowSelected,
@@ -123,6 +131,13 @@ export const ResultsTable = memo(
       focusedCell,
       focusCell,
       setFocusedCell,
+      cellAnchor,
+      extendCellSelection,
+      getLastSelection,
+      selectedRowIndices,
+      rowCells,
+      duplicateRows,
+      pasteRows,
       toggleRowSelection,
       toggleAllRowsSelection,
       allRowsSelected,
@@ -141,6 +156,7 @@ export const ResultsTable = memo(
       onSave,
       searchScopeId,
       ownScope,
+      defaultColumns,
     );
 
     const { viewMode, setViewMode, viewsRef, onViewKeyDown } = useViewToggle(
@@ -167,6 +183,29 @@ export const ResultsTable = memo(
       });
       return { visibleColumns: cols, visibleColumnIndices: indices };
     }, [columns, hiddenColumns]);
+
+    // O bloco de células selecionado (Shift+clique/setas, arraste), em índices
+    // de coluna visível; null quando a seleção é só a célula do cursor.
+    const cellRange = useMemo(
+      () => cellRangeOf(cellAnchor, focusedCell, visibleColumns),
+      [cellAnchor, focusedCell, visibleColumns],
+    );
+
+    useGridClipboard({
+      rootRef,
+      scopeId: searchScopeId,
+      keyboardScope: ownScope,
+      columns,
+      visibleColumns,
+      visibleColumnIndices,
+      focusedCell,
+      cellRange,
+      isEditable,
+      getLastSelection,
+      selectedRowIndices,
+      rowCells,
+      pasteRows,
+    });
 
     // A exportação leva o que está na grade: colunas visíveis, na ordem delas,
     // carregando o índice original para ler a célula da linha crua.
@@ -390,14 +429,78 @@ export const ResultsTable = memo(
     );
 
     // Clique numa célula: move o cursor e traz o foco do DOM de volta para o
-    // container, o único tab stop da grade.
+    // container, o único tab stop da grade. O botão segue apertado → arrastar
+    // sobre outras células estende o bloco a partir desta.
+    const draggingCells = useRef(false);
+    useEffect(() => {
+      const stop = () => {
+        draggingCells.current = false;
+      };
+      window.addEventListener('mouseup', stop);
+      return () => window.removeEventListener('mouseup', stop);
+    }, []);
+
     const handleFocusCell = useCallback(
       (rowIndex: number, columnName: string) => {
         focusCell(rowIndex, columnName);
+        draggingCells.current = true;
         containerRef.current?.focus();
       },
       [focusCell],
     );
+
+    const handleExtendCell = useCallback(
+      (rowIndex: number, columnName: string) => {
+        extendCellSelection(rowIndex, columnName);
+        draggingCells.current = true;
+        containerRef.current?.focus();
+      },
+      [extendCellSelection],
+    );
+
+    const handleHoverCell = useCallback(
+      (rowIndex: number, columnName: string, buttons: number) => {
+        // Soltar o botão fora da janela não dispara o mouseup aqui
+        if (!draggingCells.current || (buttons & 1) === 0) {
+          draggingCells.current = false;
+          return;
+        }
+        extendCellSelection(rowIndex, columnName);
+      },
+      [extendCellSelection],
+    );
+
+    // Linhas novas (Nova linha, Duplicar, Colar) entram no fim da grade: o
+    // cursor vai para a primeira delas e a grade rola até lá — sem disparar o
+    // "carregar mais" do fim da lista, que empurraria a linha para longe.
+    // Remontar com pendências guardadas não conta como "novas".
+    const seenAddedCount = useRef(addedCount);
+    const revealingAddedUntil = useRef(0);
+    useEffect(() => {
+      const previous = seenAddedCount.current;
+      seenAddedCount.current = addedCount;
+      if (addedCount <= previous) return;
+      const firstNew = displayRows.length - (addedCount - previous);
+      const columnName = focusedCell?.columnName ?? visibleColumns[0]?.name;
+      if (columnName) setFocusedCell({ rowIndex: firstNew, columnName });
+      if (viewMode !== 'table') return;
+      revealingAddedUntil.current = performance.now() + 500;
+      // Em px, e não `scrollToIndex`: o virtualizador não conta o cabeçalho
+      // fixo e pararia uma linha antes do fim. O navegador limita ao máximo.
+      requestAnimationFrame(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        el.scrollTop =
+          HEADER_HEIGHT + firstNew * ROW_HEIGHT - el.clientHeight / 2;
+      });
+    }, [
+      addedCount,
+      viewMode,
+      displayRows.length,
+      focusedCell,
+      visibleColumns,
+      setFocusedCell,
+    ]);
 
     // Enter na célula sob o cursor. Booleano é checkbox inline, não abre
     // Popover: ativá-lo deixaria `activeCell` preso e mataria as setas — então
@@ -451,6 +554,7 @@ export const ResultsTable = memo(
       rowCount: displayRows.length,
       focusedCell,
       setFocusedCell,
+      extendCellSelection,
       activeCell,
       activateCell: handleActivateCell,
       rowVirtualizer,
@@ -463,6 +567,7 @@ export const ResultsTable = memo(
     const handleScroll = useCallback(() => {
       const el = containerRef.current;
       if (!el || !hasMore || isLoadingMore) return;
+      if (performance.now() < revealingAddedUntil.current) return;
 
       const threshold = 200;
       if (el.scrollTop + el.clientHeight >= el.scrollHeight - threshold) {
@@ -485,6 +590,7 @@ export const ResultsTable = memo(
     if (displayRows.length === 0) {
       return (
         <div
+          ref={rootRef}
           {...scopeProps}
           className={cn('flex h-full flex-col overflow-hidden', className)}
         >
@@ -509,6 +615,7 @@ export const ResultsTable = memo(
 
     return (
       <div
+        ref={rootRef}
         {...scopeProps}
         className={cn('flex h-full flex-col overflow-hidden', className)}
       >
@@ -675,6 +782,9 @@ export const ResultsTable = memo(
                     style={{
                       width: `${contentWidth}px`,
                       height: `${rowVirtualizer.getTotalSize()}px`,
+                      // A barra de pendências não pode cobrir a última linha
+                      marginBottom:
+                        pendingCount > 0 ? `${PENDING_BAR_SPACE}px` : undefined,
                     }}
                   >
                     {virtualRows.map(virtualRow => {
@@ -699,6 +809,7 @@ export const ResultsTable = memo(
                           virtualColumns={virtualColumns}
                           getCellDisplayValue={getCellDisplayValue}
                           isCellModified={isCellModified}
+                          isCellDefault={isCellDefault}
                           isColumnEditable={isColumnEditable}
                           updateCell={updateCell}
                           activeColumnName={
@@ -717,9 +828,18 @@ export const ResultsTable = memo(
                               ? currentMatch.columnName
                               : null
                           }
+                          cellRange={
+                            cellRange &&
+                            virtualRow.index >= cellRange.top &&
+                            virtualRow.index <= cellRange.bottom
+                              ? cellRange
+                              : null
+                          }
                           onActivateCell={handleActivateCell}
                           onCloseCell={deactivateCell}
                           onFocusCell={handleFocusCell}
+                          onExtendCell={handleExtendCell}
+                          onHoverCell={handleHoverCell}
                           onSelectRowBody={handleSelectRowBody}
                           onSelectRowGutter={handleSelectRowGutter}
                         />
@@ -777,6 +897,7 @@ export const ResultsTable = memo(
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           onAddRow={addRow}
+          onDuplicateRows={duplicateRows}
           onExport={() => setIsExportOpen(true)}
         />
 
@@ -790,6 +911,7 @@ export const ResultsTable = memo(
           totalCount={totalCount}
           fileName={exportFileName ?? 'resultado'}
           editableInfo={editableInfo}
+          defaultColumns={defaultColumns}
           onFetchAllRows={onFetchAllRows}
         />
       </div>

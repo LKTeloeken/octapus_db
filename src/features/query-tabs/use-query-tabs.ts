@@ -13,6 +13,8 @@ import { usePendingChangesStore } from '@/stores/pending-changes-store';
 import { useQueryResultsStore } from '@/stores/query-results-store';
 import { useActiveTab, useTabsStore } from '@/stores/tabs-store';
 import type { ClosingTab } from './query-tabs.types';
+import { tabDescriptions, tabLocation } from './tab-labels';
+import { useTabReorder } from './use-tab-reorder';
 
 export const useQueryTabs = () => {
   const tabs = useTabsStore(state => state.tabs);
@@ -20,6 +22,7 @@ export const useQueryTabs = () => {
   const setActiveTab = useTabsStore(state => state.setActiveTab);
   const closeTabInStore = useTabsStore(state => state.closeTab);
   const openQueryTab = useTabsStore(state => state.openQueryTab);
+  const moveTab = useTabsStore(state => state.moveTab);
   const clearRun = useQueryResultsStore(state => state.clearRun);
   const clearGridSearch = useGridSearchStore(state => state.clear);
   const setPaletteOpen = useCommandPaletteStore(state => state.setOpen);
@@ -35,6 +38,25 @@ export const useQueryTabs = () => {
         (servers ?? []).map(server => [server.id, server.dbType]),
       ),
     [servers],
+  );
+
+  // Mesmo título em schemas, bancos ou servidores diferentes: a aba ganha o
+  // trecho que a distingue das outras; todas mostram o caminho no title.
+  const serverNames = useMemo(
+    () =>
+      new Map<number, string>(
+        (servers ?? []).map(server => [server.id, server.name]),
+      ),
+    [servers],
+  );
+  const descriptions = useMemo(
+    () => tabDescriptions(tabsList, id => serverNames.get(id) ?? ''),
+    [tabsList, serverNames],
+  );
+  const locationOf = useCallback(
+    (tab: (typeof tabsList)[number]) =>
+      tabLocation(tab, serverNames.get(tab.serverId) ?? ''),
+    [serverNames],
   );
 
   // Fecha de vez (o store descarta as pendências da grade junto)
@@ -85,6 +107,10 @@ export const useQueryTabs = () => {
   // encolhe (janela, assistente). Rola só a lista — o `scrollIntoView` também
   // rolaria os ancestrais com overflow escondido.
   const tabListRef = useRef<HTMLDivElement>(null);
+  const { drag, onPointerDown: onTabPointerDown } = useTabReorder(
+    tabListRef,
+    moveTab,
+  );
   useEffect(() => {
     const list = tabListRef.current;
     if (!list) return;
@@ -152,6 +178,10 @@ export const useQueryTabs = () => {
     activeTab,
     activeTabId,
     dbTypeByServer,
+    descriptions,
+    locationOf,
+    drag,
+    onTabPointerDown,
     setActiveTab,
     closeTab,
     closing,

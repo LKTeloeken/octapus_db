@@ -143,7 +143,11 @@ const FOLDERS: Record<CatalogObjectKind, { label: string; filter: string }> = {
   },
 };
 
-/** Pastas cuja contagem o catálogo já sabe: vazias, nem aparecem */
+/**
+ * Pastas cuja contagem o catálogo sabe: vazias, nem aparecem; e, enquanto ele
+ * sincroniza (contagem `null`), também não — aparecer e sumir ao chegar o 0
+ * deslocaria as linhas sob o mouse, e o clique em andamento se perderia.
+ */
 const COUNTED_FOLDERS: ReadonlySet<CatalogObjectKind> =
   new Set<CatalogObjectKind>(['view', 'materializedView']);
 
@@ -1147,7 +1151,12 @@ export const useConnectionTree = ({
     // Aberta e lida sem filtro, a própria janela diz quantos são
     const known =
       !filter && objects?.data ? objects.data.total : (count ?? null);
-    if (known === 0 && COUNTED_FOLDERS.has(kind)) return;
+    if (
+      COUNTED_FOLDERS.has(kind) &&
+      (known === 0 || (known === null && !expanded.has(folderNodeId)))
+    ) {
+      return;
+    }
 
     const isExpanded = pushFolderRow(
       folderNodeId,

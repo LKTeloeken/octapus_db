@@ -119,6 +119,7 @@ pub fn list_columns() -> Vec<ColumnInfo> {
             data_type: data_type.to_string(),
             is_nullable: *nullable,
             default_value: None,
+            is_auto_generated: false,
             is_primary_key: *name == "key",
             is_foreign_key: false,
         })

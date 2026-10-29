@@ -1,6 +1,7 @@
 import type { VirtualItem } from '@tanstack/react-virtual';
 import type { QueryColumnInfo } from '@/api/types/query.types';
 import type { GridMatcher } from '@/lib/grid-search';
+import type { CellRange } from '../grid-clipboard';
 import type {
   ActivateCellFn,
   DataTableRow,
@@ -37,6 +38,8 @@ export interface ResultsTableRowCellProps {
   virtualColumns: VirtualItem[];
   getCellDisplayValue: GetCellDisplayValueFn;
   isCellModified: IsCellModifiedFn;
+  /** Célula de linha nova não tocada (pelo índice da coluna em `row`) */
+  isCellDefault: (rowIndex: number, columnIndex: number) => boolean;
   isColumnEditable: IsColumnEditableFn;
   updateCell: UpdateCellFn;
   /** Column name of the active cell in THIS row, or null. Kept row-scoped so
@@ -49,10 +52,16 @@ export interface ResultsTableRowCellProps {
   getColumnMatcher: (columnName: string) => GridMatcher | null;
   /** Coluna do resultado atual da busca NESTA linha, ou null (row-scoped) */
   currentMatchColumnName: string | null;
+  /** O bloco de células selecionado, só quando ele passa por ESTA linha */
+  cellRange: CellRange | null;
   onActivateCell: ActivateCellFn;
   onCloseCell: () => void;
   /** Clique numa célula → move o cursor de teclado para ela */
   onFocusCell: FocusCellFn;
+  /** Shift+clique ou arraste sobre a célula → estende o bloco até ela */
+  onExtendCell: FocusCellFn;
+  /** O mouse entrou na célula (o arraste de seleção estende por aqui) */
+  onHoverCell: (rowIndex: number, columnName: string, buttons: number) => void;
   /** Clique no corpo da linha COM modificador → estende/alterna a seleção */
   onSelectRowBody: (rowIndex: number, event: React.MouseEvent) => void;
   /** Click on the index gutter → add to the selection (Shift = range) */

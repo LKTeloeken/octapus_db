@@ -42,6 +42,7 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
     columns,
     rows,
     editableInfo,
+    defaultColumns,
     totalCount,
     rowCount,
     executionTimeMs,
@@ -183,6 +184,7 @@ export const TableBrowser = memo(({ tab }: TableBrowserProps) => {
           columns={columns}
           rows={rows}
           editableInfo={editableInfo}
+          defaultColumns={defaultColumns}
           hiddenColumns={hiddenColumns}
           activeSort={activeSort}
           emptyMessage={

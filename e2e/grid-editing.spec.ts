@@ -168,7 +168,8 @@ test.describe('edição na grade', () => {
 
     await page.getByRole('button', { name: 'Nova linha' }).click();
     await expect(g.row(3)).toHaveAttribute('data-pending', 'added');
-    await expect(g.value(3, 'logradouro')).toHaveText('NULL');
+    // Não tocada: fica fora do INSERT, o banco aplica o default
+    await expect(g.value(3, 'logradouro')).toHaveText('DEFAULT');
     await expect(g.pendingBar).toContainText('1 nova');
 
     await g.edit(3, 'logradouro', NOVO);

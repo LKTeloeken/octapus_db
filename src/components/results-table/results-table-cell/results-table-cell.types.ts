@@ -20,6 +20,8 @@ export interface DataTableCellProps {
   isModified: boolean;
   /** Linha marcada para exclusão: valor tachado em `--fg-subtle` */
   isRemoved?: boolean;
+  /** Linha nova, coluna não tocada: fica fora do INSERT e mostra DEFAULT */
+  isDefault?: boolean;
   columnType: string;
   /** Position — used to build the save closure and the activate call */
   rowIndex: number;

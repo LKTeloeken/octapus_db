@@ -16,6 +16,8 @@ interface Options {
   rowCount: number;
   focusedCell: FocusedCell;
   setFocusedCell: (cell: FocusedCell) => void;
+  /** Move o cursor mantendo a origem do bloco de células (Shift+setas) */
+  extendCellSelection: (rowIndex: number, columnName: string) => void;
   activeCell: ActiveCell;
   activateCell: ActivateCellFn;
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
@@ -39,6 +41,7 @@ export const useResultsTableKeyboard = ({
   rowCount,
   focusedCell,
   setFocusedCell,
+  extendCellSelection,
   activeCell,
   activateCell,
   rowVirtualizer,
@@ -75,15 +78,22 @@ export const useResultsTableKeyboard = ({
   }, [focusRequest, rowCount, containerRef, clearFocusRequest]);
 
   const moveTo = useCallback(
-    (rowIndex: number, columnIndex: number) => {
+    (rowIndex: number, columnIndex: number, extend = false) => {
       const column = visibleColumns[columnIndex];
       if (!column) return;
 
-      setFocusedCell({ rowIndex, columnName: column.name });
+      if (extend) extendCellSelection(rowIndex, column.name);
+      else setFocusedCell({ rowIndex, columnName: column.name });
       rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
       columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
     },
-    [visibleColumns, setFocusedCell, rowVirtualizer, columnVirtualizer],
+    [
+      visibleColumns,
+      setFocusedCell,
+      extendCellSelection,
+      rowVirtualizer,
+      columnVirtualizer,
+    ],
   );
 
   /**
@@ -138,6 +148,18 @@ export const useResultsTableKeyboard = ({
       ),
       'grid.left': fromCursor(({ rowIndex, columnIndex }) =>
         moveTo(rowIndex, Math.max(columnIndex - 1, 0)),
+      ),
+      'grid.extendDown': fromCursor(({ rowIndex, columnIndex, lastRow }) =>
+        moveTo(Math.min(rowIndex + 1, lastRow), columnIndex, true),
+      ),
+      'grid.extendUp': fromCursor(({ rowIndex, columnIndex }) =>
+        moveTo(Math.max(rowIndex - 1, 0), columnIndex, true),
+      ),
+      'grid.extendRight': fromCursor(({ rowIndex, columnIndex, lastColumn }) =>
+        moveTo(rowIndex, Math.min(columnIndex + 1, lastColumn), true),
+      ),
+      'grid.extendLeft': fromCursor(({ rowIndex, columnIndex }) =>
+        moveTo(rowIndex, Math.max(columnIndex - 1, 0), true),
       ),
       'grid.rowStart': fromCursor(({ rowIndex }) => moveTo(rowIndex, 0)),
       'grid.rowEnd': fromCursor(({ rowIndex, lastColumn }) =>

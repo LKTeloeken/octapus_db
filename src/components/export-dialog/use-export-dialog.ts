@@ -29,6 +29,7 @@ export const useExportDialog = ({
   totalCount,
   fileName,
   editableInfo,
+  defaultColumns,
   onFetchAllRows,
   onOpenChange,
 }: ExportDialogProps) => {
@@ -36,6 +37,7 @@ export const useExportDialog = ({
   const [delimiter, setDelimiter] = useState(DELIMITERS[0].value);
   const [includeHeader, setIncludeHeader] = useState(true);
   const [onlySelectedPref, setOnlySelectedPref] = useState(true);
+  const [useDefaultsPref, setUseDefaults] = useState(false);
   const [busy, setBusy] = useState<'export' | 'copy' | null>(null);
   const writeFile = useWriteExportFile();
 
@@ -47,6 +49,17 @@ export const useExportDialog = ({
       ? `${quoteIdent(schema)}.${quoteIdent(table)}`
       : quoteIdent(table);
   }, [editableInfo]);
+
+  // Das colunas exportadas, as que têm valor padrão — sem nenhuma, a opção de
+  // deixá-las para o banco nem aparece.
+  const exportedDefaults = useMemo(() => {
+    if (!defaultColumns?.size) return null;
+    const names = columns
+      .map(column => column.name)
+      .filter(name => defaultColumns.has(name));
+    return names.length > 0 ? new Set(names) : null;
+  }, [columns, defaultColumns]);
+  const useDefaults = exportedDefaults !== null && useDefaultsPref;
 
   const formats = useMemo(
     () => (sqlTable ? FORMATS : FORMATS.filter(f => f.value !== 'sql')),
@@ -99,6 +112,9 @@ export const useExportDialog = ({
       delimiter,
       includeHeader,
       sqlTable: sqlTable ?? quoteIdent(fileName),
+      sqlDefaultColumns: useDefaults
+        ? (exportedDefaults ?? undefined)
+        : undefined,
     });
 
     return { contents, rowCount: exportRows.length };
@@ -110,6 +126,8 @@ export const useExportDialog = ({
     includeHeader,
     fileName,
     sqlTable,
+    useDefaults,
+    exportedDefaults,
     willFetchAll,
     onFetchAllRows,
   ]);
@@ -157,6 +175,9 @@ export const useExportDialog = ({
     setDelimiter,
     includeHeader,
     setIncludeHeader,
+    defaultColumnNames: exportedDefaults ? Array.from(exportedDefaults) : [],
+    useDefaults,
+    setUseDefaults,
     hasSelection,
     selectedCount: selectedRows.length,
     onlySelected,

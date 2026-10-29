@@ -5,6 +5,7 @@ import type {
   RowInsert,
 } from '@/api/types/query.types';
 import type { SortSpec } from '@/api/types/browse.types';
+import type { CopiedCell, CopiedRows } from '@/stores/grid-clipboard-store';
 
 export type DataTableRow = (string | null)[];
 
@@ -54,6 +55,12 @@ export interface ResultsTableProps {
   onFetchAllRows?: () => Promise<DataTableRow[]>;
   /** Nome base do arquivo gerado na exportação, sem extensão */
   exportFileName?: string;
+  /**
+   * Colunas cujo valor o banco gera — serial, identity, `now()`… (ver
+   * `useColumnDefaults`): duplicar as deixa como DEFAULT e a exportação SQL
+   * pode omiti-las
+   */
+  defaultColumns?: ReadonlySet<string>;
   /** The column/direction currently ordering the data (incl. the PK default) */
   activeSort?: SortSpec | null;
   editableInfo?: EditableInfo | null;
@@ -126,6 +133,8 @@ export interface UseResultsTableReturn {
   updateCell: UpdateCellFn;
   isRowModified: IsRowModifiedFn;
   isCellModified: IsCellModifiedFn;
+  /** Célula de linha nova não tocada (índice da coluna em `columns`) */
+  isCellDefault: (rowIndex: number, columnIndex: number) => boolean;
   isRowAdded: IsRowFlagFn;
   isRowRemoved: IsRowFlagFn;
   isRowSelected: IsRowFlagFn;
@@ -141,6 +150,20 @@ export interface UseResultsTableReturn {
   focusedCell: FocusedCell;
   focusCell: FocusCellFn;
   setFocusedCell: (cell: FocusedCell) => void;
+  /** Origem do bloco de células (o outro canto é o cursor), ou null */
+  cellAnchor: CellPosition | null;
+  /** Move o cursor mantendo a origem: Shift+clique/setas e arraste */
+  extendCellSelection: FocusCellFn;
+  /** O que foi selecionado por último — decide o que o Cmd/Ctrl+C copia */
+  getLastSelection: () => 'rows' | 'cells';
+  /** Índices na grade das linhas selecionadas (inclui as novas), em ordem */
+  selectedRowIndices: () => number[];
+  /** Valores da linha em todas as colunas, com as edições pendentes */
+  rowCells: (rowIndex: number) => CopiedCell[];
+  /** Duplica as linhas selecionadas (ou a do cursor); devolve quantas */
+  duplicateRows: () => number;
+  /** Cola linhas copiadas como novas; devolve quantas entraram */
+  pasteRows: (copied: CopiedRows) => number;
   toggleRowSelection: ToggleRowSelectionFn;
   /** Seleciona todas as linhas da grade (carregadas + adicionadas) */
   selectAllRows: SelectAllRowsFn;

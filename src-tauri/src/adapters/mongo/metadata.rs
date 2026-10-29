@@ -110,6 +110,8 @@ fn field_to_column(
         data_type: data_type.to_string(),
         is_nullable,
         default_value: None,
+        // O driver gera o `_id` quando o documento chega sem ele
+        is_auto_generated: name == "_id",
         is_primary_key,
         is_foreign_key: false,
     }

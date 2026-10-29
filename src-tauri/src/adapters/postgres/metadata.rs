@@ -130,7 +130,8 @@ pub async fn list_columns(pool: &Pool, schema: &str, table: &str) -> Result<Vec<
                     WHERE c.conrelid = a.attrelid
                     AND a.attnum = ANY(c.conkey)
                     AND c.contype = 'f'
-                ) as is_fk
+                ) as is_fk,
+                a.attidentity <> ''
             FROM pg_attribute a
             JOIN pg_class c ON c.oid = a.attrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -153,6 +154,7 @@ pub async fn list_columns(pool: &Pool, schema: &str, table: &str) -> Result<Vec<
             data_type: r.get(2),
             is_nullable: r.get(3),
             default_value: r.get(4),
+            is_auto_generated: r.get(7),
             is_primary_key: r.get(5),
             is_foreign_key: r.get(6),
         })

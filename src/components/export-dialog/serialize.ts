@@ -30,7 +30,7 @@ export function serializeRows(
     case 'json':
       return toJson(columns, rows);
     case 'sql':
-      return toSql(columns, rows, options.sqlTable);
+      return toSql(columns, rows, options.sqlTable, options.sqlDefaultColumns);
   }
 }
 
@@ -81,10 +81,19 @@ function toJson(columns: ExportColumn[], rows: DataTableRow[]): string {
 // ── SQL ─────────────────────────────────────────────────────────────────────
 
 function toSql(
-  columns: ExportColumn[],
+  allColumns: ExportColumn[],
   rows: DataTableRow[],
   sqlTable: string,
+  defaultColumns?: ReadonlySet<string>,
 ): string {
+  // Coluna com valor padrão sai do INSERT: o banco gera o id, o created_at…
+  const columns = defaultColumns?.size
+    ? allColumns.filter(column => !defaultColumns.has(column.name))
+    : allColumns;
+  if (columns.length === 0) {
+    return rows.map(() => `INSERT INTO ${sqlTable} DEFAULT VALUES;`).join('\n');
+  }
+
   const columnList = columns.map(column => quoteIdent(column.name)).join(', ');
   const editors = columns.map(column => resolveCellEditor(column.typeName));
 

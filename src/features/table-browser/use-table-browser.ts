@@ -14,6 +14,7 @@ import {
   useSaveRowChanges,
 } from '@/queries/use-apply-row-edits';
 import { useCapabilities } from '@/queries/use-capabilities';
+import { useColumnDefaults } from '@/queries/use-column-defaults';
 import { useServers } from '@/queries/use-servers';
 import { useFetchAllTableData, useTableData } from '@/queries/use-table-data';
 import { useSqlCompletion } from '@/features/query-editor/use-sql-completion';
@@ -76,6 +77,12 @@ export const useTableBrowser = (tab: BrowseTab) => {
     sort: tab.sort,
   });
   const { refetch } = data;
+  // Colunas com DEFAULT/serial/identity: duplicar e exportar SQL as respeitam
+  const defaultColumns = useColumnDefaults(
+    tab.serverId,
+    tab.database,
+    data.editableInfo,
+  );
 
   // Persist deletes, inserts and edits together. Each mutation invalidates the
   // browse query, so the table only reflects changes once the backend confirms.
@@ -240,6 +247,7 @@ export const useTableBrowser = (tab: BrowseTab) => {
 
   return {
     ...data,
+    defaultColumns,
     activeSort,
     hiddenColumns,
     draftWhere,

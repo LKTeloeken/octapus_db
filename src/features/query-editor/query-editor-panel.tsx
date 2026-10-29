@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/resizable';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { BottomTab } from '@/stores/query-results-store';
+import { useColumnDefaults } from '@/queries/use-column-defaults';
 import { useTabsStore } from '@/stores/tabs-store';
 import { useQueryRunner } from './use-query-runner';
 import type { QueryEditorPanelProps } from './query-editor-panel.types';
@@ -57,6 +58,12 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
   );
 
   const columns = useMemo(() => result?.columns ?? [], [result]);
+  // Query de uma tabela só é editável: duplicar/exportar respeitam os DEFAULT
+  const defaultColumns = useColumnDefaults(
+    tab.serverId,
+    tab.database,
+    result?.editableInfo,
+  );
   const hiddenColumns = useMemo(
     () => new Set(tab.hiddenColumns),
     [tab.hiddenColumns],
@@ -169,6 +176,7 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
                 columns={columns}
                 rows={result?.rows ?? []}
                 editableInfo={result?.editableInfo}
+                defaultColumns={defaultColumns}
                 hiddenColumns={hiddenColumns}
                 isLoading={isRunning}
                 isLoadingMore={isLoadingMore}

@@ -246,6 +246,31 @@ export const SHORTCUT_ACTIONS = {
     context: 'grid',
     defaults: ['End'],
   },
+  // Shift+setas: estende a seleção de células a partir da célula de origem
+  'grid.extendDown': {
+    label: 'Estender a seleção para baixo',
+    group: 'Grade',
+    context: 'grid',
+    defaults: ['Shift+ArrowDown'],
+  },
+  'grid.extendUp': {
+    label: 'Estender a seleção para cima',
+    group: 'Grade',
+    context: 'grid',
+    defaults: ['Shift+ArrowUp'],
+  },
+  'grid.extendLeft': {
+    label: 'Estender a seleção para a esquerda',
+    group: 'Grade',
+    context: 'grid',
+    defaults: ['Shift+ArrowLeft'],
+  },
+  'grid.extendRight': {
+    label: 'Estender a seleção para a direita',
+    group: 'Grade',
+    context: 'grid',
+    defaults: ['Shift+ArrowRight'],
+  },
   'grid.edit': {
     label: 'Editar a célula',
     group: 'Grade',
@@ -276,6 +301,25 @@ export const SHORTCUT_ACTIONS = {
     group: 'Grade',
     context: 'grid',
     defaults: ['Mod+a'],
+  },
+  // Num campo de texto o Cmd/Ctrl+C/V continua nativo (sem allowWhileTyping)
+  'grid.copy': {
+    label: 'Copiar as linhas ou células selecionadas',
+    group: 'Grade',
+    context: 'grid',
+    defaults: ['Mod+c'],
+  },
+  'grid.paste': {
+    label: 'Colar as linhas copiadas como novas',
+    group: 'Grade',
+    context: 'grid',
+    defaults: ['Mod+v'],
+  },
+  'grid.duplicateRows': {
+    label: 'Duplicar as linhas selecionadas',
+    group: 'Grade',
+    context: 'grid',
+    defaults: ['Mod+d'],
   },
   'grid.deleteRows': {
     label: 'Remover as linhas selecionadas',
