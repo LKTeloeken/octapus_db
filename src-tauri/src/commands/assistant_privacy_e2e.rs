@@ -580,13 +580,25 @@ async fn e2e_privacy_mongo_canaries() {
         "Quanto foi pago no total? Some o campo amount de payments convertendo com $toDouble, sem onError.",
     )
     .await;
-    assert_eq!(finish.status, AssistantTurnStatus::Answered, "{finish:?}");
+    // A pergunta pede "sem onError": depois da falha, o modelo pode corrigir,
+    // devolver como código ou perguntar ao usuário. A prova é o erro
+    // sanitizado ter ido à API (no outcome e na correção), não qual dessas
+    // saídas ele escolhe
+    assert!(
+        matches!(
+            finish.status,
+            AssistantTurnStatus::Answered | AssistantTurnStatus::CodeDelivered | AssistantTurnStatus::Clarification
+        ),
+        "{finish:?}"
+    );
     assert!(
         events.iter().any(|line| line.starts_with("StageFailed") && line.contains(word.as_str())),
         "o erro com o valor não chegou à tela: {events:?}"
     );
     assert!(corrected_attempts(&participant, 0).await >= 1);
-    assert_saved(&participant, 0).await;
+    if finish.status == AssistantTurnStatus::Answered {
+        assert_saved(&participant, 0).await;
+    }
 
     assert_nothing_leaked(&canaries, &participant, since).await;
 

@@ -13,6 +13,8 @@
 //!   query ─▶ guard ─▶ preflight ─▶ execução (só com a automática ligada)
 //!            └── falhou: outcome + erro sanitizado ─▶ nova tentativa (C-11)
 //!   saída fora do formato ─▶ o texto do modelo e o motivo ─▶ nova tentativa
+//!   erro transitório do provedor ─▶ espera e repete a mesma tentativa (não
+//!                                   conta no limite, até PROVIDER_RETRIES)
 //! limite da API (turn_limit_exceeded) ─▶ entrega a última consulta (RN-24)
 //! ```
 //!
@@ -65,6 +67,16 @@ pub const MAX_USER_QUESTIONS: usize = 2;
 /// Quanto esperar a resposta do usuário antes de encerrar o turno como
 /// `clarification` (a API não conta essa espera no tempo do turno).
 pub const REPLY_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// Erros transitórios do provedor (sobrecarga, rede; `retryable`) por turno
+/// que o turno repete sem contar como tentativa (o
+/// `TURN_MAX_PROVIDER_RETRIES` padrão da API). O seguinte encerra o turno.
+pub const PROVIDER_RETRIES: usize = 2;
+/// Espera antes de repetir depois de um erro transitório do provedor, vezes
+/// a repetição (3 s, depois 6 s).
+#[cfg(not(test))]
+const PROVIDER_RETRY_WAIT: Duration = Duration::from_secs(3);
+#[cfg(test)]
+const PROVIDER_RETRY_WAIT: Duration = Duration::from_millis(5);
 /// Rate limit antes do stream: quantas vezes esperar e tentar de novo.
 const RATE_LIMIT_RETRIES: usize = 3;
 /// Espera sem `Retry-After`.
@@ -198,6 +210,7 @@ pub async fn run_turn(
     let mut attempts = 0;
     let mut structure_requests = 0;
     let mut user_questions = 0;
+    let mut provider_retries = 0;
     // A resposta do usuário vai à API só na tentativa logo depois dela
     let mut user_reply: Option<String> = None;
     // A estrutura pedida tem um orçamento próprio por turno, do tamanho do
@@ -261,6 +274,30 @@ pub async fn run_turn(
             }
             Err(error) if error.code == AssistantCode::TurnLimitExceeded => {
                 break (AssistantTurnStatus::Exhausted, None)
+            }
+            // O provedor instável não é erro do modelo: as mesmas mensagens de
+            // novo, depois de esperar, sem contar como tentativa
+            Err(error)
+                if error.code == AssistantCode::ProviderError && error.retryable && provider_retries < PROVIDER_RETRIES =>
+            {
+                provider_retries += 1;
+                attempts -= 1;
+                let wait = error.retry_after.unwrap_or(PROVIDER_RETRY_WAIT * provider_retries as u32);
+                log::info!(
+                    "assistente: tentativa {attempt_id} com erro transitório do provedor; repetindo em {} ms",
+                    wait.as_millis()
+                );
+                emit(AssistantTurnEvent::Waiting {
+                    seconds: wait.as_secs().max(1) as u32,
+                });
+                let cancelled = tokio::select! {
+                    _ = tokio::time::sleep(wait) => false,
+                    _ = cancel.cancelled() => true,
+                };
+                if cancelled {
+                    break (AssistantTurnStatus::Cancelled, None);
+                }
+                continue;
             }
             Err(error) => {
                 break (AssistantTurnStatus::Failed, Some(error.code.app_code().to_string()))
@@ -432,7 +469,7 @@ pub async fn run_turn(
         log::warn!("assistente: falha ao encerrar o turno {} ({})", turn.id, error.code());
     }
     log::info!(
-        "assistente: turno {} encerrado ({status:?}, {attempts} tentativa(s), {structure_requests} pedido(s) de estrutura, {user_questions} pergunta(s) ao usuário)",
+        "assistente: turno {} encerrado ({status:?}, {attempts} tentativa(s), {structure_requests} pedido(s) de estrutura, {user_questions} pergunta(s) ao usuário, {provider_retries} repetição(ões) por erro do provedor)",
         turn.id
     );
 
@@ -746,12 +783,15 @@ mod tests {
     // ── API simulada ────────────────────────────────────────────────────────
 
     /// Cada pedido de tentativa consome a próxima resposta roteirizada.
+    #[derive(Clone)]
     enum Scripted {
         Output(Value),
         StreamError(AssistantCode),
         /// `invalid_output` do backend, com o texto que o modelo deu e o
         /// motivo de parada que o backend informou
         Invalid(&'static str, Option<StopReason>),
+        /// `provider_error` transitório (`retryable`)
+        Transient,
         Before(AssistantError),
         /// Fica pendurado até o cancelamento
         Hang,
@@ -851,6 +891,12 @@ mod tests {
                 Scripted::StreamError(code) => {
                     started(progress);
                     Ok(generation(Err(AssistantError::new(code, "x")), String::new(), None))
+                }
+                Scripted::Transient => {
+                    started(progress);
+                    let mut error = AssistantError::new(AssistantCode::ProviderError, "llm overloaded (HTTP 529)");
+                    error.retryable = true;
+                    Ok(generation(Err(error), String::new(), None))
                 }
                 Scripted::Invalid(raw, stop) => {
                     started(progress);
@@ -1620,6 +1666,44 @@ mod tests {
 
         assert_eq!(run.finish.status, AssistantTurnStatus::Answered);
         assert_eq!(*api.journal.lock(), ["record:attempt-0", "record:attempt-1", "outcome:attempt-1"]);
+    }
+
+    /// O erro transitório do provedor repete a mesma tentativa, avisando a
+    /// espera, sem contar no limite nem virar rodada de correção.
+    #[tokio::test]
+    async fn transient_provider_errors_repeat_the_attempt() {
+        let api = FakeApi::new(vec![
+            Scripted::Transient,
+            Scripted::Transient,
+            Scripted::Output(output("query", Some("SELECT count(*) FROM orders"))),
+        ]);
+
+        let run = run(&api, &FakeDb::default(), &setup(true), &CancelFlag::default()).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Answered);
+        let requests = api.requests.lock();
+        assert_eq!(requests.len(), 3);
+        assert!(requests.iter().all(|request| request.messages == requests[0].messages));
+        assert_eq!(requests[2].context.previous_failure, None);
+        let waits = run.events.iter().filter(|event| matches!(event, AssistantTurnEvent::Waiting { .. })).count();
+        assert_eq!(waits, 2);
+        // Só a tentativa que respondeu ganhou outcome
+        assert_eq!(api.outcomes.lock().len(), 1);
+    }
+
+    /// Além do teto, ou sem `retryable` (chave recusada), o turno falha.
+    #[tokio::test]
+    async fn provider_errors_beyond_the_retries_fail_the_turn() {
+        let api = FakeApi::new(vec![Scripted::Transient; PROVIDER_RETRIES + 1]);
+        let beyond = run(&api, &FakeDb::default(), &setup(true), &CancelFlag::default()).await;
+        assert_eq!(beyond.finish.status, AssistantTurnStatus::Failed);
+        assert_eq!(beyond.finish.error_code.as_deref(), Some("ASSISTANT_PROVIDER_ERROR"));
+        assert_eq!(api.requests.lock().len(), PROVIDER_RETRIES + 1);
+
+        let api = FakeApi::new(vec![Scripted::StreamError(AssistantCode::ProviderError)]);
+        let permanent = run(&api, &FakeDb::default(), &setup(true), &CancelFlag::default()).await;
+        assert_eq!(permanent.finish.status, AssistantTurnStatus::Failed);
+        assert_eq!(api.requests.lock().len(), 1);
     }
 
     #[tokio::test]

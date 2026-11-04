@@ -123,6 +123,9 @@ pub struct AssistantError {
     pub message: String,
     /// `Retry-After` de um 429: quanto esperar antes de tentar de novo.
     pub retry_after: Option<Duration>,
+    /// Erro transitório do provedor (`retryable` do contrato 1.7.0, no
+    /// stream): a tentativa pode ser repetida.
+    pub retryable: bool,
 }
 
 impl AssistantError {
@@ -131,6 +134,7 @@ impl AssistantError {
             code,
             message: message.into(),
             retry_after: None,
+            retryable: false,
         }
     }
 }
@@ -144,6 +148,8 @@ struct ErrorBody {
 struct ErrorDetail {
     code: String,
     message: String,
+    #[serde(default)]
+    retryable: bool,
 }
 
 /// Monta o erro de uma resposta HTTP de falha: o `code` do corpo quando ele
@@ -155,6 +161,7 @@ pub fn from_response(
     now: DateTime<Utc>,
 ) -> AssistantError {
     let detail = serde_json::from_str::<ErrorBody>(body).ok().map(|body| body.error);
+    let retryable = detail.as_ref().is_some_and(|detail| detail.retryable);
     let code = detail
         .as_ref()
         .and_then(|detail| AssistantCode::from_api_name(&detail.code))
@@ -168,6 +175,7 @@ pub fn from_response(
         code,
         message,
         retry_after: retry_after.and_then(|value| parse_retry_after(value, now)),
+        retryable,
     }
 }
 
@@ -245,6 +253,14 @@ mod tests {
         assert_eq!(from_response(429, None, "", now()).code, AssistantCode::RateLimited);
         assert_eq!(from_response(500, None, "{}", now()).code, AssistantCode::Internal);
         assert_eq!(from_response(418, None, "", now()).code, AssistantCode::Internal);
+    }
+
+    #[test]
+    fn retryable_comes_from_the_body() {
+        let transient = r#"{"error":{"code":"provider_error","message":"overloaded","retryable":true}}"#;
+        assert!(from_response(200, None, transient, now()).retryable);
+        // Sem o campo (API anterior ao 1.7.0, erro que não passa sozinho)
+        assert!(!from_response(200, None, &body("provider_error"), now()).retryable);
     }
 
     #[test]
