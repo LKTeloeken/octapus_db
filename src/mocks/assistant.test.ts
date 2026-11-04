@@ -137,11 +137,13 @@ describe('assistente no mock', () => {
     ) {
       const events: AssistantTurnEvent[] = [];
       const finish = (await route(RustCommand.AssistantTurnAsk, {
-        serverId: 1,
-        database: 'loja',
-        conversationId,
-        question,
-        clientTurnId: id,
+        input: {
+          serverId: 1,
+          database: 'loja',
+          conversationId,
+          question,
+          clientTurnId: id,
+        },
         onEvent: {
           onmessage: (event: AssistantTurnEvent) => events.push(event),
         },
@@ -163,14 +165,16 @@ describe('assistente no mock', () => {
       })) as AssistantConversationSummary;
       const events: AssistantTurnEvent[] = [];
       await route(RustCommand.AssistantTurnAsk, {
-        serverId,
-        database,
-        conversationId: id,
-        question: 'quantos registros?',
-        clientTurnId: `turn-${serverId}-${database}`,
-        schemas,
-        mentions,
-        pastMentions: null,
+        input: {
+          serverId,
+          database,
+          conversationId: id,
+          question: 'quantos registros?',
+          clientTurnId: `turn-${serverId}-${database}`,
+          schemas,
+          mentions,
+          pastMentions: null,
+        },
         onEvent: {
           onmessage: (event: AssistantTurnEvent) => events.push(event),
         },
@@ -425,11 +429,13 @@ describe('assistente no mock', () => {
 
       const events: AssistantTurnEvent[] = [];
       const finish = (await route(RustCommand.AssistantTurnAsk, {
-        serverId: 2,
-        database: 'catalogo',
-        conversationId: mongo.id,
-        question: 'quantos produtos existem no catálogo?',
-        clientTurnId: 'turn-mongo',
+        input: {
+          serverId: 2,
+          database: 'catalogo',
+          conversationId: mongo.id,
+          question: 'quantos produtos existem no catálogo?',
+          clientTurnId: 'turn-mongo',
+        },
         onEvent: {
           onmessage: (event: AssistantTurnEvent) => events.push(event),
         },
@@ -442,11 +448,13 @@ describe('assistente no mock', () => {
       });
 
       const code = (await route(RustCommand.AssistantTurnAsk, {
-        serverId: 2,
-        database: 'catalogo',
-        conversationId: mongo.id,
-        question: 'apagar o primeiro produto da lista',
-        clientTurnId: 'turn-mongo-2',
+        input: {
+          serverId: 2,
+          database: 'catalogo',
+          conversationId: mongo.id,
+          question: 'apagar o primeiro produto da lista',
+          clientTurnId: 'turn-mongo-2',
+        },
       })) as AssistantTurnFinish;
       expect(code.output?.query).toMatch(/^db\.produtos\.deleteOne/);
 
@@ -485,11 +493,13 @@ describe('assistente no mock', () => {
 
       const events: AssistantTurnEvent[] = [];
       const finish = (await route(RustCommand.AssistantTurnAsk, {
-        serverId: 4,
-        database: '0',
-        conversationId: redis.id,
-        question: 'quantos usuários existem?',
-        clientTurnId: 'turn-redis',
+        input: {
+          serverId: 4,
+          database: '0',
+          conversationId: redis.id,
+          question: 'quantos usuários existem?',
+          clientTurnId: 'turn-redis',
+        },
         onEvent: {
           onmessage: (event: AssistantTurnEvent) => events.push(event),
         },
@@ -510,11 +520,13 @@ describe('assistente no mock', () => {
       );
 
       const code = (await route(RustCommand.AssistantTurnAsk, {
-        serverId: 4,
-        database: '0',
-        conversationId: redis.id,
-        question: 'apagar o primeiro usuário da lista',
-        clientTurnId: 'turn-redis-2',
+        input: {
+          serverId: 4,
+          database: '0',
+          conversationId: redis.id,
+          question: 'apagar o primeiro usuário da lista',
+          clientTurnId: 'turn-redis-2',
+        },
       })) as AssistantTurnFinish;
       expect(code.output?.query).toBe('DEL user:1');
 

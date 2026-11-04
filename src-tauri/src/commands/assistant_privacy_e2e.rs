@@ -44,6 +44,7 @@ use crate::adapters::mongo::MongoAdapter;
 use crate::adapters::postgres::PostgresAdapter;
 use crate::adapters::redisdb::RedisAdapter;
 use crate::adapters::sqlite::SqliteAdapter;
+use crate::models::AssistantTurnStatus;
 use crate::logging::{app_level, APP_TARGET, DEPENDENCIES_LEVEL};
 use crate::models::{FeedbackRating, FeedbackReason, Server};
 

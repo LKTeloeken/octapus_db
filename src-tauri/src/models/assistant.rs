@@ -462,6 +462,33 @@ pub struct AssistantMention {
     pub table: Option<String>,
 }
 
+/// A pergunta (`assistant_turn_ask`).
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantTurnAskInput {
+    pub server_id: i64,
+    pub database: String,
+    pub conversation_id: String,
+    pub question: String,
+    /// UUID gerado na tela: abertura idempotente e alvo do cancelamento
+    pub client_turn_id: String,
+    /// Os schemas da conversa no Postgres (o primeiro vai no `search_path`);
+    /// vazio = `public`
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    pub schemas: Option<Vec<String>>,
+    /// Citadas com `@` na pergunta: entram obrigatoriamente no contexto (as
+    /// que não existem voltam como aviso no evento `context`)
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    pub mentions: Option<Vec<AssistantMention>>,
+    /// Citadas nas perguntas anteriores: só ganham prioridade
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    pub past_mentions: Option<Vec<AssistantMention>>,
+}
+
 /// O andamento de um turno, para a tela acompanhar.
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
@@ -599,5 +626,26 @@ mod tests {
         assert!(feedback(FeedbackRating::Down, vec![], Some(&at_limit)).normalized().is_ok());
         let over = format!("{at_limit}x");
         assert!(feedback(FeedbackRating::Down, vec![], Some(&over)).normalized().is_err());
+    }
+
+    /// O `input` do `assistant_turn_ask` como o `askAssistant` do front manda
+    /// (os opcionais em null) e sem os opcionais.
+    #[test]
+    fn ask_input_reads_what_the_front_sends() {
+        let sent = serde_json::json!({
+            "serverId": 1, "database": "loja", "conversationId": "c-1", "question": "quantos?",
+            "clientTurnId": "t-1", "schemas": null,
+            "mentions": [{ "schema": "public", "table": "orders" }], "pastMentions": null,
+        });
+        let input: AssistantTurnAskInput = serde_json::from_value(sent).unwrap();
+        assert_eq!((input.server_id, input.client_turn_id.as_str()), (1, "t-1"));
+        assert_eq!(input.schemas, None);
+        assert_eq!(input.mentions.unwrap()[0].table.as_deref(), Some("orders"));
+
+        let minimal = serde_json::json!({
+            "serverId": 2, "database": "0", "conversationId": "c-2", "question": "x", "clientTurnId": "t-2",
+        });
+        let input: AssistantTurnAskInput = serde_json::from_value(minimal).unwrap();
+        assert_eq!((input.schemas, input.mentions, input.past_mentions), (None, None, None));
     }
 }

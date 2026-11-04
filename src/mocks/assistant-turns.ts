@@ -8,6 +8,7 @@ import type {
   AssistantFeedbackInput,
   AssistantMention,
   AssistantTurn,
+  AssistantTurnAskInput,
   AssistantTurnEvent,
   AssistantTurnFinish,
   AssistantTurnStatus,
@@ -754,15 +755,18 @@ export const assistantTurnHandlers: Record<string, MockHandler> = {
   },
 
   [RustCommand.AssistantTurnAsk]: async ({
-    serverId,
-    database,
-    conversationId,
-    question,
-    clientTurnId,
-    schemas,
-    mentions,
+    input,
     onEvent,
   }: Args): Promise<AssistantTurnFinish> => {
+    const {
+      serverId,
+      database,
+      conversationId,
+      question,
+      clientTurnId,
+      schemas,
+      mentions,
+    } = input as AssistantTurnAskInput;
     requireAssistantLogin();
     const conversation = requireConversation(conversationId as string);
     const text = String(question ?? '').trim();

@@ -1038,25 +1038,38 @@ com a pergunta, sem nunca carregar a estrutura inteira.
   fora disso é `invalid_output`. O tipo aceita o que uma API mais nova mandar (`kind`
   desconhecido vira `unknown`, campo a mais é ignorado), para o histórico sempre abrir; quem
   recusa é o `parse`. Cópia do contrato em `src-tauri/contract/` (os três
-  schemas JSON), com o SHA-256 de cada um fixado em teste para a versão 1.5.0
-  (`CONTRACT_VERSION`); com `OCTAPUS_CONTRACT_DIR` apontando para o `contract/` da API, o
+  schemas JSON), com o SHA-256 de cada um fixado em teste para a versão do contrato
+  (`CONTRACT_VERSION`, hoje 1.7.0); com `OCTAPUS_CONTRACT_DIR` apontando para o `contract/` da API, o
   teste compara byte a byte.
 - **Idioma da pergunta** (`assistant/language.rs`, crate `whatlang`): `pt`, `en` ou
   `other`, gravado no turno (C-02).
 
 **O turno** (B6, `assistant/turn.rs`, `run_turn`): uma máquina de estados que depende de
-três portas — `TurnApi` (a API), `TurnDatabase` (o banco, só leitura) e `TurnStructure`
-(a estrutura que o modelo pede) —, o que deixa os testes rodarem com as três simuladas. O comando `assistant_turn_ask` monta o `TurnSetup`
-(conversa e histórico da API, contexto da estrutura, prompt, preferência de execução
-automática) e liga as portas reais.
+quatro portas (`TurnPorts`), o que deixa os testes rodarem com as quatro simuladas:
+
+- `ModelBackend` (`assistant/backend.rs`): gera uma tentativa e devolve a `Generation` — a
+  resposta ou o erro, o texto bruto, o consumo, o motivo de parada e se o backend já gravou
+  a tentativa;
+- `TurnJournal` (`assistant/journal.rs`): a conversa (histórico), abrir o turno, gravar a
+  tentativa que o backend não gravou, o outcome e o fim;
+- `TurnDatabase` (o banco, só leitura: `read_only::AdapterDatabase`) e `TurnStructure` (a
+  estrutura que o modelo pede: `requested::RequestedLookup`).
+
+Hoje a API intermediária ocupa as duas primeiras (`assistant/intermediary.rs`): ela gera e
+grava a tentativa numa chamada só (`recorded`). Um backend direto (chave do usuário, modelo
+local) gera no app e deixa a gravação para o journal, antes do outcome. O comando
+`assistant_turn_ask` (um `AssistantTurnAskInput`) monta o `TurnSetup` (conversa e histórico
+do journal, o `ModelProfile` da conversa, contexto da estrutura, prompt, preferência de
+execução automática) e liga as portas reais.
 
 1. Abre o turno (`clientTurnId`: repetir é seguro) e avisa a tela.
 2. Pede a tentativa: `POST /attempts`, lendo o SSE (`assistant/sse.rs`) com timeout de
    inatividade de 45 s; 429 espera o `Retry-After` (até 3 vezes) e avisa (`waiting`).
 3. Confere a resposta (`output::parse`). `clarification` encerra; `code` é entregue e
    **nunca** executado (RN-14); `answer` (resposta só em texto) encerra como `replied`,
-   sem tocar no banco; saída inválida (da API ou do app) tenta de novo com
-   `previousFailure: invalid_output`.
+   sem tocar no banco; saída inválida (do backend ou do app) volta ao modelo como ele a deu,
+   com o motivo (`output::invalid_reason`; cortada pelo limite de saída quando o backend diz
+   `stopReason: max_tokens`), e a tentativa seguinte vai com `previousFailure: invalid_output`.
    `structure_request`: o modelo lista até 20 nomes e o app busca (`assistant/requested.rs`)
    — no SQL, cada nome conferido no catálogo pelo `schema_context::confirm` (o das menções
    `@`; `schema.tabela`, `tabela` no escopo ou `schema.*`) e renderizado pelo mesmo
@@ -1134,7 +1147,7 @@ posição) e nas chaves de mapa do Mongo — e roda os fluxos contra a API local
 estrutura, erro do banco que cita o valor (`amount::numeric`, `$toDouble`) e a correção,
 pergunta de seguimento, execução manual com paginação e com erro, e avaliação com
 comentário. Depois procura cada canário (1) no que o app mandou à API (a `Recording` do
-módulo `e2e` grava cada chamada da `TurnApi`), (2) no log do app, capturado com os níveis
+módulo `e2e` grava cada chamada às portas da API), (2) no log do app, capturado com os níveis
 do arquivo de log (`logging::app_level`/`DEPENDENCIES_LEVEL`), (3) em todas as tabelas do
 banco da API, numa transação só de leitura, e (4) no `docker logs` da API. Nenhum pode
 aparecer; e cada teste confere que o canário chegou à tela (o erro como o banco deu, as

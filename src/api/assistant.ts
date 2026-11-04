@@ -8,10 +8,10 @@ import type {
   AssistantConversationSummary,
   AssistantFeedbackInput,
   AssistantMe,
-  AssistantMention,
   AssistantModel,
   AssistantParticipant,
   AssistantStatus,
+  AssistantTurnAskInput,
   AssistantTurnEvent,
   AssistantTurnFinish,
 } from './types/assistant.types';
@@ -94,20 +94,8 @@ export function createAssistantConversation(
   );
 }
 
-export interface AskAssistantInput {
-  serverId: number;
-  database: string;
-  conversationId: string;
-  question: string;
-  /** UUID gerado na tela: retentativa segura e alvo do cancelamento */
-  clientTurnId: string;
-  /** Schemas da conversa (Postgres); vazio = `public` */
-  schemas?: string[];
-  /** Citadas com `@` na pergunta: entram obrigatoriamente no contexto */
-  mentions?: AssistantMention[];
-  /** Citadas nas perguntas anteriores: só ganham prioridade */
-  pastMentions?: AssistantMention[];
-}
+/** A pergunta, como o comando recebe (gerado do Rust) */
+export type AskAssistantInput = AssistantTurnAskInput;
 
 /**
  * Faz a pergunta: o turno inteiro roda no backend e o andamento chega por
@@ -120,10 +108,12 @@ export function askAssistant(
   const channel = new Channel<AssistantTurnEvent>();
   channel.onmessage = onEvent;
   return call<AssistantTurnFinish>(RustCommand.AssistantTurnAsk, {
-    ...input,
-    schemas: input.schemas ?? null,
-    mentions: input.mentions ?? null,
-    pastMentions: input.pastMentions ?? null,
+    input: {
+      ...input,
+      schemas: input.schemas ?? null,
+      mentions: input.mentions ?? null,
+      pastMentions: input.pastMentions ?? null,
+    },
     onEvent: channel,
   });
 }

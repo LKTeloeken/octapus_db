@@ -188,6 +188,11 @@ fn kind_name(kind: OutputKind) -> String {
         .unwrap_or_default()
 }
 
+/// O motivo de uma saída cortada pelo limite de saída, quando o backend diz
+/// que o modelo parou por isso (`StopReason::MaxTokens`).
+pub const OUTPUT_LIMIT_REASON: &str =
+    "The response hit the output limit before the JSON was complete. Answer with a shorter, complete JSON object.";
+
 /// O motivo de uma saída inválida, para a correção que volta ao modelo: o
 /// texto bruto da tentativa conferido de novo pelo app. Em inglês, como as
 /// instruções; nunca traz o texto da consulta (os motivos do [`parse`] não

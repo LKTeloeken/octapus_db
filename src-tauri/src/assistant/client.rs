@@ -15,6 +15,7 @@ use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use super::backend::{AttemptProgress, Generation, StopReason};
 use super::cancel::CancelFlag;
 use super::error::{self, AssistantCode, AssistantError};
 use super::language::{Detected, Language};
@@ -24,7 +25,7 @@ use crate::error::{error_chain, Error, Result};
 use crate::models::{
     AssistantConsentTerm, AssistantConversation, AssistantConversationPage,
     AssistantConversationSummary, AssistantFeedbackInput, AssistantMe, AssistantModel,
-    AssistantParticipant, AssistantTurnStatus, AssistantTurnSummary, AttemptOutcome,
+    AssistantParticipant, AssistantTurnStatus, AssistantTurnSummary, AssistantUsage, AttemptOutcome,
 };
 
 /// Pedidos comuns (JSON pequeno). O stream de tentativas (SSE) vai precisar de
@@ -113,24 +114,13 @@ struct Delta {
     text: String,
 }
 
-/// O progresso do stream, conforme chega.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AttemptProgress {
-    Started { attempt_id: String, index: i64 },
-    Delta(String),
-}
-
-/// Como o stream de uma tentativa terminou.
-#[derive(Debug, Clone, PartialEq)]
-pub struct AttemptReply {
-    pub attempt_id: String,
-    pub index: i64,
-    /// A resposta (`result`, já validada pela API) ou o erro dela (`error`:
-    /// `invalid_output`, `model_refused`, `provider_error`…)
-    pub result: std::result::Result<serde_json::Value, AssistantError>,
-    /// O texto do modelo como chegou nos `delta`: numa saída inválida, é o que
-    /// volta ao modelo na correção
-    pub raw: String,
+/// O evento `usage`: o consumo e, desde o contrato 1.7.0, o motivo de parada.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageEvent {
+    #[serde(flatten)]
+    usage: AssistantUsage,
+    stop_reason: Option<StopReason>,
 }
 
 impl ApiClient {
@@ -259,8 +249,9 @@ impl ApiClient {
             .await
     }
 
-    /// Gera uma tentativa e lê o stream até o `done`. Cancelar fecha a
-    /// conexão: a API interrompe o provedor e devolve a reserva de cota.
+    /// Gera uma tentativa e lê o stream até o `done`; a API grava a
+    /// tentativa ao gerar (`recorded`). Cancelar fecha a conexão: a API
+    /// interrompe o provedor e devolve a reserva de cota.
     pub async fn create_attempt(
         &self,
         token: &str,
@@ -268,7 +259,7 @@ impl ApiClient {
         request: &AttemptRequest,
         cancel: &CancelFlag,
         progress: &(dyn Fn(AttemptProgress) + Send + Sync),
-    ) -> Result<AttemptReply> {
+    ) -> Result<Generation> {
         let path = format!("/v1/turns/{}/attempts", path_segment(turn_id)?);
         let pending = self
             .request(Method::POST, &path, Some(token))
@@ -340,16 +331,18 @@ fn path_segment(id: &str) -> Result<&str> {
 
 /// Lê os eventos até o `done`: `attempt` (sempre o primeiro), `delta`,
 /// `usage`, e `result` ou `error`. Stream que acaba antes, ou fica mudo além
-/// do keepalive, é a API fora (`unavailable`).
+/// do keepalive, é a API fora (`unavailable`). Um `usage` ilegível só fica de
+/// fora: é informação, não a resposta.
 async fn read_attempt_stream(
     mut response: Response,
     cancel: &CancelFlag,
     progress: &(dyn Fn(AttemptProgress) + Send + Sync),
-) -> Result<AttemptReply> {
+) -> Result<Generation> {
     let mut reader = SseReader::default();
     let mut started: Option<AttemptStarted> = None;
     let mut result: Option<std::result::Result<serde_json::Value, AssistantError>> = None;
     let mut raw = String::new();
+    let mut usage: Option<UsageEvent> = None;
     let unavailable = |message: &str| -> Error {
         AssistantError::new(AssistantCode::Unavailable, message).into()
     };
@@ -383,6 +376,9 @@ async fn read_attempt_stream(
                         progress(AttemptProgress::Delta(delta.text));
                     }
                 }
+                "usage" => {
+                    usage = serde_json::from_str(&event.data).ok();
+                }
                 "result" => {
                     let value = serde_json::from_str(&event.data)
                         .map_err(|_| unavailable("malformed result event"))?;
@@ -394,14 +390,18 @@ async fn read_attempt_stream(
                 "done" => {
                     let started = started.ok_or_else(|| unavailable("stream without attempt event"))?;
                     let result = result.ok_or_else(|| unavailable("stream without result"))?;
-                    return Ok(AttemptReply {
+                    let (usage, stop) = usage.map_or((None, None), |event| (Some(event.usage), event.stop_reason));
+                    return Ok(Generation {
                         attempt_id: started.attempt_id,
                         index: started.index,
                         result,
                         raw,
+                        usage,
+                        stop,
+                        recorded: true,
                     });
                 }
-                _ => {} // usage e eventos novos: sem uso aqui
+                _ => {} // eventos novos: sem uso aqui
             }
         }
     }
@@ -561,7 +561,7 @@ mod tests {
             "event: attempt\ndata: {\"attemptId\":\"a-1\",\"index\":0}\n\n\
              : keepalive\n\n\
              event: delta\ndata: {\"text\":\"SEL\"}\n\n\
-             event: usage\ndata: {\"inputTokens\":1}\n\n\
+             event: usage\ndata: {\"inputTokens\":1,\"outputTokens\":2,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"costUsd\":0.5,\"stopReason\":\"max_tokens\"}\n\n\
              event: result\ndata: {\"kind\":\"query\"}\n\n\
              event: done\ndata: {}\n\n",
         ))
@@ -575,6 +575,9 @@ mod tests {
 
         assert_eq!(reply.attempt_id, "a-1");
         assert_eq!(reply.raw, "SEL");
+        assert!(reply.recorded);
+        assert_eq!(reply.stop, Some(StopReason::MaxTokens));
+        assert_eq!(reply.usage.as_ref().map(|usage| usage.output_tokens), Some(2));
         assert_eq!(reply.result.unwrap(), serde_json::json!({ "kind": "query" }));
         assert_eq!(
             *seen.lock().unwrap(),
@@ -601,6 +604,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(reply.index, 2);
+        // API anterior ao 1.7.0, ou sem `usage`: sem consumo nem motivo
+        assert_eq!((reply.usage, reply.stop), (None, None));
         assert_eq!(reply.result.unwrap_err().code, AssistantCode::InvalidOutput);
 
         // A conexão cai antes do `done`: API fora

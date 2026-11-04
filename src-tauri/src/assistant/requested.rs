@@ -35,6 +35,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
+
 use crate::adapters::redisdb::patterns::prefix_match;
 use crate::adapters::DatabaseAdapter;
 use crate::catalog::{
@@ -50,6 +52,7 @@ use super::literals::{mask_json, mask_sql};
 use super::output::MAX_STRUCTURE_REQUEST_NAMES;
 use super::schema_context::{self, estimate_tokens, quote_ident, Render};
 use super::shape_context::{self, ShapeRender};
+use super::turn::TurnStructure;
 
 /// Teto da busca por prefixos no Redis numa rodada: cada prefixo é um `SCAN`
 /// (até 5 s); os que passam ficam como não encontrados.
@@ -910,6 +913,37 @@ async fn mongo_text(
         budget_tokens,
     });
     Ok(context)
+}
+
+/// A estrutura pedida como porta do turno ([`TurnStructure`]), pelo mesmo
+/// caminho do contexto da pergunta: o catálogo (com `entry`) ou os padrões de
+/// chave.
+pub struct RequestedLookup<'a> {
+    pub catalogs: &'a CatalogService,
+    pub entry: Option<Arc<CatalogEntry>>,
+    pub adapter: Arc<dyn DatabaseAdapter>,
+    pub db_type: DatabaseType,
+    /// Os schemas da conversa, onde um nome sem schema é procurado
+    pub scope: &'a [String],
+    /// Valores de exemplo dos campos categóricos (Mongo), como no contexto
+    pub sample_values: bool,
+}
+
+#[async_trait]
+impl TurnStructure for RequestedLookup<'_> {
+    async fn lookup(&self, names: &[String], budget_tokens: usize) -> Result<RequestedStructure> {
+        match &self.entry {
+            Some(entry) => {
+                let request = Lookup {
+                    db_type: self.db_type,
+                    scope: self.scope,
+                    sample_values: self.sample_values,
+                };
+                from_catalog(self.catalogs, entry, &request, names, budget_tokens).await
+            }
+            None => from_keys(self.adapter.as_ref(), names, budget_tokens).await,
+        }
+    }
 }
 
 /// Redis: os padrões das chaves sob cada prefixo pedido. O prefixo passa pela

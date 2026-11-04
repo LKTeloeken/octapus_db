@@ -1,19 +1,23 @@
 //! Assistente de consulta em linguagem natural (TCC): cliente da API
 //! intermediária (octapus-assistant-api), que fala com os provedores de modelo
-//! e registra o experimento. O loop do assistente roda no app; a API só gera
-//! as tentativas e guarda o histórico.
+//! e registra o experimento. O loop do assistente roda no app (`turn.rs`); a
+//! API só gera as tentativas (`backend.rs`) e guarda o histórico
+//! (`journal.rs`) — as duas portas que ela ocupa em `intermediary.rs`.
 //!
 //! Nada do assistente vai para o disco do app além do token do participante,
 //! cifrado pelo vault (`storage/repositories/assistant.rs`) — RN-01. No log,
 //! só ids, contagens, durações e códigos de erro: nunca a pergunta, a
 //! estrutura do banco ou a consulta gerada.
 
+pub mod backend;
 mod cancel;
 pub mod client;
 mod config;
 mod error;
 pub mod failure;
 pub mod guard;
+pub mod intermediary;
+pub mod journal;
 pub mod key_context;
 pub mod language;
 pub mod literals;

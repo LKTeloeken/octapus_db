@@ -1,27 +1,27 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::adapters::{DatabaseAdapter, ReadOnlyOp};
-use crate::assistant::client::{AttemptProgress, AttemptReply};
+use crate::assistant::backend::ModelProfile;
 use crate::assistant::failure::{classify, sanitize};
-use crate::assistant::language::{self, Detected};
-use crate::assistant::messages::AttemptRequest;
-use crate::assistant::requested::{self, RequestedStructure};
+use crate::assistant::intermediary::Intermediary;
+use crate::assistant::journal::TurnJournal;
+use crate::assistant::language;
+use crate::assistant::read_only::AdapterDatabase;
+use crate::assistant::requested::RequestedLookup;
 use crate::assistant::schema_context::{self, ContextRequest, SchemaContext};
-use crate::assistant::turn::{self, TurnApi, TurnDatabase, TurnSetup, TurnStructure};
-use crate::assistant::{key_context, prompts, read_only, ApiClient, AssistantCode, AssistantError, AssistantService, CancelFlag};
+use crate::assistant::turn::{self, TurnPorts, TurnSetup};
+use crate::assistant::{key_context, prompts, read_only, ApiClient, AssistantCode, AssistantError, AssistantService};
 use crate::catalog::FLAT_SCHEMA;
 use crate::error::{Error, Result};
 use crate::models::{
     AdapterCapabilities, AssistantConsentTerm, AssistantMention, AssistantConversation, AssistantConversationPage,
     AssistantConversationSummary, AssistantFeedbackInput, AssistantMe, AssistantModel,
-    AssistantParticipant, AssistantStatus, AssistantTurnEvent, AssistantTurnFinish, AssistantTurnStatus,
-    AssistantTurnSummary, AttemptOutcome, DatabaseType, QueryLanguage, QueryOptions, QueryResult,
-    ReadOnlyPlan, StageResult,
+    AssistantParticipant, AssistantStatus, AssistantTurnAskInput, AssistantTurnEvent, AssistantTurnFinish,
+    DatabaseType, QueryLanguage, QueryOptions, QueryResult, StageResult,
 };
 use crate::services::{CatalogEntry, CatalogService};
 use crate::state::AppState;
@@ -174,27 +174,25 @@ pub async fn assistant_conversation_create(
 }
 
 /// Pergunta: roda o turno inteiro (B6) e manda o andamento pelo `onEvent`.
-/// `clientTurnId` (UUID do front) torna a abertura idempotente e identifica o
-/// turno para o `assistant_turn_cancel`. `schemas`: os da conversa no
-/// Postgres (o primeiro vai no `search_path`); vazio = `public`. `mentions`:
-/// as relações e schemas citados com `@` na pergunta, que entram
-/// obrigatoriamente no contexto (as que não existem voltam como aviso no
-/// evento `context`); `pastMentions`: as das perguntas anteriores, que só
-/// ganham prioridade.
+/// O `clientTurnId` do [`AssistantTurnAskInput`] (UUID do front) torna a
+/// abertura idempotente e identifica o turno para o `assistant_turn_cancel`.
+/// A API intermediária é quem gera e quem guarda o turno ([`Intermediary`]).
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
 pub async fn assistant_turn_ask(
     state: State<'_, AppState>,
-    server_id: i64,
-    database: String,
-    conversation_id: String,
-    question: String,
-    client_turn_id: String,
-    schemas: Option<Vec<String>>,
-    mentions: Option<Vec<AssistantMention>>,
-    past_mentions: Option<Vec<AssistantMention>>,
+    input: AssistantTurnAskInput,
     on_event: Channel<AssistantTurnEvent>,
 ) -> Result<AssistantTurnFinish> {
+    let AssistantTurnAskInput {
+        server_id,
+        database,
+        conversation_id,
+        question,
+        client_turn_id,
+        schemas,
+        mentions,
+        past_mentions,
+    } = input;
     let question = question.trim().to_string();
     if question.is_empty() {
         return Err(Error::InvalidQuery("Empty question".into()));
@@ -206,10 +204,16 @@ pub async fn assistant_turn_ask(
     let (api_url, client) = state.assistant.endpoint()?;
     let token = assistant_store::load_token(&state.storage, api_url)?.ok_or_else(not_signed_in)?;
 
+    let api = Intermediary {
+        client,
+        token: &token,
+        assistant: &state.assistant,
+    };
+
     let handle = state.assistant.start_turn(&client_turn_id);
     let result = async {
-        let conversation = client
-            .conversation(&token, &conversation_id)
+        let conversation = api
+            .conversation(&conversation_id)
             .await
             .inspect_err(|error| unauthorized_clears(&state, error))?;
         if Some(conversation.summary.paradigm.as_str()) != prompts::paradigm(db_type) {
@@ -223,7 +227,7 @@ pub async fn assistant_turn_ask(
         let past_mentions = clean_mentions(past_mentions);
         let history = turn::history_from(&conversation);
         let past_questions: Vec<String> = history.iter().map(|turn| turn.question.clone()).collect();
-        let context_window = conversation.summary.model.context_window;
+        let model = ModelProfile::from(&conversation.summary.model);
         let adapter = connect_adapter(&state, server_id, &database).await?;
         let entry = match has_catalog(db_type) {
             true => Some(entry_for(&state, server_id, &database).await?),
@@ -238,7 +242,7 @@ pub async fn assistant_turn_ask(
                 schemas: &schemas,
                 question: &question,
                 history: &past_questions,
-                context_window,
+                context_window: model.context_window,
                 mentions: &mentions,
                 past_mentions: &past_mentions,
                 sample_values,
@@ -256,7 +260,7 @@ pub async fn assistant_turn_ask(
             expected_language: query_language(db_type),
             schema,
             history,
-            context_window,
+            model,
             auto_execute,
             sample_values: sample_values_option(db_type, sample_values),
             reply_timeout: turn::REPLY_TIMEOUT,
@@ -267,11 +271,6 @@ pub async fn assistant_turn_ask(
                 ..QueryOptions::default()
             },
         };
-        let api = ApiTurns {
-            client,
-            token: &token,
-            assistant: &state.assistant,
-        };
         let lookup = RequestedLookup {
             catalogs: &state.catalog,
             entry,
@@ -281,11 +280,17 @@ pub async fn assistant_turn_ask(
             sample_values,
         };
         let db = AdapterDatabase { adapter, db_type };
+        let ports = TurnPorts {
+            backend: &api,
+            journal: &api,
+            db: &db,
+            structure: &lookup,
+        };
         let emit = |event: AssistantTurnEvent| {
             // Aba fechada: ninguém ouvindo, o turno segue até o fim
             let _ = on_event.send(event);
         };
-        turn::run_turn(&api, &db, &lookup, &setup, &emit, &handle.cancel, &handle.reply).await
+        turn::run_turn(&ports, &setup, &emit, &handle.cancel, &handle.reply).await
     }
     .await;
     state.assistant.end_turn(&client_turn_id);
@@ -555,106 +560,6 @@ fn unauthorized_clears(state: &State<'_, AppState>, error: &Error) {
     }
 }
 
-/// A API do turno, com o token do participante. O outcome enviado fica em
-/// memória para a execução manual completar depois.
-struct ApiTurns<'a> {
-    client: &'a ApiClient,
-    token: &'a str,
-    assistant: &'a AssistantService,
-}
-
-#[async_trait]
-impl TurnApi for ApiTurns<'_> {
-    async fn create_turn(
-        &self,
-        conversation_id: &str,
-        question: &str,
-        language: Detected,
-        client_turn_id: &str,
-    ) -> Result<AssistantTurnSummary> {
-        self.client
-            .create_turn(self.token, conversation_id, question, language, client_turn_id)
-            .await
-    }
-
-    async fn create_attempt(
-        &self,
-        turn_id: &str,
-        request: &AttemptRequest,
-        cancel: &CancelFlag,
-        progress: &(dyn Fn(AttemptProgress) + Send + Sync),
-    ) -> Result<AttemptReply> {
-        self.client
-            .create_attempt(self.token, turn_id, request, cancel, progress)
-            .await
-    }
-
-    async fn report_outcome(&self, attempt_id: &str, outcome: &AttemptOutcome) -> Result<()> {
-        self.client.report_outcome(self.token, attempt_id, outcome).await?;
-        self.assistant.remember_outcome(attempt_id, outcome);
-        Ok(())
-    }
-
-    async fn finish_turn(&self, turn_id: &str, status: AssistantTurnStatus) -> Result<()> {
-        self.client.finish_turn(self.token, turn_id, status).await
-    }
-}
-
-/// A estrutura que o modelo pede no meio do turno, pelo mesmo caminho do
-/// contexto da pergunta: o catálogo (com `entry`) ou os padrões de chave.
-struct RequestedLookup<'a> {
-    catalogs: &'a CatalogService,
-    entry: Option<Arc<CatalogEntry>>,
-    adapter: Arc<dyn DatabaseAdapter>,
-    db_type: DatabaseType,
-    /// Os schemas da conversa, onde um nome sem schema é procurado
-    scope: &'a [String],
-    /// Valores de exemplo dos campos categóricos (Mongo), como no contexto
-    sample_values: bool,
-}
-
-#[async_trait]
-impl TurnStructure for RequestedLookup<'_> {
-    async fn lookup(&self, names: &[String], budget_tokens: usize) -> Result<RequestedStructure> {
-        match &self.entry {
-            Some(entry) => {
-                let request = requested::Lookup {
-                    db_type: self.db_type,
-                    scope: self.scope,
-                    sample_values: self.sample_values,
-                };
-                requested::from_catalog(self.catalogs, entry, &request, names, budget_tokens).await
-            }
-            None => requested::from_keys(self.adapter.as_ref(), names, budget_tokens).await,
-        }
-    }
-}
-
-/// O banco do usuário pelo caminho só-leitura do assistente (B2/B3): guard
-/// de novo (o turno já conferiu; aqui é a mesma porta da execução manual) e
-/// as barreiras do adapter.
-struct AdapterDatabase {
-    adapter: Arc<dyn DatabaseAdapter>,
-    db_type: DatabaseType,
-}
-
-#[async_trait]
-impl TurnDatabase for AdapterDatabase {
-    async fn preflight(&self, op: &ReadOnlyOp, page: QueryOptions) -> Result<ReadOnlyPlan> {
-        read_only::preflight(self.adapter.as_ref(), self.db_type, op, page).await
-    }
-
-    async fn execute(&self, op: &ReadOnlyOp, page: QueryOptions) -> Result<QueryResult> {
-        read_only::execute(self.adapter.as_ref(), self.db_type, op, page).await
-    }
-
-    async fn cancel(&self, query_id: &str) {
-        if let Err(error) = self.adapter.cancel_query(query_id).await {
-            log::info!("assistente: cancelamento no banco não aplicado ({})", error.code());
-        }
-    }
-}
-
 /// Chamada autenticada com o token salvo para a API atual. Sem token →
 /// `ASSISTANT_UNAUTHORIZED`, o mesmo de um token recusado: para a tela, os dois
 /// pedem o convite. Um 401 da API (token inválido, convite revogado) apaga o
@@ -720,9 +625,15 @@ mod e2e {
 
     use parking_lot::Mutex;
 
+    use async_trait::async_trait;
+
     use super::*;
     use crate::adapters::mongo::MongoAdapter;
-    use crate::assistant::ReplySlot;
+    use crate::assistant::backend::{AttemptProgress, Generation, ModelBackend};
+    use crate::assistant::language::Detected;
+    use crate::assistant::messages::AttemptRequest;
+    use crate::assistant::{CancelFlag, ReplySlot};
+    use crate::models::{AssistantTurnStatus, AssistantTurnSummary, AttemptOutcome};
     use crate::adapters::redisdb::RedisAdapter;
     use crate::adapters::sqlite::SqliteAdapter;
     use crate::models::{Server, SslMode};
@@ -858,7 +769,7 @@ mod e2e {
             sent,
         } = participant;
         let conversation = client.conversation(token, conversation_id).await.unwrap();
-        let context_window = conversation.summary.model.context_window;
+        let model = ModelProfile::from(&conversation.summary.model);
         let history = turn::history_from(&conversation);
         let past_questions: Vec<String> = history.iter().map(|turn| turn.question.clone()).collect();
         let schemas = conversation_schemas(db.db_type, None);
@@ -866,7 +777,7 @@ mod e2e {
             schemas: &schemas,
             question,
             history: &past_questions,
-            context_window,
+            context_window: model.context_window,
             mentions,
             past_mentions: &[],
             sample_values,
@@ -892,7 +803,7 @@ mod e2e {
             expected_language: query_language(db.db_type),
             schema,
             history,
-            context_window,
+            model,
             auto_execute: true,
             sample_values: sample_values_option(db.db_type, sample_values),
             // Ninguém responde nos testes de turno real: a pergunta encerra
@@ -903,7 +814,7 @@ mod e2e {
             },
         };
         let api = Recording {
-            api: ApiTurns { client, token, assistant },
+            api: Intermediary { client, token, assistant },
             sent,
         };
         let lookup = RequestedLookup {
@@ -914,11 +825,15 @@ mod e2e {
             scope: &schemas,
             sample_values,
         };
+        let ports = TurnPorts {
+            backend: &api,
+            journal: &api,
+            db,
+            structure: &lookup,
+        };
         let events: Mutex<Vec<String>> = Mutex::default();
         let finish = turn::run_turn(
-            &api,
-            db,
-            &lookup,
+            &ports,
             &setup,
             &|event| {
                 let line = match &event {
@@ -943,9 +858,9 @@ mod e2e {
         (finish, events)
     }
 
-    /// A [`TurnApi`] de verdade, guardando o que cada chamada manda à API
+    /// A API de verdade nas duas portas, guardando o que cada chamada manda
     struct Recording<'a> {
-        api: ApiTurns<'a>,
+        api: Intermediary<'a>,
         sent: &'a Mutex<Vec<String>>,
     }
 
@@ -957,8 +872,26 @@ mod e2e {
     }
 
     #[async_trait]
-    impl TurnApi for Recording<'_> {
-        async fn create_turn(
+    impl ModelBackend for Recording<'_> {
+        async fn generate(
+            &self,
+            turn_id: &str,
+            request: &AttemptRequest,
+            cancel: &CancelFlag,
+            progress: &(dyn Fn(AttemptProgress) + Send + Sync),
+        ) -> Result<Generation> {
+            self.record("tentativa", request);
+            self.api.generate(turn_id, request, cancel, progress).await
+        }
+    }
+
+    #[async_trait]
+    impl TurnJournal for Recording<'_> {
+        async fn conversation(&self, conversation_id: &str) -> Result<AssistantConversation> {
+            self.api.conversation(conversation_id).await
+        }
+
+        async fn open_turn(
             &self,
             conversation_id: &str,
             question: &str,
@@ -966,18 +899,12 @@ mod e2e {
             client_turn_id: &str,
         ) -> Result<AssistantTurnSummary> {
             self.record("turno", (question, format!("{:?}", language.language)));
-            self.api.create_turn(conversation_id, question, language, client_turn_id).await
+            self.api.open_turn(conversation_id, question, language, client_turn_id).await
         }
 
-        async fn create_attempt(
-            &self,
-            turn_id: &str,
-            request: &AttemptRequest,
-            cancel: &CancelFlag,
-            progress: &(dyn Fn(AttemptProgress) + Send + Sync),
-        ) -> Result<AttemptReply> {
-            self.record("tentativa", request);
-            self.api.create_attempt(turn_id, request, cancel, progress).await
+        async fn record_attempt(&self, turn_id: &str, request: &AttemptRequest, generation: &Generation) -> Result<()> {
+            self.record("gravar tentativa", request);
+            self.api.record_attempt(turn_id, request, generation).await
         }
 
         async fn report_outcome(&self, attempt_id: &str, outcome: &AttemptOutcome) -> Result<()> {

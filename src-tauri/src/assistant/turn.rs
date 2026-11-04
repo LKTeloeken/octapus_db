@@ -16,19 +16,21 @@
 //! limite da API (turn_limit_exceeded) ─▶ entrega a última consulta (RN-24)
 //! ```
 //!
-//! Cada tentativa com resposta ganha um outcome na API. O loop depende de três
-//! portas — a API ([`TurnApi`]), o banco ([`TurnDatabase`]) e a estrutura
+//! Cada tentativa com resposta ganha um outcome no journal. O loop depende de
+//! quatro portas ([`TurnPorts`]) — quem gera ([`ModelBackend`]), onde o turno
+//! fica registrado ([`TurnJournal`]), o banco ([`TurnDatabase`]) e a estrutura
 //! pedida pelo modelo ([`TurnStructure`]) —, o que deixa os testes rodarem com
-//! as três simuladas; a resposta do usuário chega pelo [`ReplySlot`]. Log só
+//! as quatro simuladas; a resposta do usuário chega pelo [`ReplySlot`]. Log só
 //! com ids, contagens e códigos (nunca a pergunta ou a resposta).
 
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 
+use super::backend::{AttemptProgress, Generation, ModelBackend, ModelProfile, StopReason};
 use super::cancel::CancelFlag;
+use super::journal::TurnJournal;
 use super::reply::ReplySlot;
-use super::client::{AttemptProgress, AttemptReply};
 use super::error::AssistantCode;
 use super::failure::{classify, sanitize, FailureClass};
 use super::guard;
@@ -45,7 +47,7 @@ use crate::adapters::ReadOnlyOp;
 use crate::error::{Error, Result};
 use crate::models::{
     AssistantAttemptStatus, AssistantConversation, AssistantStage, AssistantTurnEvent,
-    AssistantTurnFinish, AssistantTurnStatus, AssistantTurnSummary, AttemptOutcome, DatabaseType,
+    AssistantTurnFinish, AssistantTurnStatus, AttemptOutcome, DatabaseType,
     GuardResult, QueryLanguage, QueryOptions, QueryResult, ReadOnlyPlan, StageResult,
 };
 
@@ -71,30 +73,6 @@ const RATE_LIMIT_DEFAULT_WAIT: Duration = Duration::from_secs(5);
 /// antes de largá-la (o SQLite só para no próprio teto de tempo).
 const CANCEL_GRACE: Duration = Duration::from_secs(2);
 
-/// A API, do ponto de vista do turno.
-#[async_trait]
-pub trait TurnApi: Send + Sync {
-    async fn create_turn(
-        &self,
-        conversation_id: &str,
-        question: &str,
-        language: Detected,
-        client_turn_id: &str,
-    ) -> Result<AssistantTurnSummary>;
-
-    async fn create_attempt(
-        &self,
-        turn_id: &str,
-        request: &AttemptRequest,
-        cancel: &CancelFlag,
-        progress: &(dyn Fn(AttemptProgress) + Send + Sync),
-    ) -> Result<AttemptReply>;
-
-    async fn report_outcome(&self, attempt_id: &str, outcome: &AttemptOutcome) -> Result<()>;
-
-    async fn finish_turn(&self, turn_id: &str, status: AssistantTurnStatus) -> Result<()>;
-}
-
 /// O banco do usuário, só leitura (as barreiras da B2 ficam no adapter).
 #[async_trait]
 pub trait TurnDatabase: Send + Sync {
@@ -113,6 +91,15 @@ pub trait TurnStructure: Send + Sync {
     async fn lookup(&self, names: &[String], budget_tokens: usize) -> Result<RequestedStructure>;
 }
 
+/// As portas do turno. Hoje a API intermediária é o backend e o journal ao
+/// mesmo tempo (`intermediary.rs`).
+pub struct TurnPorts<'a> {
+    pub backend: &'a dyn ModelBackend,
+    pub journal: &'a dyn TurnJournal,
+    pub db: &'a dyn TurnDatabase,
+    pub structure: &'a dyn TurnStructure,
+}
+
 /// Tudo que o turno precisa, montado antes (comando `assistant_turn_ask`).
 pub struct TurnSetup {
     pub conversation_id: String,
@@ -125,7 +112,8 @@ pub struct TurnSetup {
     pub expected_language: QueryLanguage,
     pub schema: SchemaContext,
     pub history: Vec<HistoryTurn>,
-    pub context_window: i64,
+    /// O modelo da conversa (a janela de contexto dos orçamentos)
+    pub model: ModelProfile,
     pub auto_execute: bool,
     /// A opção de valores de exemplo do servidor, onde ela existe (o Mongo:
     /// `assistant_sample_values` das capabilities); `None` nos outros bancos
@@ -174,16 +162,20 @@ enum QueryEnd {
 /// Roda o turno inteiro. `Err` só quando o turno nem abriu (sem termo, sem
 /// cota…); depois disso, todo desfecho volta como [`AssistantTurnFinish`].
 pub async fn run_turn(
-    api: &dyn TurnApi,
-    db: &dyn TurnDatabase,
-    structure: &dyn TurnStructure,
+    ports: &TurnPorts<'_>,
     setup: &TurnSetup,
     emit: &(dyn Fn(AssistantTurnEvent) + Send + Sync),
     cancel: &CancelFlag,
     replies: &ReplySlot,
 ) -> Result<AssistantTurnFinish> {
-    let turn = api
-        .create_turn(
+    let TurnPorts {
+        backend,
+        journal,
+        db,
+        structure,
+    } = *ports;
+    let turn = journal
+        .open_turn(
             &setup.conversation_id,
             &setup.question,
             setup.language,
@@ -199,7 +191,7 @@ pub async fn run_turn(
         missing_mentions: setup.schema.mentions.missing.clone(),
         shortened_mentions: setup.schema.mentions.shortened.clone(),
     });
-    log::info!("assistente: turno {} aberto", turn.id);
+    log::info!("assistente: turno {} aberto (modelo {})", turn.id, setup.model.id);
 
     let mut rounds: Vec<Round> = Vec::new();
     let mut last: Option<(String, ModelOutput)> = None;
@@ -226,12 +218,12 @@ pub async fn run_turn(
             &setup.history,
             &setup.question,
             &rounds,
-            setup.context_window,
+            setup.model.context_window,
         );
         request.context.user_reply = user_reply.clone();
         request.context.sample_values = setup.sample_values;
 
-        let reply = match create_attempt(api, &turn.id, &request, cancel, emit).await {
+        let reply = match generate(backend, &turn.id, &request, cancel, emit).await {
             Ok(reply) => {
                 user_reply = None;
                 reply
@@ -244,6 +236,19 @@ pub async fn run_turn(
         };
         attempts += 1;
         let attempt_id = reply.attempt_id.clone();
+        if let Some(usage) = &reply.usage {
+            log::info!(
+                "assistente: tentativa {attempt_id} gerada ({} tokens de entrada, {} de saída)",
+                usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens,
+                usage.output_tokens
+            );
+        }
+        if !reply.recorded {
+            // Registro do experimento: falhar ao gravar não derruba o turno
+            if let Err(error) = journal.record_attempt(&turn.id, &request, &reply).await {
+                log::warn!("assistente: tentativa {attempt_id} não foi gravada ({})", error.code());
+            }
+        }
 
         let value = match reply.result {
             Ok(value) => value,
@@ -251,7 +256,7 @@ pub async fn run_turn(
             // e o motivo na próxima
             Err(error) if error.code == AssistantCode::InvalidOutput => {
                 log::info!("assistente: tentativa {attempt_id} com saída inválida");
-                rounds.push(invalid_round(reply.raw, setup.expected_language));
+                rounds.push(invalid_round(reply.raw, reply.stop, setup.expected_language));
                 continue;
             }
             Err(error) if error.code == AssistantCode::TurnLimitExceeded => {
@@ -267,7 +272,7 @@ pub async fn run_turn(
             Err(reason) => {
                 // Fora do contrato pelo lado do app (a linguagem não é a do banco)
                 log::info!("assistente: tentativa {attempt_id} fora do contrato no app");
-                report(api, &attempt_id, &not_run("invalid_output", setup.auto_execute)).await;
+                report(journal, &attempt_id, &not_run("invalid_output", setup.auto_execute)).await;
                 rounds.push(Round::Invalid(InvalidRound {
                     raw: reply.raw,
                     reason: format!("The JSON does not follow the format: {reason}."),
@@ -282,14 +287,14 @@ pub async fn run_turn(
             let reply = if structure_requests < MAX_STRUCTURE_REQUESTS {
                 structure_requests += 1;
                 attempts -= 1;
-                let budget = budget_tokens(setup.context_window).saturating_sub(requested_tokens);
+                let budget = budget_tokens(setup.model.context_window).saturating_sub(requested_tokens);
                 match structure.lookup(&names, budget).await {
                     Ok(found) => {
                         requested_tokens += found.tokens_estimate;
                         StructureReply::Found(found)
                     }
                     Err(error) => {
-                        report(api, &attempt_id, &not_run("kind_structure_request", setup.auto_execute)).await;
+                        report(journal, &attempt_id, &not_run("kind_structure_request", setup.auto_execute)).await;
                         break (AssistantTurnStatus::Failed, Some(error.code().to_string()));
                     }
                 }
@@ -333,7 +338,7 @@ pub async fn run_turn(
                 }
             };
             emit(event);
-            report(api, &attempt_id, &not_run(outcome_reason, setup.auto_execute)).await;
+            report(journal, &attempt_id, &not_run(outcome_reason, setup.auto_execute)).await;
             rounds.push(Round::Structure(StructureRound { output, reply }));
             continue;
         }
@@ -350,7 +355,7 @@ pub async fn run_turn(
                     question: output.clarification_question.clone().unwrap_or_default(),
                     choices: output.choices.clone().unwrap_or_default(),
                 });
-                report(api, &attempt_id, &not_run("kind_ask_user", setup.auto_execute)).await;
+                report(journal, &attempt_id, &not_run("kind_ask_user", setup.auto_execute)).await;
                 log::info!("assistente: tentativa {attempt_id} perguntou ao usuário; esperando a resposta");
                 match wait_reply(waiting, cancel, setup.reply_timeout).await {
                     Waited::Reply(text) => {
@@ -375,7 +380,7 @@ pub async fn run_turn(
                 }
             } else {
                 log::info!("assistente: tentativa {attempt_id} perguntou além do teto do turno");
-                report(api, &attempt_id, &not_run("user_question_limit", setup.auto_execute)).await;
+                report(journal, &attempt_id, &not_run("user_question_limit", setup.auto_execute)).await;
                 QuestionReply::LimitReached
             };
             rounds.push(Round::Question(QuestionRound { output, reply }));
@@ -390,27 +395,27 @@ pub async fn run_turn(
 
         match output.kind {
             OutputKind::Clarification => {
-                report(api, &attempt_id, &not_run("kind_clarification", setup.auto_execute)).await;
+                report(journal, &attempt_id, &not_run("kind_clarification", setup.auto_execute)).await;
                 break (AssistantTurnStatus::Clarification, None);
             }
             OutputKind::Code => {
                 // Código nunca roda (RN-14): só vai para a tela
-                report(api, &attempt_id, &not_run("kind_code", setup.auto_execute)).await;
+                report(journal, &attempt_id, &not_run("kind_code", setup.auto_execute)).await;
                 break (AssistantTurnStatus::CodeDelivered, None);
             }
             OutputKind::Answer => {
                 // Resposta em texto: nada a executar
-                report(api, &attempt_id, &not_run("kind_answer", setup.auto_execute)).await;
+                report(journal, &attempt_id, &not_run("kind_answer", setup.auto_execute)).await;
                 break (AssistantTurnStatus::Replied, None);
             }
             // Tratados acima; o `parse` recusa o `Unknown`
             OutputKind::AskUser | OutputKind::StructureRequest | OutputKind::Unknown => {
-                rounds.push(invalid_round(reply.raw, setup.expected_language));
+                rounds.push(invalid_round(reply.raw, reply.stop, setup.expected_language));
                 continue;
             }
             OutputKind::Query => {
                 let query = output.query.clone().unwrap_or_default();
-                match run_query(api, db, setup, &attempt_id, &query, emit, cancel).await {
+                match run_query(journal, db, setup, &attempt_id, &query, emit, cancel).await {
                     QueryEnd::Answered => break (AssistantTurnStatus::Answered, None),
                     QueryEnd::Cancelled => break (AssistantTurnStatus::Cancelled, None),
                     QueryEnd::Failed(code) => break (AssistantTurnStatus::Failed, Some(code)),
@@ -423,7 +428,7 @@ pub async fn run_turn(
         }
     };
 
-    if let Err(error) = api.finish_turn(&turn.id, status).await {
+    if let Err(error) = journal.finish_turn(&turn.id, status).await {
         log::warn!("assistente: falha ao encerrar o turno {} ({})", turn.id, error.code());
     }
     log::info!(
@@ -441,10 +446,14 @@ pub async fn run_turn(
     })
 }
 
-/// A rodada de uma saída que a API recusou: o app confere o texto de novo para
-/// dizer ao modelo o que estava errado.
-fn invalid_round(raw: String, expected: QueryLanguage) -> Round {
-    let reason = output::invalid_reason(&raw, expected);
+/// A rodada de uma saída que o backend recusou: o app confere o texto de
+/// novo para dizer ao modelo o que estava errado. Cortada pelo limite de
+/// saída (o backend diz), o motivo é esse.
+fn invalid_round(raw: String, stop: Option<StopReason>, expected: QueryLanguage) -> Round {
+    let reason = match stop {
+        Some(StopReason::MaxTokens) => output::OUTPUT_LIMIT_REASON.to_string(),
+        _ => output::invalid_reason(&raw, expected),
+    };
     Round::Invalid(InvalidRound { raw, reason })
 }
 
@@ -471,14 +480,14 @@ async fn wait_reply(
     }
 }
 
-/// Pede a tentativa, esperando e repetindo quando a API pede calma (429).
-async fn create_attempt(
-    api: &dyn TurnApi,
+/// Pede a tentativa, esperando e repetindo quando o backend pede calma (429).
+async fn generate(
+    backend: &dyn ModelBackend,
     turn_id: &str,
     request: &AttemptRequest,
     cancel: &CancelFlag,
     emit: &(dyn Fn(AssistantTurnEvent) + Send + Sync),
-) -> Result<AttemptReply> {
+) -> Result<Generation> {
     let progress = |event: AttemptProgress| match event {
         AttemptProgress::Started { attempt_id, index } => {
             emit(AssistantTurnEvent::AttemptStarted { attempt_id, index })
@@ -488,7 +497,7 @@ async fn create_attempt(
 
     let mut waits = 0;
     loop {
-        match api.create_attempt(turn_id, request, cancel, &progress).await {
+        match backend.generate(turn_id, request, cancel, &progress).await {
             Err(Error::Assistant(error))
                 if error.code == AssistantCode::RateLimited && waits < RATE_LIMIT_RETRIES =>
             {
@@ -509,7 +518,7 @@ async fn create_attempt(
 
 /// Guard, preflight e (com a automática ligada) a execução da consulta.
 async fn run_query(
-    api: &dyn TurnApi,
+    journal: &dyn TurnJournal,
     db: &dyn TurnDatabase,
     setup: &TurnSetup,
     attempt_id: &str,
@@ -540,7 +549,7 @@ async fn run_query(
                 allowed: false,
                 reason: Some(rejection.code().to_string()),
             };
-            report(api, attempt_id, &outcome).await;
+            report(journal, attempt_id, &outcome).await;
             // A mensagem do guard é texto nosso, sem trecho da consulta
             return QueryEnd::Retry(correction(AssistantStage::Guard, FailureClass::GuardRejected, Some(message)));
         }
@@ -563,13 +572,13 @@ async fn run_query(
             if cancel.is_cancelled() {
                 return QueryEnd::Cancelled;
             }
-            return stage_error(api, attempt_id, &mut outcome, AssistantStage::Preflight, error, query, duration, emit).await;
+            return stage_error(journal, attempt_id, &mut outcome, AssistantStage::Preflight, error, query, duration, emit).await;
         }
     }
 
     if !setup.auto_execute {
         // Revisão: a consulta e o plano ficam na tela; o usuário executa
-        report(api, attempt_id, &outcome).await;
+        report(journal, attempt_id, &outcome).await;
         return QueryEnd::Answered;
     }
 
@@ -594,7 +603,7 @@ async fn run_query(
         Ok(result) => {
             outcome.execution = passed(duration);
             outcome.row_count = Some(result.row_count as i64);
-            report(api, attempt_id, &outcome).await;
+            report(journal, attempt_id, &outcome).await;
             emit(AssistantTurnEvent::Result {
                 attempt_id: attempt_id.to_string(),
                 result,
@@ -605,7 +614,7 @@ async fn run_query(
             if cancel.is_cancelled() {
                 return QueryEnd::Cancelled;
             }
-            stage_error(api, attempt_id, &mut outcome, AssistantStage::Execution, error, query, duration, emit).await
+            stage_error(journal, attempt_id, &mut outcome, AssistantStage::Execution, error, query, duration, emit).await
         }
     }
 }
@@ -614,7 +623,7 @@ async fn run_query(
 /// sanitizado) ou não (conexão, banco fora: o turno para).
 #[allow(clippy::too_many_arguments)]
 async fn stage_error(
-    api: &dyn TurnApi,
+    journal: &dyn TurnJournal,
     attempt_id: &str,
     outcome: &mut AttemptOutcome,
     stage: AssistantStage,
@@ -639,7 +648,7 @@ async fn stage_error(
         AssistantStage::Execution => outcome.execution = result,
         _ => outcome.preflight = result,
     }
-    report(api, attempt_id, outcome).await;
+    report(journal, attempt_id, outcome).await;
 
     match class {
         Some(class) => QueryEnd::Retry(correction(stage, class, sanitized)),
@@ -711,8 +720,8 @@ fn stage_failed(
 }
 
 /// O outcome é registro do experimento: falhar ao mandar não derruba o turno.
-async fn report(api: &dyn TurnApi, attempt_id: &str, outcome: &AttemptOutcome) {
-    if let Err(error) = api.report_outcome(attempt_id, outcome).await {
+async fn report(journal: &dyn TurnJournal, attempt_id: &str, outcome: &AttemptOutcome) {
+    if let Err(error) = journal.report_outcome(attempt_id, outcome).await {
         log::warn!("assistente: outcome da tentativa {attempt_id} não foi registrado ({})", error.code());
     }
 }
@@ -732,7 +741,7 @@ mod tests {
     use super::*;
     use crate::assistant::error::AssistantError;
     use crate::assistant::prompts;
-    use crate::models::{AssistantTurnStatus, QueryColumnInfo};
+    use crate::models::{AssistantConversation, AssistantTurnStatus, AssistantTurnSummary, QueryColumnInfo};
 
     // ── API simulada ────────────────────────────────────────────────────────
 
@@ -740,19 +749,25 @@ mod tests {
     enum Scripted {
         Output(Value),
         StreamError(AssistantCode),
-        /// `invalid_output` da API, com o texto que o modelo deu
-        Invalid(&'static str),
+        /// `invalid_output` do backend, com o texto que o modelo deu e o
+        /// motivo de parada que o backend informou
+        Invalid(&'static str, Option<StopReason>),
         Before(AssistantError),
         /// Fica pendurado até o cancelamento
         Hang,
     }
 
+    /// A API nas duas portas, como a intermediária. Com `unrecorded`, gera
+    /// como um backend direto: a tentativa vai ao journal pelo turno.
     #[derive(Default)]
     struct FakeApi {
         script: Mutex<VecDeque<Scripted>>,
         requests: Mutex<Vec<AttemptRequest>>,
         outcomes: Mutex<Vec<(String, AttemptOutcome)>>,
         finished: Mutex<Option<AssistantTurnStatus>>,
+        unrecorded: bool,
+        /// O que chegou ao journal, na ordem: `record:<id>` e `outcome:<id>`
+        journal: Mutex<Vec<String>>,
     }
 
     impl FakeApi {
@@ -765,8 +780,12 @@ mod tests {
     }
 
     #[async_trait]
-    impl TurnApi for FakeApi {
-        async fn create_turn(&self, _: &str, question: &str, language: Detected, _: &str) -> Result<AssistantTurnSummary> {
+    impl TurnJournal for FakeApi {
+        async fn conversation(&self, _: &str) -> Result<AssistantConversation> {
+            unreachable!("o turno recebe a conversa pronta")
+        }
+
+        async fn open_turn(&self, _: &str, question: &str, language: Detected, _: &str) -> Result<AssistantTurnSummary> {
             Ok(AssistantTurnSummary {
                 id: "turn-1".into(),
                 index: 0,
@@ -777,13 +796,33 @@ mod tests {
             })
         }
 
-        async fn create_attempt(
+        async fn record_attempt(&self, _: &str, _: &AttemptRequest, generation: &Generation) -> Result<()> {
+            assert!(!generation.recorded, "a tentativa gravada pelo backend não volta ao journal");
+            self.journal.lock().push(format!("record:{}", generation.attempt_id));
+            Ok(())
+        }
+
+        async fn report_outcome(&self, attempt_id: &str, outcome: &AttemptOutcome) -> Result<()> {
+            self.journal.lock().push(format!("outcome:{attempt_id}"));
+            self.outcomes.lock().push((attempt_id.into(), outcome.clone()));
+            Ok(())
+        }
+
+        async fn finish_turn(&self, _: &str, status: AssistantTurnStatus) -> Result<()> {
+            *self.finished.lock() = Some(status);
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl ModelBackend for FakeApi {
+        async fn generate(
             &self,
             _: &str,
             request: &AttemptRequest,
             cancel: &CancelFlag,
             progress: &(dyn Fn(AttemptProgress) + Send + Sync),
-        ) -> Result<AttemptReply> {
+        ) -> Result<Generation> {
             let index = self.requests.lock().len() as i64;
             self.requests.lock().push(request.clone());
             let next = self.script.lock().pop_front().expect("roteiro acabou");
@@ -794,29 +833,29 @@ mod tests {
                     index,
                 })
             };
+            let generation = |result, raw: String, stop| Generation {
+                attempt_id: attempt_id.clone(),
+                index,
+                result,
+                raw,
+                usage: None,
+                stop,
+                recorded: !self.unrecorded,
+            };
             match next {
                 Scripted::Output(value) => {
                     started(progress);
                     let raw = value.to_string();
-                    Ok(AttemptReply { attempt_id: attempt_id.clone(), index, result: Ok(value), raw })
+                    Ok(generation(Ok(value), raw, Some(StopReason::End)))
                 }
                 Scripted::StreamError(code) => {
                     started(progress);
-                    Ok(AttemptReply {
-                        attempt_id: attempt_id.clone(),
-                        index,
-                        result: Err(AssistantError::new(code, "x")),
-                        raw: String::new(),
-                    })
+                    Ok(generation(Err(AssistantError::new(code, "x")), String::new(), None))
                 }
-                Scripted::Invalid(raw) => {
+                Scripted::Invalid(raw, stop) => {
                     started(progress);
-                    Ok(AttemptReply {
-                        attempt_id: attempt_id.clone(),
-                        index,
-                        result: Err(AssistantError::new(AssistantCode::InvalidOutput, "fora do contrato")),
-                        raw: raw.into(),
-                    })
+                    let error = AssistantError::new(AssistantCode::InvalidOutput, "fora do contrato");
+                    Ok(generation(Err(error), raw.into(), stop))
                 }
                 Scripted::Before(error) => Err(error.into()),
                 Scripted::Hang => {
@@ -825,16 +864,6 @@ mod tests {
                     Err(Error::Cancelled)
                 }
             }
-        }
-
-        async fn report_outcome(&self, attempt_id: &str, outcome: &AttemptOutcome) -> Result<()> {
-            self.outcomes.lock().push((attempt_id.into(), outcome.clone()));
-            Ok(())
-        }
-
-        async fn finish_turn(&self, _: &str, status: AssistantTurnStatus) -> Result<()> {
-            *self.finished.lock() = Some(status);
-            Ok(())
         }
     }
 
@@ -991,7 +1020,10 @@ mod tests {
                 mentions: Default::default(),
             },
             history: vec![],
-            context_window: 200_000,
+            model: ModelProfile {
+                id: "model-1".into(),
+                context_window: 200_000,
+            },
             auto_execute,
             sample_values: None,
             reply_timeout: Duration::from_secs(5),
@@ -1015,7 +1047,13 @@ mod tests {
     async fn run_with(api: &FakeApi, db: &FakeDb, structure: &FakeStructure, setup: &TurnSetup, cancel: &CancelFlag) -> Run {
         let events: Arc<Mutex<Vec<AssistantTurnEvent>>> = Arc::default();
         let sink = Arc::clone(&events);
-        let finish = run_turn(api, db, structure, setup, &move |event| sink.lock().push(event), cancel, &ReplySlot::default())
+        let ports = TurnPorts {
+            backend: api,
+            journal: api,
+            db,
+            structure,
+        };
+        let finish = run_turn(&ports, setup, &move |event| sink.lock().push(event), cancel, &ReplySlot::default())
             .await
             .unwrap();
         let events = events.lock().clone();
@@ -1038,11 +1076,36 @@ mod tests {
             }
             sink.lock().push(event);
         };
-        let finish = run_turn(api, db, &FakeStructure::default(), setup, &emit, cancel, &replies)
-            .await
-            .unwrap();
+        let ports = TurnPorts {
+            backend: api,
+            journal: api,
+            db,
+            structure: &FakeStructure::default(),
+        };
+        let finish = run_turn(&ports, setup, &emit, cancel, &replies).await.unwrap();
         let events = events.lock().clone();
         Run { finish, events }
+    }
+
+    /// O turno numa task, para o teste cancelar ou responder no meio.
+    fn spawn_turn(
+        api: &Arc<FakeApi>,
+        db: &Arc<FakeDb>,
+        setup: TurnSetup,
+        cancel: &CancelFlag,
+        replies: &ReplySlot,
+    ) -> tokio::task::JoinHandle<Result<AssistantTurnFinish>> {
+        let (api, db, cancel, replies) = (Arc::clone(api), Arc::clone(db), cancel.clone(), replies.clone());
+        tokio::spawn(async move {
+            let structure = FakeStructure::default();
+            let ports = TurnPorts {
+                backend: &*api,
+                journal: &*api,
+                db: &*db,
+                structure: &structure,
+            };
+            run_turn(&ports, &setup, &|_| {}, &cancel, &replies).await
+        })
     }
 
     fn pg_error(sql_state: &str, message: &str) -> Error {
@@ -1367,10 +1430,7 @@ mod tests {
         let replies = ReplySlot::default();
         let setup = setup(true);
 
-        let running = {
-            let (api, db, cancel, replies) = (Arc::clone(&api), Arc::clone(&db), cancel.clone(), replies.clone());
-            tokio::spawn(async move { run_turn(&*api, &*db, &FakeStructure::default(), &setup, &|_| {}, &cancel, &replies).await })
-        };
+        let running = spawn_turn(&api, &db, setup, &cancel, &replies);
         tokio::time::sleep(Duration::from_millis(20)).await;
         cancel.cancel();
         let finish = tokio::time::timeout(Duration::from_secs(2), running).await.unwrap().unwrap().unwrap();
@@ -1503,7 +1563,7 @@ mod tests {
         wrong_language["language"] = json!("mongo");
         let api = FakeApi::new(vec![
             // Cortada no limite de saída: a API recusa
-            Scripted::Invalid(r#"{"kind":"query","language":"sql","query":"SELECT"#),
+            Scripted::Invalid(r#"{"kind":"query","language":"sql","query":"SELECT"#, None),
             // Linguagem errada para o banco: inválida no app
             Scripted::Output(wrong_language.clone()),
             Scripted::Output(output("query", Some("SELECT 1"))),
@@ -1528,6 +1588,38 @@ mod tests {
         assert_eq!(third[4].content, wrong_language.to_string());
         assert!(third[5].content.contains("language Mongo does not match the database (Sql)"), "{}", third[5].content);
         assert_eq!(api.outcomes.lock()[0].1.guard.reason.as_deref(), Some("invalid_output"));
+    }
+
+    /// Cortada pelo limite de saída (o backend diz): o motivo é esse, sem
+    /// deduzir pelo JSON.
+    #[tokio::test]
+    async fn output_cut_by_the_limit_says_so() {
+        let api = FakeApi::new(vec![
+            Scripted::Invalid(r#"{"kind":"query","language":"sql","query":"SELECT"#, Some(StopReason::MaxTokens)),
+            Scripted::Output(output("query", Some("SELECT 1"))),
+        ]);
+
+        let run = run(&api, &FakeDb::default(), &setup(true), &CancelFlag::default()).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Answered);
+        let correction = &api.requests.lock()[1].messages[3].content;
+        assert!(correction.contains(output::OUTPUT_LIMIT_REASON), "{correction}");
+    }
+
+    /// Um backend que não grava (direto: chave do usuário, modelo local): a
+    /// tentativa vai ao journal antes do outcome dela.
+    #[tokio::test]
+    async fn unrecorded_attempts_go_to_the_journal_before_the_outcome() {
+        let mut api = FakeApi::new(vec![
+            Scripted::Invalid("not json", None),
+            Scripted::Output(output("query", Some("SELECT count(*) FROM orders"))),
+        ]);
+        api.unrecorded = true;
+
+        let run = run(&api, &FakeDb::default(), &setup(true), &CancelFlag::default()).await;
+
+        assert_eq!(run.finish.status, AssistantTurnStatus::Answered);
+        assert_eq!(*api.journal.lock(), ["record:attempt-0", "record:attempt-1", "outcome:attempt-1"]);
     }
 
     #[tokio::test]
@@ -1581,10 +1673,7 @@ mod tests {
         let cancel = CancelFlag::default();
         let setup = setup(true);
 
-        let running = {
-            let (api, db, cancel) = (Arc::clone(&api), Arc::clone(&db), cancel.clone());
-            tokio::spawn(async move { run_turn(&*api, &*db, &FakeStructure::default(), &setup, &|_| {}, &cancel, &ReplySlot::default()).await })
-        };
+        let running = spawn_turn(&api, &db, setup, &cancel, &ReplySlot::default());
         tokio::time::sleep(Duration::from_millis(20)).await;
         cancel.cancel();
         let finish = tokio::time::timeout(Duration::from_secs(2), running).await.unwrap().unwrap().unwrap();
@@ -1603,10 +1692,7 @@ mod tests {
         let cancel = CancelFlag::default();
         let setup = setup(true);
 
-        let running = {
-            let (api, db, cancel) = (Arc::clone(&api), Arc::clone(&db), cancel.clone());
-            tokio::spawn(async move { run_turn(&*api, &*db, &FakeStructure::default(), &setup, &|_| {}, &cancel, &ReplySlot::default()).await })
-        };
+        let running = spawn_turn(&api, &db, setup, &cancel, &ReplySlot::default());
         tokio::time::sleep(Duration::from_millis(20)).await;
         cancel.cancel();
         let finish = tokio::time::timeout(Duration::from_secs(3), running).await.unwrap().unwrap().unwrap();

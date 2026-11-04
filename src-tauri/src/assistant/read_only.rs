@@ -2,13 +2,17 @@
 //! só-leitura do adapter. O guard é a primeira barreira; a segunda é o
 //! próprio banco (`adapters/read_only.rs`), que segura sozinha.
 
+use std::sync::Arc;
 use std::time::Instant;
+
+use async_trait::async_trait;
 
 use crate::adapters::{DatabaseAdapter, ReadOnlyOp};
 use crate::error::Result;
 use crate::models::{DatabaseType, QueryOptions, QueryResult, ReadOnlyPlan};
 
 use super::guard;
+use super::turn::TurnDatabase;
 
 /// O preflight: o guard e depois o plano da consulta, sem executá-la. Uma
 /// falha aqui (coluna que não existe, tipo errado) já vai para a correção.
@@ -48,6 +52,31 @@ pub async fn execute(
         Err(error) => log::info!("assistente: leitura falhou ({})", error.code()),
     }
     result
+}
+
+/// O banco do usuário como porta do turno ([`TurnDatabase`]), pelo caminho
+/// só-leitura (B2/B3): o guard de novo (o turno já conferiu; aqui é a mesma
+/// porta da execução manual) e as barreiras do adapter.
+pub struct AdapterDatabase {
+    pub adapter: Arc<dyn DatabaseAdapter>,
+    pub db_type: DatabaseType,
+}
+
+#[async_trait]
+impl TurnDatabase for AdapterDatabase {
+    async fn preflight(&self, op: &ReadOnlyOp, page: QueryOptions) -> Result<ReadOnlyPlan> {
+        preflight(self.adapter.as_ref(), self.db_type, op, page).await
+    }
+
+    async fn execute(&self, op: &ReadOnlyOp, page: QueryOptions) -> Result<QueryResult> {
+        execute(self.adapter.as_ref(), self.db_type, op, page).await
+    }
+
+    async fn cancel(&self, query_id: &str) {
+        if let Err(error) = self.adapter.cancel_query(query_id).await {
+            log::info!("assistente: cancelamento no banco não aplicado ({})", error.code());
+        }
+    }
 }
 
 /// O caminho inteiro (guard + executor) contra bancos de verdade. As escritas

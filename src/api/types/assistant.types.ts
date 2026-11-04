@@ -18,6 +18,7 @@ export type { AssistantQuota } from './generated/AssistantQuota';
 export type { AssistantStage } from './generated/AssistantStage';
 export type { AssistantStatus } from './generated/AssistantStatus';
 export type { AssistantTurn } from './generated/AssistantTurn';
+export type { AssistantTurnAskInput } from './generated/AssistantTurnAskInput';
 export type { AssistantTurnEvent } from './generated/AssistantTurnEvent';
 export type { AssistantTurnFinish } from './generated/AssistantTurnFinish';
 export type { AssistantTurnStatus } from './generated/AssistantTurnStatus';
