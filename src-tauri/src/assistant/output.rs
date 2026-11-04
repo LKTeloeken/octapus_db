@@ -18,7 +18,7 @@ use crate::models::QueryLanguage;
 
 /// Versão do contrato da API que este app segue (`info.version` do openapi).
 #[allow(dead_code)] // nos testes da cópia do contrato e no diagnóstico (B6)
-pub const CONTRACT_VERSION: &str = "1.6.0";
+pub const CONTRACT_VERSION: &str = "1.7.0";
 
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -110,10 +110,10 @@ pub fn parse(value: Value, expected: QueryLanguage) -> Result<ModelOutput, Strin
 
     let blank = |text: &Option<String>| text.as_deref().is_none_or(|text| text.trim().is_empty());
     if output.kind != OutputKind::StructureRequest && output.structure_request.is_some() {
-        return Err(format!("{:?} with structureRequest", output.kind).to_lowercase());
+        return Err(format!("{} with structureRequest", kind_name(output.kind)));
     }
     if output.kind != OutputKind::AskUser && output.choices.is_some() {
-        return Err(format!("{:?} with choices", output.kind).to_lowercase());
+        return Err(format!("{} with choices", kind_name(output.kind)));
     }
     let only_text = output.query.is_none() && output.language.is_none() && output.clarification_question.is_none();
     match output.kind {
@@ -164,10 +164,10 @@ pub fn parse(value: Value, expected: QueryLanguage) -> Result<ModelOutput, Strin
         }
         OutputKind::Query | OutputKind::Code => {
             if output.language.is_none() || blank(&output.query) {
-                return Err(format!("{:?} without language or query", output.kind).to_lowercase());
+                return Err(format!("{} without language or query", kind_name(output.kind)));
             }
             if output.clarification_question.is_some() {
-                return Err(format!("{:?} with clarificationQuestion", output.kind).to_lowercase());
+                return Err(format!("{} with clarificationQuestion", kind_name(output.kind)));
             }
             if output.language != Some(expected) {
                 return Err(format!(
@@ -178,6 +178,38 @@ pub fn parse(value: Value, expected: QueryLanguage) -> Result<ModelOutput, Strin
         }
     }
     Ok(output)
+}
+
+/// O `kind` como o contrato escreve (`ask_user`, `structure_request`).
+fn kind_name(kind: OutputKind) -> String {
+    serde_json::to_value(kind)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+/// O motivo de uma saída inválida, para a correção que volta ao modelo: o
+/// texto bruto da tentativa conferido de novo pelo app. Em inglês, como as
+/// instruções; nunca traz o texto da consulta (os motivos do [`parse`] não
+/// trazem).
+pub fn invalid_reason(raw: &str, expected: QueryLanguage) -> String {
+    let text = raw.trim();
+    if text.is_empty() {
+        return "The response was empty.".into();
+    }
+    let value = match serde_json::from_str::<Value>(text) {
+        Ok(value) => value,
+        // Acabou no meio: quase sempre o limite de saída do modelo
+        Err(error) if error.is_eof() => {
+            return "The JSON ended before it was complete (the response may have hit the output limit). Answer with a shorter, complete JSON object.".into()
+        }
+        Err(_) => return "The response is not a single valid JSON object.".into(),
+    };
+    match parse(value, expected) {
+        Err(reason) => format!("The JSON does not follow the format: {reason}."),
+        // A API recusou algo que o app aceita (o schema é mais estrito)
+        Ok(_) => "The JSON does not follow the format of the instructions.".into(),
+    }
 }
 
 #[cfg(test)]
@@ -349,6 +381,29 @@ mod tests {
     fn language_must_match_the_database() {
         let error = parse(query("SELECT 1"), QueryLanguage::Mongo).unwrap_err();
         assert!(error.contains("does not match"), "{error}");
+    }
+
+    /// O motivo diz o que estava errado sem repetir a consulta.
+    #[test]
+    fn invalid_reason_explains_without_the_query() {
+        assert_eq!(invalid_reason("  \n", QueryLanguage::Sql), "The response was empty.");
+        let cut = invalid_reason(r#"{"kind":"query","query":"SELECT secret_col"#, QueryLanguage::Sql);
+        assert!(cut.contains("ended before it was complete"), "{cut}");
+        assert!(!cut.contains("secret_col"));
+        assert_eq!(
+            invalid_reason("Here is the query: SELECT 1", QueryLanguage::Sql),
+            "The response is not a single valid JSON object."
+        );
+        let mut asks = query("SELECT secret_col");
+        asks["clarificationQuestion"] = json!("?");
+        let rule = invalid_reason(&asks.to_string(), QueryLanguage::Sql);
+        assert_eq!(rule, "The JSON does not follow the format: query with clarificationQuestion.");
+        let language = invalid_reason(&query("SELECT 1").to_string(), QueryLanguage::Mongo);
+        assert!(language.contains("does not match the database"), "{language}");
+        assert_eq!(
+            invalid_reason(&query("SELECT 1").to_string(), QueryLanguage::Sql),
+            "The JSON does not follow the format of the instructions."
+        );
     }
 
     // ── Cópia do contrato ───────────────────────────────────────────────────

@@ -12,6 +12,7 @@
 //!               encerra como clarification)
 //!   query ─▶ guard ─▶ preflight ─▶ execução (só com a automática ligada)
 //!            └── falhou: outcome + erro sanitizado ─▶ nova tentativa (C-11)
+//!   saída fora do formato ─▶ o texto do modelo e o motivo ─▶ nova tentativa
 //! limite da API (turn_limit_exceeded) ─▶ entrega a última consulta (RN-24)
 //! ```
 //!
@@ -31,10 +32,10 @@ use super::client::{AttemptProgress, AttemptReply};
 use super::error::AssistantCode;
 use super::failure::{classify, sanitize, FailureClass};
 use super::guard;
-use super::language::Language;
+use super::language::Detected;
 use super::messages::{
-    attempt_request, AttemptRequest, Correction, HistoryTurn, QuestionReply, QuestionRound, Round, StructureReply,
-    StructureRound,
+    attempt_request, AttemptRequest, Correction, HistoryTurn, InvalidRound, QuestionReply, QuestionRound, Round,
+    StructureReply, StructureRound,
 };
 use super::output::{self, ModelOutput, OutputKind};
 use super::prompts::Prompt;
@@ -77,7 +78,7 @@ pub trait TurnApi: Send + Sync {
         &self,
         conversation_id: &str,
         question: &str,
-        language: Language,
+        language: Detected,
         client_turn_id: &str,
     ) -> Result<AssistantTurnSummary>;
 
@@ -118,7 +119,7 @@ pub struct TurnSetup {
     /// Idempotência na API e id da execução no banco (para cancelar)
     pub client_turn_id: String,
     pub question: String,
-    pub language: Language,
+    pub language: Detected,
     pub prompt: Prompt,
     pub db_type: DatabaseType,
     pub expected_language: QueryLanguage,
@@ -126,6 +127,9 @@ pub struct TurnSetup {
     pub history: Vec<HistoryTurn>,
     pub context_window: i64,
     pub auto_execute: bool,
+    /// A opção de valores de exemplo do servidor, onde ela existe (o Mongo:
+    /// `assistant_sample_values` das capabilities); `None` nos outros bancos
+    pub sample_values: Option<bool>,
     /// Espera máxima pela resposta a uma pergunta do modelo ([`REPLY_TIMEOUT`])
     pub reply_timeout: Duration,
     /// Primeira página da execução: `limit`, `schema` do `search_path` e o
@@ -199,7 +203,6 @@ pub async fn run_turn(
 
     let mut rounds: Vec<Round> = Vec::new();
     let mut last: Option<(String, ModelOutput)> = None;
-    let mut retry_invalid = false;
     let mut attempts = 0;
     let mut structure_requests = 0;
     let mut user_questions = 0;
@@ -225,10 +228,8 @@ pub async fn run_turn(
             &rounds,
             setup.context_window,
         );
-        if retry_invalid {
-            request.context.previous_failure = Some(FailureClass::InvalidOutput);
-        }
         request.context.user_reply = user_reply.clone();
+        request.context.sample_values = setup.sample_values;
 
         let reply = match create_attempt(api, &turn.id, &request, cancel, emit).await {
             Ok(reply) => {
@@ -246,10 +247,11 @@ pub async fn run_turn(
 
         let value = match reply.result {
             Ok(value) => value,
-            // A API já registrou a tentativa inválida: tenta de novo avisando
+            // A API já registrou a tentativa inválida: o modelo vê o que deu
+            // e o motivo na próxima
             Err(error) if error.code == AssistantCode::InvalidOutput => {
                 log::info!("assistente: tentativa {attempt_id} com saída inválida");
-                retry_invalid = true;
+                rounds.push(invalid_round(reply.raw, setup.expected_language));
                 continue;
             }
             Err(error) if error.code == AssistantCode::TurnLimitExceeded => {
@@ -262,15 +264,17 @@ pub async fn run_turn(
 
         let output = match output::parse(value, setup.expected_language) {
             Ok(output) => output,
-            Err(_) => {
+            Err(reason) => {
                 // Fora do contrato pelo lado do app (a linguagem não é a do banco)
                 log::info!("assistente: tentativa {attempt_id} fora do contrato no app");
                 report(api, &attempt_id, &not_run("invalid_output", setup.auto_execute)).await;
-                retry_invalid = true;
+                rounds.push(Round::Invalid(InvalidRound {
+                    raw: reply.raw,
+                    reason: format!("The JSON does not follow the format: {reason}."),
+                }));
                 continue;
             }
         };
-        retry_invalid = false;
 
         if output.kind == OutputKind::StructureRequest {
             // Chamada utilitária: não vai para a tela como resposta
@@ -401,7 +405,7 @@ pub async fn run_turn(
             }
             // Tratados acima; o `parse` recusa o `Unknown`
             OutputKind::AskUser | OutputKind::StructureRequest | OutputKind::Unknown => {
-                retry_invalid = true;
+                rounds.push(invalid_round(reply.raw, setup.expected_language));
                 continue;
             }
             OutputKind::Query => {
@@ -435,6 +439,13 @@ pub async fn run_turn(
         output,
         error_code,
     })
+}
+
+/// A rodada de uma saída que a API recusou: o app confere o texto de novo para
+/// dizer ao modelo o que estava errado.
+fn invalid_round(raw: String, expected: QueryLanguage) -> Round {
+    let reason = output::invalid_reason(&raw, expected);
+    Round::Invalid(InvalidRound { raw, reason })
 }
 
 /// Como terminou a espera pela resposta do usuário.
@@ -729,6 +740,8 @@ mod tests {
     enum Scripted {
         Output(Value),
         StreamError(AssistantCode),
+        /// `invalid_output` da API, com o texto que o modelo deu
+        Invalid(&'static str),
         Before(AssistantError),
         /// Fica pendurado até o cancelamento
         Hang,
@@ -753,12 +766,12 @@ mod tests {
 
     #[async_trait]
     impl TurnApi for FakeApi {
-        async fn create_turn(&self, _: &str, question: &str, language: Language, _: &str) -> Result<AssistantTurnSummary> {
+        async fn create_turn(&self, _: &str, question: &str, language: Detected, _: &str) -> Result<AssistantTurnSummary> {
             Ok(AssistantTurnSummary {
                 id: "turn-1".into(),
                 index: 0,
                 question: question.into(),
-                language,
+                language: language.language,
                 status: AssistantTurnStatus::Open,
                 created_at: "2026-10-20T00:00:00Z".into(),
             })
@@ -784,7 +797,8 @@ mod tests {
             match next {
                 Scripted::Output(value) => {
                     started(progress);
-                    Ok(AttemptReply { attempt_id: attempt_id.clone(), index, result: Ok(value) })
+                    let raw = value.to_string();
+                    Ok(AttemptReply { attempt_id: attempt_id.clone(), index, result: Ok(value), raw })
                 }
                 Scripted::StreamError(code) => {
                     started(progress);
@@ -792,6 +806,16 @@ mod tests {
                         attempt_id: attempt_id.clone(),
                         index,
                         result: Err(AssistantError::new(code, "x")),
+                        raw: String::new(),
+                    })
+                }
+                Scripted::Invalid(raw) => {
+                    started(progress);
+                    Ok(AttemptReply {
+                        attempt_id: attempt_id.clone(),
+                        index,
+                        result: Err(AssistantError::new(AssistantCode::InvalidOutput, "fora do contrato")),
+                        raw: raw.into(),
                     })
                 }
                 Scripted::Before(error) => Err(error.into()),
@@ -952,7 +976,10 @@ mod tests {
             conversation_id: "conv-1".into(),
             client_turn_id: "client-1".into(),
             question: "quantos pedidos?".into(),
-            language: Language::Pt,
+            language: Detected {
+                language: crate::assistant::language::Language::Pt,
+                confidence: 0.9,
+            },
             prompt: prompts::for_db(DatabaseType::Postgres).unwrap(),
             db_type: DatabaseType::Postgres,
             expected_language: QueryLanguage::Sql,
@@ -966,6 +993,7 @@ mod tests {
             history: vec![],
             context_window: 200_000,
             auto_execute,
+            sample_values: None,
             reply_timeout: Duration::from_secs(5),
             page: QueryOptions {
                 limit: 200,
@@ -1048,6 +1076,7 @@ mod tests {
         setup.prompt = prompts::for_db(DatabaseType::Mongodb).unwrap();
         setup.db_type = DatabaseType::Mongodb;
         setup.expected_language = QueryLanguage::Mongo;
+        setup.sample_values = Some(true);
 
         let run = run(&api, &db, &setup, &CancelFlag::default()).await;
 
@@ -1060,6 +1089,8 @@ mod tests {
         assert!(outcomes[2].1.execution.ok == Some(true));
         let requests = api.requests.lock();
         assert_eq!(requests[0].prompt_version, "mongo-v5");
+        // A opção de valores de exemplo vai em toda tentativa, para a análise
+        assert!(requests.iter().all(|request| request.context.sample_values == Some(true)));
         let correction = &requests[2].messages.last().unwrap().content;
         assert!(
             correction.contains("class=\"guard_rejected\">\n$out writes to the database and is not allowed"),
@@ -1463,15 +1494,18 @@ mod tests {
         assert!(db.executed.lock().is_empty());
     }
 
+    /// A saída inválida volta ao modelo com o motivo: sem isso, a tentativa
+    /// seguinte recebia as mesmas mensagens e, com temperatura 0, repetia o
+    /// erro até o limite.
     #[tokio::test]
-    async fn invalid_output_retries_with_the_failure_flagged() {
+    async fn invalid_output_goes_back_to_the_model_with_the_reason() {
+        let mut wrong_language = output("query", Some("{}"));
+        wrong_language["language"] = json!("mongo");
         let api = FakeApi::new(vec![
-            Scripted::StreamError(AssistantCode::InvalidOutput),
+            // Cortada no limite de saída: a API recusa
+            Scripted::Invalid(r#"{"kind":"query","language":"sql","query":"SELECT"#),
             // Linguagem errada para o banco: inválida no app
-            Scripted::Output(json!({
-                "kind": "query", "language": "mongo", "query": "{}", "explanation": "",
-                "assumptions": [], "clarificationQuestion": null,
-            })),
+            Scripted::Output(wrong_language.clone()),
             Scripted::Output(output("query", Some("SELECT 1"))),
         ]);
         let db = FakeDb::default();
@@ -1480,8 +1514,19 @@ mod tests {
 
         assert_eq!(run.finish.status, AssistantTurnStatus::Answered);
         let requests = api.requests.lock();
+        assert_eq!(requests[0].messages.len(), 2);
         assert_eq!(requests[1].context.previous_failure, Some(FailureClass::InvalidOutput));
         assert_eq!(requests[2].context.previous_failure, Some(FailureClass::InvalidOutput));
+        // A segunda vê a primeira como veio e o motivo
+        let second = &requests[1].messages;
+        assert_eq!(second.len(), 4);
+        assert_eq!(second[2].content, r#"{"kind":"query","language":"sql","query":"SELECT"#);
+        assert!(second[3].content.contains("stage=\"output\" class=\"invalid_output\">\nThe JSON ended before it was complete"), "{}", second[3].content);
+        // A terceira vê as duas, cada uma com o seu motivo
+        let third = &requests[2].messages;
+        assert_eq!(third.len(), 6);
+        assert_eq!(third[4].content, wrong_language.to_string());
+        assert!(third[5].content.contains("language Mongo does not match the database (Sql)"), "{}", third[5].content);
         assert_eq!(api.outcomes.lock()[0].1.guard.reason.as_deref(), Some("invalid_output"));
     }
 
@@ -1599,7 +1644,7 @@ mod tests {
                 id: "t".into(),
                 index: 0,
                 question: question.into(),
-                language: Language::Pt,
+                language: crate::assistant::language::Language::Pt,
                 status: AssistantTurnStatus::Answered,
                 created_at: String::new(),
             },

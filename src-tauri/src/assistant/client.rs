@@ -1,4 +1,7 @@
-//! Cliente HTTP da API do assistente (octapus-assistant-api, contrato 1.5.0).
+//! Cliente HTTP da API do assistente (octapus-assistant-api, contrato 1.7.0).
+//!
+//! O `User-Agent` (`octapus-db/<versão>`) é como a API sabe a versão do app
+//! que montou as mensagens de cada tentativa.
 //!
 //! Só fala o protocolo: Bearer com o token do participante, JSON em camelCase
 //! e a conversão das respostas de erro (`error.rs`). Onde o token mora e o que
@@ -14,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use super::cancel::CancelFlag;
 use super::error::{self, AssistantCode, AssistantError};
-use super::language::Language;
+use super::language::{Detected, Language};
 use super::messages::AttemptRequest;
 use super::sse::SseReader;
 use crate::error::{error_chain, Error, Result};
@@ -88,6 +91,8 @@ struct ConversationRequest<'a> {
 struct TurnRequest<'a> {
     question: &'a str,
     language: Language,
+    /// Desde o contrato 1.7.0
+    language_confidence: f64,
     client_turn_id: &'a str,
 }
 
@@ -123,6 +128,9 @@ pub struct AttemptReply {
     /// A resposta (`result`, já validada pela API) ou o erro dela (`error`:
     /// `invalid_output`, `model_refused`, `provider_error`…)
     pub result: std::result::Result<serde_json::Value, AssistantError>,
+    /// O texto do modelo como chegou nos `delta`: numa saída inválida, é o que
+    /// volta ao modelo na correção
+    pub raw: String,
 }
 
 impl ApiClient {
@@ -236,13 +244,15 @@ impl ApiClient {
         token: &str,
         conversation_id: &str,
         question: &str,
-        language: Language,
+        language: Detected,
         client_turn_id: &str,
     ) -> Result<AssistantTurnSummary> {
         let path = format!("/v1/conversations/{}/turns", path_segment(conversation_id)?);
         let body = TurnRequest {
             question,
-            language,
+            language: language.language,
+            // Três casas bastam para a análise
+            language_confidence: (language.confidence * 1000.0).round() / 1000.0,
             client_turn_id,
         };
         self.json(self.request(Method::POST, &path, Some(token)).json(&body))
@@ -339,6 +349,7 @@ async fn read_attempt_stream(
     let mut reader = SseReader::default();
     let mut started: Option<AttemptStarted> = None;
     let mut result: Option<std::result::Result<serde_json::Value, AssistantError>> = None;
+    let mut raw = String::new();
     let unavailable = |message: &str| -> Error {
         AssistantError::new(AssistantCode::Unavailable, message).into()
     };
@@ -368,6 +379,7 @@ async fn read_attempt_stream(
                 }
                 "delta" => {
                     if let Ok(delta) = serde_json::from_str::<Delta>(&event.data) {
+                        raw.push_str(&delta.text);
                         progress(AttemptProgress::Delta(delta.text));
                     }
                 }
@@ -386,6 +398,7 @@ async fn read_attempt_stream(
                         attempt_id: started.attempt_id,
                         index: started.index,
                         result,
+                        raw,
                     });
                 }
                 _ => {} // usage e eventos novos: sem uso aqui
@@ -535,6 +548,7 @@ mod tests {
                 schema_tokens_estimate: 1,
                 previous_failure: None,
                 user_reply: None,
+                sample_values: None,
             },
         }
     }
@@ -560,6 +574,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(reply.attempt_id, "a-1");
+        assert_eq!(reply.raw, "SEL");
         assert_eq!(reply.result.unwrap(), serde_json::json!({ "kind": "query" }));
         assert_eq!(
             *seen.lock().unwrap(),

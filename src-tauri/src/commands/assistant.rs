@@ -8,7 +8,7 @@ use tauri::State;
 use crate::adapters::{DatabaseAdapter, ReadOnlyOp};
 use crate::assistant::client::{AttemptProgress, AttemptReply};
 use crate::assistant::failure::{classify, sanitize};
-use crate::assistant::language::{self, Language};
+use crate::assistant::language::{self, Detected};
 use crate::assistant::messages::AttemptRequest;
 use crate::assistant::requested::{self, RequestedStructure};
 use crate::assistant::schema_context::{self, ContextRequest, SchemaContext};
@@ -258,6 +258,7 @@ pub async fn assistant_turn_ask(
             history,
             context_window,
             auto_execute,
+            sample_values: sample_values_option(db_type, sample_values),
             reply_timeout: turn::REPLY_TIMEOUT,
             page: QueryOptions {
                 limit: FIRST_PAGE_ROWS,
@@ -300,6 +301,14 @@ pub async fn assistant_turn_ask(
         Ok(_) => {}
     }
     result
+}
+
+/// A opção de valores de exemplo, para o registro da tentativa: só onde ela
+/// existe (capabilities; hoje o Mongo).
+fn sample_values_option(db_type: DatabaseType, enabled: bool) -> Option<bool> {
+    AdapterCapabilities::for_db_type(db_type)
+        .is_some_and(|caps| caps.assistant_sample_values)
+        .then_some(enabled)
 }
 
 /// O banco tem catálogo (capabilities)? Sem ele (Redis), a estrutura vem dos
@@ -560,7 +569,7 @@ impl TurnApi for ApiTurns<'_> {
         &self,
         conversation_id: &str,
         question: &str,
-        language: Language,
+        language: Detected,
         client_turn_id: &str,
     ) -> Result<AssistantTurnSummary> {
         self.client
@@ -885,6 +894,7 @@ mod e2e {
             history,
             context_window,
             auto_execute: true,
+            sample_values: sample_values_option(db.db_type, sample_values),
             // Ninguém responde nos testes de turno real: a pergunta encerra
             reply_timeout: std::time::Duration::from_secs(1),
             page: QueryOptions {
@@ -952,10 +962,10 @@ mod e2e {
             &self,
             conversation_id: &str,
             question: &str,
-            language: Language,
+            language: Detected,
             client_turn_id: &str,
         ) -> Result<AssistantTurnSummary> {
-            self.record("turno", (question, format!("{language:?}")));
+            self.record("turno", (question, format!("{:?}", language.language)));
             self.api.create_turn(conversation_id, question, language, client_turn_id).await
         }
 
