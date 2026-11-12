@@ -29,8 +29,10 @@
     "createUpdaterArtifacts": true,
     "icon": [
       "icons/octapus-db.png",
-      "icons/octapus-db.png",
-      "icons/octapus-db.png",
+      "icons/octapus-db-32.png",
+      "icons/octapus-db-128.png",
+      "icons/octapus-db-256.png",
+      "icons/octapus-db-512.png",
       "icons/octapus-db.icns",
       "icons/octapus-db.ico"
     ],
