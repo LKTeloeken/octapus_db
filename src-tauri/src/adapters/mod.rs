@@ -1,6 +1,7 @@
 pub mod ddl;
 mod message_sink;
 mod read_only;
+mod sql_text;
 mod traits;
 pub mod mongo;
 pub mod postgres;
@@ -10,6 +11,7 @@ pub mod tls;
 
 pub use message_sink::*;
 pub use read_only::*;
+pub use sql_text::statement_body;
 pub use traits::*;
 
 use std::sync::Arc;

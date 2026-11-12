@@ -7,6 +7,7 @@ use sqlparser::ast::{GroupByExpr, SetExpr, Statement as SqlStatement, TableFacto
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
+use crate::adapters::statement_body;
 use crate::error::{Error, Result};
 use crate::models::{
     EditableInfo, QueryColumnInfo, QueryOptions, QueryResult, RowChanges, RowEdit, RowInsert,
@@ -24,7 +25,9 @@ pub fn execute_query(
     options: QueryOptions,
     database: &str,
 ) -> Result<QueryResult> {
-    let trimmed = query.trim().trim_end_matches(';').trim();
+    // Sem comentários e `;` nas pontas: a query vai dentro de uma subquery para
+    // paginar, e um `-- comentário` na última linha engoliria o fechamento dela.
+    let trimmed = statement_body(query);
 
     if trimmed.is_empty() {
         return Err(Error::InvalidQuery("Empty query".into()));
@@ -563,6 +566,28 @@ mod tests {
 
         // O `prepare` sozinho mostraria o SELECT e descartaria o DELETE em silêncio
         assert_eq!(user_count(&conn), 2);
+    }
+
+    /// Regressão: um comentário de linha depois da query engolia o fechamento
+    /// da subquery da paginação, e a query falhava.
+    #[test]
+    fn comments_around_the_query_do_not_break_pagination() {
+        let conn = fixture();
+
+        for query in [
+            "select * from users\n-- teste",
+            "select * from users -- teste",
+            "select * from users; -- teste",
+            "-- lista\nselect * from users",
+            "select * from users /* fim */ ;",
+        ] {
+            let options = QueryOptions { limit: 1, count_total: true, ..Default::default() };
+            let result = execute_query(&conn, query, options, "main").unwrap_or_else(|e| panic!("{query:?}: {e}"));
+            // Paginada (1 de 2) e com o total contado: a subquery fechou
+            assert_eq!(result.rows.len(), 1, "{query:?}");
+            assert!(result.has_more, "{query:?}");
+            assert_eq!(result.total_count, Some(2), "{query:?}");
+        }
     }
 
     #[test]

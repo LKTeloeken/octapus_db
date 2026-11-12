@@ -8,7 +8,7 @@ use tokio_postgres::{Column, Row, SimpleQueryMessage, SimpleQueryRow, Statement,
 use super::notices::{message_from_db_error, NoticeHub};
 use super::QueryRegistry;
 
-use crate::adapters::MessageSink;
+use crate::adapters::{statement_body, MessageSink};
 use crate::error::{Error, Result};
 use crate::models::{
     EditableInfo, QueryColumnInfo, QueryMessage, QueryOptions, QueryResult, RowChanges, RowEdit,
@@ -75,7 +75,9 @@ pub async fn execute_query(
     sink: Option<Arc<dyn MessageSink>>,
 ) -> Result<QueryResult> {
     let client = pool.get().await?;
-    let trimmed = query.trim().trim_end_matches(';');
+    // Sem comentários e `;` nas pontas: a query vai dentro de uma subquery para
+    // paginar, e um `-- comentário` na última linha engoliria o fechamento dela.
+    let trimmed = statement_body(query);
 
     if trimmed.is_empty() {
         return Err(Error::InvalidQuery("Empty query".into()));
@@ -1172,5 +1174,54 @@ mod tests {
             .execute_statement("DROP DATABASE octapus_db_e2e_tz WITH (FORCE)")
             .await
             .unwrap();
+    }
+
+    /// Regressão: um comentário de linha depois da query engolia o fechamento
+    /// da subquery da paginação (`) AS __q LIMIT …`), e a query falhava.
+    #[tokio::test]
+    #[ignore = "requires local postgres on localhost:5432 (postgres/1234)"]
+    async fn e2e_comments_around_the_query_do_not_break_pagination() {
+        use crate::adapters::postgres::PostgresAdapter;
+        use crate::adapters::DatabaseAdapter;
+        use crate::models::{DatabaseType, QueryOptions, Server};
+
+        let server = Server {
+            id: Some(1),
+            name: "e2e".into(),
+            db_type: DatabaseType::Postgres,
+            host: "localhost".into(),
+            port: 5432,
+            username: "postgres".into(),
+            password: "1234".into(),
+            default_database: None,
+            ssl_mode: crate::models::SslMode::Disable,
+            ssl_root_cert: None,
+            connection_uri: None,
+            scope_databases: None,
+            scope_schemas: None,
+            group_id: None,
+            assistant_sample_values: false,
+            display_timezone: None,
+            created_at: 0,
+        };
+        let adapter = PostgresAdapter::new(&server, "postgres").unwrap();
+
+        for query in [
+            "select * from generate_series(1, 3) as n\n-- teste",
+            "select * from generate_series(1, 3) as n -- teste",
+            "select * from generate_series(1, 3) as n; -- teste",
+            "-- lista\nselect * from generate_series(1, 3) as n",
+            "select * from generate_series(1, 3) as n /* fim */ ;",
+        ] {
+            let options = QueryOptions { limit: 2, count_total: true, ..Default::default() };
+            let result = adapter
+                .execute_query(query, options)
+                .await
+                .unwrap_or_else(|e| panic!("{query:?}: {e}"));
+            // Paginada (2 de 3) e com o total contado: a subquery fechou
+            assert_eq!(result.rows.len(), 2, "{query:?}");
+            assert!(result.has_more, "{query:?}");
+            assert_eq!(result.total_count, Some(3), "{query:?}");
+        }
     }
 }
