@@ -2,6 +2,7 @@ import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import type { DatabaseType, ServerInput } from '@/api/types/server.types';
+import { useAssistantAvailable } from '@/queries/use-assistant-status';
 import { useDbCapabilities } from '@/queries/use-capabilities';
 import { useServerGroups } from '@/queries/use-server-groups';
 import {
@@ -13,6 +14,11 @@ import {
 import { errorDetails, type ErrorDetails } from '@/lib/error-details';
 import { DEFAULT_DATABASES, DEFAULT_PORTS } from '@/lib/db-defaults';
 import { sslModeFor, sslModesFor, sslModeVerifies } from '@/lib/ssl-modes';
+import {
+  localTimezone,
+  timezoneNames,
+  timezoneOffsetLabel,
+} from '@/lib/timezones';
 import type { ServerFormProps } from './server-form.types';
 
 /** O resultado do "Testar conexão" (some quando um campo muda) */
@@ -35,6 +41,7 @@ const emptyForm: ServerInput = {
   scopeSchemas: null,
   groupId: null,
   assistantSampleValues: false,
+  displayTimezone: null,
 };
 
 export const useServerForm = ({
@@ -48,6 +55,7 @@ export const useServerForm = ({
 
   const { data: groups = [] } = useServerGroups();
   const capsByType = useDbCapabilities();
+  const assistantAvailable = useAssistantAvailable();
   const createServer = useCreateServer();
   const updateServer = useUpdateServer();
   const deleteServer = useDeleteServer();
@@ -70,7 +78,8 @@ export const useServerForm = ({
         host: server.host,
         port: server.port,
         username: server.username,
-        password: '', // never comes back from the backend — must be retyped
+        // Nunca volta do backend: `null` mantém a salva, texto novo a troca
+        password: null,
         defaultDatabase: server.defaultDatabase,
         sslMode: server.sslMode,
         sslRootCert: server.sslRootCert,
@@ -79,6 +88,7 @@ export const useServerForm = ({
         scopeSchemas: server.scopeSchemas,
         groupId: server.groupId,
         assistantSampleValues: server.assistantSampleValues,
+        displayTimezone: server.displayTimezone,
       });
     } else {
       setForm({ ...emptyForm, groupId: defaultGroupId });
@@ -119,6 +129,7 @@ export const useServerForm = ({
         ...(crossesFileBoundary && {
           host: '',
           username: '',
+          // Na edição, vazio é "remover a salva" (ela era do outro tipo)
           password: '',
           connectionUri: null,
           sslRootCert: null,
@@ -141,16 +152,46 @@ export const useServerForm = ({
   const sslVerifies = sslModeVerifies(form.sslMode);
   /** O banco pode mandar ao assistente os valores de exemplo (só o Mongo) */
   const canShareSampleValues =
+    assistantAvailable &&
     capsByType[form.dbType]?.assistantSampleValues === true;
 
   const disableSave = useMemo(() => {
     // No SQLite a URI é o caminho do arquivo, e é o único campo obrigatório
-    // além do nome — o ramo `hasUri` já cobre esse caso.
+    // além do nome — o ramo `hasUri` já cobre esse caso. A senha não é
+    // obrigatória: na edição vale a salva, e há banco sem senha.
     const hasUri = !!form.connectionUri?.trim();
-    const hasHostConfig =
-      !!form.host && !!form.port && !!form.username && !!form.password;
+    const hasHostConfig = !!form.host && !!form.port && !!form.username;
     return !form.name || (!hasUri && !hasHostConfig) || isSaving;
   }, [form, isSaving]);
+
+  /**
+   * Na edição o campo vazio mantém a senha salva (`null`); tirar a senha é o
+   * gesto explícito do `removePassword` (`''`).
+   */
+  const setPassword = (value: string) =>
+    setField('password', value || (isEditMode ? null : ''));
+  const removePassword = () => setField('password', '');
+  const passwordRemoved = isEditMode && form.password === '';
+
+  /** O banco abre as conexões num fuso escolhido (só o Postgres) */
+  const canSetTimezone = capsByType[form.dbType]?.sessionTimezone === true;
+  const timezoneOptions = useMemo(
+    () =>
+      // Só quando a opção aparece: são centenas de nomes
+      canSetTimezone && form.displayTimezone != null
+        ? timezoneNames().map(name => {
+            const offset = timezoneOffsetLabel(name);
+            return {
+              value: name,
+              label: offset ? `${name} (${offset})` : name,
+            };
+          })
+        : [],
+    [canSetTimezone, form.displayTimezone],
+  );
+  /** Liga com o fuso do computador; desligado, vale o retorno do banco */
+  const setTimezoneEnabled = (enabled: boolean) =>
+    setField('displayTimezone', enabled ? localTimezone() : null);
 
   // Testar não pede a senha na edição: em branco, vale a salva
   const canTest = useMemo(() => {
@@ -209,6 +250,12 @@ export const useServerForm = ({
     sslOptions,
     sslVerifies,
     canShareSampleValues,
+    passwordRemoved,
+    setPassword,
+    removePassword,
+    canSetTimezone,
+    timezoneOptions,
+    setTimezoneEnabled,
     setField,
     setDbType,
     chooseRootCert,

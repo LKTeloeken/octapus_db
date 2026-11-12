@@ -35,4 +35,10 @@ groupId: number | null,
  * distribuição de `status`, por exemplo), tirados da amostra. Desligado
  * por padrão (RN-08): só o banco com `assistantSampleValues` liga.
  */
-assistantSampleValues: boolean, };
+assistantSampleValues: boolean, 
+/**
+ * Fuso (nome IANA, `America/Sao_Paulo`) em que as conexões deste servidor
+ * abrem a sessão: é nele que o banco mostra e lê `timestamptz`. `None` =
+ * o fuso do próprio banco. Só onde `sessionTimezone` (capabilities).
+ */
+displayTimezone: string | null, };

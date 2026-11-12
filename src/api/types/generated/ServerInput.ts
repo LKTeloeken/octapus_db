@@ -5,4 +5,9 @@ import type { SslMode } from "./SslMode";
 /**
  * For creating/updating servers (receives password)
  */
-export type ServerInput = { name: string, dbType: DatabaseType, host: string, port: number, username: string, password: string, defaultDatabase?: string | null, sslMode?: SslMode | null, sslRootCert?: string | null, connectionUri?: string | null, scopeDatabases?: string | null, scopeSchemas?: string | null, groupId?: number | null, assistantSampleValues?: boolean, };
+export type ServerInput = { name: string, dbType: DatabaseType, host: string, port: number, username: string, 
+/**
+ * Na edição, `None` mantém a senha salva (ela nunca volta ao front) e
+ * `Some("")` a remove; na criação, `None` é sem senha.
+ */
+password?: string | null, defaultDatabase?: string | null, sslMode?: SslMode | null, sslRootCert?: string | null, connectionUri?: string | null, scopeDatabases?: string | null, scopeSchemas?: string | null, groupId?: number | null, assistantSampleValues?: boolean, displayTimezone?: string | null, };

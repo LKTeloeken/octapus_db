@@ -30,6 +30,9 @@ import { cn } from '@/lib/utils';
 const SAMPLE_VALUES_HELP =
   'De uma amostra dos documentos, o assistente vê os valores que se repetem em campos de texto como status e tipo, para acertar os filtros. Nomes, e-mails, documentos e texto livre ficam de fora. Desligado, ele vê só os nomes e os tipos dos campos.';
 
+const TIMEZONE_HELP =
+  'As conexões do Octapus com este servidor abrem a sessão no fuso escolhido: o banco mostra as colunas com fuso (timestamptz) nele e lê nele um horário digitado sem fuso, então o que você edita é gravado no instante certo. Nada muda no banco nem para outros clientes. Vale também para as queries do editor (now(), current_date). Desligado, vem o retorno original do banco.';
+
 const SCOPE_HELP =
   'Padrões separados por vírgula: * qualquer trecho, ? um caractere, ! na frente exclui. Vazio mostra todos.';
 
@@ -48,6 +51,12 @@ export function ServerForm(props: ServerFormProps) {
     sslOptions,
     sslVerifies,
     canShareSampleValues,
+    passwordRemoved,
+    setPassword,
+    removePassword,
+    canSetTimezone,
+    timezoneOptions,
+    setTimezoneEnabled,
     setField,
     setDbType,
     chooseRootCert,
@@ -211,12 +220,35 @@ export function ServerForm(props: ServerFormProps) {
 
                 <Input
                   type="password"
-                  label={isEditMode ? 'Senha (redigite para salvar)' : 'Senha'}
-                  placeholder="Digite aqui..."
-                  value={form.password}
-                  onChange={e => setField('password', e.target.value)}
+                  label="Senha"
+                  placeholder={
+                    !isEditMode
+                      ? 'Digite aqui...'
+                      : passwordRemoved
+                        ? 'Sem senha'
+                        : 'Manter a senha salva'
+                  }
+                  value={form.password ?? ''}
+                  onChange={e => setPassword(e.target.value)}
                 />
               </div>
+
+              {isEditMode && (
+                <p className="-mt-2 text-small text-fg-muted">
+                  {passwordRemoved
+                    ? 'A senha salva será removida ao salvar.'
+                    : 'Em branco, a senha salva continua valendo. '}
+                  {!passwordRemoved && (
+                    <button
+                      type="button"
+                      className="cursor-pointer rounded-xs underline underline-offset-2 transition-colors outline-none hover:text-fg focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      onClick={removePassword}
+                    >
+                      Remover a senha salva
+                    </button>
+                  )}
+                </p>
+              )}
 
               <Input
                 type="text"
@@ -307,6 +339,48 @@ export function ServerForm(props: ServerFormProps) {
                     setField('scopeSchemas', e.target.value || null)
                   }
                 />
+              )}
+
+              {canSetTimezone && (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-0.5">
+                      <Label htmlFor="server-timezone-enabled">
+                        Mostrar horários em outro fuso
+                      </Label>
+                      <span className="text-small text-fg-muted">
+                        {TIMEZONE_HELP}
+                      </span>
+                    </div>
+                    <Switch
+                      id="server-timezone-enabled"
+                      checked={form.displayTimezone != null}
+                      onCheckedChange={setTimezoneEnabled}
+                    />
+                  </div>
+                  {form.displayTimezone != null && (
+                    <Select
+                      value={form.displayTimezone}
+                      onValueChange={value =>
+                        setField('displayTimezone', value)
+                      }
+                    >
+                      <SelectTrigger
+                        aria-label="Fuso horário"
+                        className="w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {timezoneOptions.map(option => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
               )}
 
               {canShareSampleValues && (

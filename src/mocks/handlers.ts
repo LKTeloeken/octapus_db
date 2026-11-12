@@ -111,6 +111,11 @@ const serverFromInput = (
   assistantSampleValues:
     (input.assistantSampleValues ?? false) &&
     CAPABILITIES[input.dbType].assistantSampleValues,
+  // Mesma regra do backend: só o banco com fuso de sessão grava o nome
+  displayTimezone:
+    CAPABILITIES[input.dbType].sessionTimezone && input.displayTimezone?.trim()
+      ? input.displayTimezone.trim()
+      : null,
 });
 
 /** Nome aparado, não vazio e único (sem diferenciar maiúsculas), como no Rust */
@@ -677,6 +682,7 @@ const settingsHandlers: Record<string, MockHandler> = {
 
   // No navegador não há pasta para abrir: só confirma, como o app
   [RustCommand.OpenLogDir]: (): void => undefined,
+  [RustCommand.ReportWebviewState]: (): void => undefined,
 };
 
 // ── Ferramentas do Postgres (backup/restore) ────────────────────────────────
@@ -1060,6 +1066,9 @@ function resolveQueryTable(
 const READ_COMMAND =
   /^\s*(select|with|show|explain|table|db\.|get|scan|hgetall|keys|lrange|smembers|zrange)/i;
 
+/** Ids com cancelamento pedido, consumidos pela execução em `pg_sleep` */
+const cancelledQueries = new Set<string>();
+
 const queryHandlers: Record<string, MockHandler> = {
   [RustCommand.ExecuteQuery]: async ({
     serverId,
@@ -1075,6 +1084,20 @@ const queryHandlers: Record<string, MockHandler> = {
     const startedAt = performance.now();
 
     emitStart(entry, channel);
+
+    // `pg_sleep(n)` segura a execução por n segundos (até 60), para exercitar
+    // o Cancelar: o `cancel_query` com o `queryId` dela rejeita com CANCELLED.
+    const sleep = /pg_sleep\(\s*(\d+(?:\.\d+)?)\s*\)/i.exec(sql);
+    if (sleep && entry.capabilities.supportsQueryCancel) {
+      const queryId = opts.queryId ?? null;
+      const until = performance.now() + Math.min(Number(sleep[1]), 60) * 1000;
+      while (performance.now() < until) {
+        if (queryId && cancelledQueries.delete(queryId)) {
+          throw 'Operation cancelled';
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
 
     if (!READ_COMMAND.test(sql)) {
       // DDL/DML no editor: sem result set, só a linha de conclusão.
@@ -1224,7 +1247,9 @@ const queryHandlers: Record<string, MockHandler> = {
     }
   },
 
-  [RustCommand.CancelQuery]: (): void => undefined,
+  [RustCommand.CancelQuery]: ({ queryId }: Args): void => {
+    cancelledQueries.add(queryId as string);
+  },
 };
 
 function editTarget(serverId: unknown, database: unknown, editable: unknown) {

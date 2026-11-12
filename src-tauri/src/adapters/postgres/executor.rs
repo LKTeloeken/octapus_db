@@ -28,12 +28,36 @@ pub(super) struct PidGuard<'a> {
 }
 
 impl<'a> PidGuard<'a> {
-    pub(super) fn new(registry: &'a QueryRegistry, query_id: &str) -> Self {
+    /// Registra o backend da execução `query_id`; a entrada sai no Drop.
+    pub(super) fn register(registry: &'a QueryRegistry, query_id: &str, pid: i32) -> Self {
+        add_pid(registry, query_id, pid);
         Self {
             registry,
             query_id: query_id.to_string(),
         }
     }
+}
+
+/// Mais um backend trabalhando pela execução (o COUNT do total).
+fn add_pid(registry: &QueryRegistry, query_id: &str, pid: i32) {
+    registry
+        .lock()
+        .unwrap()
+        .entry(query_id.to_string())
+        .or_default()
+        .pids
+        .push(pid);
+}
+
+/// O app pediu o cancelamento desta execução (`cancel_query`)?
+fn was_cancelled(registry: &QueryRegistry, query_id: Option<&str>) -> bool {
+    query_id.is_some_and(|id| {
+        registry
+            .lock()
+            .unwrap()
+            .get(id)
+            .is_some_and(|active| active.cancelled)
+    })
 }
 
 impl Drop for PidGuard<'_> {
@@ -83,13 +107,7 @@ pub async fn execute_query(
     };
 
     let _pid_guard = match (options.query_id.as_deref(), pid) {
-        (Some(query_id), Some(pid)) => {
-            registry.lock().unwrap().insert(query_id.to_string(), pid);
-            Some(PidGuard {
-                registry,
-                query_id: query_id.to_string(),
-            })
-        }
+        (Some(query_id), Some(pid)) => Some(PidGuard::register(registry, query_id, pid)),
         _ => None,
     };
 
@@ -153,6 +171,15 @@ pub async fn execute_query(
             ..pool.timeouts()
         };
         let count_client = pool.timeout_get(&timeouts).await.ok()?;
+        // Cancelar a query cancela também o COUNT, que reexecuta ela inteira
+        if let Some(query_id) = options.query_id.as_deref() {
+            let pid: i32 = count_client
+                .query_one("SELECT pg_backend_pid()", &[])
+                .await
+                .ok()?
+                .get(0);
+            add_pid(registry, query_id, pid);
+        }
         if let Some(schema) = options.schema.as_deref() {
             let path = format!("{}, public", quote_ident(schema));
             count_client
@@ -176,13 +203,18 @@ pub async fn execute_query(
     let messages = match messages {
         Ok(messages) => messages,
         Err(err) => {
+            let cancelled = was_cancelled(registry, options.query_id.as_deref());
             // O toast recebe só a mensagem curta; no log vai o pacote inteiro,
             // com SQLSTATE, DETAIL, HINT e o CONTEXT da pilha do PL/pgSQL.
-            if let (Some(sink), Some(db_error)) = (sink.as_ref(), err.as_db_error()) {
+            if let (Some(sink), Some(db_error), false) = (sink.as_ref(), err.as_db_error(), cancelled) {
                 sink.push(message_from_db_error(db_error, true));
             }
             if options.schema.is_some() {
                 let _ = client.batch_execute("RESET search_path").await;
+            }
+            // Cancelada a pedido: não é falha do banco
+            if cancelled {
+                return Err(Error::Cancelled);
             }
             return Err(err.into());
         }
@@ -757,6 +789,7 @@ mod tests {
             scope_schemas: None,
             group_id: None,
             assistant_sample_values: false,
+            display_timezone: None,
             created_at: 0,
         };
 
@@ -790,10 +823,8 @@ mod tests {
         adapter.cancel_query(query_id).await.unwrap();
 
         let err = handle.await.unwrap().unwrap_err();
-        assert!(
-            err.to_string().contains("canceling statement"),
-            "expected cancellation error, got: {err}"
-        );
+        // Cancelada a pedido do app: sai como cancelamento, não como falha
+        assert!(matches!(err, Error::Cancelled), "expected cancellation, got: {err}");
 
         // The guard must clean the registry once the query errors out
         assert!(!adapter.active_queries.lock().unwrap().contains_key(query_id));
@@ -828,6 +859,7 @@ mod tests {
             scope_schemas: None,
             group_id: None,
             assistant_sample_values: false,
+            display_timezone: None,
             created_at: 0,
         };
         let admin = PostgresAdapter::new(&server, "postgres").unwrap();
@@ -942,6 +974,7 @@ mod tests {
             scope_schemas: None,
             group_id: None,
             assistant_sample_values: false,
+            display_timezone: None,
             created_at: 0,
         };
 
@@ -1030,6 +1063,113 @@ mod tests {
         drop(adapter);
         admin
             .execute_statement("DROP DATABASE octapus_db_e2e_types WITH (FORCE)")
+            .await
+            .unwrap();
+    }
+
+    /// Fuso da sessão (`Server::display_timezone`): o banco mostra o
+    /// `timestamptz` no fuso escolhido e lê nele o valor editado sem offset —
+    /// o instante gravado é o certo, visto de outra sessão em UTC.
+    #[tokio::test]
+    #[ignore = "requires local postgres on localhost:5432 (postgres/1234)"]
+    async fn e2e_session_timezone_shows_and_saves_the_right_instant() {
+        use crate::adapters::postgres::PostgresAdapter;
+        use crate::adapters::DatabaseAdapter;
+        use crate::models::{DatabaseType, EditableInfo, QueryOptions, RowEdit, Server};
+
+        let server = |timezone: Option<&str>| Server {
+            id: Some(1),
+            name: "e2e".into(),
+            db_type: DatabaseType::Postgres,
+            host: "localhost".into(),
+            port: 5432,
+            username: "postgres".into(),
+            password: "1234".into(),
+            default_database: None,
+            ssl_mode: crate::models::SslMode::Disable,
+            ssl_root_cert: None,
+            connection_uri: None,
+            scope_databases: None,
+            scope_schemas: None,
+            group_id: None,
+            assistant_sample_values: false,
+            display_timezone: timezone.map(str::to_string),
+            created_at: 0,
+        };
+
+        let admin = PostgresAdapter::new(&server(None), "postgres").unwrap();
+        admin
+            .execute_statement("DROP DATABASE IF EXISTS octapus_db_e2e_tz WITH (FORCE)")
+            .await
+            .unwrap();
+        admin.execute_statement("CREATE DATABASE octapus_db_e2e_tz").await.unwrap();
+
+        // Outro cliente, em UTC: é a referência do que ficou gravado
+        let utc = PostgresAdapter::new(&server(Some("UTC")), "octapus_db_e2e_tz").unwrap();
+        let local = PostgresAdapter::new(&server(Some("America/Sao_Paulo")), "octapus_db_e2e_tz").unwrap();
+
+        utc.execute_statement("CREATE TABLE eventos (id int PRIMARY KEY, em timestamptz, lista timestamptz[])")
+            .await
+            .unwrap();
+        utc.execute_statement(
+            "INSERT INTO eventos VALUES (1, '2026-11-07 20:27:15.185272+00', \
+                                         ARRAY['2026-11-07 20:27:15+00'::timestamptz])",
+        )
+        .await
+        .unwrap();
+
+        async fn read(adapter: &PostgresAdapter) -> Vec<Option<String>> {
+            adapter
+                .execute_query("SELECT em, lista FROM eventos WHERE id = 1", QueryOptions::default())
+                .await
+                .unwrap()
+                .rows
+                .remove(0)
+        }
+
+        // Exibição: o mesmo instante, cada sessão no seu fuso — arrays inclusos
+        assert_eq!(read(&utc).await[0].as_deref(), Some("2026-11-07 20:27:15.185272+00"));
+        let shown = read(&local).await;
+        assert_eq!(shown[0].as_deref(), Some("2026-11-07 17:27:15.185272-03"));
+        assert_eq!(shown[1].as_deref(), Some("{\"2026-11-07 17:27:15-03\"}"));
+
+        let editable = EditableInfo {
+            schema: "public".into(),
+            table: "eventos".into(),
+            primary_key_columns: vec!["id".into()],
+            primary_key_column_indices: vec![0],
+        };
+        let edit = |value: &str| {
+            vec![RowEdit {
+                pk_values: vec![Some("1".into())],
+                changes: vec![("em".into(), Some(value.to_string()))],
+            }]
+        };
+
+        // Edição sem offset: vale o fuso da sessão (18:00 em São Paulo = 21:00 UTC)
+        local.apply_row_edits(&editable, edit("2026-11-07 18:00:00")).await.unwrap();
+        assert_eq!(read(&utc).await[0].as_deref(), Some("2026-11-07 21:00:00+00"));
+        assert_eq!(read(&local).await[0].as_deref(), Some("2026-11-07 18:00:00-03"));
+
+        // Edição com offset explícito: vale o offset, qualquer que seja a sessão
+        local.apply_row_edits(&editable, edit("2026-11-07 10:00:00+02")).await.unwrap();
+        assert_eq!(read(&utc).await[0].as_deref(), Some("2026-11-07 08:00:00+00"));
+
+        // O fuso é só da sessão: a configuração do banco não muda
+        let setting = admin
+            .execute_query(
+                "SELECT count(*) FROM pg_db_role_setting s JOIN pg_database d ON d.oid = s.setdatabase \
+                 WHERE d.datname = 'octapus_db_e2e_tz'",
+                QueryOptions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(setting.rows[0][0].as_deref(), Some("0"));
+
+        drop(utc);
+        drop(local);
+        admin
+            .execute_statement("DROP DATABASE octapus_db_e2e_tz WITH (FORCE)")
             .await
             .unwrap();
     }

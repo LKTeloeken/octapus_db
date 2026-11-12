@@ -145,7 +145,7 @@ mod tests {
                 host: "localhost".into(),
                 port: 5432,
                 username: "u".into(),
-                password: "p".into(),
+                password: Some("p".into()),
                 default_database: None,
                 ssl_mode: None,
                 ssl_root_cert: None,
@@ -154,6 +154,7 @@ mod tests {
                 scope_schemas: None,
                 group_id,
                 assistant_sample_values: false,
+                display_timezone: None,
             },
         )
         .unwrap()

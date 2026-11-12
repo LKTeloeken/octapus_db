@@ -92,6 +92,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             "assistant_sample_values",
             "ALTER TABLE servers ADD COLUMN assistant_sample_values INTEGER NOT NULL DEFAULT 0",
         ),
+        ("display_timezone", "ALTER TABLE servers ADD COLUMN display_timezone TEXT"),
     ];
 
     for (col_name, alter_sql) in migrations {

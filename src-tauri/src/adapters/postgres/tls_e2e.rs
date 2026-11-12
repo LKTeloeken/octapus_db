@@ -26,6 +26,7 @@ fn server(ssl_mode: SslMode, ssl_root_cert: Option<String>) -> Server {
         scope_schemas: None,
         group_id: None,
         assistant_sample_values: false,
+        display_timezone: None,
     }
 }
 

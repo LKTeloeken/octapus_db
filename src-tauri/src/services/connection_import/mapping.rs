@@ -239,7 +239,7 @@ pub fn to_server_input(
         host: mapped.host,
         port: mapped.port,
         username: mapped.username,
-        password,
+        password: Some(password),
         default_database: mapped.default_database,
         ssl_mode: Some(mapped.ssl_mode),
         ssl_root_cert: None,
@@ -248,6 +248,7 @@ pub fn to_server_input(
         scope_schemas: None,
         group_id,
         assistant_sample_values: false,
+        display_timezone: None,
     })
 }
 
@@ -423,7 +424,7 @@ mod tests {
         assert!(candidate.warnings.is_empty());
 
         let input = to_server_input(&raw, "s3cret".into(), Some(7)).unwrap();
-        assert_eq!(input.password, "s3cret");
+        assert_eq!(input.password.as_deref(), Some("s3cret"));
         assert_eq!(input.group_id, Some(7));
         assert_eq!(input.default_database.as_deref(), Some("loja"));
     }
@@ -467,6 +468,7 @@ mod tests {
             scope_schemas: None,
             group_id: None,
             assistant_sample_values: false,
+            display_timezone: None,
         };
         assert_eq!(
             to_candidate(0, &pg("localhost"), std::slice::from_ref(&existing)).duplicate_of,

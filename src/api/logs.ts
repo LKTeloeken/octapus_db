@@ -5,3 +5,17 @@ import { RustCommand } from './commands';
 export function openLogDir(): Promise<void> {
   return call<void>(RustCommand.OpenLogDir);
 }
+
+/**
+ * Registra no log do app o estado da webview: a rede mudou (`hiddenMinutes`
+ * ausente) ou a janela voltou depois de `hiddenMinutes` escondida.
+ */
+export function reportWebviewState(
+  online: boolean,
+  hiddenMinutes?: number,
+): Promise<void> {
+  return call<void>(RustCommand.ReportWebviewState, {
+    online,
+    hiddenMinutes: hiddenMinutes ?? null,
+  });
+}

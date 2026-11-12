@@ -30,6 +30,8 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
   const {
     result,
     isRunning,
+    cancelRun,
+    isCancelling,
     isLoadingMore,
     supportsSql,
     placeholder,
@@ -100,6 +102,8 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
           <div className="flex h-full flex-col overflow-hidden">
             <QueryEditorToolbar
               onRun={runFromToolbar}
+              onCancel={cancelRun}
+              isCancelling={isCancelling}
               isLoading={isRunning}
               serverName={serverName}
               database={tab.database}

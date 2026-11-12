@@ -16,3 +16,12 @@ export function useAssistantStatus() {
     staleTime: STATUS_STALE_TIME_MS,
   });
 }
+
+/**
+ * O assistente existe neste app? Só com a URL da API no build **e** o canal
+ * beta ligado (o backend responde `configured: false` fora disso): é o que
+ * decide se botões, atalhos e configurações do assistente aparecem.
+ */
+export function useAssistantAvailable() {
+  return useAssistantStatus().data?.configured === true;
+}

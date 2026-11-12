@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use parking_lot::Mutex;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, InterruptHandle, OpenFlags};
 
 use crate::adapters::{DatabaseAdapter, ReadOnlyLimits, ReadOnlyOp};
 use crate::error::{Error, Result};
@@ -24,6 +24,16 @@ pub struct SqliteAdapter {
     /// Nome do banco (`main`). O SQLite não tem nível de schema, então ele faz
     /// o papel de "schema" nos modelos — mesma convenção do Mongo e do Redis.
     database: String,
+    /// Interrompe o que estiver rodando na conexão (`cancel_query`).
+    interrupt: Arc<InterruptHandle>,
+    /// A execução do editor em andamento e se o app pediu para cancelá-la.
+    /// A conexão é uma só, então há no máximo uma por vez.
+    running: Arc<Mutex<Option<RunningQuery>>>,
+}
+
+struct RunningQuery {
+    id: String,
+    cancelled: bool,
 }
 
 impl SqliteAdapter {
@@ -31,6 +41,8 @@ impl SqliteAdapter {
         let conn = open(&resolve_path(server)?)?;
 
         Ok(Self {
+            interrupt: Arc::new(conn.get_interrupt_handle()),
+            running: Arc::new(Mutex::new(None)),
             conn: Arc::new(Mutex::new(conn)),
             database: database.to_string(),
         })
@@ -120,9 +132,35 @@ impl DatabaseAdapter for SqliteAdapter {
     async fn execute_query(&self, query: &str, options: QueryOptions) -> Result<QueryResult> {
         let query = query.to_string();
         let database = self.database.clone();
+        let running = Arc::clone(&self.running);
 
-        self.with_conn(move |conn| executor::execute_query(conn, &query, options, &database))
-            .await
+        self.with_conn(move |conn| {
+            // Marcada só com a conexão na mão: o interrupt do `cancel_query`
+            // nunca acerta a execução de outra aba que estava na frente.
+            let query_id = options.query_id.clone();
+            if let Some(id) = query_id.clone() {
+                *running.lock() = Some(RunningQuery { id, cancelled: false });
+            }
+            let result = executor::execute_query(conn, &query, options, &database);
+            let cancelled = query_id.is_some()
+                && running.lock().take().is_some_and(|query| query.cancelled);
+
+            match result {
+                // Interrompida a pedido: não é falha do banco
+                Err(_) if cancelled => Err(Error::Cancelled),
+                other => other,
+            }
+        })
+        .await
+    }
+
+    async fn cancel_query(&self, query_id: &str) -> Result<()> {
+        // Outro id (ou nada rodando): a query já terminou, nada a fazer
+        if let Some(query) = self.running.lock().as_mut().filter(|query| query.id == query_id) {
+            query.cancelled = true;
+            self.interrupt.interrupt();
+        }
+        Ok(())
     }
 
     async fn execute_read_only(&self, op: &ReadOnlyOp, page: QueryOptions) -> Result<QueryResult> {
@@ -299,8 +337,49 @@ mod tests {
             scope_schemas: None,
             group_id: None,
             assistant_sample_values: false,
+            display_timezone: None,
             created_at: 0,
         }
+    }
+
+    /// O `cancel_query` interrompe a execução marcada com o `query_id` e o
+    /// erro sai como cancelamento, não como falha do banco.
+    #[tokio::test]
+    async fn cancel_query_interrupts_the_running_query() {
+        let (server, path) = fixture("cancel", "CREATE TABLE t (id INTEGER)");
+        let adapter = Arc::new(SqliteAdapter::new(&server, "main").unwrap());
+
+        let runner = Arc::clone(&adapter);
+        let run = tokio::spawn(async move {
+            // Conta sem parar: só termina interrompida
+            let endless = "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n) \
+                           SELECT count(*) FROM n";
+            let options = QueryOptions { query_id: Some("q1".into()), ..Default::default() };
+            runner.execute_query(endless, options).await
+        });
+
+        // Espera a execução se registrar antes de cancelar
+        for _ in 0..200 {
+            if adapter.running.lock().is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        // Id de outra execução não interrompe nada
+        adapter.cancel_query("other").await.unwrap();
+        adapter.cancel_query("q1").await.unwrap();
+
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), run)
+            .await
+            .expect("a query não foi interrompida")
+            .unwrap();
+        assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
+        assert!(adapter.running.lock().is_none());
+
+        // A conexão segue utilizável
+        let after = adapter.execute_query("SELECT 1", QueryOptions::default()).await.unwrap();
+        assert_eq!(after.rows.len(), 1);
+        let _ = std::fs::remove_file(path);
     }
 
     fn editable_for(table: &str) -> EditableInfo {

@@ -10,7 +10,7 @@ use crate::storage::{secrets, vault};
 const SELECT_COLUMNS: &str = "id, name, db_type, host, port, username, password, \
                               default_database, ssl_mode, connection_uri, created_at, \
                               scope_databases, scope_schemas, group_id, ssl_root_cert, \
-                              assistant_sample_values";
+                              assistant_sample_values, display_timezone";
 
 /// Get all servers (metadata only). The UI never displays passwords, so the
 /// stored ciphertext is never decrypted nor returned here.
@@ -78,14 +78,16 @@ pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server>
     let db_type_str = db_type_to_string(&input.db_type);
     let ssl = SslColumns::from_input(&input);
     let sample_values = sample_values(&input);
-    let encrypted = vault::encrypt(&input.password)?;
+    let timezone = input.session_timezone();
+    let password = input.password.unwrap_or_default();
+    let encrypted = vault::encrypt(&password)?;
 
     let mut stmt = conn.prepare(&format!(
         "INSERT INTO servers (name, db_type, host, port, username, password, \
                               default_database, ssl_enabled, connection_uri, created_at, \
                               scope_databases, scope_schemas, group_id, ssl_mode, ssl_root_cert, \
-                              assistant_sample_values) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16) \
+                              assistant_sample_values, display_timezone) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17) \
          RETURNING {SELECT_COLUMNS}"
     ))?;
 
@@ -108,33 +110,37 @@ pub fn create(storage: &Mutex<Connection>, input: ServerInput) -> Result<Server>
                 ssl.mode,
                 ssl.root_cert,
                 sample_values,
+                timezone,
             ],
             map_row,
         )
         .map_err(|e| Error::Storage(e.to_string()))?;
 
     // Keep the plaintext in the returned value for immediate use.
-    server.password = input.password;
+    server.password = password;
 
     Ok(server)
 }
 
 /// Update an existing server. The password is encrypted into the vault before
-/// being stored.
+/// being stored; `None` keeps the stored one (the form never gets it back, so
+/// renaming a server must not ask for it again).
 pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Result<Server> {
     let conn = storage.lock();
 
     let db_type_str = db_type_to_string(&input.db_type);
     let ssl = SslColumns::from_input(&input);
     let sample_values = sample_values(&input);
-    let encrypted = vault::encrypt(&input.password)?;
+    let timezone = input.session_timezone();
+    let encrypted = input.password.as_deref().map(vault::encrypt).transpose()?;
 
     let mut stmt = conn.prepare(&format!(
         "UPDATE servers \
          SET name = ?1, db_type = ?2, host = ?3, port = ?4, username = ?5, \
-             password = ?6, default_database = ?7, ssl_enabled = ?8, connection_uri = ?9, \
+             password = COALESCE(?6, password), default_database = ?7, ssl_enabled = ?8, connection_uri = ?9, \
              scope_databases = ?11, scope_schemas = ?12, group_id = ?13, \
-             ssl_mode = ?14, ssl_root_cert = ?15, assistant_sample_values = ?16 \
+             ssl_mode = ?14, ssl_root_cert = ?15, assistant_sample_values = ?16, \
+             display_timezone = ?17 \
          WHERE id = ?10 \
          RETURNING {SELECT_COLUMNS}"
     ))?;
@@ -158,6 +164,7 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
                 ssl.mode,
                 ssl.root_cert,
                 sample_values,
+                timezone,
             ],
             map_row,
         )
@@ -168,7 +175,8 @@ pub fn update(storage: &Mutex<Connection>, id: i64, input: ServerInput) -> Resul
             _ => Error::Storage(e.to_string()),
         })?;
 
-    server.password = input.password;
+    // Nunca o texto cifrado: a senha nova, ou nada quando a salva ficou
+    server.password = input.password.unwrap_or_default();
 
     Ok(server)
 }
@@ -241,6 +249,7 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<Server> {
         scope_schemas: row.get(12)?,
         group_id: row.get(13)?,
         assistant_sample_values: row.get(15)?,
+        display_timezone: row.get(16)?,
     })
 }
 
@@ -346,7 +355,7 @@ mod tests {
             host: "localhost".into(),
             port: 5432,
             username: "user".into(),
-            password: "s3cret".into(),
+            password: Some("s3cret".into()),
             default_database: None,
             ssl_mode: None,
             ssl_root_cert: None,
@@ -355,6 +364,7 @@ mod tests {
             scope_schemas: None,
             group_id: None,
             assistant_sample_values: false,
+            display_timezone: None,
         }
     }
 
@@ -385,6 +395,50 @@ mod tests {
         // Metadata paths never expose the secret.
         assert_eq!(get_by_id_meta(&storage, id).unwrap().password, "");
         assert_eq!(get_all(&storage).unwrap()[0].password, "");
+    }
+
+    #[test]
+    fn update_without_password_keeps_the_stored_one() {
+        vault::init_for_tests();
+        let storage = Mutex::new(init_storage(":memory:").unwrap());
+        let id = create(&storage, sample_input()).unwrap().id.unwrap();
+
+        // Só o nome: a senha salva fica, e o retorno não traz o texto cifrado
+        let renamed = ServerInput { name: "renamed".into(), password: None, ..sample_input() };
+        let updated = update(&storage, id, renamed).unwrap();
+        assert_eq!(updated.name, "renamed");
+        assert_eq!(updated.password, "");
+        assert_eq!(get_by_id(&storage, id).unwrap().password, "s3cret");
+
+        // Senha nova troca; vazia explícita remove
+        let changed = ServerInput { password: Some("n3w".into()), ..sample_input() };
+        update(&storage, id, changed).unwrap();
+        assert_eq!(get_by_id(&storage, id).unwrap().password, "n3w");
+        let removed = ServerInput { password: Some(String::new()), ..sample_input() };
+        update(&storage, id, removed).unwrap();
+        assert_eq!(get_by_id(&storage, id).unwrap().password, "");
+    }
+
+    #[test]
+    fn session_timezone_is_stored_only_where_supported_and_valid() {
+        vault::init_for_tests();
+        let storage = Mutex::new(init_storage(":memory:").unwrap());
+        let with_zone = |db_type, zone: &str| ServerInput {
+            db_type,
+            display_timezone: Some(zone.into()),
+            ..sample_input()
+        };
+
+        let created = create(&storage, with_zone(DatabaseType::Postgres, " America/Sao_Paulo ")).unwrap();
+        assert_eq!(created.display_timezone.as_deref(), Some("America/Sao_Paulo"));
+        let id = created.id.unwrap();
+
+        // Nome que não é de fuso (iria para as opções da conexão) não grava
+        let bad = update(&storage, id, with_zone(DatabaseType::Postgres, "UTC -c x=y")).unwrap();
+        assert_eq!(bad.display_timezone, None);
+        // Banco sem fuso de sessão não grava
+        let mongo = update(&storage, id, with_zone(DatabaseType::Mongodb, "UTC")).unwrap();
+        assert_eq!(mongo.display_timezone, None);
     }
 
     #[test]

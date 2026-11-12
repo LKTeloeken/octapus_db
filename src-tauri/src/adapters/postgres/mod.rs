@@ -22,9 +22,20 @@ use crate::adapters::{DatabaseAdapter, MessageSink, PoolStats, ReadOnlyLimits, R
 
 use self::notices::NoticeHub;
 
-/// Maps in-flight query ids to the backend PID of the connection running
-/// them, so cancel_query can issue pg_cancel_backend from another connection.
-type QueryRegistry = Mutex<HashMap<String, i32>>;
+/// Uma execução em andamento, vista pelo `cancel_query`.
+#[derive(Default)]
+pub(super) struct ActiveQuery {
+    /// PIDs dos backends trabalhando por ela: o da query e, no editor, o do
+    /// COUNT do total (que roda em outra conexão).
+    pids: Vec<i32>,
+    /// O cancelamento foi pedido pelo app: o erro que o banco devolver vira
+    /// `Error::Cancelled`, e não uma falha de query.
+    cancelled: bool,
+}
+
+/// Maps in-flight query ids to the backend PIDs running them, so cancel_query
+/// can issue pg_cancel_backend from another connection.
+type QueryRegistry = Mutex<HashMap<String, ActiveQuery>>;
 
 pub struct PostgresAdapter {
     pool: Pool,
@@ -189,24 +200,29 @@ impl DatabaseAdapter for PostgresAdapter {
     }
 
     async fn cancel_query(&self, query_id: &str) -> Result<()> {
-        let pid = self.active_queries.lock().unwrap().get(query_id).copied();
-
         // Unknown id means the query already finished (or never registered a
         // query_id); cancelling is then a benign no-op.
-        let Some(pid) = pid else {
-            return Ok(());
+        let pids = match self.active_queries.lock().unwrap().get_mut(query_id) {
+            Some(active) => {
+                active.cancelled = true;
+                active.pids.clone()
+            }
+            None => return Ok(()),
         };
 
         let client = self.pool.get().await?;
-        let cancelled: bool = client
-            .query_one("SELECT pg_cancel_backend($1)", &[&pid])
-            .await?
-            .get(0);
+        for (index, pid) in pids.iter().enumerate() {
+            let cancelled: bool = client
+                .query_one("SELECT pg_cancel_backend($1)", &[pid])
+                .await?
+                .get(0);
 
-        if !cancelled {
-            return Err(Error::Query(format!(
-                "Could not cancel query {query_id}: backend {pid} no longer exists"
-            )));
+            // O primeiro é o da query; os demais (COUNT) podem já ter acabado
+            if !cancelled && index == 0 {
+                return Err(Error::Query(format!(
+                    "Could not cancel query {query_id}: backend {pid} no longer exists"
+                )));
+            }
         }
 
         Ok(())

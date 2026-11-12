@@ -1,6 +1,8 @@
 import { useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { useSettings, useUpdateSettings } from '@/queries/use-settings';
+import { isPrerelease } from '@/lib/update-schedule';
+import { useAssistantStore } from '@/stores/assistant-store';
 import { useUpdateStore } from '@/stores/update-store';
 
 const errorMessage = (error: unknown) =>
@@ -37,12 +39,21 @@ export const useUpdatesSection = () => {
 
   const betaUpdates = settings?.betaUpdates ?? false;
 
+  // Entrar no beta só a partir de um build pre-release (ou em dev): a versão
+  // estável não oferece o canal enquanto o assistente depende de convite.
+  // Quem já está nele continua vendo a opção, para poder sair.
+  const canChooseBeta =
+    betaUpdates || isPrerelease(__APP_VERSION__) || import.meta.env.DEV;
+
   const setBetaUpdates = useCallback(
-    (betaUpdates: boolean) =>
+    (betaUpdates: boolean) => {
+      // O assistente sai junto com o canal beta
+      if (!betaUpdates) useAssistantStore.getState().closePanel();
       mutate(
         { betaUpdates },
         { onError: error => toast.error(errorMessage(error)) },
-      ),
+      );
+    },
     [mutate],
   );
 
@@ -69,6 +80,7 @@ export const useUpdatesSection = () => {
 
   return {
     betaUpdates,
+    canChooseBeta,
     isLoading: isPending,
     setBetaUpdates,
     status,

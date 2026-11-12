@@ -172,6 +172,7 @@ pub async fn cancel_query(
     let Some((adapter, _)) = state.connections.get_cached(server_id, &database) else {
         return Ok(());
     };
+    log::info!("server {server_id} db {database}: cancelamento de query pedido");
 
     adapter.cancel_query(&query_id).await
 }

@@ -82,6 +82,7 @@ pub fn pg_server(port: u16) -> Server {
         scope_schemas: None,
         group_id: None,
         assistant_sample_values: false,
+        display_timezone: None,
         created_at: 0,
     }
 }
@@ -103,6 +104,7 @@ pub fn mongo_server(port: u16) -> Server {
         scope_schemas: None,
         group_id: None,
         assistant_sample_values: false,
+        display_timezone: None,
         created_at: 0,
     }
 }

@@ -25,7 +25,7 @@ export const PERSISTED_DOMAINS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Mutação pausada (sem rede, ou esperando a vez na fila de um `scope`) vai
+ * Mutação pausada (esperando a vez na fila de um `scope`) vai
  * para o disco com as variáveis — menos as do assistente (RN-01): o
  * comentário de uma avaliação, por exemplo, nunca é gravado.
  */
@@ -50,9 +50,19 @@ export const PERSIST_DEHYDRATE_OPTIONS: DehydrateOptions = {
 
 const queryClient = new QueryClient({
   defaultOptions: {
+    // Tudo aqui é IPC com o backend local, não rede do navegador. No modo
+    // padrão (`online`), bastava a webview se dizer offline — o WebKitGTK faz
+    // isso depois de suspender ou trocar de rede, e nem sempre desfaz — para
+    // toda query e mutação ficar pausada, sem spinner nem erro: o app parecia
+    // travado até reiniciar. Quem sabe se o banco responde é o backend.
     queries: {
       retry: 1,
       refetchOnWindowFocus: false,
+      networkMode: 'always',
+      refetchOnReconnect: false,
+    },
+    mutations: {
+      networkMode: 'always',
     },
   },
 });

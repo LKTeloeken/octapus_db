@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
+import { useAssistantAvailable } from '@/queries/use-assistant-status';
 import {
   SHORTCUT_GROUPS,
   SHORTCUT_IDS,
@@ -93,6 +94,7 @@ const normalizeText = (text: string) =>
   text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 export const useShortcutsSection = () => {
+  const assistantAvailable = useAssistantAvailable();
   const resolved = useKeybindingsStore(state => state.resolved);
   const overrides = useKeybindingsStore(state => state.overrides);
   const setRecordingFlag = useKeybindingsStore(state => state.setRecording);
@@ -290,13 +292,18 @@ export const useShortcutsSection = () => {
           .join(' ')}`,
       ).includes(needle);
 
-    return SHORTCUT_GROUPS.map(group => ({
-      group,
-      rows: rows.filter(
-        row => shortcutAction(row.id).group === group && matches(row),
-      ),
-    })).filter(group => group.rows.length > 0);
-  }, [query, resolved, overrides]);
+    // Sem o assistente no app, os atalhos dele não aparecem
+    return SHORTCUT_GROUPS.filter(
+      group => group !== 'Assistente' || assistantAvailable,
+    )
+      .map(group => ({
+        group,
+        rows: rows.filter(
+          row => shortcutAction(row.id).group === group && matches(row),
+        ),
+      }))
+      .filter(group => group.rows.length > 0);
+  }, [query, resolved, overrides, assistantAvailable]);
 
   const recordingLabel = recording
     ? recording.strokes.length > 0

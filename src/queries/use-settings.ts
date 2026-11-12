@@ -42,8 +42,14 @@ export function useUpdateSettings() {
         queryClient.setQueryData(queryKeys.settings, context.previous);
       }
     },
-    onSuccess: saved => {
+    onSuccess: (saved, patch) => {
       queryClient.setQueryData(queryKeys.settings, saved);
+      // O assistente só existe no canal beta (ver `assistant_status`)
+      if ('betaUpdates' in patch) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.assistantStatus,
+        });
+      }
     },
   });
 }

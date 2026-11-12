@@ -39,6 +39,7 @@ const server = (id: number, dbType: Server['dbType']): Server => ({
   scopeSchemas: null,
   groupId: null,
   assistantSampleValues: false,
+  displayTimezone: null,
 });
 
 const status = (overrides: Partial<CatalogStatus> = {}): CatalogStatus => ({

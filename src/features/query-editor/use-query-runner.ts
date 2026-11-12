@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
+import { hasErrorCode } from '@/api/client';
 import type { QueryColumnInfo, QueryMessage } from '@/api/types/query.types';
 import type { SaveRowChanges } from '@/components/results-table/results-table.types';
 import { usePendingChangesGuard } from '@/components/results-table/use-pending-changes-guard';
@@ -11,7 +12,7 @@ import {
   useSaveRowChanges,
 } from '@/queries/use-apply-row-edits';
 import { useCapabilities } from '@/queries/use-capabilities';
-import { useExecuteQuery } from '@/queries/use-execute-query';
+import { useCancelQuery, useExecuteQuery } from '@/queries/use-execute-query';
 import { useServers } from '@/queries/use-servers';
 import {
   useQueryResultsStore,
@@ -55,13 +56,17 @@ export const useQueryRunner = (tab: QueryTab) => {
   const insertRowsMutation = useInsertRows();
   const deleteRowsMutation = useDeleteRows();
   const saveRowChangesMutation = useSaveRowChanges();
+  const cancelQueryMutation = useCancelQuery();
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  // Id da execução em andamento: é ele que o `cancel_query` mira
+  const runningQueryId = useRef<string | null>(null);
 
   const { data: servers } = useServers();
   const { data: capabilities } = useCapabilities(tab.serverId);
   const supportsSql = capabilities?.supportsSql ?? true;
   // Sem saber ainda (capabilities carregando), grava em etapas separadas
   const supportsAtomicSave = capabilities?.supportsAtomicSave === true;
+  const supportsCancel = capabilities?.supportsQueryCancel === true;
 
   const sqlCompletion = useSqlCompletion({
     serverId: tab.serverId,
@@ -100,16 +105,37 @@ export const useQueryRunner = (tab: QueryTab) => {
         frame ??= requestAnimationFrame(flush);
       };
 
+      const queryId = crypto.randomUUID();
+      runningQueryId.current = queryId;
+
       try {
         const result = await executeQuery.mutateAsync({
           serverId: tab.serverId,
           database: tab.database,
           query,
-          options: { schema: tab.schema },
+          options: { schema: tab.schema, queryId },
           onMessage,
         });
         setRun(tab.id, { query, result });
       } catch (error) {
+        // Cancelada a pedido: fica o registro no log, sem cara de falha, e o
+        // grid segue com o resultado anterior
+        if (hasErrorCode(error, 'CANCELLED')) {
+          pending.push({
+            kind: 'status',
+            severity: 'STATUS',
+            message: 'Consulta cancelada.',
+            detail: null,
+            hint: null,
+            context: null,
+            sqlState: null,
+            position: null,
+            timestampMs: Date.now(),
+          });
+          toast('Consulta cancelada.');
+          return;
+        }
+
         const message = error instanceof Error ? error.message : String(error);
         toast.error(message);
 
@@ -133,6 +159,7 @@ export const useQueryRunner = (tab: QueryTab) => {
         // informação útil está no log.
         setBottomTabInStore(tab.id, 'messages');
       } finally {
+        if (runningQueryId.current === queryId) runningQueryId.current = null;
         if (frame !== null) cancelAnimationFrame(frame);
         flush();
       }
@@ -149,6 +176,19 @@ export const useQueryRunner = (tab: QueryTab) => {
       setBottomTabInStore,
     ],
   );
+
+  const { mutate: requestCancel } = cancelQueryMutation;
+  const cancelRun = useCallback(() => {
+    const queryId = runningQueryId.current;
+    if (!queryId) return;
+    requestCancel(
+      { serverId: tab.serverId, database: tab.database, queryId },
+      {
+        onError: error =>
+          toast.error(error instanceof Error ? error.message : String(error)),
+      },
+    );
+  }, [tab.serverId, tab.database, requestCancel]);
 
   const loadMore = useCallback(async () => {
     if (!run || !run.result.hasMore || isLoadingMore) return;
@@ -279,6 +319,10 @@ export const useQueryRunner = (tab: QueryTab) => {
   return {
     result: run?.result ?? null,
     isRunning: executeQuery.isPending && !isLoadingMore,
+    // Sem a capability (banco sem cancelamento, ou ainda carregando), o
+    // Executar só espera, como antes
+    cancelRun: supportsCancel ? cancelRun : undefined,
+    isCancelling: cancelQueryMutation.isPending,
     isLoadingMore,
     supportsSql,
     placeholder: PLACEHOLDERS[dbType] ?? PLACEHOLDERS.postgres,

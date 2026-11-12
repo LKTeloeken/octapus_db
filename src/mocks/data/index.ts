@@ -35,6 +35,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsAtomicSave: true,
     supportsAssistant: true,
     assistantSampleValues: false,
+    sessionTimezone: true,
+    supportsQueryCancel: true,
     queryLanguage: 'sql',
     structureFolders: ['view', 'materializedView', 'function', 'sequence'],
     relationFolders: ['index', 'trigger', 'foreignKey'],
@@ -54,6 +56,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsAtomicSave: true,
     supportsAssistant: true,
     assistantSampleValues: true,
+    sessionTimezone: false,
+    supportsQueryCancel: false,
     queryLanguage: 'mongo',
     structureFolders: ['view'],
     relationFolders: ['index'],
@@ -73,6 +77,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsAtomicSave: false,
     supportsAssistant: true,
     assistantSampleValues: false,
+    sessionTimezone: false,
+    supportsQueryCancel: false,
     queryLanguage: 'redis_plan',
     structureFolders: [],
     relationFolders: [],
@@ -92,6 +98,8 @@ export const CAPABILITIES: Record<DatabaseType, AdapterCapabilities> = {
     supportsAtomicSave: true,
     supportsAssistant: true,
     assistantSampleValues: false,
+    sessionTimezone: false,
+    supportsQueryCancel: true,
     queryLanguage: 'sql',
     structureFolders: ['view'],
     relationFolders: ['index', 'trigger', 'foreignKey'],
@@ -141,6 +149,7 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     scopeSchemas: null,
     groupId: 1,
     assistantSampleValues: false,
+    displayTimezone: null,
   },
   {
     name: 'Catálogo (Atlas)',
@@ -157,6 +166,7 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     scopeSchemas: null,
     groupId: null,
     assistantSampleValues: false,
+    displayTimezone: null,
   },
   {
     name: 'Notas (arquivo)',
@@ -174,6 +184,7 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     scopeSchemas: null,
     groupId: null,
     assistantSampleValues: false,
+    displayTimezone: null,
   },
   {
     name: 'Cache (dev)',
@@ -190,6 +201,7 @@ const SEED_SERVERS: Omit<Server, 'id'>[] = [
     scopeSchemas: null,
     groupId: 1,
     assistantSampleValues: false,
+    displayTimezone: null,
   },
 ];
 

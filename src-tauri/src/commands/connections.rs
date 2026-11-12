@@ -62,10 +62,9 @@ pub async fn test_server_input(
     server_id: Option<i64>,
 ) -> Result<()> {
     let mut server = input.to_server(server_id);
-    if server.password.is_empty() {
-        if let Some(id) = server_id {
-            server.password = servers::get_by_id(&state.storage, id)?.password;
-        }
+    // Sem senha no formulário (`None`), vale a salva; `Some("")` é sem senha
+    if let (None, Some(id)) = (&input.password, server_id) {
+        server.password = servers::get_by_id(&state.storage, id)?.password;
     }
     let result = test_server(&server, TEST_TIMEOUT).await;
     match &result {
@@ -125,7 +124,7 @@ mod tests {
             host: "127.0.0.1".into(),
             port,
             username: "u".into(),
-            password: "p".into(),
+            password: Some("p".into()),
             default_database: None,
             ssl_mode: Some(SslMode::Disable),
             ssl_root_cert: None,
@@ -134,6 +133,7 @@ mod tests {
             scope_schemas: None,
             group_id: None,
             assistant_sample_values: false,
+            display_timezone: None,
         }
     }
 

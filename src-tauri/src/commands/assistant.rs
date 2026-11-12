@@ -38,11 +38,22 @@ const CONVERSATIONS_PAGE: u32 = 30;
 /// Tamanho máximo da resposta a uma pergunta do modelo (o mesmo teto da API).
 const USER_REPLY_MAX: usize = 2000;
 
+/// A URL e o cliente da API — só para quem está no canal beta
+/// (`AppSettings::beta_updates`). Enquanto o assistente depende de convite,
+/// a versão estável não o mostra nem fala com a API: fora do beta tudo
+/// responde como um build sem a URL (`ASSISTANT_NOT_CONFIGURED`).
+fn endpoint(state: &AppState) -> Result<(&str, &ApiClient)> {
+    if !settings_store::load(&state.storage)?.beta_updates {
+        return Err(Error::AssistantNotConfigured);
+    }
+    state.assistant.endpoint()
+}
+
 /// Configurado? A API está no ar? Há login? Nunca rejeita por causa da API:
 /// sem URL ou com a API fora, o status diz isso e o resto do app segue (C-19).
 #[tauri::command]
 pub async fn assistant_status(state: State<'_, AppState>) -> Result<AssistantStatus> {
-    let Ok((api_url, client)) = state.assistant.endpoint() else {
+    let Ok((api_url, client)) = endpoint(&state) else {
         return Ok(AssistantStatus::not_configured());
     };
     let logged_in = assistant_store::load_token(&state.storage, api_url)?.is_some();
@@ -73,7 +84,7 @@ pub async fn assistant_redeem(
     invite_code: String,
     device_label: Option<String>,
 ) -> Result<AssistantParticipant> {
-    let (api_url, client) = state.assistant.endpoint()?;
+    let (api_url, client) = endpoint(&state)?;
     let redeemed = client
         .redeem(invite_code.trim(), device_label.as_deref())
         .await
@@ -201,7 +212,7 @@ pub async fn assistant_turn_ask(
     let sample_values = servers::get_by_id_meta(&state.storage, server_id)?.assistant_sample_values;
     let prompt = prompts::for_db(db_type).expect("banco com assistente tem prompt");
     let auto_execute = settings_store::load(&state.storage)?.assistant_auto_execute;
-    let (api_url, client) = state.assistant.endpoint()?;
+    let (api_url, client) = endpoint(&state)?;
     let token = assistant_store::load_token(&state.storage, api_url)?.ok_or_else(not_signed_in)?;
 
     let api = Intermediary {
@@ -385,7 +396,7 @@ pub async fn assistant_execute(
     let duration = Some(started.elapsed().as_millis() as i64);
 
     if let (Some(attempt_id), 0) = (attempt_id.as_deref(), offset) {
-        if let Ok((api_url, client)) = state.assistant.endpoint() {
+        if let Ok((api_url, client)) = endpoint(&state) {
             if let Ok(Some(token)) = assistant_store::load_token(&state.storage, api_url) {
                 let execution = ManualExecution {
                     result: &result,
@@ -569,7 +580,7 @@ where
     F: FnOnce(&'a ApiClient, String) -> Fut,
     Fut: Future<Output = Result<T>>,
 {
-    let (api_url, client) = state.assistant.endpoint()?;
+    let (api_url, client) = endpoint(state)?;
     let token = assistant_store::load_token(&state.storage, api_url)?.ok_or_else(not_signed_in)?;
 
     let result = call(client, token).await;
@@ -697,6 +708,7 @@ mod e2e {
             scope_schemas: None,
             group_id: None,
             assistant_sample_values: false,
+            display_timezone: None,
             created_at: 0,
         }
     }

@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { useCompactWindow } from '@/lib/window-size';
 import { QueryProvider } from '@/providers/query-provider';
 import { useSyncKeybindings } from '@/queries/use-keybindings';
+import { useWebviewDiagnostics } from '@/queries/use-webview-diagnostics';
 import { useAssistantStore } from '@/stores/assistant-store';
 import { useUiStore } from '@/stores/ui-store';
 import { CustomToaster } from './components/Toaster';
@@ -34,6 +35,12 @@ const ASSISTANT_MAX_PERCENT = 55;
 /** Os atalhos configurados (preferências) chegam ao store dos listeners */
 const KeybindingsSync = () => {
   useSyncKeybindings();
+  return null;
+};
+
+/** Estado da webview no log do app (rede, volta depois de muito tempo) */
+const WebviewDiagnostics = () => {
+  useWebviewDiagnostics();
   return null;
 };
 
@@ -141,6 +148,7 @@ const App = () => {
           )}
 
           <KeybindingsSync />
+          <WebviewDiagnostics />
           <CommandPalette />
           <AssistantShortcutsHost />
           <BackupDialogs />

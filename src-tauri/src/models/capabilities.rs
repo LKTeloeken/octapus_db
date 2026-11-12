@@ -64,6 +64,15 @@ pub struct AdapterCapabilities {
     /// `status` num documento sem esquema.
     pub assistant_sample_values: bool,
 
+    /// O servidor pode abrir as conexões num fuso escolhido
+    /// (`Server::display_timezone`): o banco mostra e lê `timestamptz` nele.
+    /// Só o Postgres, onde o fuso é um parâmetro da sessão.
+    pub session_timezone: bool,
+
+    /// Cancelar uma query em andamento (`cancel_query`): Postgres
+    /// (`pg_cancel_backend`) e SQLite (interrupt).
+    pub supports_query_cancel: bool,
+
     /// Em que o assistente escreve a consulta deste banco — o `language` da
     /// saída do modelo no contrato da API (`output.schema.json`).
     pub query_language: QueryLanguage,
@@ -121,6 +130,8 @@ impl AdapterCapabilities {
             supports_atomic_save: true,
             supports_assistant: true,
             assistant_sample_values: false,
+            session_timezone: true,
+            supports_query_cancel: true,
             query_language: QueryLanguage::Sql,
             structure_folders: &[
                 ObjectKind::View,
@@ -148,6 +159,8 @@ impl AdapterCapabilities {
             supports_atomic_save: true,
             supports_assistant: true,
             assistant_sample_values: true,
+            session_timezone: false,
+            supports_query_cancel: false,
             query_language: QueryLanguage::Mongo,
             structure_folders: &[ObjectKind::View],
             relation_folders: &[ObjectKind::Index],
@@ -170,6 +183,8 @@ impl AdapterCapabilities {
             supports_atomic_save: false,
             supports_assistant: true,
             assistant_sample_values: false,
+            session_timezone: false,
+            supports_query_cancel: false,
             query_language: QueryLanguage::RedisPlan,
             structure_folders: &[],
             relation_folders: &[],
@@ -193,6 +208,8 @@ impl AdapterCapabilities {
             supports_atomic_save: true,
             supports_assistant: true,
             assistant_sample_values: false,
+            session_timezone: false,
+            supports_query_cancel: true,
             query_language: QueryLanguage::Sql,
             structure_folders: &[ObjectKind::View],
             relation_folders: &[ObjectKind::Index, ObjectKind::Trigger, ObjectKind::ForeignKey],

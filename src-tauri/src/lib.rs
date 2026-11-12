@@ -173,6 +173,7 @@ pub fn run() {
             commands::update_settings,
             // Diagnóstico: a pasta do log do app
             commands::open_log_dir,
+            commands::report_webview_state,
             // Backup e restauração (ferramentas nativas do Postgres)
             commands::pg_tools_detect,
             commands::pg_tools_status,

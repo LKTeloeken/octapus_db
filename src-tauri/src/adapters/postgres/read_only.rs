@@ -48,8 +48,7 @@ pub async fn execute(
     let _pid_guard = match page.query_id.as_deref() {
         Some(query_id) => {
             let pid: i32 = client.query_one("SELECT pg_backend_pid()", &[]).await?.get(0);
-            registry.lock().unwrap().insert(query_id.to_string(), pid);
-            Some(PidGuard::new(registry, query_id))
+            Some(PidGuard::register(registry, query_id, pid))
         }
         None => None,
     };
@@ -290,6 +289,7 @@ mod e2e {
             scope_schemas: None,
             group_id: None,
             assistant_sample_values: false,
+            display_timezone: None,
             created_at: 0,
         }
     }

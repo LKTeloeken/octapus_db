@@ -78,6 +78,17 @@ supportsAssistant: boolean,
  */
 assistantSampleValues: boolean, 
 /**
+ * O servidor pode abrir as conexões num fuso escolhido
+ * (`Server::display_timezone`): o banco mostra e lê `timestamptz` nele.
+ * Só o Postgres, onde o fuso é um parâmetro da sessão.
+ */
+sessionTimezone: boolean, 
+/**
+ * Cancelar uma query em andamento (`cancel_query`): Postgres
+ * (`pg_cancel_backend`) e SQLite (interrupt).
+ */
+supportsQueryCancel: boolean, 
+/**
  * Em que o assistente escreve a consulta deste banco — o `language` da
  * saída do modelo no contrato da API (`output.schema.json`).
  */

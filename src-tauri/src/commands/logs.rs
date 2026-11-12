@@ -21,3 +21,14 @@ pub fn open_log_dir(app: AppHandle) -> Result<()> {
     };
     opened.map_err(|e| Error::External(format!("Não foi possível abrir {}: {e}", dir.display())))
 }
+
+/// A webview avisa quando a rede dela muda de estado ou quando a janela volta
+/// depois de muito tempo escondida. Só vai para o log: serve para entender um
+/// relato de "o app parou de responder depois de dias aberto".
+#[tauri::command]
+pub fn report_webview_state(online: bool, hidden_minutes: Option<u32>) {
+    match hidden_minutes {
+        Some(minutes) => log::info!("webview: de volta após {minutes} min escondida (online: {online})"),
+        None => log::info!("webview: rede {}", if online { "online" } else { "offline" }),
+    }
+}

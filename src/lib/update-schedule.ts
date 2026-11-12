@@ -92,6 +92,11 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+/** `1.1.0-beta.14` é pre-release; `1.1.0` não */
+export function isPrerelease(version: string): boolean {
+  return splitVersion(version)[1].length > 0;
+}
+
 function splitVersion(version: string): [number[], string[]] {
   // `v1.2.3+build`: o prefixo e os metadados de build não contam
   const clean = version.trim().replace(/^v/, '').split('+')[0];

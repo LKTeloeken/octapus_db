@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::AdapterCapabilities;
+
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -152,6 +154,21 @@ pub struct Server {
     /// por padrão (RN-08): só o banco com `assistantSampleValues` liga.
     #[serde(default)]
     pub assistant_sample_values: bool,
+    /// Fuso (nome IANA, `America/Sao_Paulo`) em que as conexões deste servidor
+    /// abrem a sessão: é nele que o banco mostra e lê `timestamptz`. `None` =
+    /// o fuso do próprio banco. Só onde `sessionTimezone` (capabilities).
+    #[serde(default)]
+    pub display_timezone: Option<String>,
+}
+
+/// O nome de fuso vai para as opções de startup da conexão: só o alfabeto dos
+/// nomes IANA (`America/Sao_Paulo`, `Etc/GMT+3`, `UTC`), nada de espaço ou aspas.
+pub fn valid_timezone_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '-' | '/'))
 }
 
 /// For creating/updating servers (receives password)
@@ -166,7 +183,10 @@ pub struct ServerInput {
     pub host: String,
     pub port: u16,
     pub username: String,
-    pub password: String,
+    /// Na edição, `None` mantém a senha salva (ela nunca volta ao front) e
+    /// `Some("")` a remove; na criação, `None` é sem senha.
+    #[serde(default)]
+    pub password: Option<String>,
     pub default_database: Option<String>,
     #[serde(default)]
     pub ssl_mode: Option<SslMode>,
@@ -182,9 +202,23 @@ pub struct ServerInput {
     #[serde(default)]
     #[cfg_attr(test, ts(as = "Option<bool>", optional))]
     pub assistant_sample_values: bool,
+    #[serde(default)]
+    pub display_timezone: Option<String>,
 }
 
 impl ServerInput {
+    /// O fuso da sessão como vai gravado: aparado, só no banco que o aplica
+    /// (capabilities) e só um nome válido.
+    pub fn session_timezone(&self) -> Option<String> {
+        let supported = AdapterCapabilities::for_db_type(self.db_type)
+            .is_some_and(|caps| caps.session_timezone);
+        self.display_timezone
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| supported && valid_timezone_name(name))
+            .map(str::to_string)
+    }
+
     /// O servidor como ficaria gravado, para conectar sem gravar (o "Testar
     /// conexão" do formulário): o TLS ajustado ao banco e a CA só nos
     /// `verify-*`, como no storage. O escopo e o grupo não importam aqui.
@@ -197,7 +231,7 @@ impl ServerInput {
             host: self.host.clone(),
             port: self.port,
             username: self.username.clone(),
-            password: self.password.clone(),
+            password: self.password.clone().unwrap_or_default(),
             default_database: self.default_database.clone().filter(|db| !db.trim().is_empty()),
             ssl_mode,
             ssl_root_cert: self
@@ -210,6 +244,7 @@ impl ServerInput {
             scope_schemas: None,
             group_id: None,
             assistant_sample_values: self.assistant_sample_values,
+            display_timezone: self.session_timezone(),
         }
     }
 }
@@ -268,7 +303,7 @@ mod tests {
             host: "h".into(),
             port: 27017,
             username: "u".into(),
-            password: "p".into(),
+            password: Some("p".into()),
             default_database: Some("  ".into()),
             ssl_mode: Some(SslMode::VerifyCa),
             ssl_root_cert: Some("/ca.pem".into()),
@@ -277,6 +312,7 @@ mod tests {
             scope_schemas: None,
             group_id: Some(3),
             assistant_sample_values: true,
+            display_timezone: Some("America/Sao_Paulo".into()),
         };
         let server = input.to_server(Some(7));
         assert_eq!(server.id, Some(7));

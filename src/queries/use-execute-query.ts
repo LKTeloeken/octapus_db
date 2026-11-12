@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { executeQuery } from '@/api/query';
+import { cancelQuery, executeQuery } from '@/api/query';
 import type { QueryMessage, QueryOptions } from '@/api/types/query.types';
 
 export const QUERY_PAGE_SIZE = 500;
@@ -40,5 +40,24 @@ export function useExecuteQuery() {
         },
         onMessage,
       ),
+  });
+}
+
+/**
+ * Cancela a execução marcada com `queryId` (`QueryOptions.queryId`). Quem
+ * termina é a própria execução, rejeitando com `CANCELLED`; aqui só vai o
+ * pedido. Sem a query em andamento, é um no-op.
+ */
+export function useCancelQuery() {
+  return useMutation({
+    mutationFn: ({
+      serverId,
+      database,
+      queryId,
+    }: {
+      serverId: number;
+      database: string;
+      queryId: string;
+    }) => cancelQuery(serverId, database, queryId),
   });
 }

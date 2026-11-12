@@ -65,6 +65,7 @@ const SERVER: Server = {
   scopeSchemas: null,
   groupId: null,
   assistantSampleValues: false,
+  displayTimezone: null,
 };
 
 const CAPABILITIES: AdapterCapabilities = {
@@ -82,6 +83,8 @@ const CAPABILITIES: AdapterCapabilities = {
   supportsAtomicSave: true,
   supportsAssistant: true,
   assistantSampleValues: false,
+  sessionTimezone: true,
+  supportsQueryCancel: true,
   queryLanguage: 'sql',
   structureFolders: ['view', 'materializedView', 'function', 'sequence'],
   relationFolders: ['index', 'trigger', 'foreignKey'],

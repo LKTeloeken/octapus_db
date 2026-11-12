@@ -11,7 +11,7 @@ use tokio_postgres_rustls::MakeRustlsConnect;
 
 use crate::adapters::tls;
 use crate::error::{error_chain, Error, Result};
-use crate::models::{Server, SslMode};
+use crate::models::{valid_timezone_name, Server, SslMode};
 
 use super::notices::{NoticeConnect, NoticeHub};
 
@@ -45,7 +45,20 @@ fn base_config(server: &Server, database: &str) -> Config {
 
     // Garante a entrega dos RAISE NOTICE mesmo em servidores cujo default de
     // client_min_messages seja mais restritivo que o do Postgres.
-    cfg.options = Some("-c client_min_messages=notice".to_string());
+    let mut options = "-c client_min_messages=notice".to_string();
+    // Fuso da sessão (`Server::display_timezone`): parâmetro de startup, só
+    // desta conexão — nada muda no banco nem para os outros clientes. O banco
+    // passa a mostrar `timestamptz` nele e a ler nele um valor sem offset, o
+    // que mantém a gravação coerente com o que a grade mostra.
+    if let Some(timezone) = server
+        .display_timezone
+        .as_deref()
+        .filter(|name| valid_timezone_name(name))
+    {
+        options.push_str(" -c TimeZone=");
+        options.push_str(timezone);
+    }
+    cfg.options = Some(options);
 
     // Keepalive TCP: evita que firewalls/NAT derrubem conexões ociosas em
     // silêncio enquanto o app fica aberto sem uso.

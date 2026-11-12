@@ -85,6 +85,7 @@ export enum RustCommand {
 
   // Diagnóstico
   OpenLogDir = 'open_log_dir',
+  ReportWebviewState = 'report_webview_state',
 
   // Backup e restauração (ferramentas nativas do Postgres)
   PgToolsDetect = 'pg_tools_detect',

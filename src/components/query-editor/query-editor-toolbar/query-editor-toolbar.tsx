@@ -1,5 +1,9 @@
 import { HugeiconsIcon } from '@hugeicons/react';
-import { PlayIcon, ServerStack01Icon } from '@hugeicons/core-free-icons';
+import {
+  PlayIcon,
+  ServerStack01Icon,
+  StopIcon,
+} from '@hugeicons/core-free-icons';
 import { memo, type FC } from 'react';
 import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
@@ -17,6 +21,8 @@ export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
   ({
     onRun,
     isLoading = false,
+    onCancel,
+    isCancelling = false,
     disabled = false,
     serverName,
     database,
@@ -27,15 +33,31 @@ export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
     return (
       // `@container`: a dica some quando a barra (não a janela) fica estreita
       <div className="@container flex h-11 shrink-0 items-center gap-1.5 border-b border-line-subtle px-2">
-        <Button size="sm" onClick={onRun} disabled={disabled || isLoading}>
-          {isLoading ? (
-            <Spinner className="size-4" />
-          ) : (
-            <HugeiconsIcon icon={PlayIcon} />
-          )}
-          Executar
-          {runKey && <Kbd variant="inverse">{runKey}</Kbd>}
-        </Button>
+        {isLoading && onCancel ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onCancel}
+            disabled={isCancelling}
+          >
+            {isCancelling ? (
+              <Spinner className="size-4" />
+            ) : (
+              <HugeiconsIcon icon={StopIcon} />
+            )}
+            {isCancelling ? 'Cancelando…' : 'Cancelar'}
+          </Button>
+        ) : (
+          <Button size="sm" onClick={onRun} disabled={disabled || isLoading}>
+            {isLoading ? (
+              <Spinner className="size-4" />
+            ) : (
+              <HugeiconsIcon icon={PlayIcon} />
+            )}
+            Executar
+            {runKey && <Kbd variant="inverse">{runKey}</Kbd>}
+          </Button>
+        )}
 
         <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-line" />
 

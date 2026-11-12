@@ -14,5 +14,7 @@ export const useDiagnosticsSection = () => {
     [mutate],
   );
 
-  return { openLogs, isOpening: isPending };
+  const reloadInterface = useCallback(() => window.location.reload(), []);
+
+  return { openLogs, isOpening: isPending, reloadInterface };
 };
