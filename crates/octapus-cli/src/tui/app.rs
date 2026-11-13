@@ -7,13 +7,16 @@
 
 use std::future::Future;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use octapus_core::adapters::{MessageSink, ReadOnlyOp};
+use octapus_core::adapters::{has_catalog, MessageSink, ReadOnlyOp};
 use octapus_core::assistant::{guard, read_only};
+use octapus_core::catalog::{CatalogPath, FLAT_SCHEMA};
 use octapus_core::models::{
-    AdapterCapabilities, DatabaseType, QueryMessage, QueryMessageKind, QueryOptions, QueryResult, Server,
-    TableDataRequest,
+    AdapterCapabilities, CatalogNode, DatabaseType, NodeKind as CatalogKind, QueryMessage, QueryMessageKind,
+    QueryOptions, QueryResult, Server, TableDataRequest, TableType,
 };
+use octapus_core::services::CatalogEntry;
 use octapus_core::state::AppState;
 use octapus_core::storage::repositories::servers;
 use octapus_core::Error;
@@ -30,6 +33,12 @@ use super::tree::{Load, NodeKind, Tree};
 
 /// Linhas por página (a primeira e as seguintes).
 const PAGE_ROWS: i64 = 500;
+/// Resultados da busca no catálogo (o que cabe numa tela).
+const SEARCH_HITS: usize = 40;
+/// De quanto em quanto tempo a tarefa olha se o catálogo já chegou.
+const CATALOG_POLL: Duration = Duration::from_millis(40);
+/// Teto da espera pela lista de schemas (um banco que não responde).
+const CATALOG_WAIT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
@@ -88,6 +97,8 @@ pub enum Msg {
         result: Result<QueryResult, String>,
     },
     Saved(Result<u64, String>),
+    /// Um catálogo abriu (ou um schema carregou): a busca aberta roda de novo
+    CatalogReady(Result<(), String>),
     /// Mensagem do banco durante uma execução (NOTICE, linhas afetadas)
     Notice(String),
 }
@@ -123,6 +134,26 @@ pub enum Modal {
         purpose: InputPurpose,
     },
     Confirm { lines: Vec<String>, action: ConfirmAction },
+    /// A busca no catálogo dos databases abertos
+    Search {
+        value: String,
+        hits: Vec<SearchRow>,
+        selected: usize,
+    },
+}
+
+/// Um resultado da busca no catálogo.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SearchRow {
+    pub server_id: i64,
+    pub database: String,
+    pub name: String,
+    pub kind: CatalogKind,
+    /// O schema da relação (`None` num schema, num banco sem schemas ou
+    /// quando o nome existe em vários)
+    pub schema: Option<String>,
+    /// Em quantos schemas o nome existe, quando é mais de um
+    pub many: Option<usize>,
 }
 
 /// Onde cada painel foi desenhado no último quadro (para o mouse e a rolagem).
@@ -178,8 +209,75 @@ fn capabilities(db_type: DatabaseType) -> Result<AdapterCapabilities, Error> {
         .ok_or_else(|| Error::UnsupportedDatabase(format!("no adapter available for {db_type:?}")))
 }
 
-/// Os filhos de um nó da árvore, um nível só.
-async fn load_children(state: Arc<AppState>, kind: NodeKind) -> Result<Vec<(NodeKind, String)>, Error> {
+fn table_type(kind: CatalogKind) -> TableType {
+    match kind {
+        CatalogKind::View => TableType::View,
+        CatalogKind::MaterializedView => TableType::MaterializedView,
+        CatalogKind::Foreign => TableType::Foreign,
+        // A tabela particionada abre como uma tabela (as partições ficam nela)
+        CatalogKind::Table | CatalogKind::Partitioned | CatalogKind::Schema => TableType::Table,
+    }
+}
+
+/// Espera a lista de schemas do catálogo (a primeira sincronização de um
+/// database nunca aberto) ou, com `whole_sync`, a sincronização inteira.
+async fn wait_for_catalog(state: &AppState, entry: &CatalogEntry, whole_sync: bool) -> Result<(), Error> {
+    let started = Instant::now();
+    loop {
+        if !whole_sync && entry.read().knows_schemas() {
+            return Ok(());
+        }
+        let status = state.catalog.status(entry);
+        if !status.syncing {
+            return match status.error {
+                Some(message) => Err(Error::External(message)),
+                None => Ok(()),
+            };
+        }
+        if started.elapsed() > CATALOG_WAIT {
+            return Err(Error::ConnectionTimeout);
+        }
+        tokio::time::sleep(CATALOG_POLL).await;
+    }
+}
+
+/// As relações de um schema, do catálogo (carregando o schema se preciso).
+async fn catalog_tables(
+    state: &AppState,
+    server_id: i64,
+    database: &str,
+    schema: Option<&str>,
+    refresh: bool,
+) -> Result<Vec<(NodeKind, String)>, Error> {
+    let entry = state.catalog_entry(server_id, database).await?;
+    let name = schema.unwrap_or(FLAT_SCHEMA).to_string();
+    match refresh {
+        true => state.catalog.refresh_schema(&entry, &name).await?,
+        false => state.catalog.ensure_schemas(&entry, std::slice::from_ref(&name)).await?,
+    }
+    let page = entry.read().children(&CatalogPath::Schema(name), None, 0, usize::MAX);
+    let relations: Vec<CatalogNode> = page.map(|page| page.items).unwrap_or_default();
+    Ok(relations
+        .into_iter()
+        .map(|relation| {
+            (
+                NodeKind::Table {
+                    server_id,
+                    database: database.to_string(),
+                    schema: schema.map(str::to_string),
+                    name: relation.name.clone(),
+                    table_type: table_type(relation.kind),
+                },
+                relation.name,
+            )
+        })
+        .collect())
+}
+
+/// Os filhos de um nó da árvore, um nível só. Onde há catálogo (Postgres,
+/// Mongo, SQLite) a estrutura vem dele, como no app: da memória ou do disco,
+/// com o banco consultado só no que falta. `refresh` relê do banco.
+async fn load_children(state: Arc<AppState>, kind: NodeKind, refresh: bool) -> Result<Vec<(NodeKind, String)>, Error> {
     match kind {
         NodeKind::Server { id, .. } => {
             let database = state.default_database(id)?;
@@ -200,10 +298,19 @@ async fn load_children(state: Arc<AppState>, kind: NodeKind) -> Result<Vec<(Node
         }
         NodeKind::Database { server_id, name } => {
             let db_type = servers::get_by_id_meta(&state.storage, server_id)?.db_type;
-            let adapter = state.adapter(server_id, &name).await?;
-            if capabilities(db_type)?.has_schemas {
-                let schemas = adapter.list_schemas().await?;
-                return Ok(schemas
+            let has_schemas = capabilities(db_type)?.has_schemas;
+            if has_catalog(db_type) && !has_schemas {
+                return catalog_tables(&state, server_id, &name, None, refresh).await;
+            }
+            if has_catalog(db_type) {
+                let entry = state.catalog_entry(server_id, &name).await?;
+                // Quem acabou de abrir já está sincronizando: `false` não é erro
+                let forced = refresh && state.catalog.ensure_fresh(&entry, true);
+                wait_for_catalog(&state, &entry, forced).await?;
+                let page = entry.read().children(&CatalogPath::Schemas, None, 0, usize::MAX);
+                return Ok(page
+                    .map(|page| page.items)
+                    .unwrap_or_default()
                     .into_iter()
                     .map(|schema| {
                         (
@@ -217,6 +324,9 @@ async fn load_children(state: Arc<AppState>, kind: NodeKind) -> Result<Vec<(Node
                     })
                     .collect());
             }
+
+            // Sem catálogo (Redis): direto do adapter
+            let adapter = state.adapter(server_id, &name).await?;
             let tables = adapter.list_tables("").await?;
             Ok(tables
                 .into_iter()
@@ -238,25 +348,7 @@ async fn load_children(state: Arc<AppState>, kind: NodeKind) -> Result<Vec<(Node
             server_id,
             database,
             name,
-        } => {
-            let adapter = state.adapter(server_id, &database).await?;
-            let tables = adapter.list_tables(&name).await?;
-            Ok(tables
-                .into_iter()
-                .map(|table| {
-                    (
-                        NodeKind::Table {
-                            server_id,
-                            database: database.clone(),
-                            schema: Some(name.clone()),
-                            name: table.name.clone(),
-                            table_type: table.table_type,
-                        },
-                        table.name,
-                    )
-                })
-                .collect())
-        }
+        } => catalog_tables(&state, server_id, &database, Some(&name), refresh).await,
         NodeKind::Table { .. } => Ok(Vec::new()),
     }
 }
@@ -457,6 +549,10 @@ impl Tui {
                 value.push_str(&text.replace(['\n', '\r'], " "));
                 self.input_changed();
             }
+            Some(Modal::Search { value, .. }) => {
+                value.push_str(&text.replace(['\n', '\r'], " "));
+                self.search_changed();
+            }
             Some(_) => {}
             None if self.focus == Pane::Editor => self.editor.insert_str(text),
             None => {}
@@ -492,6 +588,7 @@ impl Tui {
                 self.status = None;
             }
             Action::Help => self.modal = Some(Modal::Help),
+            Action::Search => self.open_search(),
             Action::Complete if self.focus == Pane::Editor => {
                 let names = self.completion_names();
                 self.editor.complete(&names);
@@ -602,7 +699,7 @@ impl Tui {
             Action::Refresh => {
                 if let Some((id, false)) = self.tree.selected_node().map(|(id, node)| (id, node.kind.is_leaf())) {
                     self.tree.reset(id);
-                    self.open_selected();
+                    self.load_selected(true);
                 }
             }
             Action::QuitNav => self.request_quit(),
@@ -631,18 +728,121 @@ impl Tui {
         match load {
             Load::Loaded => self.tree.set_expanded(id, !expanded),
             Load::Loading => {}
-            Load::Idle | Load::Failed => {
-                if self.tree.begin_load(id) {
-                    let state = Arc::clone(&self.state);
-                    self.spawn(async move {
-                        Msg::Children {
-                            node: id,
-                            result: load_children(state, kind).await.map_err(|error| error.to_string()),
-                        }
-                    });
-                }
-            }
+            Load::Idle | Load::Failed => self.load_selected(false),
         }
+    }
+
+    /// Busca os filhos do nó selecionado; `refresh` relê a estrutura do banco
+    /// em vez de usar o que o catálogo já tem.
+    fn load_selected(&mut self, refresh: bool) {
+        let Some((id, kind)) = self.tree.selected_node().map(|(id, node)| (id, node.kind.clone())) else {
+            return;
+        };
+        if self.tree.begin_load(id) {
+            let state = Arc::clone(&self.state);
+            self.spawn(async move {
+                Msg::Children {
+                    node: id,
+                    result: load_children(state, kind, refresh).await.map_err(|error| error.to_string()),
+                }
+            });
+        }
+    }
+
+    // ── Busca no catálogo ───────────────────────────────────────────────────
+
+    /// Abre a busca. Ela olha os catálogos já abertos; o do nó selecionado é
+    /// aberto agora, se ainda não estiver.
+    fn open_search(&mut self) {
+        self.modal = Some(Modal::Search {
+            value: String::new(),
+            hits: Vec::new(),
+            selected: 0,
+        });
+        let Some(target) = self.target() else {
+            return;
+        };
+        if !has_catalog(target.db_type) || self.state.catalog.get(target.server_id, &target.database).is_some() {
+            return;
+        }
+        let state = Arc::clone(&self.state);
+        self.spawn(async move {
+            let opened = async {
+                let entry = state.catalog_entry(target.server_id, &target.database).await?;
+                wait_for_catalog(&state, &entry, false).await
+            };
+            Msg::CatalogReady(opened.await.map_err(|error| error.to_string()))
+        });
+    }
+
+    /// Refaz os resultados da busca aberta (da memória: não vai ao banco).
+    fn search_changed(&mut self) {
+        let Some(Modal::Search { value, .. }) = &self.modal else {
+            return;
+        };
+        let found: Vec<SearchRow> = self
+            .state
+            .catalog
+            .search_all(value, SEARCH_HITS)
+            .into_iter()
+            .map(|found| SearchRow {
+                server_id: found.server_id,
+                database: found.database,
+                name: found.hit.name,
+                kind: found.hit.kind,
+                schema: found.hit.schema.filter(|schema| schema != FLAT_SCHEMA),
+                many: found.hit.schemas.map(|group| group.total).filter(|total| *total > 1),
+            })
+            .collect();
+        if let Some(Modal::Search { hits, selected, .. }) = &mut self.modal {
+            *hits = found;
+            *selected = 0;
+        }
+    }
+
+    /// Enter num resultado: a relação abre na grade; um schema, ou um nome
+    /// que existe em vários, afina a busca (`schema.` / `.tabela`).
+    fn open_hit(&mut self, hit: SearchRow) {
+        let narrowed = match (hit.kind, hit.many) {
+            (CatalogKind::Schema, _) => Some(format!("{}.", hit.name)),
+            (_, Some(_)) => Some(format!(".{}", hit.name)),
+            _ => None,
+        };
+        if let Some(query) = narrowed {
+            if let Some(Modal::Search { value, .. }) = &mut self.modal {
+                *value = query;
+            }
+            self.search_changed();
+            if hit.kind == CatalogKind::Schema {
+                // As relações do schema podem não ter chegado ainda
+                let state = Arc::clone(&self.state);
+                self.spawn(async move {
+                    let loaded = async {
+                        let entry = state.catalog_entry(hit.server_id, &hit.database).await?;
+                        state.catalog.ensure_schemas(&entry, std::slice::from_ref(&hit.name)).await
+                    };
+                    Msg::CatalogReady(loaded.await.map_err(|error| error.to_string()))
+                });
+            }
+            return;
+        }
+
+        self.modal = None;
+        let Some(server) = self.servers.iter().find(|server| server.id == Some(hit.server_id)) else {
+            return;
+        };
+        let target = Target {
+            server_id: hit.server_id,
+            server_name: server.name.clone(),
+            db_type: server.db_type,
+            database: hit.database,
+            schema: hit.schema,
+        };
+        self.execute(Source::Table {
+            target,
+            table: hit.name,
+        });
+        self.focus = Pane::Grid;
     }
 
     // ── Execução ────────────────────────────────────────────────────────────
@@ -851,6 +1051,36 @@ impl Tui {
                     (false, ConfirmAction::Quit) => {}
                 }
             }
+            Modal::Search { hits, selected, .. } => match combo.code {
+                KeyCode::Esc => self.modal = None,
+                KeyCode::Enter => {
+                    if let Some(hit) = hits.get(selected).cloned() {
+                        self.open_hit(hit);
+                    }
+                }
+                KeyCode::Up | KeyCode::Down => {
+                    let last = hits.len().saturating_sub(1);
+                    if let Some(Modal::Search { selected, .. }) = &mut self.modal {
+                        *selected = match combo.code {
+                            KeyCode::Up => selected.saturating_sub(1),
+                            _ => (*selected + 1).min(last),
+                        };
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let Some(Modal::Search { value, .. }) = &mut self.modal {
+                        value.pop();
+                    }
+                    self.search_changed();
+                }
+                KeyCode::Char(ch) if combo.types_text() => {
+                    if let Some(Modal::Search { value, .. }) = &mut self.modal {
+                        value.push(ch);
+                    }
+                    self.search_changed();
+                }
+                _ => {}
+            },
             Modal::Input { purpose, value, .. } => match combo.code {
                 KeyCode::Esc => {
                     self.modal = None;
@@ -1018,6 +1248,10 @@ impl Tui {
                     self.reload();
                     self.set_status(Tone::Ok, format!("{affected} linha(s) gravada(s)"));
                 }
+                Err(error) => self.set_status(Tone::Error, error),
+            },
+            Msg::CatalogReady(result) => match result {
+                Ok(()) => self.search_changed(),
                 Err(error) => self.set_status(Tone::Error, error),
             },
             Msg::Notice(message) => self.set_status(Tone::Info, message),

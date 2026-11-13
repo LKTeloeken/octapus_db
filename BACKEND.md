@@ -152,6 +152,9 @@ do app (`paths.rs` a acha sem o Tauri; `OCTAPUS_DATA_DIR` troca, nos testes).
   (`services/cli_install.rs`) baixam da release **desta versão** o binário do sistema,
   conferem o SHA-256 publicado ao lado e gravam em `~/.local/bin/octapus`
   (`%LOCALAPPDATA%\Programs\octapus` no Windows). O `release.yml` publica os binários.
+- **Estrutura na TUI:** a árvore e a busca (`Ctrl+P`) leem do catálogo (§1.1), como o
+  app: `catalog_entry` + `ensure_schemas` ao abrir um schema, `search_all` na busca,
+  `refresh_schema`/`ensure_fresh` no recarregar (`r`). Só o Redis lista pelo adapter.
 - **Testes:** `cargo test -p octapus-cli` roda o binário de verdade contra uma pasta
   descartável (`tests/cli.rs`: formatos, recusas de escrita, senhas que não voltam,
   oito processos partindo juntos) e a TUI sem terminal (`src/tui/tests.rs`).

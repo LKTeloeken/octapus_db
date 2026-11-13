@@ -134,7 +134,8 @@ octapus restore loja loja.dump            # pg_restore/psql; só num terminal, c
   `octapus backup` só lê e não sobrescreve um arquivo sem `--force`.
 - **Senhas** entram por pergunta sem eco (`--password`), variável (`--password-env`),
   entrada padrão (`--password-stdin`) ou dentro da URL; nenhuma saída as devolve.
-- **TUI:** 100% por teclado (`F1` mostra os atalhos); tema, atalhos e mouse em
+- **TUI:** 100% por teclado (`F1` mostra os atalhos); a árvore vem do catálogo do app
+  (abre na hora num banco já visto) e `Ctrl+P` busca tabela ou schema; tema, atalhos e mouse em
   `~/.config/octapus/config.toml` (`octapus paths` mostra as pastas).
 
 ## Começando (desenvolvimento)

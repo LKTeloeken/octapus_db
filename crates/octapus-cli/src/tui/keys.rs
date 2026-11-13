@@ -24,6 +24,7 @@ pub enum Action {
     Cancel,
     Help,
     Complete,
+    Search,
     // Navegação (árvore e grade)
     Up,
     Down,
@@ -60,6 +61,7 @@ impl Action {
         (Action::Cancel, "cancel", &["esc"], "cancelar / fechar"),
         (Action::Help, "help", &["f1"], "esta ajuda"),
         (Action::Complete, "complete", &["ctrl+space", "ctrl+n"], "autocompletar (editor)"),
+        (Action::Search, "search", &["ctrl+p"], "buscar tabela ou schema no catálogo"),
         (Action::Up, "up", &["k", "up"], "subir"),
         (Action::Down, "down", &["j", "down"], "descer"),
         (Action::Left, "left", &["h", "left"], "esquerda / recolher"),
@@ -95,6 +97,7 @@ impl Action {
                 | Action::Cancel
                 | Action::Help
                 | Action::Complete
+                | Action::Search
         )
     }
 }

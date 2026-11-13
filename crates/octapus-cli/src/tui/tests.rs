@@ -332,3 +332,54 @@ async fn frame_time_does_not_depend_on_how_much_is_loaded() {
     let per_frame = started.elapsed() / FRAMES;
     assert!(per_frame < Duration::from_millis(8), "quadro em {per_frame:?}");
 }
+
+#[tokio::test]
+async fn search_opens_a_table_from_the_catalog() {
+    let mut harness = Harness::new("search");
+    // Com o cursor só no servidor: a busca abre o catálogo do database padrão
+    harness.ctrl('p');
+    harness.settle().await;
+    harness.keys("cust");
+    let Some(Modal::Search { hits, .. }) = &harness.tui.modal else {
+        panic!("a busca não abriu");
+    };
+    assert_eq!(hits.first().map(|hit| hit.name.as_str()), Some("customers"), "{hits:?}");
+    let screen = harness.screen_text();
+    assert!(screen.contains("Buscar no catálogo"), "{screen}");
+    assert!(screen.contains("▤ customers"), "{screen}");
+
+    harness.key(KeyCode::Enter);
+    harness.settle().await;
+    assert!(harness.tui.modal.is_none());
+    assert_eq!(harness.tui.focus, Pane::Grid);
+    let screen = harness.screen_text();
+    assert!(screen.contains("RESULTADOS · 3 linha(s)"), "{screen}");
+    assert!(screen.contains("Porto Alegre"), "{screen}");
+}
+
+#[tokio::test]
+async fn refresh_rereads_the_structure_from_the_database() {
+    let mut harness = Harness::new("refresh");
+    harness.key(KeyCode::Enter);
+    harness.settle().await;
+    harness.key(KeyCode::Down);
+    harness.key(KeyCode::Enter);
+    harness.settle().await;
+    assert!(!harness.screen_text().contains("invoices"));
+
+    rusqlite::Connection::open(harness.dir.join("loja.db"))
+        .unwrap()
+        .execute_batch("CREATE TABLE invoices (id INTEGER PRIMARY KEY);")
+        .unwrap();
+    // Recolher e abrir de novo mostra o que o catálogo já tem
+    harness.key(KeyCode::Enter);
+    harness.key(KeyCode::Enter);
+    harness.settle().await;
+    assert!(!harness.screen_text().contains("invoices"));
+
+    harness.keys("r");
+    harness.settle().await;
+    let screen = harness.screen_text();
+    assert!(screen.contains("▤ invoices"), "{screen}");
+    assert!(screen.contains("▤ customers"), "{screen}");
+}

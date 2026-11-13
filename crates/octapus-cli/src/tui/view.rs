@@ -20,6 +20,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::app::{Areas, Modal, Pane, Tone, Tui};
 use super::editor::Token;
+use octapus_core::models::NodeKind as CatalogKind;
 use super::keys::Action;
 use super::mascot::Bitmap;
 use super::tree::Load;
@@ -480,6 +481,46 @@ fn draw_modal(tui: &Tui, frame: &mut Frame, modal: &Modal) {
             let rect = centered(area, 72, lines.len() as u16 + 4);
             frame.render_widget(Clear, rect);
             frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).block(block("Confirmar")), rect);
+        }
+        Modal::Search { value, hits, selected } => {
+            let rect = centered(area, 76, (hits.len() as u16).clamp(1, 14) + 4);
+            frame.render_widget(Clear, rect);
+            frame.render_widget(block("Buscar no catálogo"), rect);
+            let inner = Rect::new(rect.x + 2, rect.y + 1, rect.width.saturating_sub(4), rect.height.saturating_sub(2));
+            let buf = frame.buffer_mut();
+            let end = put(buf, inner.x, inner.y, inner.width, &fit(value, inner.width as usize), style);
+            let list = Rect::new(inner.x, inner.y + 2, inner.width, inner.height.saturating_sub(2));
+            if hits.is_empty() {
+                let hint = match value.is_empty() {
+                    true => "digite um nome · schema. lista um schema · .tabela procura em todos",
+                    false => "nada encontrado nos databases abertos",
+                };
+                put(buf, list.x, list.y, list.width, &fit(hint, list.width as usize), tui.theme.muted().bg(style.bg.unwrap_or_default()));
+            }
+            // Só as linhas que cabem, com a seleção sempre à vista
+            let first = (selected + 1).saturating_sub(list.height as usize);
+            for (line, hit) in hits.iter().enumerate().skip(first).take(list.height as usize) {
+                let y = list.y + (line - first) as u16;
+                let row = if line == *selected { tui.theme.selection(true) } else { style };
+                fill(buf, Rect::new(list.x, y, list.width, 1), row);
+                let glyph = match hit.kind {
+                    CatalogKind::Schema => "◇",
+                    CatalogKind::View | CatalogKind::MaterializedView => "◫",
+                    CatalogKind::Foreign => "⇄",
+                    CatalogKind::Table | CatalogKind::Partitioned => "▤",
+                };
+                let place = match (&hit.schema, hit.many) {
+                    (_, Some(count)) => format!("{count} schemas · {}", hit.database),
+                    (Some(schema), None) => format!("{schema} · {}", hit.database),
+                    (None, None) => hit.database.clone(),
+                };
+                let place = fit(&place, (list.width / 2) as usize);
+                let name_room = (list.width as usize).saturating_sub(place.width() + 4);
+                put(buf, list.x, y, list.width, &format!("{glyph} {}", fit(&hit.name, name_room)), row);
+                let x = list.x + list.width - place.width() as u16;
+                put(buf, x, y, place.width() as u16, &place, tui.theme.muted().bg(row.bg.unwrap_or_default()));
+            }
+            frame.set_cursor_position(Position::new(end, inner.y));
         }
         Modal::Input { title, value, .. } => {
             let rect = centered(area, 60, 3);
