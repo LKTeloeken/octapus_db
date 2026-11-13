@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Versão do app nos quatro arquivos que a carregam. Uso:
+// Versão do app nos arquivos que a carregam. Uso:
 //
 //   pnpm release:version 1.2.0           grava a versão (passo 1 do lançamento)
 //   node scripts/release-version.mjs check app-v1.2.0
@@ -22,14 +22,18 @@ const FILES = [
     path: 'src-tauri/tauri.conf.json',
     pattern: /^( {2}"version": ")([^"]+)(")/m,
   },
+  // A versão do Rust é a do workspace: o app, o núcleo e o CLI a herdam
   {
-    path: 'src-tauri/Cargo.toml',
-    pattern: /^(\[package\]\nname = "octapus_db"\nversion = ")([^"]+)(")/m,
+    path: 'Cargo.toml',
+    pattern: /^(\[workspace\.package\]\nversion = ")([^"]+)(")/m,
   },
-  {
-    path: 'src-tauri/Cargo.lock',
-    pattern: /^(\[\[package\]\]\nname = "octapus_db"\nversion = ")([^"]+)(")/m,
-  },
+  ...['octapus-cli', 'octapus-core', 'octapus_db'].map(name => ({
+    path: 'Cargo.lock',
+    pattern: new RegExp(
+      `^(\\[\\[package\\]\\]\\nname = "${name}"\\nversion = ")([^"]+)(")`,
+      'm',
+    ),
+  })),
 ];
 
 function read(file) {

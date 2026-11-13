@@ -1,24 +1,17 @@
-mod adapters;
-mod assistant;
-mod catalog;
 mod commands;
-mod error;
 mod logging;
-mod models;
-mod services;
-mod state;
-mod storage;
 mod window_chrome;
 
-#[cfg(test)]
-mod perf;
+// O núcleo (`crates/octapus-core`) nos mesmos caminhos de antes: os comandos
+// seguem dizendo `crate::models`, `crate::error`…
+#[allow(unused_imports)]
+use octapus_core::{adapters, assistant, catalog, error, models, services, state, storage};
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use models::{BACKUP_EVENT, CATALOG_EVENT};
 use state::AppState;
-use storage::init_storage;
 use tauri::{Builder, Emitter, Manager, WindowEvent};
 
 const MAINTENANCE_EVERY: Duration = Duration::from_secs(60);
@@ -45,15 +38,7 @@ pub fn run() {
                 .app_data_dir()
                 .expect("Failed to get app data directory");
 
-            std::fs::create_dir_all(&app_data_dir)
-                .expect("Failed to create app data directory");
-
-            storage::vault::init(&app_data_dir).expect("Failed to initialize secrets vault");
-
-            let storage_conn =
-                init_storage(app_data_dir.join("app.db")).expect("Failed to initialize storage");
-
-            let state = AppState::new(storage_conn);
+            let state = AppState::open(&app_data_dir).expect("Failed to initialize storage");
             let events = app.handle().clone();
             state.catalog.init(
                 app_data_dir.join("catalog"),
@@ -174,6 +159,9 @@ pub fn run() {
             // Diagnóstico: a pasta do log do app
             commands::open_log_dir,
             commands::report_webview_state,
+            // O `octapus` de terminal (instalar a partir do app)
+            commands::cli_status,
+            commands::cli_install,
             // Backup e restauração (ferramentas nativas do Postgres)
             commands::pg_tools_detect,
             commands::pg_tools_status,
@@ -216,4 +204,14 @@ pub fn run() {
     builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+#[cfg(test)]
+mod tests {
+    /// O terminal acha a pasta de dados pelo identificador do app, sem o
+    /// Tauri (`octapus_core::paths`): os dois têm que dizer o mesmo.
+    #[test]
+    fn core_data_dir_uses_the_app_identifier() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(config["identifier"], octapus_core::paths::APP_IDENTIFIER);
+    }
 }

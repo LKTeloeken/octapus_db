@@ -98,6 +98,41 @@ Para desenvolver, o flake da `main` traz o devShell com Rust, pnpm e as libs do 
 Baixe o instalador da sua plataforma nas
 [releases](https://github.com/LKTeloeken/octapus_db/releases).
 
+## No terminal (`octapus`)
+
+O `octapus` é o Octapus em linha de comando: usa **as mesmas conexões do app** (o mesmo
+banco local e o mesmo cofre de senhas) e funciona com ou sem o app aberto.
+
+**Instalar:** pelo app, em **Preferências → Terminal → Instalar**, ou à parte:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LKTeloeken/octapus_db/main/scripts/install-cli.sh | sh
+```
+
+**Usar:**
+
+```bash
+octapus                                   # abre a TUI (árvore, editor, grade)
+octapus server add postgres://user@host/db --name loja --password
+octapus server list
+octapus ls loja --schema public           # tabelas
+octapus describe loja customers           # colunas e índices
+octapus table loja customers --where "city = 'Curitiba'" --order name:desc
+octapus query loja "select * from orders order by id desc limit 10"
+echo "select count(*) from orders" | octapus query loja --format csv
+```
+
+- **Saída:** `--format table|json|csv|ndjson` (padrão: `table` no terminal, `json` fora
+  dele). Erros vão para o stderr como `{ "code", "message" }`, e o código de saída diz o
+  tipo (`octapus --help`).
+- **Só leitura por padrão.** `octapus query` passa pelo mesmo guard e pelo mesmo executor
+  só-leitura do assistente. Para escrever, `--write` — que só roda num terminal, com uma
+  pessoa confirmando. Um script, ou uma IA chamando o `octapus`, não escreve no banco.
+- **Senhas** entram por pergunta sem eco (`--password`), variável (`--password-env`),
+  entrada padrão (`--password-stdin`) ou dentro da URL; nenhuma saída as devolve.
+- **TUI:** 100% por teclado (`F1` mostra os atalhos); tema, atalhos e mouse em
+  `~/.config/octapus/config.toml` (`octapus paths` mostra as pastas).
+
 ## Começando (desenvolvimento)
 
 ### Pré-requisitos
@@ -119,8 +154,8 @@ pnpm tauri dev     # app completo (Vite + Rust)
 pnpm dev           # só o frontend (Vite) em http://localhost:1420
 pnpm type-check    # tsc --noEmit
 pnpm tauri build   # empacota o app de produção
-# backend:
-cd src-tauri && cargo build && cargo clippy && cargo test
+# backend (o workspace inteiro: núcleo, app e terminal):
+cargo build --workspace && cargo clippy --workspace --all-targets && cargo test --workspace
 ```
 
 ## Lançar uma versão
@@ -180,13 +215,17 @@ reinstalar à mão. A branch `nix` se atualiza quando a versão nova é publicad
 │   ├── features/        # telas: sidebar, connection-tree, query-editor, table-browser…
 │   ├── components/      # results-table, query-editor e UI (Radix/shadcn)
 │   └── providers/       # QueryProvider (React Query + persistência)
-├── src-tauri/src/       # Backend Rust (ver BACKEND.md)
-│   ├── commands/        # handlers #[tauri::command]
-│   ├── adapters/        # DatabaseAdapter: postgres | mongo | sqlite | redisdb
-│   ├── catalog/         # catálogo de metadados (Rust puro)
-│   ├── services/        # ConnectionService, CatalogService, backup, importação…
-│   ├── storage/         # SQLite local + cofre de senhas (vault)
-│   └── models/          # tipos serializados para o front
+├── crates/
+│   ├── octapus-core/src/  # Núcleo Rust, sem Tauri (ver BACKEND.md)
+│   │   ├── adapters/      # DatabaseAdapter: postgres | mongo | sqlite | redisdb
+│   │   ├── catalog/       # catálogo de metadados (Rust puro)
+│   │   ├── services/      # ConnectionService, CatalogService, backup, importação…
+│   │   ├── storage/       # SQLite local + cofre de senhas (vault)
+│   │   ├── assistant/     # assistente de consulta, guards e executor só-leitura
+│   │   └── models/        # tipos serializados para o front
+│   └── octapus-cli/src/   # `octapus`: CLI e TUI sobre os mesmos dados do app
+├── src-tauri/src/       # O app desktop: comandos #[tauri::command] por cima do núcleo
+├── Cargo.toml           # workspace do Rust (núcleo, app e terminal)
 ├── nix/                 # pacote Nix congelado (o atual vive na branch `nix`)
 └── .claude/             # instruções de trabalho para o agente (ver CLAUDE.md)
 ```

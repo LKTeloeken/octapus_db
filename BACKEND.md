@@ -18,6 +18,12 @@ dados, e instruções passo a passo para implementar cada tela do front.
 
 ## 1. Arquitetura em camadas
 
+O Rust é um workspace de três crates: o **núcleo** (`crates/octapus-core`, sem Tauri),
+o **app** (`src-tauri`, só os `commands/` e a janela) e o **terminal**
+(`crates/octapus-cli`, o binário `octapus` — §1.2). As camadas abaixo de `commands/`
+moram no núcleo, e os caminhos deste documento (`adapters/…`, `services/…`) são
+relativos a `crates/octapus-core/src/`.
+
 ```
 Front (invoke) ──▶ commands/   handlers #[tauri::command], validam e delegam
                    services/    orquestração: ConnectionService, CatalogService, ...
@@ -64,7 +70,7 @@ padrão dele, `prefer`, caía para texto puro em silêncio). Mongo e Redis aceit
 (`SslMode::for_db_type`: `prefer` → `disable`, `verify-ca` → `verify-full`). Com
 `connectionUri`, o Mongo e o Redis seguem o TLS da URI. Erros de handshake trazem a causa
 (`error_chain`: "certificate not valid for name…", "UnknownIssuer"). E2E com CA própria:
-`scripts/tls-e2e.sh up` e `cargo test --lib postgres::tls_e2e -- --ignored` (ver o
+`scripts/tls-e2e.sh up` e `cargo test -p octapus-core --lib postgres::tls_e2e -- --ignored` (ver o
 arquivo).
 
 ### Storage local e transporte (decisões medidas)
@@ -107,6 +113,46 @@ Entram: conexão criada/falha/reconexão por ping, sincronização do catálogo 
 com contagens e tempos, cancelamento, falha, falha ao gravar em disco), jobs de backup e
 restauração, importação de conexões e checagem do updater beta. Servidor pelo id e
 database pelo nome — **nunca** senha, URI, texto de query nem nomes de schema/tabela.
+
+### 1.2 Núcleo compartilhado e o `octapus` de terminal
+
+O app e o `octapus` (`crates/octapus-cli`: CLI + TUI) são dois programas sobre o mesmo
+núcleo e **os mesmos arquivos**: `app.db`, `vault.key` e `catalog/`, na pasta de dados
+do app (`paths.rs` a acha sem o Tauri; `OCTAPUS_DATA_DIR` troca, nos testes).
+
+- **`AppState`** (`state.rs`) é o estado de um processo e leva as operações que os dois
+  dividem: `open` (pasta de dados → vault + storage), `adapter` (a conexão do cache,
+  decifrando a senha só no cache-miss), `catalog_entry`, `update_server`/`delete_server`
+  (derrubam conexões e catálogo quando a conexão muda) e `test_server`. Os comandos do
+  app são invólucros disso.
+- **Vários processos ao mesmo tempo.** Cada um tem o próprio cache de conexões; o que
+  eles dividem é o disco, então:
+  - o `app.db` abre com `busy_timeout`, e o schema é criado/migrado numa transação
+    `IMMEDIATE` (dois processos partindo juntos fazem fila);
+  - o `user_version` guarda a versão do schema (`SCHEMA_VERSION`, `major*1000+minor`):
+    um binário antigo abre um arquivo de *minor* maior (só há colunas a mais) e recusa
+    um de *major* maior, com erro claro. Por isso migração é sempre **aditiva**;
+  - o `vault.key` é publicado por hard link a partir de um temporário: numa máquina
+    nova, quem perde a corrida lê a chave de quem ganhou;
+  - o arquivo do catálogo é gravado por temporário com o pid + `rename` (é cache: vale
+    o último);
+  - o terminal não toca em `workspace_session` (as abas são do app) nem regrava
+    `app_settings`; a configuração dele é um arquivo à parte
+    (`~/.config/octapus/config.toml`).
+- **O contrato do terminal:** leitura pelo guard + executor só-leitura (os do
+  assistente, `assistant/read_only.rs`); escrita só com `--write`, num terminal, com
+  confirmação — sem TTY, recusa (`WRITE_REFUSED`, saída 8). Nenhuma saída devolve senha
+  (a URI de conexão sai sem a credencial). Saídas `table|json|csv|ndjson`, erro
+  `{ code, message }` no stderr e código de saída por tipo de erro.
+- **Log:** os níveis são os mesmos (`logging.rs` do núcleo); o terminal grava em
+  `octapus-cli.log`, na pasta de logs do app, nunca no stdout.
+- **Instalar pelo app:** os comandos `cli_status`/`cli_install`
+  (`services/cli_install.rs`) baixam da release **desta versão** o binário do sistema,
+  conferem o SHA-256 publicado ao lado e gravam em `~/.local/bin/octapus`
+  (`%LOCALAPPDATA%\Programs\octapus` no Windows). O `release.yml` publica os binários.
+- **Testes:** `cargo test -p octapus-cli` roda o binário de verdade contra uma pasta
+  descartável (`tests/cli.rs`: formatos, recusas de escrita, senhas que não voltam,
+  oito processos partindo juntos) e a TUI sem terminal (`src/tui/tests.rs`).
 
 ### 1.1 Catálogo de metadados
 
@@ -201,7 +247,7 @@ implementa) nem de pedir `pg_total_relation_size`/`$collStats` em massa.
   automaticamente do Rust `server_id` para o JS `serverId`.
 - **Retorno:** Promise. Sucesso → o objeto descrito em cada comando. Erro → a
   Promise **rejeita com `{ code, message }`**: o `Serialize` de `crate::Error`
-  ([error.rs](src-tauri/src/error.rs)). `message` é o `Display` (legível, ex.:
+  ([error.rs](crates/octapus-core/src/error.rs)). `message` é o `Display` (legível, ex.:
   `"Connection error: ..."`); `code` é um de `STORAGE_ERROR`, `CONNECTION_ERROR`,
   `POOL_EXHAUSTED`, `CONNECTION_TIMEOUT`, `QUERY_ERROR`, `INVALID_QUERY`, `NOT_FOUND`,
   `ALREADY_EXISTS`, `INVALID_STATE`, `CANCELLED`, `UNSUPPORTED_DATABASE`,
@@ -706,9 +752,9 @@ não do pool. Só Postgres.
   (comando do `psql`, outros clientes SQL não entendem). Formatos tar/diretório, jobs
   paralelos e dump global (roles) ficam de fora.
 
-Testes: unidade sem nada (`cargo test --lib backup`, com `pg_dump` falso em shell para o
+Testes: unidade sem nada (`cargo test -p octapus-core --lib backup`, com `pg_dump` falso em shell para o
 runner); ponta a ponta com o Postgres dos e2e e as ferramentas reais —
-`cargo test --lib backup::e2e -- --ignored` (pasta por `OCTAPUS_PG_TOOLS_DIR` ou a
+`cargo test -p octapus-core --lib backup::e2e -- --ignored` (pasta por `OCTAPUS_PG_TOOLS_DIR` ou a
 detecção normal; no macOS, `brew install libpq`).
 
 ### Sessão do workspace (abas abertas — SQLite local)
@@ -1004,7 +1050,7 @@ com a pergunta, sem nunca carregar a estrutura inteira.
 
 **Prompts, mensagens e resposta** (B5):
 
-- **Prompts** em `src-tauri/prompts/<paradigma>-v<n>.txt`. Em uso, `postgres-v6`,
+- **Prompts** em `crates/octapus-core/prompts/<paradigma>-v<n>.txt`. Em uso, `postgres-v6`,
   `sqlite-v6`, `mongo-v5` e `redis-v3`, todos no contrato 1.6.0 (a pergunta ao usuário,
   `ask_user`, com `choices` e o `<user_reply>`; o `clarification` fica para quando a
   estrutura não permite responder). Os v2 trouxeram o pedido de
@@ -1021,7 +1067,7 @@ com a pergunta, sem nunca carregar a estrutura inteira.
   exatos da mensagem `system` contra o prompt registrado com o mesmo id: registre **o
   próprio arquivo** no dashboard (Prompts → enviar arquivo, com o paradigma). Texto
   mudou = arquivo novo (`-v2`), registrado antes do release; o teste
-  `prints_and_pins_each_prompt_hash` imprime os hashes (`cargo test --lib
+  `prints_and_pins_each_prompt_hash` imprime os hashes (`cargo test -p octapus-core --lib
   assistant::prompts -- --nocapture`) e reprova se um arquivo for editado. O
   `.gitattributes` fixa LF nos prompts e no contrato (CRLF no Windows mudaria o hash).
 - **Mensagens** (`assistant/messages.rs`, `attempt_request`): a `system` (nada variável vai
@@ -1037,7 +1083,7 @@ com a pergunta, sem nunca carregar a estrutura inteira.
   app (os sete campos, as regras de cada `kind`, e a `language` tem que ser a do banco);
   fora disso é `invalid_output`. O tipo aceita o que uma API mais nova mandar (`kind`
   desconhecido vira `unknown`, campo a mais é ignorado), para o histórico sempre abrir; quem
-  recusa é o `parse`. Cópia do contrato em `src-tauri/contract/` (os três
+  recusa é o `parse`. Cópia do contrato em `crates/octapus-core/contract/` (os três
   schemas JSON), com o SHA-256 de cada um fixado em teste para a versão do contrato
   (`CONTRACT_VERSION`, hoje 1.7.0); com `OCTAPUS_CONTRACT_DIR` apontando para o `contract/` da API, o
   teste compara byte a byte.
@@ -1130,13 +1176,13 @@ execução marcada com o `clientTurnId`, e o turno termina como `cancelled`. A e
 manual (`assistant_execute`, revisão e páginas seguintes) passa pelo mesmo caminho
 só-leitura; com `attemptId`, a primeira página completa o outcome guardado em memória
 (nunca em disco) e manda de novo. E2E com a API de verdade (gasta tokens):
-`OCTAPUS_E2E_ASSISTANT_URL=… OCTAPUS_E2E_INVITE=… cargo test --lib
-commands::assistant::e2e -- --ignored --nocapture` (o
+`OCTAPUS_E2E_ASSISTANT_URL=… OCTAPUS_E2E_INVITE=… cargo test -p octapus-core --lib
+assistant::setup::e2e -- --ignored --nocapture` (o
 `e2e_real_answers_and_structure_request` cobre a dúvida conceitual, a recusa fora do tema e
 o pedido de estrutura num SQLite de 200 tabelas;
 `e2e_real_postgres_object_requests_without_literals`, os prefixos `indexes:` e
-`definition:` com canários nos literais). E2E: `cargo test --lib read_only -- --include-ignored`
-  (Postgres e Mongo dos e2e; o SQLite usa arquivo temporário) e `cargo test --lib
+`definition:` com canários nos literais). E2E: `cargo test -p octapus-core --lib read_only -- --include-ignored`
+  (Postgres e Mongo dos e2e; o SQLite usa arquivo temporário) e `cargo test -p octapus-core --lib
   shape_context -- --ignored` (contexto do Mongo com canários).
 
 **Prova de privacidade** (B10, critérios 7 e 8 do épico,
@@ -1154,7 +1200,7 @@ aparecer; e cada teste confere que o canário chegou à tela (o erro como o banc
 linhas), para a prova não ser vazia. O de Postgres também resgata o convite num cliente
 novo e lê a conversa e a avaliação: o histórico volta noutra máquina só com o convite.
 Além das variáveis do e2e, pede `OCTAPUS_E2E_API_DATABASE_URL` e
-`OCTAPUS_E2E_API_CONTAINER`: `cargo test --lib commands::assistant::privacy_e2e --
+`OCTAPUS_E2E_API_CONTAINER`: `cargo test -p octapus-core --lib assistant::setup::privacy_e2e --
 --ignored --nocapture` (Mongo em 27017, Redis em 6380 db 3, Postgres em 5432 com um banco
 próprio que o teste cria e apaga). No disco, `storage::repositories::assistant` trava o
 esquema: a única tabela do assistente no `app.db` é a do token. Limites declarados (não

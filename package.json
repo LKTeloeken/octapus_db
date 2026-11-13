@@ -15,7 +15,7 @@
     "lint:tokens": "node scripts/check-design-tokens.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"e2e/**/*.ts\" \"*.{ts,js,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"e2e/**/*.ts\" \"*.{ts,js,json}\"",
-    "gen:types": "rm -rf src/api/types/generated && cd src-tauri && cargo test --lib export_bindings -q",
+    "gen:types": "rm -rf src/api/types/generated && cd crates/octapus-core && cargo test --lib export_bindings -q",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",

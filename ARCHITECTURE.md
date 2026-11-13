@@ -25,6 +25,23 @@ veja [BACKEND.md](BACKEND.md) e [FRONTEND.md](FRONTEND.md).
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+O backend é um workspace de três crates. As camadas abaixo de `commands/` moram no
+**núcleo** (`crates/octapus-core`), que não conhece o Tauri; o **app** (`src-tauri`) só
+tem os comandos e a janela; e o **terminal** (`crates/octapus-cli`, o binário `octapus`)
+é outra interface sobre o mesmo núcleo e os mesmos arquivos (`app.db`, `vault.key`,
+`catalog/`), que funciona com ou sem o app aberto — ver
+[BACKEND.md §1.2](BACKEND.md#12-núcleo-compartilhado-e-o-octapus-de-terminal).
+
+```
+ app desktop (src-tauri)          terminal (crates/octapus-cli)
+ commands/ → invoke do front      octapus <subcomando> · TUI
+            └──────────────┬───────────────┘
+                 crates/octapus-core (sem Tauri)
+        state · services · catalog · adapters · storage · assistant
+                           │
+              app.db · vault.key · catalog/   (pasta de dados do app)
+```
+
 ## Fronteira front ↔ back
 
 - **Transporte:** Tauri `invoke`. Comando em `snake_case`; argumentos e retornos em
@@ -41,14 +58,14 @@ veja [BACKEND.md](BACKEND.md) e [FRONTEND.md](FRONTEND.md).
 ## Decisões de design
 
 ### Adapters intercambiáveis
-Cada banco implementa a trait `DatabaseAdapter` ([adapters/traits.rs](src-tauri/src/adapters/traits.rs)).
+Cada banco implementa a trait `DatabaseAdapter` ([adapters/traits.rs](crates/octapus-core/src/adapters/traits.rs)).
 Métodos não suportados têm default que retorna `UnsupportedType`, então cada adapter só
 implementa o que oferece. O front descobre o que renderizar via `get_capabilities` —
 por isso a UI é uniforme para os quatro bancos.
 
 ### Conexão lazy + cache de pools
 Não existe "abrir conexão" explícito. O `ConnectionService`
-([services/connection.rs](src-tauri/src/services/connection.rs)) mantém um cache de
+([services/connection.rs](crates/octapus-core/src/services/connection.rs)) mantém um cache de
 adapters por `(serverId, database)`; o primeiro comando cria o pool e os seguintes o
 reutilizam. O helper `connect_adapter` ([commands/mod.rs](src-tauri/src/commands/mod.rs))
 só busca o servidor (e a senha) **no cache-miss**.
@@ -56,7 +73,7 @@ só busca o servidor (e a senha) **no cache-miss**.
 ### Catálogo de metadados no backend
 A **estrutura** dos bancos (schemas, tabelas, coleções) não viaja inteira para o front.
 O backend é o dono dela: um `CatalogService`
-([services/catalog.rs](src-tauri/src/services/catalog.rs)) mantém um catálogo por
+([services/catalog.rs](crates/octapus-core/src/services/catalog.rs)) mantém um catálogo por
 `(serverId, database)` e o front pede **fatias** — os filhos de um nó em janelas
 paginadas e filtradas, a busca da palette, a resolução de um nome sem schema. Vale para
 Postgres, Mongo e SQLite; o Redis segue com a estrutura inteira (chave não tem estrutura
@@ -67,7 +84,7 @@ tamanho de cada tabela, levava o backend ao OOM e travava a árvore para sempre;
 a estrutura de 48 MB travava a UI por mais de um segundo a cada sugestão do autocomplete.
 Os números estão em [perf/catalog/BASELINE.md](perf/catalog/BASELINE.md).
 
-- **Introspecção em camadas** ([adapters/postgres/introspect.rs](src-tauri/src/adapters/postgres/introspect.rs)):
+- **Introspecção em camadas** ([adapters/postgres/introspect.rs](crates/octapus-core/src/adapters/postgres/introspect.rs)):
   primeiro os nomes dos schemas (a árvore já aparece), depois as relações. Schemas com o
   mesmo conjunto de tabelas (o mesmo **formato**) são lidos uma vez só — 5.000 tenants
   viram poucos formatos. Transação somente leitura com `statement_timeout`/`lock_timeout`:
@@ -99,7 +116,7 @@ Só Postgres. Detalhes em [BACKEND.md](BACKEND.md) (§4, Backup e restauração)
 
 ### Segredos / senhas
 As senhas são criptografadas por um **cofre próprio do app**
-([storage/vault.rs](src-tauri/src/storage/vault.rs)) — AES-256-GCM com uma chave
+([storage/vault.rs](crates/octapus-core/src/storage/vault.rs)) — AES-256-GCM com uma chave
 **presa ao dispositivo**, gerada na 1ª execução e guardada em
 `<app_data_dir>/vault.key` (permissão `0600`). O ciphertext fica na própria coluna
 `servers.password` do SQLite; nada vai para o cofre do SO.
@@ -110,7 +127,7 @@ As senhas são criptografadas por um **cofre próprio do app**
   copiado/sincronizado **sem** o `vault.key`, mas não contra um atacante local com acesso
   aos dois arquivos. (Proteção forte exigiria uma master password — não implementada.)
 - **Migração do Keychain antigo:** instalações anteriores guardavam a senha no cofre do SO
-  via crate `keyring` ([storage/secrets.rs](src-tauri/src/storage/secrets.rs), agora
+  via crate `keyring` ([storage/secrets.rs](crates/octapus-core/src/storage/secrets.rs), agora
   só-migração). Na 1ª conexão de cada servidor, a senha legada é lida do Keychain (um
   último prompt do SO), re-criptografada no vault e removida do Keychain.
 - **Leitura sob demanda:** a senha só é decifrada ao **criar** um pool (cache-miss);

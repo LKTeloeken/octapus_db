@@ -41,6 +41,13 @@ tsconfig.tsbuildinfo
 
 .env*
 
+# Saída do Cargo (o workspace fica na raiz)
+/target/
+
+# Tipos do ts-rs gerados por um `cargo test` rodado fora de crates/octapus-core
+# (sem o TS_RS_EXPORT_DIR de lá): os de verdade saem do `pnpm gen:types`
+/crates/octapus-core/bindings/
+
 # Config local do Cargo (URL da API do assistente para o tauri dev) — o
 # src-tauri/.cargo/config.toml continua versionado
 /.cargo/

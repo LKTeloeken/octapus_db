@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use tauri::State;
 
-use crate::adapters::{create_catalog_source, has_catalog};
 use crate::catalog::CatalogPath;
 use crate::error::{Error, Result};
 use crate::models::{
@@ -15,46 +14,20 @@ use crate::models::{
     CatalogStatus, DriftReport, FolderSummary, NodeKind, ObjectKind, ObjectRef, Page, Resolution, SchemaComparison,
     ShapeGroup,
 };
-use crate::services::{connection_identity, CatalogEntry, SourceOpener};
+use crate::services::CatalogEntry;
 use crate::state::AppState;
 use crate::storage::repositories::servers;
 
 /// Teto de itens por chamada — a árvore pede janelas, não listas inteiras.
 const MAX_PAGE: usize = 1_000;
 
-/// Catálogo do database, aberto na primeira vez (do disco, se houver) com uma
-/// revalidação em segundo plano. A senha só é decifrada aqui, quando a
-/// entrada ainda não existe.
+/// O catálogo do database — ver [`AppState::catalog_entry`].
 pub(crate) async fn entry_for(
     state: &State<'_, AppState>,
     server_id: i64,
     database: &str,
 ) -> Result<Arc<CatalogEntry>> {
-    if let Some(entry) = state.catalog.get(server_id, database) {
-        return Ok(entry);
-    }
-
-    let meta = servers::get_by_id_meta(&state.storage, server_id)?;
-    if !has_catalog(meta.db_type) {
-        return Err(Error::UnsupportedDatabase(format!(
-            "metadata catalog is not available for {:?}",
-            meta.db_type
-        )));
-    }
-
-    let server = servers::get_by_id(&state.storage, server_id)?;
-    let target = database.to_string();
-    let opener: SourceOpener = Arc::new(move || {
-        let (server, database) = (server.clone(), target.clone());
-        Box::pin(async move { create_catalog_source(&server, &database).await })
-    });
-
-    let entry = state
-        .catalog
-        .open(server_id, database, connection_identity(&meta), opener)
-        .await;
-    state.catalog.ensure_fresh(&entry, false);
-    Ok(entry)
+    state.catalog_entry(server_id, database).await
 }
 
 /// Abre o catálogo (ou revalida, se a última sincronização for antiga) e

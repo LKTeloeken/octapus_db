@@ -6,7 +6,7 @@
 //! ou tabela. Servidor pelo id e database pelo nome bastam; mensagens de erro
 //! do banco entram como vieram.
 
-use log::LevelFilter;
+use octapus_core::logging::{app_level, CORE_TARGET, DEPENDENCIES_LEVEL};
 use tauri::plugin::TauriPlugin;
 use tauri::Wry;
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
@@ -18,20 +18,9 @@ const MAX_FILE_BYTES: u128 = 5 * 1024 * 1024;
 /// Arquivos antigos guardados além do atual
 const KEEP_FILES: usize = 4;
 
-/// O target dos logs do próprio app (o nome da lib).
+/// O target dos logs do próprio app (o nome da lib); os do núcleo saem com
+/// o [`CORE_TARGET`].
 pub const APP_TARGET: &str = "octapus_db_lib";
-/// As dependências só a partir de `warn` — o `debug` do tokio-postgres, por
-/// exemplo, traz o SQL.
-pub const DEPENDENCIES_LEVEL: LevelFilter = LevelFilter::Warn;
-
-/// Em dev o app loga em `debug`; em release, `info`.
-pub fn app_level() -> LevelFilter {
-    if cfg!(debug_assertions) {
-        LevelFilter::Debug
-    } else {
-        LevelFilter::Info
-    }
-}
 
 /// O arquivo de log com os níveis de [`DEPENDENCIES_LEVEL`] e [`app_level`].
 pub fn plugin() -> TauriPlugin<Wry> {
@@ -49,6 +38,7 @@ pub fn plugin() -> TauriPlugin<Wry> {
         .targets(targets)
         .level(DEPENDENCIES_LEVEL)
         .level_for(APP_TARGET, app_level)
+        .level_for(CORE_TARGET, app_level)
         .max_file_size(MAX_FILE_BYTES)
         .rotation_strategy(RotationStrategy::KeepSome(KEEP_FILES))
         .timezone_strategy(TimezoneStrategy::UseLocal)

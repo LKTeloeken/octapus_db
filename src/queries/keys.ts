@@ -58,6 +58,9 @@ export const queryKeys = {
   assistantConversation: (conversationId: string) =>
     ['assistant', 'session', 'conversation', conversationId] as const,
 
+  /** O `octapus` de terminal nesta máquina (instalado? onde?) */
+  cliStatus: ['cliStatus'] as const,
+
   /** Ferramentas do Postgres — prefixo, invalidado ao trocar a pasta */
   pgTools: ['pgTools'] as const,
 

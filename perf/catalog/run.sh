@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Roda as medições do backend (src-tauri/src/perf) contra a fixture já populada.
+# Roda as medições do backend (crates/octapus-core/src/perf) contra a fixture já populada.
 #
 #   run.sh <tier> pg      Postgres: rede local e remota simulada (80 ms / 100 Mbps)
 #   run.sh <tier> mongo   Mongo: idem
@@ -10,11 +10,11 @@ set -euo pipefail
 
 tier=${1:?informe o tier (ex.: S, M, L)}
 suite=${2:?informe a suíte: pg ou mongo}
-cd "$(dirname "$0")/../../src-tauri"
+cd "$(dirname "$0")/../.."
 
 export OCTAPUS_PERF_TIER=$tier
 run() {
-  cargo test --release --lib "$1" -- --ignored --nocapture --test-threads=1 "${@:2}" 2>&1 \
+  cargo test -p octapus-core --release --lib "$1" -- --ignored --nocapture --test-threads=1 "${@:2}" 2>&1 \
     | grep -E '^test |test result|panicked' || true
 }
 

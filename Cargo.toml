@@ -1,0 +1,19 @@
+# Workspace do Octapus: o núcleo sem Tauri (`crates/octapus-core`), o app
+# desktop (`src-tauri`) e o binário de terminal (`crates/octapus-cli`).
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/*"]
+
+# A versão é uma só para o app, o núcleo e o CLI (`pnpm release:version`)
+[workspace.package]
+version = "1.1.0"
+
+# Reduz o tamanho de target/debug (chegava a 40 GB): só tabelas de linhas no
+# código do app (backtraces seguem úteis) e nenhum símbolo de debug nas dependências.
+# Mudar isso invalida o cache: a próxima compilação recompila tudo uma vez.
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = false

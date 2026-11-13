@@ -95,7 +95,7 @@ jobs:
       - name: Cache do Rust
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: . -> target
           key: ${{ matrix.target }}
 
       - uses: pnpm/action-setup@v4
@@ -200,3 +200,39 @@ jobs:
             echo "::error::Nenhum instalador reconhecido em ARTIFACT_PATHS: $ARTIFACT_PATHS"
             exit 1
           fi
+
+      # O `octapus` de terminal (crates/octapus-cli): um binário por
+      # plataforma, com nome fixo e o SHA-256 ao lado, na mesma release e na
+      # mesma versão do app (os dois abrem o mesmo app.db). É o que o
+      # scripts/install-cli.sh e o botão "Instalar" das Preferências baixam —
+      # os nomes vêm de `asset_name` (crates/octapus-core, cli_install.rs).
+      - name: Build e publicação do octapus de terminal
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          LABEL: ${{ matrix.label }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          if [ -n "$TARGET" ]; then
+            cargo build --release -p octapus-cli --target "$TARGET"
+            dir="target/$TARGET/release"
+          else
+            cargo build --release -p octapus-cli
+            dir="target/release"
+          fi
+
+          ext=""
+          if [ "$RUNNER_OS" = "Windows" ]; then ext=".exe"; fi
+          asset="octapus-${LABEL}${ext}"
+          cp "$dir/octapus${ext}" "$asset"
+
+          # O macOS não tem sha256sum; o arquivo leva só o hash
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$asset" | cut -d ' ' -f 1 > "$asset.sha256"
+          else
+            shasum -a 256 "$asset" | cut -d ' ' -f 1 > "$asset.sha256"
+          fi
+          echo "$asset  $(cat "$asset.sha256")"
+          gh release upload "$TAG" "$asset" "$asset.sha256" --clobber --repo "$GITHUB_REPOSITORY"

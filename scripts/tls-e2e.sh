@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Postgres com TLS para o e2e de src-tauri/src/adapters/postgres/tls_e2e.rs.
+# Postgres com TLS para o e2e de crates/octapus-core/src/adapters/postgres/tls_e2e.rs.
 #
 #   scripts/tls-e2e.sh up     # gera CA + certificado e sobe o container (porta 55433)
-#   cd src-tauri && OCTAPUS_TLS_CA=/tmp/octapus-tls-e2e/ca.crt \
-#     cargo test --lib postgres::tls_e2e -- --ignored
+#   OCTAPUS_TLS_CA=/tmp/octapus-tls-e2e/ca.crt \
+#     cargo test -p octapus-core --lib postgres::tls_e2e -- --ignored
 #   scripts/tls-e2e.sh down   # apaga o container e os certificados
 #
 # O certificado do servidor é emitido para `db.internal`, não para

@@ -34,6 +34,7 @@ import type {
   ImportResult,
   ImportSource,
 } from '@/api/types/import.types';
+import type { CliStatus } from '@/api/types/cli.types';
 import type { AppSettings } from '@/api/types/settings.types';
 import type {
   ColumnInfo,
@@ -683,7 +684,28 @@ const settingsHandlers: Record<string, MockHandler> = {
   // No navegador não há pasta para abrir: só confirma, como o app
   [RustCommand.OpenLogDir]: (): void => undefined,
   [RustCommand.ReportWebviewState]: (): void => undefined,
+
+  // O `octapus` de terminal: no navegador, "instalar" só troca o estado
+  [RustCommand.CliStatus]: (): CliStatus => mockCliStatus(),
+  [RustCommand.CliInstall]: (): CliStatus => {
+    localStorage.setItem(CLI_INSTALLED_KEY, '1');
+    return mockCliStatus();
+  },
 };
+
+// ── octapus de terminal ─────────────────────────────────────────────────────
+
+const CLI_INSTALLED_KEY = 'octapus-mock:cli-installed';
+
+/** Como o backend responderia num macOS: `~/.local/bin`, fora do PATH */
+function mockCliStatus(): CliStatus {
+  return {
+    supported: true,
+    installed: localStorage.getItem(CLI_INSTALLED_KEY) === '1',
+    path: '/Users/voce/.local/bin/octapus',
+    onPath: false,
+  };
+}
 
 // ── Ferramentas do Postgres (backup/restore) ────────────────────────────────
 

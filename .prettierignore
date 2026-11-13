@@ -1,2 +1,6 @@
 # Gerados do Rust pelo ts-rs (pnpm gen:types)
 src/api/types/generated
+
+# O workspace do Rust (a saída do Cargo e as crates não passam pelo Prettier)
+target
+crates

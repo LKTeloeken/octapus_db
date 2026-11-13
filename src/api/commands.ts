@@ -87,6 +87,10 @@ export enum RustCommand {
   OpenLogDir = 'open_log_dir',
   ReportWebviewState = 'report_webview_state',
 
+  // O `octapus` de terminal (instalar a partir do app)
+  CliStatus = 'cli_status',
+  CliInstall = 'cli_install',
+
   // Backup e restauração (ferramentas nativas do Postgres)
   PgToolsDetect = 'pg_tools_detect',
   PgToolsStatus = 'pg_tools_status',

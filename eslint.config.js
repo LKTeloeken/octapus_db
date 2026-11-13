@@ -14,6 +14,9 @@ export default tseslint.config(
     ignores: [
       'dist',
       'src-tauri',
+      // O workspace do Rust: o núcleo, o CLI e a saída do Cargo
+      'crates',
+      'target',
       'node_modules',
       'perf',
       'playwright-report',

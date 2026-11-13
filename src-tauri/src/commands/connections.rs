@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use tauri::State;
 
-use crate::adapters::{self, PoolStats};
-use crate::error::{Error, Result};
+use crate::adapters::PoolStats;
+use crate::error::Result;
 use crate::models::ServerInput;
-use crate::state::AppState;
+use crate::state::{test_server, AppState};
 use crate::storage::repositories::servers;
 
 use super::connect_adapter;
@@ -72,23 +72,6 @@ pub async fn test_server_input(
         Err(error) => log::info!("teste de conexão ({:?}): falhou ({})", server.db_type, error.code()),
     }
     result
-}
-
-/// Conecta ao database padrão do servidor (ou o do tipo), faz o ping e solta
-/// a conexão, em até `timeout`.
-async fn test_server(server: &crate::models::Server, timeout: Duration) -> Result<()> {
-    let database = server
-        .default_database
-        .clone()
-        .unwrap_or_else(|| server.db_type.default_database_name().to_string());
-    let test = async {
-        let adapter = adapters::create_adapter(server, &database).await?;
-        adapter.test_connection().await
-    };
-    match tokio::time::timeout(timeout, test).await {
-        Ok(result) => result,
-        Err(_) => Err(Error::ConnectionTimeout),
-    }
 }
 
 #[tauri::command]

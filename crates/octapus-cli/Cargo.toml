@@ -1,0 +1,37 @@
+[package]
+name = "octapus-cli"
+version.workspace = true
+description = "Octapus no terminal: CLI e TUI sobre os mesmos dados do app"
+authors = ["LKTeloeken"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+
+[[bin]]
+name = "octapus"
+path = "src/main.rs"
+
+[dependencies]
+octapus-core = { path = "../octapus-core" }
+
+clap = { version = "4", features = ["derive", "wrap_help"] }
+clap_complete = "4"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = { version = "0.4", features = ["std"] }
+parking_lot = "0.12"
+# Largura das colunas na saída em tabela e na TUI
+unicode-width = "0.2"
+# Senha digitada sem eco (`server add --password`, `server set-password`)
+rpassword = "7"
+
+# TUI: desenho só em evento, sem tick fixo (ver src/tui/)
+ratatui = "0.30"
+# Tema e atalhos em ~/.config/octapus/config.toml
+toml = "0.8"
+
+[dev-dependencies]
+# Roda o binário de verdade contra uma pasta de dados temporária
+assert_cmd = "2"
+# Cria o banco SQLite descartável dos testes (mesma versão do núcleo)
+rusqlite = { version = "0.31", features = ["bundled"] }

@@ -1,6 +1,7 @@
 import {
   AiChat02Icon,
   Bug01Icon,
+  ComputerTerminal01Icon,
   DatabaseIcon,
   Download04Icon,
   KeyboardIcon,
@@ -11,6 +12,7 @@ import { AssistantSection } from './sections/assistant-section';
 import { DiagnosticsSection } from './sections/diagnostics-section';
 import { PgToolsSection } from './sections/pg-tools-section';
 import { ShortcutsSection } from './sections/shortcuts-section';
+import { TerminalSection } from './sections/terminal-section';
 import { UpdatesSection } from './sections/updates-section';
 import type { SettingsSection } from './settings-dialog.types';
 
@@ -49,6 +51,14 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: 'Perguntas em linguagem natural sobre o banco.',
     icon: AiChat02Icon,
     Component: AssistantSection,
+  },
+  {
+    id: 'terminal',
+    label: 'Terminal',
+    description:
+      'O octapus de linha de comando: as mesmas conexões do app no terminal, em scripts e numa TUI.',
+    icon: ComputerTerminal01Icon,
+    Component: TerminalSection,
   },
   {
     id: 'updates',

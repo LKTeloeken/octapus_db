@@ -1,0 +1,88 @@
+[package]
+name = "octapus-core"
+version.workspace = true
+description = "Núcleo do Octapus sem Tauri: adapters, catálogo, storage e serviços"
+authors = ["LKTeloeken"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+
+# Database
+# `column_decltype` expõe o tipo declarado das colunas (Statement::columns),
+# usado pelo adapter do SQLite para o front escolher o editor da célula.
+rusqlite = { version = "0.31", features = ["bundled", "column_decltype"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+deadpool-postgres = "0.14"
+mongodb = "3"
+json5 = "0.4"
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager", "tokio-rustls-comp", "tls-rustls-insecure"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+# TLS dos bancos (adapters/tls.rs): rustls com as CAs do sistema — o
+# native-tls do macOS (Secure Transport) recusa bundles de CA reais, como o do
+# RDS. Mesmas versões que o lockfile já tinha.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+rustls-pki-types = { version = "1", features = ["std"] }
+tokio-postgres-rustls = "0.13"
+
+# Secrets vault (device-bound encryption at rest)
+aes-gcm = "0.10"
+rand = "0.8"
+
+# Importar conexões de outros apps (services/connection_import): plist do
+# TablePlus, XML do DataGrip, AES-CBC do DBeaver/Beekeeper e as pastas de cada
+# SO. Todas já vinham no lockfile como transitivas (o `aes` é o do `aes-gcm`),
+# menos o `cbc`, do mesmo projeto RustCrypto.
+plist = "1.7"
+quick-xml = "0.41"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+sha2 = "0.10"
+base64 = "0.22"
+dirs = "6"
+
+# Utils
+parking_lot = "0.12"
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+sqlparser = "0.58"
+
+# Catálogo de metadados (src/catalog): busca fuzzy, snapshot binário compacto e
+# compressão em Rust puro (sem C) para o arquivo persistido.
+nucleo-matcher = "0.3"
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+lz4_flex = { version = "0.11", default-features = false, features = ["std", "safe-encode", "safe-decode", "checked-decode"] }
+# Índice do interner do catálogo (HashTable guarda só o id de cada nome). Já
+# vinha como dependência transitiva — mesma versão do lockfile.
+hashbrown = { version = "0.15", default-features = false }
+# Consumir o streaming de linhas do tokio-postgres (introspecção do catálogo).
+# Já era dependência transitiva — mesma versão do lockfile.
+futures-util = "0.3"
+
+# HTTP: canal beta do updater (commands/updater.rs, API do GitHub) e cliente
+# da API do assistente (assistant/client.rs). Mesmas versões e features que o
+# plugin do updater já usa — nenhuma crate nova.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
+semver = "1"
+
+# Idioma da pergunta do assistente (pt, en ou outro), gravado em cada turno
+# (C-02). Rust puro, sem modelo externo.
+whatlang = "0.18"
+
+log = "0.4"
+
+[dev-dependencies]
+# Tipos TypeScript gerados dos modelos (src/api/types/generated/), só em teste:
+# `cargo test --lib export_bindings` (ver .cargo/config.toml). O binário não leva.
+ts-rs = "12"
+# Testes de propriedade do núcleo do catálogo (1.7: as mais novas sobem o
+# bitflags do app inteiro no lockfile)
+proptest = "1.7"

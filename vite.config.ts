@@ -52,7 +52,7 @@ export default defineConfig(({ mode }) => ({
       : undefined,
     watch: {
       include: ['src/**'],
-      ignored: ['**/src-tauri/**'],
+      ignored: ['**/src-tauri/**', '**/crates/**', '**/target/**'],
     },
   },
 }));
