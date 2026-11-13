@@ -99,6 +99,15 @@ pub async fn run(app: App, args: TuiArgs) -> CliResult<()> {
     let mouse = file.ui.mouse;
 
     let (tx, mut rx) = unbounded_channel::<Msg>();
+    if file.ui.update_check {
+        // Em segundo plano: a TUI abre sem esperar a rede
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            if let Some(version) = crate::commands::update::newer_version().await {
+                let _ = tx.send(Msg::UpdateAvailable(version));
+            }
+        });
+    }
     let state = Arc::new(app.state);
     let mut tui = Tui::new(state, theme, keys, file.ui, tx, tokio::runtime::Handle::current());
     if let Some(warning) = warnings.first() {

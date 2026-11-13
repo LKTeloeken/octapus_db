@@ -161,6 +161,10 @@ do app (`paths.rs` a acha sem o Tauri; `OCTAPUS_DATA_DIR` troca, nos testes).
 - **Estrutura na TUI:** a árvore e a busca (`Ctrl+P`) leem do catálogo (§1.1), como o
   app: `catalog_entry` + `ensure_schemas` ao abrir um schema, `search_all` na busca,
   `refresh_schema`/`ensure_fresh` no recarregar (`r`). Só o Redis lista pelo adapter.
+- **Atualizar pelo terminal:** `octapus update` (`commands/update.rs`) lê a versão do
+  `latest.json` da release mais nova (o do updater do app) e chama `install_to` no
+  caminho do próprio binário. O aviso da TUI guarda a resposta por um dia em
+  `cli-update-check.json`, na pasta de dados; subcomandos e MCP não consultam a rede.
 - **Testes:** `cargo test -p octapus-cli` roda o binário de verdade contra uma pasta
   descartável (`tests/cli.rs`: formatos, recusas de escrita, senhas que não voltam,
   oito processos partindo juntos) e a TUI sem terminal (`src/tui/tests.rs`).

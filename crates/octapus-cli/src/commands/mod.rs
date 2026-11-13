@@ -7,3 +7,4 @@ pub mod query;
 pub mod server;
 pub mod structure;
 pub mod table;
+pub mod update;

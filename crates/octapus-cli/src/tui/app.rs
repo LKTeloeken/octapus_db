@@ -98,6 +98,8 @@ pub enum Msg {
     CatalogReady(Result<(), String>),
     /// Mensagem do banco durante uma execução (NOTICE, linhas afetadas)
     Notice(String),
+    /// Há uma versão mais nova do `octapus` publicada
+    UpdateAvailable(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1161,7 +1163,7 @@ impl Tui {
     // ── Respostas das tarefas ───────────────────────────────────────────────
 
     pub fn on_msg(&mut self, msg: Msg) {
-        if !matches!(msg, Msg::Notice(_)) {
+        if !matches!(msg, Msg::Notice(_) | Msg::UpdateAvailable(_)) {
             self.busy = self.busy.saturating_sub(1);
         }
         match msg {
@@ -1230,6 +1232,12 @@ impl Tui {
                 Err(error) => self.set_status(Tone::Error, error),
             },
             Msg::Notice(message) => self.set_status(Tone::Info, message),
+            Msg::UpdateAvailable(version) => {
+                // Não cobre um aviso da partida (config.toml com erro)
+                if self.status.is_none() {
+                    self.set_status(Tone::Info, format!("octapus {version} disponível: saia e rode octapus update"));
+                }
+            }
         }
     }
 }

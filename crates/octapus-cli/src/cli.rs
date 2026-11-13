@@ -79,6 +79,13 @@ pub enum Command {
     #[command(subcommand)]
     Mcp(McpCommand),
 
+    /// Troca este octapus pela versão mais nova publicada
+    Update {
+        /// Só diz se há versão nova, sem instalar
+        #[arg(long)]
+        check: bool,
+    },
+
     /// Onde ficam os dados, a configuração e o log
     Paths,
 

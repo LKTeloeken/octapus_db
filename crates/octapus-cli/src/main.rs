@@ -83,6 +83,12 @@ async fn run(cli: Cli) -> CliResult<()> {
             return Ok(());
         }
         Command::Paths => return paths(&output::Output::new(cli.format, cli.no_color)),
+        Command::Update { check } => {
+            if let Ok(dir) = octapus_core::paths::log_dir() {
+                logging::init(&dir);
+            }
+            return commands::update::run(&output::Output::new(cli.format, cli.no_color), *check).await;
+        }
         _ => {}
     }
 
@@ -99,7 +105,7 @@ async fn run(cli: Cli) -> CliResult<()> {
         Command::Restore(args) => commands::backup::run_restore(&app, &args).await,
         Command::Tui(args) => tui::run(app, args).await,
         Command::Mcp(cli::McpCommand::Serve) => mcp::serve(app).await,
-        Command::Completions { .. } | Command::Paths => Ok(()),
+        Command::Completions { .. } | Command::Paths | Command::Update { .. } => Ok(()),
     }
 }
 

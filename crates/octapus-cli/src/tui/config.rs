@@ -40,6 +40,8 @@ pub struct UiConfig {
     pub theme: String,
     pub mouse: bool,
     pub mascot: bool,
+    /// Avisar quando há versão nova (uma consulta à rede por dia, ao abrir)
+    pub update_check: bool,
 }
 
 impl Default for UiConfig {
@@ -48,6 +50,7 @@ impl Default for UiConfig {
             theme: "dark".into(),
             mouse: false,
             mascot: true,
+            update_check: true,
         }
     }
 }

@@ -383,3 +383,12 @@ async fn refresh_rereads_the_structure_from_the_database() {
     assert!(screen.contains("▤ invoices"), "{screen}");
     assert!(screen.contains("▤ customers"), "{screen}");
 }
+
+#[tokio::test]
+async fn a_newer_version_shows_in_the_status_bar() {
+    let mut harness = Harness::new("update");
+    harness.tui.on_msg(Msg::UpdateAvailable("9.9.9".into()));
+    assert_eq!(harness.tui.busy, 0);
+    let screen = harness.screen_text();
+    assert!(screen.contains("octapus 9.9.9 disponível: saia e rode octapus update"), "{screen}");
+}
