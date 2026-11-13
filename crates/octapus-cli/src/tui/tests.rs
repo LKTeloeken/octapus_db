@@ -434,3 +434,85 @@ async fn panes_get_boxes_only_when_the_terminal_has_room() {
     assert!(screen.contains(" SERVIDORES"), "{screen}");
     assert!(screen.contains("Porto Alegre"), "{screen}");
 }
+
+#[tokio::test]
+async fn autocomplete_follows_the_query_context() {
+    let mut harness = Harness::new("complete");
+    harness.key(KeyCode::F(3));
+    let labels = |harness: &Harness| -> Vec<String> {
+        harness.tui.editor.completion.as_ref().map_or(Vec::new(), |completion| completion.items.iter().map(|item| item.label.clone()).collect())
+    };
+
+    // Uma letra não abre a lista; duas, sim
+    harness.keys("s");
+    assert!(harness.tui.editor.completion.is_none());
+    harness.keys("e");
+    assert!(labels(&harness).contains(&"select".to_string()));
+    harness.key(KeyCode::Enter);
+    assert_eq!(harness.tui.editor.text(), "select");
+
+    // Depois de FROM: as tabelas do catálogo (aberto em segundo plano), sem palavras-chave
+    harness.keys(" * from cu");
+    harness.settle().await;
+    assert_eq!(labels(&harness), ["customers"]);
+    let screen = harness.screen_text();
+    assert!(screen.contains("▤ customers"), "{screen}");
+    harness.key(KeyCode::Tab);
+    assert_eq!(harness.tui.editor.text(), "select * from customers");
+
+    // Depois de WHERE: as colunas da tabela citada, com o tipo ao lado
+    harness.keys(" where ci");
+    harness.settle().await;
+    assert_eq!(labels(&harness).first().map(String::as_str), Some("city"));
+    assert!(harness.screen_text().contains("▪ city"));
+    harness.key(KeyCode::Enter);
+    assert_eq!(harness.tui.editor.text(), "select * from customers where city");
+
+    // `tabela.` lista as colunas dela, já lidas: nada vai ao banco de novo
+    harness.keys(" = customers.");
+    assert_eq!(harness.tui.busy, 0);
+    assert_eq!(labels(&harness), ["id", "name", "city"]);
+    harness.key(KeyCode::Esc);
+    assert!(harness.tui.editor.completion.is_none());
+
+    // Dentro de um texto nada é sugerido, e o Enter sem lista quebra a linha
+    harness.keys("'na");
+    assert!(harness.tui.editor.completion.is_none());
+    harness.keys("'");
+    harness.key(KeyCode::Enter);
+    assert_eq!(harness.tui.editor.line_count(), 2);
+
+    // Desligado, só o atalho abre
+    harness.tui.autocomplete = false;
+    harness.keys("sel");
+    assert!(harness.tui.editor.completion.is_none());
+    harness.ctrl('n');
+    assert!(harness.tui.editor.text().ends_with("select"), "um candidato só entra direto");
+}
+
+#[tokio::test]
+async fn autocomplete_keeps_up_with_typing_on_a_large_catalog() {
+    let mut harness = Harness::new("complete-perf");
+    let tables: String = (0..3000).map(|index| format!("CREATE TABLE tenant_{index:04} (id INTEGER PRIMARY KEY, total NUMERIC);")).collect();
+    rusqlite::Connection::open(harness.dir.join("loja.db")).unwrap().execute_batch(&tables).unwrap();
+
+    harness.key(KeyCode::F(3));
+    harness.keys("select * from te");
+    harness.settle().await;
+    assert!(harness.tui.editor.completion.is_some(), "o catálogo abriu e a lista apareceu");
+    harness.screen();
+
+    // Cada tecla: refazer a lista (3.000 tabelas no catálogo) e desenhar
+    let typed = "nant_29";
+    let started = std::time::Instant::now();
+    for ch in typed.chars() {
+        harness.key(KeyCode::Char(ch));
+        harness.screen();
+    }
+    let per_key = started.elapsed() / typed.len() as u32;
+    let completion = harness.tui.editor.completion.as_ref().expect("lista aberta");
+    assert_eq!(completion.items.len(), 50, "o teto da lista");
+    assert_eq!(completion.items[0].label, "tenant_2900");
+    assert!(per_key < Duration::from_millis(16), "tecla até a tela em {per_key:?}");
+    println!("tecla até a tela: {per_key:?}");
+}

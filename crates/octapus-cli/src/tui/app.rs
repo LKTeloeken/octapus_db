@@ -5,15 +5,17 @@
 //! há desenho aqui (`view.rs`) nem terminal (`mod.rs`), o que deixa os testes
 //! dirigirem a TUI inteira com teclas e mensagens.
 
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 
 use octapus_core::adapters::{has_catalog, MessageSink, ReadOnlyOp};
 use octapus_core::assistant::{guard, read_only};
-use octapus_core::catalog::{CatalogPath, FLAT_SCHEMA};
+use octapus_core::catalog::{CatalogPath, LoadState, FLAT_SCHEMA};
+use octapus_core::services::CatalogEntry;
 use octapus_core::models::{
-    AdapterCapabilities, CatalogNode, DatabaseType, NodeKind as CatalogKind, QueryMessage, QueryMessageKind,
-    QueryOptions, QueryResult, Server, TableDataRequest, TableType,
+    AdapterCapabilities, CatalogNode, DatabaseType, NodeKind as CatalogKind, QueryLanguage, QueryMessage,
+    QueryMessageKind, QueryOptions, QueryResult, Resolution, Server, TableDataRequest, TableType,
 };
 use octapus_core::state::AppState;
 use octapus_core::storage::repositories::servers;
@@ -25,8 +27,9 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::context::wait_for_catalog;
 
+use super::complete::{self, Item, ItemKind, Scope, TableRef};
 use super::config::{Theme, UiConfig};
-use super::editor::Editor;
+use super::editor::{Editor, KEYWORDS};
 use super::grid::Grid;
 use super::keys::{Action, Combo, KeyMap};
 use super::tree::{Load, NodeKind, Tree};
@@ -35,6 +38,18 @@ use super::tree::{Load, NodeKind, Tree};
 const PAGE_ROWS: i64 = 500;
 /// Resultados da busca no catálogo (o que cabe numa tela).
 const SEARCH_HITS: usize = 40;
+/// Candidatos na lista do autocompletar.
+const COMPLETION_ITEMS: usize = 50;
+/// Tabelas e schemas pedidos ao catálogo por vez.
+const COMPLETION_NAMES: usize = 200;
+/// Tabelas da consulta cujas colunas são lidas (um JOIN enorme não vira rajada).
+const COMPLETION_TABLES: usize = 8;
+/// Letras digitadas para a lista abrir sozinha.
+const COMPLETION_MIN_PREFIX: usize = 2;
+
+/// Uma tabela cujas colunas o autocompletar conhece: (servidor, database,
+/// schema, tabela).
+type ColumnsKey = (i64, String, String, String);
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +111,11 @@ pub enum Msg {
     Saved(Result<u64, String>),
     /// Um catálogo abriu (ou um schema carregou): a busca aberta roda de novo
     CatalogReady(Result<(), String>),
+    /// As colunas de uma tabela citada no editor: (nome, tipo)
+    Columns {
+        key: ColumnsKey,
+        columns: Vec<(String, String)>,
+    },
     /// Mensagem do banco durante uma execução (NOTICE, linhas afetadas)
     Notice(String),
     /// Há uma versão mais nova do `octapus` publicada
@@ -190,6 +210,16 @@ pub struct Tui {
     pub phase: f32,
     /// O polvo está de olho fechado (a piscada)?
     pub blink: bool,
+
+    /// A lista de sugestões abre sozinha enquanto se digita
+    pub autocomplete: bool,
+    /// O autocompletar espera algo do banco (colunas, catálogo) para a
+    /// palavra atual; o valor diz se foi pedido pelo atalho
+    completion_wanted: Option<bool>,
+    /// Colunas já lidas (`None` = pedidas, ainda não chegaram)
+    columns: HashMap<ColumnsKey, Option<Vec<(String, String)>>>,
+    /// Catálogos e schemas que o autocompletar já mandou abrir
+    completion_loads: HashSet<(i64, String, String)>,
     pub quit: bool,
 
     tx: UnboundedSender<Msg>,
@@ -398,6 +428,10 @@ impl Tui {
             loading_more: false,
             phase: 0.0,
             blink: false,
+            autocomplete: true,
+            completion_wanted: None,
+            columns: HashMap::new(),
+            completion_loads: HashSet::new(),
             quit: false,
             tx,
             runtime,
@@ -576,10 +610,7 @@ impl Tui {
             }
             Action::Help => self.modal = Some(Modal::Help),
             Action::Search => self.open_search(),
-            Action::Complete if self.focus == Pane::Editor => {
-                let names = self.completion_names();
-                self.editor.complete(&names);
-            }
+            Action::Complete if self.focus == Pane::Editor => self.refresh_completion(true),
             _ => {}
         }
     }
@@ -596,21 +627,204 @@ impl Tui {
         }
     }
 
-    /// Os nomes que o autocompletar oferece: as tabelas já vistas na árvore e
-    /// as colunas da grade.
-    fn completion_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = Vec::new();
+    // ── Autocompletar ───────────────────────────────────────────────────────
+
+    /// Os nomes já vistas na tela (tabelas da árvore, colunas da grade): o
+    /// que há para oferecer onde não se analisa a consulta (Mongo, Redis).
+    fn seen_names(&self) -> Vec<Item> {
+        let mut names: Vec<Item> = Vec::new();
         if let Some(grid) = &self.grid {
-            names.extend(grid.columns.iter().cloned());
+            names.extend(grid.columns.iter().zip(&grid.types).map(|(name, kind)| Item::new(name, ItemKind::Column, kind.to_lowercase())));
         }
         for row in 0..self.tree.len() {
             if let Some((_, node)) = self.tree.at(row) {
-                if matches!(node.kind, NodeKind::Table { .. } | NodeKind::Schema { .. }) {
-                    names.push(node.label.clone());
+                match node.kind {
+                    NodeKind::Table { .. } => names.push(Item::new(&node.label, ItemKind::Table, "")),
+                    NodeKind::Schema { .. } => names.push(Item::new(&node.label, ItemKind::Schema, "")),
+                    _ => {}
                 }
             }
         }
         names
+    }
+
+    /// Monta a lista para a palavra sob o cursor. `manual` = pedida pelo
+    /// atalho (abre mesmo sem nada digitado e, com um candidato só, ele entra
+    /// direto); senão é a lista que acompanha a digitação.
+    fn refresh_completion(&mut self, manual: bool) {
+        self.completion_wanted = None;
+        let context = complete::analyze(&self.editor.text(), self.editor.cursor_offset());
+        let typed = context.prefix.chars().count();
+        let opens_alone = typed >= COMPLETION_MIN_PREFIX || matches!(context.scope, Scope::Member(_));
+        if context.scope == Scope::Nothing || !(manual || opens_alone) {
+            self.editor.completion = None;
+            return;
+        }
+
+        let target = self.target();
+        let sql = target
+            .as_ref()
+            .is_some_and(|target| capabilities(target.db_type).is_ok_and(|caps| caps.query_language == QueryLanguage::Sql));
+        let mut candidates = match (&target, sql) {
+            (Some(target), true) => self.sql_candidates(target, &context),
+            _ => self.seen_names(),
+        };
+        if !matches!(context.scope, Scope::Table | Scope::Member(_)) {
+            // As palavras-chave na caixa em que a pessoa está digitando
+            let upper = typed > 0 && context.prefix.chars().all(|ch| !ch.is_lowercase());
+            candidates.extend(KEYWORDS.iter().map(|word| {
+                let word = if upper { word.to_uppercase() } else { word.to_string() };
+                Item::new(word, ItemKind::Keyword, "")
+            }));
+        }
+
+        let mut items = complete::rank(&context.prefix, candidates, COMPLETION_ITEMS);
+        // Só o que já está escrito: não há o que sugerir
+        if items.len() == 1 && items[0].label.eq_ignore_ascii_case(&context.prefix) {
+            items.clear();
+        }
+        let single = manual && items.len() == 1;
+        self.editor.open_completion(self.editor.col - typed, items);
+        if single {
+            self.editor.accept_completion();
+        } else if self.completion_wanted.is_some() {
+            // Algo ainda vem do banco: a lista se refaz quando chegar
+            self.completion_wanted = Some(manual);
+        }
+    }
+
+    /// Os candidatos de uma consulta SQL, pelo contexto: do catálogo (na
+    /// memória) e das colunas já lidas. O que falta é pedido em segundo
+    /// plano e marca `completion_wanted` — nenhuma tecla espera o banco.
+    fn sql_candidates(&mut self, target: &Target, context: &complete::Context) -> Vec<Item> {
+        let has_schemas = capabilities(target.db_type).is_ok_and(|caps| caps.has_schemas);
+        let default_schema = match (&target.schema, has_schemas) {
+            (Some(schema), _) => schema.clone(),
+            (None, true) => "public".to_string(),
+            (None, false) => FLAT_SCHEMA.to_string(),
+        };
+        let Some(entry) = self.state.catalog.get(target.server_id, &target.database) else {
+            self.load_for_completion(target, None);
+            return Vec::new();
+        };
+
+        let mut items = Vec::new();
+        let tables_of = |schema: &str, prefix: &str, items: &mut Vec<Item>| {
+            let relations = entry.read().complete_tables(schema, prefix, COMPLETION_NAMES).unwrap_or_default();
+            items.extend(relations.into_iter().map(|relation| {
+                let kind = match relation.kind {
+                    CatalogKind::View | CatalogKind::MaterializedView => ItemKind::View,
+                    _ => ItemKind::Table,
+                };
+                Item::new(relation.name, kind, schema)
+            }));
+        };
+        match &context.scope {
+            Scope::Member(qualifier) => match context.tables.iter().find(|table| table.is_called(qualifier)) {
+                Some(table) => items.extend(self.columns_of(target, &entry, table, &default_schema)),
+                None => {
+                    // `schema.`: as relações dele (carregadas agora, se preciso)
+                    let state = entry.read().schema_state(qualifier);
+                    if state == Some(LoadState::Unloaded) {
+                        self.load_for_completion(target, Some(qualifier.clone()));
+                    }
+                    if state.is_some() {
+                        tables_of(qualifier, &context.prefix, &mut items);
+                    }
+                }
+            },
+            Scope::Table => {
+                tables_of(&default_schema, &context.prefix, &mut items);
+                if has_schemas {
+                    let schemas = entry.read().complete_schemas(&context.prefix, COMPLETION_NAMES);
+                    items.extend(schemas.into_iter().map(|schema| Item::new(schema, ItemKind::Schema, "")));
+                }
+            }
+            Scope::Column | Scope::Any => {
+                for table in context.tables.iter().take(COMPLETION_TABLES) {
+                    items.extend(self.columns_of(target, &entry, table, &default_schema));
+                }
+                // Os apelidos e as tabelas da consulta (para escrever `o.`)
+                for table in &context.tables {
+                    items.push(Item::new(table.alias.as_ref().unwrap_or(&table.name), ItemKind::Table, &table.name));
+                }
+                if !context.prefix.is_empty() {
+                    tables_of(&default_schema, &context.prefix, &mut items);
+                }
+            }
+            Scope::Nothing => {}
+        }
+        items
+    }
+
+    /// As colunas de uma tabela da consulta: do que já foi lido, ou pedidas
+    /// agora (e a lista se refaz quando chegarem).
+    fn columns_of(
+        &mut self,
+        target: &Target,
+        entry: &CatalogEntry,
+        table: &TableRef,
+        default_schema: &str,
+    ) -> Vec<Item> {
+        // Sem schema na consulta, o catálogo diz onde a tabela está
+        let (schema, name) = match &table.schema {
+            Some(schema) => (schema.clone(), table.name.clone()),
+            None => match entry.read().resolve(&table.name, &[default_schema]) {
+                Resolution::Found { schema, table, .. } => (schema, table),
+                _ => (default_schema.to_string(), table.name.clone()),
+            },
+        };
+        let key: ColumnsKey = (target.server_id, target.database.clone(), schema.clone(), name.clone());
+        match self.columns.get(&key) {
+            Some(Some(columns)) => columns
+                .iter()
+                .map(|(column, kind)| Item::new(column, ItemKind::Column, kind))
+                .collect(),
+            Some(None) => {
+                self.completion_wanted = Some(false);
+                Vec::new()
+            }
+            None => {
+                self.columns.insert(key.clone(), None);
+                self.completion_wanted = Some(false);
+                let state = Arc::clone(&self.state);
+                self.spawn(async move {
+                    let listed = async {
+                        let adapter = state.adapter(key.0, &key.1).await?;
+                        adapter.list_columns(&schema, &name).await
+                    };
+                    // Tabela que não existe (um nome pela metade) vira lista vazia
+                    let columns = listed.await.unwrap_or_default();
+                    Msg::Columns {
+                        key,
+                        columns: columns.into_iter().map(|column| (column.name, column.data_type)).collect(),
+                    }
+                });
+                Vec::new()
+            }
+        }
+    }
+
+    /// Abre o catálogo do database (ou carrega um schema dele) para o
+    /// autocompletar, uma vez só.
+    fn load_for_completion(&mut self, target: &Target, schema: Option<String>) {
+        self.completion_wanted = Some(false);
+        let key = (target.server_id, target.database.clone(), schema.clone().unwrap_or_default());
+        if !has_catalog(target.db_type) || !self.completion_loads.insert(key) {
+            return;
+        }
+        let state = Arc::clone(&self.state);
+        let (server_id, database) = (target.server_id, target.database.clone());
+        self.spawn(async move {
+            let loaded = async {
+                let entry = state.catalog_entry(server_id, &database).await?;
+                match schema {
+                    Some(schema) => state.catalog.ensure_schemas(&entry, std::slice::from_ref(&schema)).await,
+                    None => wait_for_catalog(&state, &entry, false).await,
+                }
+            };
+            Msg::CatalogReady(loaded.await.map_err(|error| error.to_string()))
+        });
     }
 
     /// O autocompletar aberto come as teclas dele; `false` = a tecla segue.
@@ -618,14 +832,20 @@ impl Tui {
         match combo.code {
             KeyCode::Up => self.editor.move_completion(-1),
             KeyCode::Down => self.editor.move_completion(1),
-            KeyCode::Enter | KeyCode::Tab => self.editor.accept_completion(),
-            KeyCode::Esc => self.editor.completion = None,
+            KeyCode::Enter | KeyCode::Tab => {
+                self.completion_wanted = None;
+                self.editor.accept_completion();
+            }
+            KeyCode::Esc => {
+                self.completion_wanted = None;
+                self.editor.completion = None;
+            }
             _ => {
                 if self.keys.global(combo) == Some(Action::Complete) {
                     self.editor.move_completion(1);
                     return true;
                 }
-                self.editor.completion = None;
+                // A tecla segue para o editor, que refaz a lista se for texto
                 return false;
             }
         }
@@ -633,6 +853,7 @@ impl Tui {
     }
 
     fn editor_key(&mut self, combo: Combo) {
+        let edits = matches!(combo.code, KeyCode::Backspace | KeyCode::Delete) || (matches!(combo.code, KeyCode::Char(_)) && combo.types_text());
         match combo.code {
             KeyCode::Char(ch) if combo.types_text() => self.editor.insert_char(ch),
             KeyCode::Enter => self.editor.newline(),
@@ -646,7 +867,22 @@ impl Tui {
             KeyCode::PageDown => self.editor.move_vertical(self.areas.editor.height as isize),
             KeyCode::Home => self.editor.move_home(),
             KeyCode::End => self.editor.move_end(),
-            _ => {}
+            _ => return,
+        }
+        // A lista acompanha a digitação; mover o cursor a fecha
+        if edits && self.autocomplete {
+            self.refresh_completion(false);
+        } else {
+            self.completion_wanted = None;
+            self.editor.completion = None;
+        }
+    }
+
+    /// Chegou o que o autocompletar esperava: a lista se refaz, se a pessoa
+    /// ainda está no editor.
+    fn completion_arrived(&mut self) {
+        if let (Some(manual), Pane::Editor, None) = (self.completion_wanted, self.focus, &self.modal) {
+            self.refresh_completion(manual);
         }
     }
 
@@ -1239,9 +1475,16 @@ impl Tui {
                 Err(error) => self.set_status(Tone::Error, error),
             },
             Msg::CatalogReady(result) => match result {
-                Ok(()) => self.search_changed(),
+                Ok(()) => {
+                    self.search_changed();
+                    self.completion_arrived();
+                }
                 Err(error) => self.set_status(Tone::Error, error),
             },
+            Msg::Columns { key, columns } => {
+                self.columns.insert(key, Some(columns));
+                self.completion_arrived();
+            }
             Msg::Notice(message) => self.set_status(Tone::Info, message),
             Msg::UpdateAvailable(version) => {
                 // Não cobre um aviso da partida (config.toml com erro)

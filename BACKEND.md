@@ -158,6 +158,11 @@ do app (`paths.rs` a acha sem o Tauri; `OCTAPUS_DATA_DIR` troca, nos testes).
   `--write`; nenhuma tool escreve num banco, e argumento desconhecido é recusado
   (`deny_unknown_fields`). Resposta sem senha, com o que vem do banco marcado como dado
   e com teto de linhas, de célula e de bytes. A saída padrão é só do protocolo.
+- **Autocompletar da TUI** (`tui/complete.rs`): um varredor de tokens diz o que cabe no
+  cursor (tabela, coluna, membro de `nome.`) e quais tabelas a consulta cita; tabelas e
+  schemas vêm do catálogo em memória (`complete_tables`/`complete_schemas`, `resolve`), e
+  as colunas, do `list_columns` numa tarefa em segundo plano, guardadas por tabela — a
+  lista se refaz quando chegam. Só SQL; Mongo e Redis ficam com os nomes já vistos na tela.
 - **Estrutura na TUI:** a árvore e a busca (`Ctrl+P`) leem do catálogo (§1.1), como o
   app: `catalog_entry` + `ensure_schemas` ao abrir um schema, `search_all` na busca,
   `refresh_schema`/`ensure_fresh` no recarregar (`r`). Só o Redis lista pelo adapter.

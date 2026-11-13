@@ -134,6 +134,10 @@ octapus update                            # troca o binário pela versão mais n
   pessoa confirmando. Um script, ou uma IA chamando o `octapus`, não escreve no banco.
   O `octapus restore` segue a mesma regra (`--dry-run` só mostra o que faria); o
   `octapus backup` só lê e não sobrescreve um arquivo sem `--force`.
+- **Autocompletar no editor da TUI:** a lista abre sozinha ao digitar e segue o contexto
+  da consulta SQL — tabelas depois de `FROM`, colunas das tabelas citadas depois de
+  `WHERE`, e os membros de `apelido.` ou `schema.`. `Tab` ou `Enter` aceitam. Para abrir
+  só pelo atalho (`Ctrl+N` / `Ctrl+Espaço`): `[editor] autocomplete = false`.
 - **Atualizar:** `octapus update` baixa a release mais nova, confere o SHA-256 e troca o
   próprio binário. A TUI avisa quando há versão nova (uma consulta por dia; desligue com
   `[ui] update_check = false` no `config.toml`).

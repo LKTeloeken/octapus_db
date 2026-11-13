@@ -8,6 +8,8 @@
 
 use unicode_width::UnicodeWidthChar;
 
+use super::complete::Item;
+
 /// O papel de um trecho, para a cor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token {
@@ -18,7 +20,7 @@ pub enum Token {
     Comment,
 }
 
-const KEYWORDS: &[&str] = &[
+pub const KEYWORDS: &[&str] = &[
     "all", "alter", "and", "any", "as", "asc", "begin", "between", "by", "case", "cast", "commit", "create", "cross",
     "delete", "desc", "distinct", "drop", "else", "end", "except", "exists", "explain", "false", "from", "full",
     "group", "having", "ilike", "in", "index", "inner", "insert", "intersect", "into", "is", "join", "left", "like",
@@ -120,7 +122,7 @@ pub fn highlight(line: &str, mut in_comment: bool) -> (Vec<(usize, usize, Token)
 
 #[derive(Debug, Clone, Default)]
 pub struct Completion {
-    pub items: Vec<String>,
+    pub items: Vec<Item>,
     pub selected: usize,
     /// Onde começa a palavra que está sendo completada (coluna em chars)
     pub start: usize,
@@ -334,50 +336,20 @@ impl Editor {
             .sum()
     }
 
-    /// A palavra à esquerda do cursor e onde ela começa.
-    fn word_before_cursor(&self) -> (usize, String) {
-        let chars: Vec<char> = self.lines[self.row].chars().collect();
-        let mut start = self.col.min(chars.len());
-        while start > 0 && is_word(chars[start - 1]) {
-            start -= 1;
-        }
-        (start, chars[start..self.col.min(chars.len())].iter().collect())
+    /// O cursor como posição (em caracteres) dentro de [`Editor::text`].
+    pub fn cursor_offset(&self) -> usize {
+        let before: usize = self.lines[..self.row].iter().map(|line| line.chars().count() + 1).sum();
+        before + self.col.min(self.line_len(self.row))
     }
 
-    /// Abre o autocompletar com os candidatos que começam pela palavra atual
-    /// (os nomes do banco primeiro, depois as palavras-chave). Um candidato
-    /// só entra direto.
-    pub fn complete(&mut self, names: &[String]) {
-        let (start, prefix) = self.word_before_cursor();
-        let needle = prefix.to_lowercase();
-        let mut items: Vec<String> = Vec::new();
-        for name in names.iter().map(String::as_str).chain(KEYWORDS.iter().copied()) {
-            let lower = name.to_lowercase();
-            if lower.starts_with(&needle) && lower != needle && !items.iter().any(|item| item.eq_ignore_ascii_case(name)) {
-                items.push(name.to_string());
-            }
-            if items.len() >= 50 {
-                break;
-            }
-        }
-        match items.len() {
-            0 => self.completion = None,
-            1 => {
-                self.completion = Some(Completion {
-                    items,
-                    selected: 0,
-                    start,
-                });
-                self.accept_completion();
-            }
-            _ => {
-                self.completion = Some(Completion {
-                    items,
-                    selected: 0,
-                    start,
-                })
-            }
-        }
+    /// Abre a lista do autocompletar para a palavra que começa em `start`
+    /// (coluna em chars, na linha do cursor). Sem candidatos, fecha.
+    pub fn open_completion(&mut self, start: usize, items: Vec<Item>) {
+        self.completion = (!items.is_empty()).then_some(Completion {
+            items,
+            selected: 0,
+            start,
+        });
     }
 
     pub fn move_completion(&mut self, delta: isize) {
@@ -397,8 +369,12 @@ impl Editor {
         };
         let from = byte_of(&self.lines[self.row], completion.start);
         let to = byte_of(&self.lines[self.row], self.col);
-        self.lines[self.row].replace_range(from..to, item);
-        self.col = completion.start + item.chars().count();
+        // O que já está escrito igual fica como a pessoa digitou (`FROM`)
+        if self.lines[self.row][from..to].eq_ignore_ascii_case(&item.label) {
+            return;
+        }
+        self.lines[self.row].replace_range(from..to, &item.label);
+        self.col = completion.start + item.label.chars().count();
         self.changed();
     }
 }
@@ -480,23 +456,26 @@ mod tests {
     }
 
     #[test]
-    fn completion_prefers_database_names_and_replaces_the_word() {
-        let names = vec!["customers".to_string(), "cities".to_string(), "orders".to_string()];
+    fn accepting_a_candidate_replaces_the_word_being_typed() {
+        use crate::tui::complete::ItemKind;
+        let items = || vec![Item::new("customers", ItemKind::Table, ""), Item::new("cities", ItemKind::Table, "")];
         let mut editor = Editor::default();
-        editor.insert_str("select * from c");
-        editor.complete(&names);
-        let completion = editor.completion.clone().unwrap();
-        assert_eq!(&completion.items[..2], ["customers", "cities"]);
-        assert!(completion.items.contains(&"case".to_string()));
+        editor.insert_str("select 1;\nselect * from c");
+        assert_eq!(editor.cursor_offset(), "select 1;\nselect * from c".chars().count());
 
+        editor.open_completion(14, items());
         editor.move_completion(1);
         editor.accept_completion();
-        assert_eq!(editor.text(), "select * from cities");
+        assert_eq!(editor.text(), "select 1;\nselect * from cities");
         assert!(editor.completion.is_none());
 
-        // Um candidato só entra direto
-        editor.insert_str(" wher");
-        editor.complete(&names);
-        assert_eq!(editor.text(), "select * from cities where");
+        // O que já está escrito igual fica como foi digitado
+        editor.insert_str(" WHERE");
+        editor.open_completion(21, vec![Item::new("where", ItemKind::Keyword, "")]);
+        editor.accept_completion();
+        assert_eq!(editor.text(), "select 1;\nselect * from cities WHERE");
+
+        editor.open_completion(0, Vec::new());
+        assert!(editor.completion.is_none());
     }
 }

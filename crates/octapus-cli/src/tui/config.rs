@@ -31,8 +31,23 @@ use serde::Deserialize;
 #[serde(default, deny_unknown_fields)]
 pub struct ConfigFile {
     pub ui: UiConfig,
+    pub editor: EditorConfig,
     pub theme: BTreeMap<String, String>,
     pub keys: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct EditorConfig {
+    /// A lista de sugestões abre sozinha enquanto se digita (com `false`,
+    /// só pelo atalho de autocompletar)
+    pub autocomplete: bool,
+}
+
+impl Default for EditorConfig {
+    fn default() -> Self {
+        Self { autocomplete: true }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

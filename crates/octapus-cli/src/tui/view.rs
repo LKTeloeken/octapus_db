@@ -19,6 +19,7 @@ use ratatui::Frame;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::app::{Areas, Modal, Pane, Tone, Tui};
+use super::complete::ItemKind;
 use super::config::{CellKind, Pending};
 use super::grid::{shown, COLUMN_CHROME};
 use super::editor::Token;
@@ -286,7 +287,10 @@ fn draw_completion(tui: &Tui, buf: &mut Buffer, cursor: Position, editor: Rect) 
     let Some(completion) = &tui.editor.completion else {
         return;
     };
-    let width = completion.items.iter().map(|item| item.width()).max().unwrap_or(0).clamp(8, 40) as u16 + 2;
+    // Ícone, nome e, à direita, o detalhe (o tipo da coluna, o schema)
+    let label = completion.items.iter().map(|item| item.label.width()).max().unwrap_or(0).clamp(8, 36);
+    let detail = completion.items.iter().map(|item| item.detail.width()).max().unwrap_or(0).min(18);
+    let width = (label + if detail > 0 { detail + 2 } else { 0 } + 4) as u16;
     let visible = completion.items.len().min(8);
     let x = cursor.x.min((editor.x + editor.width).saturating_sub(width));
     let first = completion.selected.saturating_sub(visible - 1);
@@ -296,8 +300,19 @@ fn draw_completion(tui: &Tui, buf: &mut Buffer, cursor: Position, editor: Rect) 
             break;
         }
         let style = if line == completion.selected { tui.theme.selection(true) } else { tui.theme.header(false) };
+        let on_row = |tone: Style| style.patch(tone.bg(style.bg.unwrap_or_default()));
         fill(buf, Rect::new(x, y, width, 1), style);
-        put(buf, x + 1, y, width - 2, item, style);
+        let glyph = match item.kind {
+            ItemKind::Column => on_row(tui.theme.tone("accent_text")),
+            ItemKind::Keyword => on_row(tui.theme.subtle()),
+            _ => on_row(tui.theme.muted()),
+        };
+        put(buf, x + 1, y, 1, item.kind.glyph(), glyph);
+        put(buf, x + 3, y, label as u16, &fit(&item.label, label), style);
+        if detail > 0 {
+            let text = fit(&item.detail, detail);
+            put(buf, x + width - 1 - text.width() as u16, y, detail as u16, &text, on_row(tui.theme.subtle()));
+        }
     }
 }
 

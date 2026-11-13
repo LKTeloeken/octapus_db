@@ -15,6 +15,7 @@
 //! - `mascot.rs`: o polvo.
 
 mod app;
+mod complete;
 mod config;
 mod editor;
 mod grid;
@@ -98,6 +99,7 @@ pub async fn run(app: App, args: TuiArgs) -> CliResult<()> {
     let theme = Theme::new(&file.ui.theme, &file.theme, ColorDepth::detect(), &mut warnings);
     let keys = KeyMap::new(&file.keys, &mut warnings);
     let mouse = file.ui.mouse;
+    let autocomplete = file.editor.autocomplete;
 
     let (tx, mut rx) = unbounded_channel::<Msg>();
     if file.ui.update_check {
@@ -111,6 +113,7 @@ pub async fn run(app: App, args: TuiArgs) -> CliResult<()> {
     }
     let state = Arc::new(app.state);
     let mut tui = Tui::new(state, theme, keys, file.ui, tx, tokio::runtime::Handle::current());
+    tui.autocomplete = autocomplete;
     if let Some(warning) = warnings.first() {
         let more = match warnings.len() {
             1 => String::new(),
