@@ -19,11 +19,19 @@ use ratatui::Frame;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::app::{Areas, Modal, Pane, Tone, Tui};
+use super::config::{CellKind, Pending};
+use super::grid::{shown, COLUMN_CHROME};
 use super::editor::Token;
 use octapus_core::models::NodeKind as CatalogKind;
 use super::keys::Action;
-use super::mascot::Bitmap;
-use super::tree::Load;
+use super::tree::{Load, NodeKind};
+
+/// A partir deste tamanho de terminal os painéis ganham caixa.
+const BOXED_MIN_WIDTH: u16 = 100;
+const BOXED_MIN_HEIGHT: u16 = 20;
+
+/// Linhas do cabeçalho da grade: o nome da coluna e o tipo.
+pub const GRID_HEADER_LINES: u16 = 2;
 
 const SPINNER: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠇"];
 
@@ -58,10 +66,30 @@ fn fill(buf: &mut Buffer, area: Rect, style: Style) {
     buf.set_style(area, style);
 }
 
+/// A moldura de um painel. Com espaço, uma caixa de cantos arredondados com
+/// o título na borda (a do painel com foco no acento); num terminal
+/// estreito, só a faixa do título — a borda custaria duas colunas por painel.
 fn pane_header(buf: &mut Buffer, area: Rect, title: &str, focused: bool, tui: &Tui) {
-    let style = tui.theme.header(focused);
-    fill(buf, Rect::new(area.x, area.y, area.width, 1), style);
-    put(buf, area.x + 1, area.y, area.width.saturating_sub(2), title, style);
+    if !tui.areas.boxed {
+        let style = tui.theme.header(focused);
+        fill(buf, Rect::new(area.x, area.y, area.width, 1), style);
+        put(buf, area.x + 1, area.y, area.width.saturating_sub(2), title, style);
+        return;
+    }
+    if area.width < 4 || area.height < 2 {
+        return;
+    }
+    let border = tui.theme.border(focused);
+    let (left, right, bottom) = (area.x, area.x + area.width - 1, area.y + area.height - 1);
+    let line = "─".repeat(area.width as usize - 2);
+    put(buf, left, area.y, area.width, &format!("╭{line}╮"), border);
+    put(buf, left, bottom, area.width, &format!("╰{line}╯"), border);
+    for y in area.y + 1..bottom {
+        put(buf, left, y, 1, "│", border);
+        put(buf, right, y, 1, "│", border);
+    }
+    let room = area.width as usize - 4;
+    put(buf, left + 1, area.y, area.width - 2, &format!(" {} ", fit(title, room.saturating_sub(2))), tui.theme.title(focused));
 }
 
 pub fn draw(tui: &mut Tui, frame: &mut Frame) {
@@ -72,27 +100,37 @@ pub fn draw(tui: &mut Tui, frame: &mut Frame) {
     }
     fill(frame.buffer_mut(), area, tui.theme.text());
 
+    let boxed = area.width >= BOXED_MIN_WIDTH && area.height >= BOXED_MIN_HEIGHT;
     let body_height = area.height - 1;
     let tree_width = (area.width * 3 / 10).clamp(22, 44).min(area.width / 2);
-    let editor_height = (body_height * 35 / 100).clamp(4, 16);
-    let right_x = area.x + tree_width + 1;
-    let right_width = area.width - tree_width - 1;
+    // Na caixa, duas linhas do editor são da borda
+    let editor_height = (body_height * 35 / 100).clamp(4, 16) + if boxed { 1 } else { 0 };
+    // Compacto: uma coluna de divisor entre a árvore e o resto
+    let gap = if boxed { 0 } else { 1 };
+    let right_x = area.x + tree_width + gap;
+    let right_width = area.width - tree_width - gap;
 
     let tree = Rect::new(area.x, area.y, tree_width, body_height);
     let editor = Rect::new(right_x, area.y, right_width, editor_height);
     let grid = Rect::new(right_x, area.y + editor_height, right_width, body_height - editor_height);
 
-    // As áreas de conteúdo (sem o cabeçalho de cada painel)
-    let content = |rect: Rect| Rect::new(rect.x, rect.y + 1, rect.width, rect.height.saturating_sub(1));
+    // As áreas de conteúdo: dentro da caixa, ou abaixo da faixa do título
+    let content = |rect: Rect| match boxed {
+        true => Rect::new(rect.x + 1, rect.y + 1, rect.width.saturating_sub(2), rect.height.saturating_sub(2)),
+        false => Rect::new(rect.x, rect.y + 1, rect.width, rect.height.saturating_sub(1)),
+    };
     tui.areas = Areas {
         tree: content(tree),
         editor: content(editor),
         grid: content(grid),
+        boxed,
     };
 
     let buf = frame.buffer_mut();
-    for y in area.y..area.y + body_height {
-        put(buf, area.x + tree_width, y, 1, "│", tui.theme.divider());
+    if !boxed {
+        for y in area.y..area.y + body_height {
+            put(buf, area.x + tree_width, y, 1, "│", tui.theme.divider());
+        }
     }
 
     draw_tree(tui, buf, tree);
@@ -156,12 +194,22 @@ fn draw_tree(tui: &mut Tui, buf: &mut Buffer, area: Rect) {
         let indent = (node.depth as usize * 2).min(rows.width as usize / 2);
         let mut x = rows.x + 1 + indent as u16;
         let end = rows.x + rows.width;
+        // Guias: uma linha fina por nível, para o olho seguir a hierarquia
+        for level in 0..indent / 2 {
+            put(buf, rows.x + 1 + level as u16 * 2, y, 1, "│", tui.theme.divider().bg(base.bg.unwrap_or_default()));
+        }
         let marker_style = match node.load {
             Load::Failed => tui.theme.tone("danger").bg(base.bg.unwrap_or_default()),
             _ => base.patch(tui.theme.subtle().bg(base.bg.unwrap_or_default())),
         };
         x = put(buf, x, y, end.saturating_sub(x), marker, marker_style);
-        let glyph_style = base.patch(tui.theme.tone("accent_text").bg(base.bg.unwrap_or_default()));
+        let glyph_tone = match &node.kind {
+            NodeKind::Server { db_type, .. } => tui.theme.database(*db_type),
+            NodeKind::Database { .. } => tui.theme.tone("accent_text"),
+            NodeKind::Schema { .. } => tui.theme.muted(),
+            NodeKind::Table { .. } => tui.theme.subtle(),
+        };
+        let glyph_style = base.patch(glyph_tone.bg(base.bg.unwrap_or_default()));
         x = put(buf, x, y, end.saturating_sub(x), node.kind.glyph(), glyph_style);
         x = put(buf, x, y, end.saturating_sub(x), " ", base);
         let room = end.saturating_sub(x) as usize;
@@ -263,9 +311,10 @@ fn draw_grid(tui: &mut Tui, buf: &mut Buffer, area: Rect) {
         return;
     };
 
-    // Uma linha para o cabeçalho das colunas
-    let height = rows_area.height.saturating_sub(1) as usize;
-    grid.scroll_into_view(height, rows_area.width.saturating_sub(1) as usize);
+    // Duas linhas de cabeçalho (nome e tipo); à esquerda, o número da linha
+    let height = rows_area.height.saturating_sub(GRID_HEADER_LINES) as usize;
+    let gutter = grid.gutter_width() as u16;
+    grid.scroll_into_view(height, rows_area.width.saturating_sub(gutter + 1) as usize);
 
     let mut title = format!("RESULTADOS · {} linha(s)", grid.rows.len());
     if grid.has_more {
@@ -283,100 +332,160 @@ fn draw_grid(tui: &mut Tui, buf: &mut Buffer, area: Rect) {
         return;
     }
 
-    let header_style = tui.theme.column_header();
-    fill(buf, Rect::new(rows_area.x, rows_area.y, rows_area.width, 1), header_style);
+    let theme = &tui.theme;
     let end = rows_area.x + rows_area.width;
-
-    let mut x = rows_area.x + 1;
+    // As colunas que cabem: (coluna, onde começa o texto, largura na tela)
+    let mut visible: Vec<(usize, u16, usize)> = Vec::new();
+    let mut x = rows_area.x + gutter + 2;
     for col in grid.scroll_col..grid.columns.len() {
         if x >= end {
             break;
         }
         let width = grid.width_of(col).min(end.saturating_sub(x) as usize);
-        put(buf, x, rows_area.y, width as u16, &fit(&grid.columns[col], width), header_style);
-
-        for line in 0..height {
-            let row = grid.scroll_row + line;
-            if row >= grid.rows.len() {
-                break;
+        visible.push((col, x, width));
+        x += (grid.width_of(col) + COLUMN_CHROME) as u16;
+    }
+    // O divisor fica uma coluna depois do texto de cada coluna (e do gutter)
+    let dividers = |buf: &mut Buffer, y: u16, style: Style| {
+        put(buf, rows_area.x + gutter, y, 1, "│", style);
+        for (col, x, _) in &visible {
+            let at = x + grid.width_of(*col) as u16 + 1;
+            if at < end {
+                put(buf, at, y, 1, "│", style);
             }
-            let y = rows_area.y + 1 + line as u16;
-            let value = grid.cell(row, col);
-            let pending = grid.cell_pending(row, col);
-            let is_cursor = focused && row == grid.row && col == grid.col;
+        }
+    };
+    let aligned = |text: String, width: usize, kind: CellKind| match kind {
+        CellKind::Number => format!("{}{text}", " ".repeat(width.saturating_sub(text.width()))),
+        _ => text,
+    };
 
-            let mut style = match (pending, row == grid.row) {
-                (Some(kind), _) => tui.theme.pending(kind),
-                (None, true) => tui.theme.selection(false),
-                (None, false) => tui.theme.text(),
+    // Cabeçalho: o nome e, embaixo, o tipo
+    let header_style = theme.column_header();
+    let type_style = header_style.patch(theme.subtle().bg(header_style.bg.unwrap_or_default())).remove_modifier(Modifier::BOLD);
+    let divider_on = |style: Style| theme.divider().bg(style.bg.unwrap_or_default());
+    fill(buf, Rect::new(rows_area.x, rows_area.y, rows_area.width, GRID_HEADER_LINES.min(rows_area.height)), header_style);
+    put(buf, rows_area.x, rows_area.y, gutter, &format!("{:>width$} ", "#", width = gutter as usize - 1), type_style);
+    for (col, x, width) in &visible {
+        let kind = grid.kind_of(*col);
+        put(buf, *x, rows_area.y, *width as u16, &aligned(fit(&grid.columns[*col], *width), *width, kind), header_style);
+        let type_name = grid.types.get(*col).map(|name| name.to_lowercase()).unwrap_or_default();
+        put(buf, *x, rows_area.y + 1, *width as u16, &aligned(fit(&type_name, *width), *width, kind), type_style);
+    }
+    for line in 0..GRID_HEADER_LINES.min(rows_area.height) {
+        dividers(buf, rows_area.y + line, divider_on(header_style));
+    }
+
+    for line in 0..height {
+        let row = grid.scroll_row + line;
+        if row >= grid.rows.len() {
+            break;
+        }
+        let y = rows_area.y + GRID_HEADER_LINES + line as u16;
+        let current = row == grid.row;
+        let row_state = grid.row_pending(row);
+        // O fundo da linha: o da pendência (que a seleção nunca apaga) ou o
+        // da linha atual
+        let row_style = match (row_state, current) {
+            (Some(kind), _) => theme.pending(kind),
+            (None, true) => theme.selection(false),
+            (None, false) => theme.text(),
+        };
+        if row_state.is_some() || current {
+            fill(buf, Rect::new(rows_area.x, y, rows_area.width, 1), row_style);
+        }
+
+        // Número da linha, com o símbolo da pendência (cor e forma)
+        let on_row = |style: Style| style.bg(row_style.bg.unwrap_or_default());
+        let (marker, marker_style) = match grid.row_marker(row) {
+            Some(Pending::Added) => ("+", on_row(theme.tone("success"))),
+            Some(Pending::Removed) => ("−", on_row(theme.tone("danger"))),
+            Some(Pending::Edited) => ("•", on_row(theme.tone("warning"))),
+            None => (" ", row_style),
+        };
+        put(buf, rows_area.x, y, 1, marker, marker_style);
+        let number_style = match current {
+            true => on_row(theme.tone("accent_text")),
+            false => on_row(theme.subtle()),
+        };
+        put(buf, rows_area.x + 1, y, gutter - 1, &format!("{:>width$}", row + 1, width = gutter as usize - 2), number_style);
+        dividers(buf, y, divider_on(row_style));
+
+        for (col, x, width) in &visible {
+            let kind = grid.kind_of(*col);
+            let value = grid.cell(row, *col);
+            let edited = row_state.is_none() && grid.cell_pending(row, *col) == Some(Pending::Edited);
+            let base = if edited { theme.pending(Pending::Edited) } else { row_style };
+            let mut style = match (value, row_state) {
+                // Linha removida: apagada e riscada
+                (_, Some(Pending::Removed)) => base.patch(theme.subtle().bg(base.bg.unwrap_or_default())).add_modifier(Modifier::CROSSED_OUT),
+                (None, _) => base.patch(theme.disabled().bg(base.bg.unwrap_or_default())),
+                (Some(_), _) => base.patch(theme.cell(kind)),
             };
-            if value.is_none() {
-                style = style.patch(tui.theme.disabled().bg(style.bg.unwrap_or_default()));
-            }
-            if is_cursor {
+            if focused && current && *col == grid.col {
                 // O cursor não esconde a pendência: mantém o fundo dela, em negrito
-                style = match pending {
+                style = match grid.cell_pending(row, *col) {
                     Some(_) => style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-                    None => tui.theme.cell_cursor(),
+                    None => theme.cell_cursor(),
                 };
-            }
-
-            // A linha inteira leva o fundo (pendência ou linha atual)
-            if col == grid.scroll_col && (pending.is_some() || row == grid.row) {
-                let row_style = match grid.row_pending(row) {
-                    Some(kind) => tui.theme.pending(kind),
-                    None if row == grid.row => tui.theme.selection(false),
-                    None => tui.theme.text(),
-                };
-                fill(buf, Rect::new(rows_area.x, y, rows_area.width, 1), row_style);
             }
 
             let text = match value {
                 Some(value) => {
+                    let value = shown(kind, value);
                     let first = value.lines().next().unwrap_or_default();
-                    let shown = if value.contains('\n') { format!("{first}⏎") } else { first.to_string() };
-                    fit(&shown, width)
+                    let text = if value.contains('\n') { format!("{first}⏎") } else { first.to_string() };
+                    fit(&text, *width)
                 }
-                None => fit("NULL", width),
+                None => fit("NULL", *width),
             };
-            fill(buf, Rect::new(x, y, width as u16, 1), style);
-            put(buf, x, y, width as u16, &text, style);
+            fill(buf, Rect::new(*x, y, *width as u16, 1), style);
+            put(buf, *x, y, *width as u16, &aligned(text, *width, kind), style);
         }
-        x += grid.width_of(col) as u16 + 2;
     }
 }
 
-/// A grade vazia: o polvo (se couber e estiver ligado) e as dicas.
+/// A grade vazia: o polvo (se couber e estiver ligado) ao lado das
+/// boas-vindas — a versão e os atalhos para começar.
 fn draw_empty(tui: &Tui, buf: &mut Buffer, area: Rect) {
+    let title = format!("octapus {}", env!("CARGO_PKG_VERSION"));
     let hints = [
-        format!("{} abre uma tabela na árvore", tui.keys.first_key(Action::Open)),
-        format!("{} executa a consulta do editor", tui.keys.first_key(Action::Run)),
-        format!("{} ajuda", tui.keys.first_key(Action::Help)),
+        (tui.keys.first_key(Action::Open), "abre uma tabela na árvore"),
+        (tui.keys.first_key(Action::Run), "executa a consulta do editor"),
+        (tui.keys.first_key(Action::Search), "busca tabela ou schema"),
+        (tui.keys.first_key(Action::Help), "todos os atalhos"),
     ];
-    let center = |text: &str| area.x + area.width.saturating_sub(text.width() as u16) / 2;
+    let key_width = hints.iter().map(|(key, _)| key.width()).max().unwrap_or(0) as u16;
+    let text_width = hints.iter().map(|(_, label)| label.width()).max().unwrap_or(0) as u16 + key_width + 2;
+    let text_height = hints.len() as u16 + 2;
 
-    let mascot = tui
-        .ui
-        .mascot
-        .then(|| Bitmap::fitting(area.width.saturating_sub(2), area.height.saturating_sub(hints.len() as u16 + 2)))
-        .flatten();
-    let art_lines = mascot.as_ref().map_or(0, Bitmap::lines) as u16;
-    let total = art_lines + hints.len() as u16 + u16::from(art_lines > 0);
-    let mut y = area.y + area.height.saturating_sub(total) / 2;
-
-    if let Some(mascot) = mascot {
-        for line in mascot.render(tui.phase) {
-            put(buf, center(&line), y, area.width, &line, tui.theme.tone("accent_text"));
-            y += 1;
-        }
-        y += 1;
+    let (art_width, art_height) = super::mascot::size();
+    let gap = 4;
+    // Lado a lado se couber; senão, só o texto
+    let with_art = tui.ui.mascot && area.width >= art_width + gap + text_width + 2 && area.height >= art_height.max(text_height);
+    let block_width = if with_art { art_width + gap + text_width } else { text_width };
+    let block_height = if with_art { art_height.max(text_height) } else { text_height };
+    if area.width < text_width + 2 || area.height < text_height {
+        return;
     }
-    for hint in &hints {
-        if y >= area.y + area.height {
-            break;
+    let left = area.x + (area.width - block_width) / 2;
+    let top = area.y + (area.height - block_height) / 2;
+
+    let mut text_x = left;
+    if with_art {
+        let art_top = top + (block_height - art_height) / 2;
+        for (line, text) in super::mascot::art(tui.blink).iter().enumerate() {
+            put(buf, left, art_top + line as u16, art_width, text, tui.theme.tone("accent_text"));
         }
-        put(buf, center(hint), y, area.width, hint, tui.theme.subtle());
-        y += 1;
+        text_x += art_width + gap;
+    }
+
+    let text_top = top + (block_height - text_height) / 2;
+    put(buf, text_x, text_top, text_width, &title, tui.theme.text().add_modifier(Modifier::BOLD));
+    for (line, (key, label)) in hints.iter().enumerate() {
+        let y = text_top + 2 + line as u16;
+        put(buf, text_x, y, key_width, key, tui.theme.tone("accent_text"));
+        put(buf, text_x + key_width + 2, y, text_width, label, tui.theme.subtle());
     }
 }
 
@@ -400,15 +509,21 @@ fn draw_status(tui: &Tui, buf: &mut Buffer, area: Rect) {
         Action::Save => "gravar",
         _ => "",
     };
-    let right: String = hints
-        .iter()
-        .map(|action| format!("{} {}", tui.keys.first_key(*action), labels(*action)))
-        .collect::<Vec<_>>()
-        .join("  ");
-    let right_width = right.width() as u16;
+    let hints: Vec<(String, &str)> = hints.iter().map(|action| (tui.keys.first_key(*action), labels(*action))).collect();
+    let right_width = hints.iter().map(|(key, label)| key.width() + label.width() + 1).sum::<usize>() as u16
+        + 3 * (hints.len() as u16).saturating_sub(1);
     let right_x = area.x + area.width.saturating_sub(right_width + 1);
     if area.width > right_width + 20 {
-        put(buf, right_x, area.y, right_width, &right, chrome);
+        // A tecla em destaque, o que ela faz apagado
+        let key_style = chrome.patch(tui.theme.tone("accent_text").bg(chrome.bg.unwrap_or_default())).add_modifier(Modifier::BOLD);
+        let mut x = right_x;
+        for (index, (key, label)) in hints.iter().enumerate() {
+            if index > 0 {
+                x = put(buf, x, area.y, 3, " · ", chrome.patch(tui.theme.divider().bg(chrome.bg.unwrap_or_default())));
+            }
+            x = put(buf, x, area.y, key.width() as u16, key, key_style);
+            x = put(buf, x + 1, area.y, label.width() as u16, label, chrome);
+        }
     }
 
     let mut x = area.x + 1;

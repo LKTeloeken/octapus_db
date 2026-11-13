@@ -3,8 +3,9 @@
 //!
 //! O laço é **orientado a eventos**: a tela só é redesenhada quando chega uma
 //! tecla, uma resposta do banco ou um quadro de animação — e o relógio da
-//! animação só roda enquanto algo se mexe (o polvo no painel vazio, o
-//! indicador de atividade). Parada, a TUI não gasta CPU. Nenhuma tecla espera
+//! animação só roda enquanto há uma tarefa em andamento (o indicador de
+//! atividade). O polvo só acorda o laço para piscar. Parada, a TUI não gasta
+//! CPU. Nenhuma tecla espera
 //! o banco: as idas a ele são tarefas em segundo plano (`app.rs`).
 //!
 //! - `app.rs`: o estado e o que cada tecla faz;
@@ -139,6 +140,8 @@ pub async fn run(app: App, args: TuiArgs) -> CliResult<()> {
 
     let mut ticker = tokio::time::interval(ANIMATION_FRAME);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // A piscada do polvo: o laço acorda só para abrir e fechar o olho
+    let mut next_blink = tokio::time::Instant::now() + mascot::BLINK_EVERY;
     let mut stats = FrameStats::default();
     let mut first_frame = None;
 
@@ -175,6 +178,10 @@ pub async fn run(app: App, args: TuiArgs) -> CliResult<()> {
             }
             _ = ticker.tick(), if tui.animating() => {
                 tui.tick();
+            }
+            _ = tokio::time::sleep_until(next_blink), if tui.mascot_visible() => {
+                tui.blink = !tui.blink;
+                next_blink = tokio::time::Instant::now() + if tui.blink { mascot::BLINK_FOR } else { mascot::BLINK_EVERY };
             }
         }
         if tui.quit {

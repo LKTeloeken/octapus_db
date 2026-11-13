@@ -12,7 +12,7 @@ import {
 
 /**
  * Contraste dos tokens do Ink nos dois temas (DESIGN.md §2 e checklist do
- * §12): texto 4,5:1 sobre as camadas em que aparece, inclusive as elevadas e
+ * §13): texto 4,5:1 sobre as camadas em que aparece, inclusive as elevadas e
  * o vidro; ícones de banco 3:1. Token novo de texto ou camada nova entra aqui.
  */
 const css = readFileSync(new URL('./globals.css', import.meta.url), 'utf8');

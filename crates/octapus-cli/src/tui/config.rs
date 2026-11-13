@@ -23,6 +23,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use octapus_core::models::DatabaseType;
 use ratatui::style::{Color, Modifier, Style};
 use serde::Deserialize;
 
@@ -173,6 +174,14 @@ const DARK: &[(&str, &str)] = &[
     ("warning", "#f2b95a"),
     ("danger", "#fd7273"),
     ("info", "#64bced"),
+    ("data_number", "#82c7f0"),
+    ("data_date", "#7fcfc4"),
+    ("data_bool", "#e89dc0"),
+    ("data_json", "#eeae7b"),
+    ("db_postgres", "#679dd4"),
+    ("db_mongo", "#5ac576"),
+    ("db_redis", "#f0574e"),
+    ("db_sqlite", "#6abfd9"),
 ];
 const LIGHT: &[(&str, &str)] = &[
     ("bg", "#eff0f3"),
@@ -189,6 +198,14 @@ const LIGHT: &[(&str, &str)] = &[
     ("warning", "#945a00"),
     ("danger", "#c2272d"),
     ("info", "#006da8"),
+    ("data_number", "#006aa0"),
+    ("data_date", "#00736a"),
+    ("data_bool", "#a53c75"),
+    ("data_json", "#a35303"),
+    ("db_postgres", "#316ca5"),
+    ("db_mongo", "#1c8742"),
+    ("db_redis", "#c9302d"),
+    ("db_sqlite", "#0a819d"),
 ];
 
 /// As cores já convertidas para o que o terminal mostra, e os estilos
@@ -339,6 +356,23 @@ impl Theme {
         }
     }
 
+    /// A cor do valor pelo tipo da coluna (DESIGN.md §2.6): só a tinta, o
+    /// fundo é o da linha. Croma baixo: tinge sem gritar.
+    pub fn cell(&self, kind: CellKind) -> Style {
+        let token = match kind {
+            CellKind::Text => "fg",
+            CellKind::Number => "data_number",
+            CellKind::Bool => "data_bool",
+            CellKind::Date => "data_date",
+            CellKind::Json => "data_json",
+            CellKind::Opaque => "muted",
+        };
+        match self.depth {
+            ColorDepth::None => Style::default(),
+            _ => Style::default().fg(self.color(token)),
+        }
+    }
+
     /// Uma cor semântica como texto (erro, aviso, sucesso, acento…).
     pub fn tone(&self, token: &str) -> Style {
         match self.depth {
@@ -355,6 +389,86 @@ impl Theme {
     pub fn divider(&self) -> Style {
         self.plain("line", "surface")
     }
+
+    /// A borda da caixa de um painel: a do painel com foco leva o acento.
+    pub fn border(&self, focused: bool) -> Style {
+        match (self.depth, focused) {
+            (ColorDepth::None, true) => Style::default().add_modifier(Modifier::BOLD),
+            (ColorDepth::None, false) => Style::default().add_modifier(Modifier::DIM),
+            (_, true) => self.plain("accent_text", "surface"),
+            (_, false) => self.plain("line", "surface"),
+        }
+    }
+
+    /// O título na borda de um painel.
+    pub fn title(&self, focused: bool) -> Style {
+        match (self.depth, focused) {
+            (ColorDepth::None, true) => Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED),
+            (ColorDepth::None, false) => Style::default().add_modifier(Modifier::BOLD),
+            (_, true) => self.plain("accent_text", "surface").add_modifier(Modifier::BOLD),
+            (_, false) => self.plain("muted", "surface"),
+        }
+    }
+
+    /// A cor de identidade de um banco (DESIGN.md §2.5): só no ícone.
+    pub fn database(&self, db_type: DatabaseType) -> Style {
+        self.tone(match db_type {
+            DatabaseType::Postgres | DatabaseType::Mysql => "db_postgres",
+            DatabaseType::Mongodb => "db_mongo",
+            DatabaseType::Redis => "db_redis",
+            DatabaseType::Sqlite => "db_sqlite",
+        })
+    }
+}
+
+/// A família do tipo de uma coluna, para a cor e o alinhamento da grade.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellKind {
+    Text,
+    /// Alinhado à direita
+    Number,
+    /// Mostrado como `true` / `false`
+    Bool,
+    Date,
+    /// JSON, documentos e arrays
+    Json,
+    /// uuid, binário, ObjectId: identificadores que ninguém lê
+    Opaque,
+}
+
+impl CellKind {
+    /// Pelo nome do tipo que o banco informa (`int4`, `timestamptz`,
+    /// `NUMERIC(10,2)`, `_text`, `objectId`…).
+    pub fn of(type_name: &str) -> Self {
+        let name = type_name.trim().to_ascii_lowercase();
+        // `_text` é o typname de `text[]` no Postgres
+        if name.starts_with('_') || name.ends_with("[]") {
+            return Self::Json;
+        }
+        let name = name.split('(').next().unwrap_or_default().trim();
+        match name {
+            "bool" | "boolean" => Self::Bool,
+            "json" | "jsonb" | "object" | "array" | "document" | "hstore" => Self::Json,
+            "uuid" | "bytea" | "blob" | "binary" | "bindata" | "objectid" | "oid" | "xid" | "cid" | "tid" => Self::Opaque,
+            "money" | "number" | "long" | "double" | "real" | "decimal" | "decimal128" | "numeric" => Self::Number,
+            name if name.starts_with("date") || name.starts_with("time") || name == "interval" => Self::Date,
+            name if is_integer(name) || name.contains("serial") || name.starts_with("float") || name.starts_with("double") => {
+                Self::Number
+            }
+            _ => Self::Text,
+        }
+    }
+}
+
+/// `int`, `integer`, `int4`, `bigint`, `smallint`, `int64`… — mas não
+/// `interval` nem `point`.
+fn is_integer(name: &str) -> bool {
+    let rest = ["big", "small", "tiny", "medium", "u"]
+        .iter()
+        .find_map(|prefix| name.strip_prefix(prefix))
+        .unwrap_or(name);
+    rest.strip_prefix("int")
+        .is_some_and(|tail| tail.is_empty() || tail == "eger" || tail.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -385,6 +499,35 @@ mod tests {
         assert_eq!(plain.text(), Style::default());
         assert!(plain.selection(true).add_modifier.contains(Modifier::REVERSED));
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn column_types_fall_into_the_design_families() {
+        for (type_name, kind) in [
+            ("int4", CellKind::Number),
+            ("BIGINT", CellKind::Number),
+            ("smallint", CellKind::Number),
+            ("int64", CellKind::Number),
+            ("NUMERIC(10,2)", CellKind::Number),
+            ("double precision", CellKind::Number),
+            ("bigserial", CellKind::Number),
+            ("bool", CellKind::Bool),
+            ("BOOLEAN", CellKind::Bool),
+            ("timestamptz", CellKind::Date),
+            ("timestamp without time zone", CellKind::Date),
+            ("DATE", CellKind::Date),
+            ("interval", CellKind::Date),
+            ("jsonb", CellKind::Json),
+            ("_text", CellKind::Json),
+            ("integer[]", CellKind::Json),
+            ("uuid", CellKind::Opaque),
+            ("objectId", CellKind::Opaque),
+            ("varchar(80)", CellKind::Text),
+            ("point", CellKind::Text),
+            ("", CellKind::Text),
+        ] {
+            assert_eq!(CellKind::of(type_name), kind, "{type_name}");
+        }
     }
 
     #[test]

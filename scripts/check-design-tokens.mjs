@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Verifica no código do front as regras de cor e movimento do DESIGN.md
- * (§9 e checklist do §12). Sai com código 1 se achar violação.
+ * (§9 e checklist do §13). Sai com código 1 se achar violação.
  *
  * - cor crua: paleta do Tailwind (`bg-red-500`, `text-white/60`), `#hex`,
  *   `rgb()`/`hsl()`/`oklch()`… em TS/TSX — só tokens do Ink;

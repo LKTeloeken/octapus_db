@@ -644,7 +644,29 @@ Cada fase entrega algo visível e pode ir para a `main` sozinha.
 
 ---
 
-## 12. Checklist de PR
+## 12. No terminal (TUI do `octapus`)
+
+A TUI (`crates/octapus-cli/src/tui/`) segue o Ink com o que um terminal tem: cor de texto
+e de fundo, negrito, itálico e riscado. Os tokens estão em `config.rs`, em sRGB, com queda
+para 256 e 16 cores e para `NO_COLOR` (onde a forma carrega o sentido sozinha).
+
+- **Painéis** em caixa de cantos arredondados, com o título na borda. A borda do painel
+  com foco é `--iris-text`; as outras, `--line`. Abaixo de 100 colunas ou 20 linhas as
+  caixas somem (layout compacto): a borda custa duas colunas por painel.
+- **Grade** como no §2.6: cor do valor pelo tipo da coluna, números à direita, booleanos
+  como `true`/`false`, `NULL` apagado em itálico. Cabeçalho com o nome e, embaixo, o tipo;
+  divisores finos entre colunas; número da linha à esquerda.
+- **Pendências** como no §2.4, com cor **e** símbolo na coluna do número: `+` nova, `•`
+  editada (fundo só na célula), `−` removida (texto riscado).
+- **Árvore**: o ícone do servidor na cor do banco (§2.5); guias finas de indentação.
+- **Barra de status**: a tecla em `--iris-text`, o que ela faz apagado.
+- **Polvo**: o logo em caracteres de bloco (`mascot.txt`, gerado do `octapus.svg` pelo
+  `scripts/mascot-bitmap.py`), no painel de resultados vazio, ao lado das boas-vindas. Só
+  pisca (a cada 5 s, por 180 ms): parada, a TUI não redesenha.
+
+---
+
+## 13. Checklist de PR
 
 1. Nenhuma cor crua em TSX: nada de `bg-red-*`, `text-white/60`, `#hex` ou `rgba` — só
    tokens. O `pnpm lint:tokens` verifica (também aliases do shadcn e `transition-all`);

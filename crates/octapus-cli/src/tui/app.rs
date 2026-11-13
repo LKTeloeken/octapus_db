@@ -161,6 +161,8 @@ pub struct Areas {
     pub tree: Rect,
     pub editor: Rect,
     pub grid: Rect,
+    /// Os painéis estão em caixas (terminal largo) ou no layout compacto?
+    pub boxed: bool,
 }
 
 pub struct Tui {
@@ -184,8 +186,10 @@ pub struct Tui {
     /// A execução atual: respostas de uma anterior são descartadas
     ticket: u64,
     loading_more: bool,
-    /// Fase da animação (o polvo e o indicador de atividade)
+    /// Fase da animação (o indicador de atividade)
     pub phase: f32,
+    /// O polvo está de olho fechado (a piscada)?
+    pub blink: bool,
     pub quit: bool,
 
     tx: UnboundedSender<Msg>,
@@ -393,6 +397,7 @@ impl Tui {
             ticket: 0,
             loading_more: false,
             phase: 0.0,
+            blink: false,
             quit: false,
             tx,
             runtime,
@@ -448,7 +453,12 @@ impl Tui {
 
     /// Há algo se mexendo na tela? Só então o relógio da animação roda.
     pub fn animating(&self) -> bool {
-        self.busy > 0 || (self.ui.mascot && self.grid.is_none() && self.modal.is_none())
+        self.busy > 0
+    }
+
+    /// O polvo está na tela? (o painel de resultados vazio, sem modal por cima)
+    pub fn mascot_visible(&self) -> bool {
+        self.ui.mascot && self.grid.is_none() && self.modal.is_none()
     }
 
     pub fn tick(&mut self) {
@@ -1131,10 +1141,11 @@ impl Tui {
                         }
                     }
                     Pane::Grid => {
-                        // A primeira linha da área é o cabeçalho das colunas
+                        // As primeiras linhas da área são o cabeçalho das colunas
                         let offset = (event.row - self.areas.grid.y) as usize;
-                        if let (Some(grid), true) = (self.grid.as_mut(), offset >= 1) {
-                            let row = grid.scroll_row + offset - 1;
+                        let header = super::view::GRID_HEADER_LINES as usize;
+                        if let (Some(grid), true) = (self.grid.as_mut(), offset >= header) {
+                            let row = grid.scroll_row + offset - header;
                             if row < grid.rows.len() {
                                 grid.row = row;
                             }
@@ -1235,7 +1246,7 @@ impl Tui {
             Msg::UpdateAvailable(version) => {
                 // Não cobre um aviso da partida (config.toml com erro)
                 if self.status.is_none() {
-                    self.set_status(Tone::Info, format!("octapus {version} disponível: saia e rode octapus update"));
+                    self.set_status(Tone::Info, format!("octapus {version} disponível: rode octapus update"));
                 }
             }
         }

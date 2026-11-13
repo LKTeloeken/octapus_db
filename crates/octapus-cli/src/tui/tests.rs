@@ -281,7 +281,7 @@ async fn large_results_arrive_page_by_page() {
     assert!(!grid.has_more);
     let screen = harness.screen_text();
     // As mais novas vêm primeiro: o fim da grade é a linha 1
-    assert!(screen.contains("linha 17"), "{screen}");
+    assert!(screen.contains("linha 14"), "{screen}");
     // Só o que cabe na tela é desenhado
     assert!(!screen.contains("linha 900"), "{screen}");
 }
@@ -390,5 +390,47 @@ async fn a_newer_version_shows_in_the_status_bar() {
     harness.tui.on_msg(Msg::UpdateAvailable("9.9.9".into()));
     assert_eq!(harness.tui.busy, 0);
     let screen = harness.screen_text();
-    assert!(screen.contains("octapus 9.9.9 disponível: saia e rode octapus update"), "{screen}");
+    assert!(screen.contains("octapus 9.9.9 disponível: rode octapus update"), "{screen}");
+}
+
+#[tokio::test]
+async fn grid_colors_and_aligns_values_by_column_type() {
+    let mut harness = Harness::new("types");
+    harness.open_table("customers").await;
+    let lines = harness.screen();
+    // O cabeçalho tem o nome e, embaixo, o tipo
+    let header = lines.iter().position(|line| line.contains("│ name")).expect("cabeçalho");
+    assert!(lines[header + 1].contains("integer") && lines[header + 1].contains("text"), "{}", lines[header + 1]);
+
+    // Número: à direita (colado no divisor) e na cor do tipo; texto, na cor normal
+    let (y, line) = lines.iter().enumerate().find(|(_, line)| line.contains("1 │ Ana")).expect("id à direita");
+    let x = line[..line.find("1 │ Ana").unwrap()].chars().count() as u16;
+    let buffer = harness.terminal.backend().buffer();
+    assert_eq!(buffer[(x, y as u16)].fg, Color::Rgb(0x82, 0xc7, 0xf0));
+    assert_eq!(buffer[(x + 4, y as u16)].fg, Color::Rgb(0xed, 0xee, 0xf1));
+
+    // Pendência: cor e símbolo na coluna do número da linha
+    harness.key(KeyCode::Char('d'));
+    let lines = harness.screen();
+    assert!(lines.iter().any(|line| line.contains("−1 │")), "{}", lines.join("\n"));
+}
+
+#[tokio::test]
+async fn panes_get_boxes_only_when_the_terminal_has_room() {
+    let mut harness = Harness::new("boxes");
+    let screen = harness.screen_text();
+    assert!(screen.contains("╭ SERVIDORES ─"), "{screen}");
+    assert!(screen.contains("╭ RESULTADOS ─"), "{screen}");
+    // O painel com foco leva o acento na borda; os outros, a linha apagada
+    let buffer = harness.terminal.backend().buffer();
+    assert_eq!(buffer[(0, 0)].fg, Color::Rgb(0xa8, 0xaa, 0xff));
+    assert_eq!(buffer[(99, 0)].fg, Color::Rgb(0x2b, 0x2d, 0x32));
+
+    // Estreito: volta ao layout compacto, sem gastar colunas com borda
+    harness.terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    harness.open_table("customers").await;
+    let screen = harness.screen_text();
+    assert!(!screen.contains('╭'), "{screen}");
+    assert!(screen.contains(" SERVIDORES"), "{screen}");
+    assert!(screen.contains("Porto Alegre"), "{screen}");
 }

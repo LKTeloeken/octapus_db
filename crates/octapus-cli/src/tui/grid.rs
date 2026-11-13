@@ -11,12 +11,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use octapus_core::models::{EditableInfo, QueryResult, RowChanges, RowEdit, RowInsert};
 use unicode_width::UnicodeWidthStr;
 
-use super::config::Pending;
+use super::config::{CellKind, Pending};
 
 /// Largura máxima de uma coluna (o resto da célula aparece com `Enter`).
 const MAX_COLUMN_WIDTH: usize = 40;
 /// Largura mínima: cabe um `NULL`.
 const MIN_COLUMN_WIDTH: usize = 4;
+/// O que cada coluna gasta além do conteúdo: ` valor │`.
+pub const COLUMN_CHROME: usize = 3;
 /// Linhas olhadas para decidir a largura das colunas.
 const WIDTH_SAMPLE: usize = 200;
 /// Teto de linhas em memória: depois disto, as páginas param de chegar.
@@ -28,6 +30,8 @@ const LOAD_AHEAD: usize = 50;
 pub struct Grid {
     pub columns: Vec<String>,
     pub types: Vec<String>,
+    /// A família do tipo de cada coluna (cor e alinhamento)
+    kinds: Vec<CellKind>,
     pub rows: Vec<Vec<Option<String>>>,
     pub has_more: bool,
     pub editable: Option<EditableInfo>,
@@ -51,6 +55,7 @@ impl Grid {
     pub fn from_result(result: QueryResult) -> Self {
         let mut grid = Self {
             types: result.columns.iter().map(|column| column.type_name.clone()).collect(),
+            kinds: result.columns.iter().map(|column| CellKind::of(&column.type_name)).collect(),
             columns: result.columns.into_iter().map(|column| column.name).collect(),
             first_new_row: result.rows.len(),
             rows: result.rows,
@@ -92,18 +97,38 @@ impl Grid {
             .iter()
             .enumerate()
             .map(|(index, name)| {
-                let cells = self
-                    .rows
-                    .iter()
-                    .take(WIDTH_SAMPLE)
-                    .map(|row| row.get(index).and_then(Option::as_deref).map_or(4, first_line_width));
-                cells.fold(name.width(), usize::max).clamp(MIN_COLUMN_WIDTH, MAX_COLUMN_WIDTH)
+                let kind = self.kind_of(index);
+                let cells = self.rows.iter().take(WIDTH_SAMPLE).map(|row| {
+                    row.get(index)
+                        .and_then(Option::as_deref)
+                        .map_or(4, |value| first_line_width(shown(kind, value)))
+                });
+                // O cabeçalho tem o nome e, embaixo, o tipo
+                let header = name.width().max(self.types.get(index).map_or(0, |name| name.width()));
+                cells.fold(header, usize::max).clamp(MIN_COLUMN_WIDTH, MAX_COLUMN_WIDTH)
             })
             .collect();
     }
 
     pub fn is_empty(&self) -> bool {
         self.columns.is_empty()
+    }
+
+    pub fn kind_of(&self, col: usize) -> CellKind {
+        self.kinds.get(col).copied().unwrap_or(CellKind::Text)
+    }
+
+    /// Largura da coluna do número da linha: o marcador da pendência, os
+    /// dígitos e um espaço.
+    pub fn gutter_width(&self) -> usize {
+        self.rows.len().max(1).to_string().len() + 2
+    }
+
+    /// O marcador da linha na coluna dos números: nova, removida ou com
+    /// alguma célula editada.
+    pub fn row_marker(&self, row: usize) -> Option<Pending> {
+        self.row_pending(row)
+            .or_else(|| self.edits.range((row, 0)..(row + 1, 0)).next().map(|_| Pending::Edited))
     }
 
     pub fn width_of(&self, col: usize) -> usize {
@@ -283,7 +308,17 @@ impl Grid {
 
     /// A largura na tela das colunas `from..=to`, com os separadores.
     fn span_width(&self, from: usize, to: usize) -> usize {
-        (from..=to).map(|col| self.width_of(col) + 2).sum()
+        (from..=to).map(|col| self.width_of(col) + COLUMN_CHROME).sum()
+    }
+}
+
+/// O texto que a célula mostra para um valor: booleanos normalizados
+/// (o Postgres devolve `t`/`f`; outros bancos, `1`/`0`).
+pub fn shown(kind: CellKind, value: &str) -> &str {
+    match (kind, value) {
+        (CellKind::Bool, "t" | "true" | "1" | "TRUE") => "true",
+        (CellKind::Bool, "f" | "false" | "0" | "FALSE") => "false",
+        _ => value,
     }
 }
 
@@ -391,12 +426,12 @@ mod tests {
         let rows: Vec<[&str; 2]> = (0..1000).map(|_| ["1", "x"]).collect();
         let mut grid = Grid::from_result(result(&rows, false));
         grid.move_by(500, 1);
-        grid.scroll_into_view(20, 6);
+        grid.scroll_into_view(20, 7);
         assert_eq!(grid.scroll_row, 481);
         // Só cabe uma coluna: a do cursor
         assert_eq!(grid.scroll_col, 1);
         grid.move_by(-1000, -5);
-        grid.scroll_into_view(20, 6);
+        grid.scroll_into_view(20, 7);
         assert_eq!((grid.scroll_row, grid.scroll_col), (0, 0));
     }
 }
