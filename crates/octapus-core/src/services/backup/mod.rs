@@ -9,6 +9,7 @@ mod args;
 #[cfg(test)]
 mod e2e;
 mod inspect;
+mod ops;
 mod runner;
 mod tools;
 
@@ -17,6 +18,9 @@ pub use args::{
     restore_plan, ssl_env, suggested_file_name, ConnectionArgs, PlanInput, RestorePlan,
 };
 pub use inspect::{detect_format, summarize};
+pub use ops::{
+    detect_tools, inspect_restore, preview_backup, preview_restore, start_backup, start_restore, tools_status,
+};
 pub use runner::{BackupService, JobInput, JobSpec};
 pub use tools::{detect, status, version_from_server_setting};
 

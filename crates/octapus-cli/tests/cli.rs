@@ -174,6 +174,31 @@ fn nothing_writes_without_a_terminal() {
 }
 
 #[test]
+fn restore_needs_a_terminal_and_backup_is_postgres_only() {
+    let (sandbox, path) = Sandbox::with_shop("backup");
+    let dump = sandbox.dir.join("loja.sql");
+    std::fs::write(&dump, "DELETE FROM customers;\n").unwrap();
+    let dump = dump.to_str().unwrap();
+
+    let output = sandbox.run(&["restore", "loja", dump]);
+    assert_eq!(output.status.code(), Some(8), "{}", stderr(&output));
+    assert_eq!(json(&stderr(&output))["code"], "WRITE_REFUSED");
+
+    // Nem com a resposta da confirmação já na entrada padrão
+    let output = sandbox.command().args(["restore", "loja", dump]).write_stdin("loja\n").output().unwrap();
+    assert_eq!(output.status.code(), Some(8));
+
+    // Fora do Postgres não há backup, e nenhum arquivo aparece
+    let target = sandbox.dir.join("saida.dump");
+    let output = sandbox.run(&["backup", "loja", "--output", target.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(7), "{}", stderr(&output));
+    assert_eq!(json(&stderr(&output))["code"], "UNSUPPORTED_DATABASE");
+    assert!(!target.exists());
+
+    assert_eq!(customers(&path), 3);
+}
+
+#[test]
 fn structure_and_table_rows() {
     let (sandbox, _path) = Sandbox::with_shop("structure");
 

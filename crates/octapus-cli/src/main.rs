@@ -94,6 +94,8 @@ async fn run(cli: Cli) -> CliResult<()> {
         Command::Describe(args) => commands::structure::describe(&app, &args).await,
         Command::Table(args) => commands::table::run(&app, &args).await,
         Command::Query(args) => commands::query::run(&app, &args).await,
+        Command::Backup(args) => commands::backup::run_backup(&app, &args).await,
+        Command::Restore(args) => commands::backup::run_restore(&app, &args).await,
         Command::Tui(args) => tui::run(app, args).await,
         Command::Completions { .. } | Command::Paths => Ok(()),
     }

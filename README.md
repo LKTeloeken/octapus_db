@@ -120,6 +120,8 @@ octapus describe loja customers           # colunas e índices
 octapus table loja customers --where "city = 'Curitiba'" --order name:desc
 octapus query loja "select * from orders order by id desc limit 10"
 echo "select count(*) from orders" | octapus query loja --format csv
+octapus backup loja --output loja.dump    # pg_dump (PostgreSQL); --sql, --schema, --table
+octapus restore loja loja.dump            # pg_restore/psql; só num terminal, com confirmação
 ```
 
 - **Saída:** `--format table|json|csv|ndjson` (padrão: `table` no terminal, `json` fora
@@ -128,6 +130,8 @@ echo "select count(*) from orders" | octapus query loja --format csv
 - **Só leitura por padrão.** `octapus query` passa pelo mesmo guard e pelo mesmo executor
   só-leitura do assistente. Para escrever, `--write` — que só roda num terminal, com uma
   pessoa confirmando. Um script, ou uma IA chamando o `octapus`, não escreve no banco.
+  O `octapus restore` segue a mesma regra (`--dry-run` só mostra o que faria); o
+  `octapus backup` só lê e não sobrescreve um arquivo sem `--force`.
 - **Senhas** entram por pergunta sem eco (`--password`), variável (`--password-env`),
   entrada padrão (`--password-stdin`) ou dentro da URL; nenhuma saída as devolve.
 - **TUI:** 100% por teclado (`F1` mostra os atalhos); tema, atalhos e mouse em

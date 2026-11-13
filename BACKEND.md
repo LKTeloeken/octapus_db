@@ -141,7 +141,9 @@ do app (`paths.rs` a acha sem o Tauri; `OCTAPUS_DATA_DIR` troca, nos testes).
     (`~/.config/octapus/config.toml`).
 - **O contrato do terminal:** leitura pelo guard + executor só-leitura (os do
   assistente, `assistant/read_only.rs`); escrita só com `--write`, num terminal, com
-  confirmação — sem TTY, recusa (`WRITE_REFUSED`, saída 8). Nenhuma saída devolve senha
+  confirmação — sem TTY, recusa (`WRITE_REFUSED`, saída 8). O `octapus restore` também
+  escreve e segue a mesma regra; o `octapus backup` só lê (roda em script, sem
+  sobrescrever arquivo sem `--force`). Nenhuma saída devolve senha
   (a URI de conexão sai sem a credencial). Saídas `table|json|csv|ndjson`, erro
   `{ code, message }` no stderr e código de saída por tipo de erro.
 - **Log:** os níveis são os mesmos (`logging.rs` do núcleo); o terminal grava em
@@ -717,7 +719,9 @@ página carregada, reenvie `fetch_table_data` (ou `execute_query`) com
 | `restore_start` | `{ request, path }` | `jobId` |
 | `backup_cancel` | `{ jobId }` | `void` |
 
-Tudo em `services/backup/` + `commands/backup.rs`. Não passa pela trait
+Tudo em `services/backup/`: o `ops.rs` tem as operações sobre o `AppState` (detectar,
+checar, prévia, começar o job), chamadas pelo `commands/backup.rs` do app e pelo
+`octapus backup`/`octapus restore` do terminal. Não passa pela trait
 `DatabaseAdapter`: o trabalho é de um processo externo (`pg_dump`, `pg_restore`, `psql`),
 não do pool. Só Postgres.
 

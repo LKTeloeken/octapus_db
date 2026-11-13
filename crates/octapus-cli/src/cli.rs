@@ -66,6 +66,12 @@ pub enum Command {
     /// Executa uma consulta. Só leitura, a não ser com --write (que exige um terminal)
     Query(QueryArgs),
 
+    /// Backup de um database, schema ou tabela (PostgreSQL, pelo pg_dump)
+    Backup(BackupArgs),
+
+    /// Restaura um arquivo .dump ou .sql. Escreve no banco: exige um terminal
+    Restore(RestoreArgs),
+
     /// Abre a TUI
     Tui(TuiArgs),
 
@@ -295,6 +301,92 @@ pub struct QueryArgs {
     /// Permite escrita (INSERT, UPDATE, DDL…). Só num terminal, com confirmação
     #[arg(long)]
     pub write: bool,
+}
+
+#[derive(Args)]
+pub struct BackupArgs {
+    #[command(flatten)]
+    pub target: Target,
+
+    /// Só este schema
+    #[arg(long, short = 's')]
+    pub schema: Option<String>,
+
+    /// Só esta tabela (ou schema.tabela)
+    #[arg(long, short = 't')]
+    pub table: Option<String>,
+
+    /// Arquivo de saída (padrão: nome com database e data, na pasta atual)
+    #[arg(long, short = 'o', value_name = "ARQUIVO")]
+    pub output: Option<PathBuf>,
+
+    /// Script SQL em vez do arquivo .dump (também vale um --output terminado em .sql)
+    #[arg(long)]
+    pub sql: bool,
+
+    /// O que entra: tudo, só a estrutura ou só os dados
+    #[arg(long, value_enum, default_value_t = Content::All)]
+    pub content: Content,
+
+    /// Sem dono e sem GRANTs
+    #[arg(long)]
+    pub no_owner: bool,
+
+    /// DROP IF EXISTS antes de cada CREATE (só no script SQL)
+    #[arg(long)]
+    pub clean: bool,
+
+    /// INSERT com nomes de coluna em vez de COPY (só no script SQL)
+    #[arg(long)]
+    pub column_inserts: bool,
+
+    /// Sobrescreve o arquivo de saída, se existir
+    #[arg(long)]
+    pub force: bool,
+
+    /// Só mostra o comando e o arquivo, sem rodar
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Mostra o log do pg_dump no stderr
+    #[arg(long, short = 'v')]
+    pub verbose: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum Content {
+    All,
+    Schema,
+    Data,
+}
+
+#[derive(Args)]
+pub struct RestoreArgs {
+    #[command(flatten)]
+    pub target: Target,
+
+    /// O arquivo .dump ou .sql
+    pub file: PathBuf,
+
+    /// Ignora dono e GRANTs do arquivo (só no .dump)
+    #[arg(long)]
+    pub no_owner: bool,
+
+    /// Apaga os objetos que já existem antes de recriar (só no .dump)
+    #[arg(long)]
+    pub clean: bool,
+
+    /// Tudo ou nada: uma transação, parando no primeiro erro
+    #[arg(long)]
+    pub single_transaction: bool,
+
+    /// Só mostra o arquivo e o comando, sem rodar (não exige terminal)
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Mostra o log da restauração no stderr
+    #[arg(long, short = 'v')]
+    pub verbose: bool,
 }
 
 #[derive(Args, Default)]
