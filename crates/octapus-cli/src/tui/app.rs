@@ -7,7 +7,6 @@
 
 use std::future::Future;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use octapus_core::adapters::{has_catalog, MessageSink, ReadOnlyOp};
 use octapus_core::assistant::{guard, read_only};
@@ -16,7 +15,6 @@ use octapus_core::models::{
     AdapterCapabilities, CatalogNode, DatabaseType, NodeKind as CatalogKind, QueryMessage, QueryMessageKind,
     QueryOptions, QueryResult, Server, TableDataRequest, TableType,
 };
-use octapus_core::services::CatalogEntry;
 use octapus_core::state::AppState;
 use octapus_core::storage::repositories::servers;
 use octapus_core::Error;
@@ -24,6 +22,8 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, MouseButton, Mo
 use ratatui::layout::Rect;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::UnboundedSender;
+
+use crate::context::wait_for_catalog;
 
 use super::config::{Theme, UiConfig};
 use super::editor::Editor;
@@ -35,10 +35,7 @@ use super::tree::{Load, NodeKind, Tree};
 const PAGE_ROWS: i64 = 500;
 /// Resultados da busca no catálogo (o que cabe numa tela).
 const SEARCH_HITS: usize = 40;
-/// De quanto em quanto tempo a tarefa olha se o catálogo já chegou.
-const CATALOG_POLL: Duration = Duration::from_millis(40);
-/// Teto da espera pela lista de schemas (um banco que não responde).
-const CATALOG_WAIT: Duration = Duration::from_secs(60);
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
@@ -216,28 +213,6 @@ fn table_type(kind: CatalogKind) -> TableType {
         CatalogKind::Foreign => TableType::Foreign,
         // A tabela particionada abre como uma tabela (as partições ficam nela)
         CatalogKind::Table | CatalogKind::Partitioned | CatalogKind::Schema => TableType::Table,
-    }
-}
-
-/// Espera a lista de schemas do catálogo (a primeira sincronização de um
-/// database nunca aberto) ou, com `whole_sync`, a sincronização inteira.
-async fn wait_for_catalog(state: &AppState, entry: &CatalogEntry, whole_sync: bool) -> Result<(), Error> {
-    let started = Instant::now();
-    loop {
-        if !whole_sync && entry.read().knows_schemas() {
-            return Ok(());
-        }
-        let status = state.catalog.status(entry);
-        if !status.syncing {
-            return match status.error {
-                Some(message) => Err(Error::External(message)),
-                None => Ok(()),
-            };
-        }
-        if started.elapsed() > CATALOG_WAIT {
-            return Err(Error::ConnectionTimeout);
-        }
-        tokio::time::sleep(CATALOG_POLL).await;
     }
 }
 

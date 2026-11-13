@@ -3,10 +3,12 @@
 
 use std::io::{self, BufRead, IsTerminal};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use octapus_core::adapters::DatabaseAdapter;
 use octapus_core::models::{AdapterCapabilities, Server, ServerGroup};
 use octapus_core::paths;
+use octapus_core::services::CatalogEntry;
 use octapus_core::state::AppState;
 use octapus_core::storage::repositories::{server_groups, servers};
 use octapus_core::Error;
@@ -116,6 +118,33 @@ impl Connected {
             return ("public".to_string(), table.to_string());
         }
         (String::new(), table.to_string())
+    }
+}
+
+/// De quanto em quanto tempo se olha se o catálogo já chegou.
+const CATALOG_POLL: Duration = Duration::from_millis(40);
+/// Teto da espera pelo catálogo (um banco que não responde).
+const CATALOG_WAIT: Duration = Duration::from_secs(60);
+
+/// Espera a lista de schemas do catálogo (a primeira sincronização de um
+/// database nunca aberto) ou, com `whole_sync`, a sincronização inteira.
+pub async fn wait_for_catalog(state: &AppState, entry: &CatalogEntry, whole_sync: bool) -> Result<(), Error> {
+    let started = Instant::now();
+    loop {
+        if !whole_sync && entry.read().knows_schemas() {
+            return Ok(());
+        }
+        let status = state.catalog.status(entry);
+        if !status.syncing {
+            return match status.error {
+                Some(message) => Err(Error::External(message)),
+                None => Ok(()),
+            };
+        }
+        if started.elapsed() > CATALOG_WAIT {
+            return Err(Error::ConnectionTimeout);
+        }
+        tokio::time::sleep(CATALOG_POLL).await;
     }
 }
 

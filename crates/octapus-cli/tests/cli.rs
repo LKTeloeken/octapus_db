@@ -383,3 +383,121 @@ fn usage_errors_and_paths() {
     assert_eq!(sandbox.run(&["server", "add"]).status.code(), Some(2));
     assert_eq!(sandbox.run(&["server", "add", "isto não é uma url"]).status.code(), Some(2));
 }
+
+/// Uma conversa MCP com o `octapus mcp serve`: manda os pedidos e devolve a
+/// resposta de cada id (as respostas podem chegar fora de ordem).
+fn mcp(sandbox: &Sandbox, calls: &[(&str, Value)]) -> Vec<Value> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::Stdio;
+
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("octapus"))
+        .args(["mcp", "serve"])
+        .env("OCTAPUS_DATA_DIR", sandbox.data_dir())
+        .env("OCTAPUS_CONFIG_DIR", sandbox.dir.join("config"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let send = |message: Value| writeln!(&stdin, "{message}").unwrap();
+    let mut receive = || {
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        json(&line)
+    };
+
+    send(serde_json::json!({
+        "jsonrpc": "2.0", "id": 0, "method": "initialize",
+        "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "teste", "version": "1" } },
+    }));
+    assert_eq!(receive()["result"]["serverInfo"]["name"], "octapus");
+    send(serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
+
+    for (index, (method, params)) in calls.iter().enumerate() {
+        send(serde_json::json!({ "jsonrpc": "2.0", "id": index + 1, "method": method, "params": params }));
+    }
+    let mut answers = vec![Value::Null; calls.len()];
+    for _ in calls {
+        let answer = receive();
+        let id = answer["id"].as_u64().unwrap() as usize;
+        answers[id - 1] = answer;
+    }
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+    answers
+}
+
+fn tool(name: &str, arguments: Value) -> (&'static str, Value) {
+    ("tools/call", serde_json::json!({ "name": name, "arguments": arguments }))
+}
+
+/// O texto (JSON) do resultado de uma ferramenta e se ela falhou.
+fn tool_result(answer: &Value) -> (Value, bool) {
+    let result = &answer["result"];
+    let text = result["content"][0]["text"].as_str().unwrap_or_else(|| panic!("sem resultado: {answer}"));
+    (json(text), result["isError"] == true)
+}
+
+#[test]
+fn mcp_reads_and_never_writes_or_returns_a_password() {
+    use serde_json::json as j;
+    let (sandbox, path) = Sandbox::with_shop("mcp");
+    let secret = "s3nha-canario-9731";
+
+    let answers = mcp(
+        &sandbox,
+        &[
+            ("tools/list", j!({})),
+            tool("read_query", j!({ "server": "loja", "query": "select name from customers order by id" })),
+            tool("read_query", j!({ "server": "loja", "query": "delete from customers" })),
+            tool("read_query", j!({ "server": "loja", "query": "select 1; drop table customers" })),
+            // Não há argumento que ligue a escrita
+            tool("read_query", j!({ "server": "loja", "query": "delete from customers", "write": true })),
+            tool("describe_table", j!({ "server": "loja", "table": "customers" })),
+            tool("list_children", j!({ "server": "loja" })),
+            tool("search_catalog", j!({ "server": "loja", "query": "custom" })),
+            tool("add_server", j!({ "url": format!("postgres://ana:{secret}@localhost:1/loja"), "name": "pg" })),
+        ],
+    );
+
+    let tools = answers[0]["result"]["tools"].as_array().unwrap();
+    let writers: Vec<&str> = tools
+        .iter()
+        .filter(|tool| tool["annotations"]["readOnlyHint"] != true)
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(writers, ["add_server"], "só o cadastro local muda algo");
+
+    let (rows, failed) = tool_result(&answers[1]);
+    assert!(!failed, "{rows}");
+    assert_eq!(rows["rows"][0][0], "Ana");
+    assert_eq!(rows["rowCount"], 3);
+
+    for refused in &answers[2..4] {
+        let (error, failed) = tool_result(refused);
+        assert!(failed, "{error}");
+        assert_eq!(error["code"], "GUARD_REJECTED");
+    }
+    let (error, failed) = tool_result(&answers[4]);
+    assert!(failed, "{error}");
+    assert_eq!(error["code"], "USAGE");
+    assert_eq!(customers(&path), 3);
+
+    assert_eq!(tool_result(&answers[5]).0["columns"].as_array().unwrap().len(), 3);
+    assert!(tool_result(&answers[6]).0.to_string().contains("customers"));
+    assert_eq!(tool_result(&answers[7]).0["hits"][0]["name"], "customers");
+
+    // A senha entra e não volta: nem no cadastro, nem na lista
+    let (added, failed) = tool_result(&answers[8]);
+    assert!(!failed, "{added}");
+    assert_eq!(added["hasPassword"], true);
+    assert!(added["warning"].as_str().unwrap().contains("histórico"));
+    let listed = mcp(&sandbox, &[tool("list_servers", j!({}))]);
+    for answer in answers.iter().chain(&listed) {
+        assert!(!answer.to_string().contains(secret), "{answer}");
+    }
+    let (servers, _) = tool_result(&listed[0]);
+    assert_eq!(servers["servers"][1]["username"], "ana");
+}

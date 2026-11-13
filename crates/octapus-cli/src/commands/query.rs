@@ -88,7 +88,7 @@ pub async fn run(app: &App, args: &QueryArgs) -> CliResult<()> {
 }
 
 /// Leitura: guard + executor só-leitura, página a página até o `--limit`.
-async fn read(connected: &Connected, query: &str, args: &QueryArgs) -> CliResult<QueryOutput> {
+pub async fn read(connected: &Connected, query: &str, args: &QueryArgs) -> CliResult<QueryOutput> {
     let op = ReadOnlyOp::new(connected.capabilities.query_language, query);
     let limit = args.limit.clamp(1, MAX_LIMIT);
     let mut offset = args.offset.max(0);

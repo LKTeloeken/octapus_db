@@ -75,6 +75,10 @@ pub enum Command {
     /// Abre a TUI
     Tui(TuiArgs),
 
+    /// Servidor MCP, para um assistente de IA usar as conexões salvas (só leitura)
+    #[command(subcommand)]
+    Mcp(McpCommand),
+
     /// Onde ficam os dados, a configuração e o log
     Paths,
 
@@ -387,6 +391,12 @@ pub struct RestoreArgs {
     /// Mostra o log da restauração no stderr
     #[arg(long, short = 'v')]
     pub verbose: bool,
+}
+
+#[derive(Subcommand)]
+pub enum McpCommand {
+    /// Fala MCP pela entrada e saída padrão (registre com: claude mcp add octapus -- octapus mcp serve)
+    Serve,
 }
 
 #[derive(Args, Default)]

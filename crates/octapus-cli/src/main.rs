@@ -6,6 +6,7 @@ mod commands;
 mod context;
 mod error;
 mod logging;
+mod mcp;
 mod output;
 mod redact;
 mod tui;
@@ -97,6 +98,7 @@ async fn run(cli: Cli) -> CliResult<()> {
         Command::Backup(args) => commands::backup::run_backup(&app, &args).await,
         Command::Restore(args) => commands::backup::run_restore(&app, &args).await,
         Command::Tui(args) => tui::run(app, args).await,
+        Command::Mcp(cli::McpCommand::Serve) => mcp::serve(app).await,
         Command::Completions { .. } | Command::Paths => Ok(()),
     }
 }

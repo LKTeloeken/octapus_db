@@ -152,6 +152,12 @@ do app (`paths.rs` a acha sem o Tauri; `OCTAPUS_DATA_DIR` troca, nos testes).
   (`services/cli_install.rs`) baixam da release **desta versão** o binário do sistema,
   conferem o SHA-256 publicado ao lado e gravam em `~/.local/bin/octapus`
   (`%LOCALAPPDATA%\Programs\octapus` no Windows). O `release.yml` publica os binários.
+- **MCP** (`src/mcp.rs`, `rmcp` por stdio, tools declaradas à mão): `list_servers`,
+  `add_server`, `test_server`, `list_databases`, `list_children`, `search_catalog`,
+  `describe_table` e `read_query`. Leitura pelo mesmo caminho do `octapus query` sem
+  `--write`; nenhuma tool escreve num banco, e argumento desconhecido é recusado
+  (`deny_unknown_fields`). Resposta sem senha, com o que vem do banco marcado como dado
+  e com teto de linhas, de célula e de bytes. A saída padrão é só do protocolo.
 - **Estrutura na TUI:** a árvore e a busca (`Ctrl+P`) leem do catálogo (§1.1), como o
   app: `catalog_entry` + `ensure_schemas` ao abrir um schema, `search_all` na busca,
   `refresh_schema`/`ensure_fresh` no recarregar (`r`). Só o Redis lista pelo adapter.

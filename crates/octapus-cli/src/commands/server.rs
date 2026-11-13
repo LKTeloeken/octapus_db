@@ -104,7 +104,9 @@ fn group_id(app: &App, name: &str) -> CliResult<Option<i64>> {
     Ok(Some(app.group(name)?.id))
 }
 
-fn add(app: &App, args: ServerAddArgs) -> CliResult<()> {
+/// O cadastro a partir dos campos do pedido, ainda sem a senha de fora da
+/// URL (quem chama decide de onde ela vem).
+pub fn input_from_args(app: &App, args: &ServerAddArgs) -> CliResult<ServerInput> {
     let mut input = match (&args.url, args.db_type) {
         (Some(url), _) => server_input_from_url(url).ok_or_else(|| {
             CliError::Usage(
@@ -150,20 +152,20 @@ fn add(app: &App, args: ServerAddArgs) -> CliResult<()> {
         }
     };
 
-    if let Some(name) = args.name {
-        input.name = name;
+    if let Some(name) = &args.name {
+        input.name = name.clone();
     }
-    if let Some(host) = args.host {
-        input.host = host;
+    if let Some(host) = &args.host {
+        input.host = host.clone();
     }
     if let Some(port) = args.port {
         input.port = port;
     }
-    if let Some(user) = args.user {
-        input.username = user;
+    if let Some(user) = &args.user {
+        input.username = user.clone();
     }
-    if let Some(database) = args.database {
-        input.default_database = Some(database);
+    if let Some(database) = &args.database {
+        input.default_database = Some(database.clone());
     }
     if let Some(mode) = &args.ssl_mode {
         input.ssl_mode = Some(parse_ssl_mode(mode)?);
@@ -171,6 +173,11 @@ fn add(app: &App, args: ServerAddArgs) -> CliResult<()> {
     if let Some(group) = &args.group {
         input.group_id = group_id(app, group)?;
     }
+    Ok(input)
+}
+
+fn add(app: &App, args: ServerAddArgs) -> CliResult<()> {
+    let mut input = input_from_args(app, &args)?;
     if let Some(password) = read_password(&args.password, "Senha: ")? {
         input.password = Some(password);
     }
