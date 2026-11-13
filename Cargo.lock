@@ -4067,7 +4067,7 @@ dependencies = [
 
 [[package]]
 name = "octapus-cli"
-version = "1.1.0"
+version = "1.2.0-beta.1"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -4088,7 +4088,7 @@ dependencies = [
 
 [[package]]
 name = "octapus-core"
-version = "1.1.0"
+version = "1.2.0-beta.1"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -4133,7 +4133,7 @@ dependencies = [
 
 [[package]]
 name = "octapus_db"
-version = "1.1.0"
+version = "1.2.0-beta.1"
 dependencies = [
  "chrono",
  "log",
