@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rodadas do experimento</title>
+<!--
+  A tela das rodadas (serve.rs). Só lê o que a rodada gravou: não há botão que
+  inicie, pare ou altere nada. Página única, sem dependência externa (funciona
+  sem rede). Todo texto que vem dos arquivos entra por textContent, nunca como
+  HTML: a consulta gerada por um modelo é dado, não marcação.
+  Cores: os tokens do Ink (DESIGN.md), copiados porque a página é servida
+  fora do app.
+-->
+<style>
+:root {
+  --bg: oklch(0.955 0.004 265); --surface-1: oklch(0.995 0.001 265); --surface-2: oklch(0.975 0.003 265);
+  --line-subtle: oklch(0 0 0 / 6%); --line: oklch(0 0 0 / 10%); --line-strong: oklch(0 0 0 / 18%);
+  --fg: oklch(0.22 0.012 265); --fg-muted: oklch(0.44 0.014 265); --fg-subtle: oklch(0.5 0.014 265);
+  --iris: oklch(0.52 0.18 282); --iris-text: oklch(0.5 0.18 282); --iris-soft: oklch(0.55 0.18 282 / 10%);
+  --success: oklch(0.5 0.13 158); --success-soft: oklch(0.6 0.13 158 / 12%);
+  --warning: oklch(0.52 0.12 70); --warning-soft: oklch(0.75 0.14 75 / 18%);
+  --danger: oklch(0.53 0.19 25); --danger-soft: oklch(0.6 0.19 25 / 10%);
+  --track: oklch(0 0 0 / 7%);
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: oklch(0.165 0.006 265); --surface-1: oklch(0.2 0.007 265); --surface-2: oklch(0.228 0.008 265);
+    --line-subtle: oklch(1 0 0 / 5.5%); --line: oklch(1 0 0 / 8.5%); --line-strong: oklch(1 0 0 / 15%);
+    --fg: oklch(0.95 0.004 265); --fg-muted: oklch(0.76 0.01 265); --fg-subtle: oklch(0.7 0.012 265);
+    --iris: oklch(0.62 0.16 282); --iris-text: oklch(0.77 0.12 282); --iris-soft: oklch(0.66 0.15 282 / 16%);
+    --success: oklch(0.76 0.14 158); --success-soft: oklch(0.76 0.14 158 / 14%);
+    --warning: oklch(0.82 0.13 78); --warning-soft: oklch(0.82 0.13 78 / 14%);
+    --danger: oklch(0.72 0.17 22); --danger-soft: oklch(0.7 0.17 22 / 14%);
+    --track: oklch(1 0 0 / 9%);
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 var(--sans); }
+button, select, input { font: inherit; color: inherit; }
+header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--surface-1); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+h1 { font-size: 15px; font-weight: 600; margin: 0 8px 0 0; }
+h2 { font-size: 13px; font-weight: 600; margin: 20px 0 8px; }
+h3 { font-size: 12px; font-weight: 600; margin: 14px 0 6px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .04em; }
+select, input[type=search] { background: var(--surface-1); border: 1px solid var(--line-strong); border-radius: 6px; padding: 5px 8px; min-height: 30px; }
+select:focus-visible, input:focus-visible, button:focus-visible, tr:focus-visible { outline: 2px solid var(--iris); outline-offset: 1px; }
+main { padding: 0 20px 40px; max-width: 1500px; margin: 0 auto; }
+.muted { color: var(--fg-muted); } .subtle { color: var(--fg-subtle); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; border: 1px solid transparent; }
+.badge.ok { background: var(--success-soft); color: var(--success); }
+.badge.bad { background: var(--danger-soft); color: var(--danger); }
+.badge.warn { background: var(--warning-soft); color: var(--warning); }
+.badge.info { background: var(--iris-soft); color: var(--iris-text); }
+.badge.plain { border-color: var(--line-strong); color: var(--fg-muted); }
+#progress { display: grid; grid-template-columns: repeat(6, minmax(110px, 1fr)); gap: 10px; margin: 16px 0 6px; }
+.tile { background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.tile .label { color: var(--fg-muted); font-size: 12px; }
+.tile .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.meter { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; margin: 4px 0 14px; }
+.meter > div { height: 100%; background: var(--iris); border-radius: 3px; transition: width .3s ease; }
+nav { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-top: 8px; }
+nav button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; cursor: pointer; color: var(--fg-muted); }
+nav button[aria-selected=true] { color: var(--fg); border-bottom-color: var(--iris); font-weight: 600; }
+.card { background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 10px 0; }
+.card .head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.steps { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+.step { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--fg-subtle); font-size: 12px; }
+.step.done { color: var(--fg-muted); background: var(--surface-2); }
+.step.now { background: var(--iris-soft); color: var(--iris-text); border-color: var(--iris); font-weight: 600; }
+pre { margin: 6px 0; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--line-subtle); border-radius: 6px; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+pre.error { background: var(--danger-soft); border-color: transparent; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line-subtle); vertical-align: top; }
+th { font-weight: 600; color: var(--fg-muted); font-size: 12px; white-space: nowrap; background: var(--surface-2); position: sticky; top: 0; }
+th.sortable { cursor: pointer; user-select: none; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tablewrap { background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px; overflow: auto; }
+tbody tr.row { cursor: pointer; }
+tbody tr.row td { white-space: nowrap; }
+tbody tr.row:hover { background: var(--surface-2); }
+tbody tr.selected { background: var(--iris-soft); }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 10px; align-items: center; }
+.filters input[type=search] { min-width: 240px; flex: 1; }
+.question { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#detail { position: fixed; top: 0; right: 0; bottom: 0; width: min(920px, 92vw); background: var(--bg); border-left: 1px solid var(--line-strong); box-shadow: -12px 0 40px oklch(0 0 0 / 18%); overflow: auto; padding: 16px 20px 40px; z-index: 5; }
+#detail[hidden] { display: none; }
+#detail .close { float: right; background: var(--surface-1); border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px 16px; margin: 10px 0; }
+.meta div span { display: block; color: var(--fg-muted); font-size: 12px; }
+.sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.sides .tablewrap { max-height: 420px; }
+.sides td, .sides th { font-family: var(--mono); font-size: 12px; padding: 4px 8px; }
+tr.missing td { background: var(--danger-soft); }
+tr.extra td { background: var(--warning-soft); }
+td.mark { width: 20px; color: var(--fg-muted); }
+.bar { display: flex; align-items: center; gap: 8px; min-width: 150px; }
+.bar .track { flex: 1; height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--iris); border-radius: 0 4px 4px 0; }
+.bar .pct { width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+.empty { padding: 28px; text-align: center; color: var(--fg-muted); }
+label.check { display: inline-flex; gap: 5px; align-items: center; }
+details { margin: 8px 0; } summary { cursor: pointer; color: var(--fg-muted); }
+@media (max-width: 900px) { #progress { grid-template-columns: repeat(3, 1fr); } .sides { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rodadas do experimento</h1>
+  <label class="muted" for="run">Rodada</label>
+  <select id="run"></select>
+  <span id="status"></span>
+  <span class="subtle" id="signal"></span>
+</header>
+<main>
+  <div id="progress"></div>
+  <div class="meter" role="progressbar" aria-label="Progresso da rodada"><div id="meter" style="width:0"></div></div>
+  <nav role="tablist" id="tabs"></nav>
+  <section id="view"></section>
+</main>
+<aside id="detail" hidden></aside>
+
+<script>
+'use strict';
+
+// ── Rótulos ────────────────────────────────────────────────────────────────
+const STATUS = { answered: 'respondido', clarification: 'esclarecimento', exhausted: 'esgotado', failed: 'falhou',
+  code_delivered: 'código entregue', replied: 'resposta em texto', cancelled: 'interrompido', not_opened: 'não abriu', open: 'aberto' };
+const ROUND = { running: ['em andamento', 'info'], finished: ['concluída', 'ok'], interrupted: ['interrompida', 'warn'],
+  stopped_on_errors: ['parada por erros', 'bad'] };
+const STAGES = [['generating', 'Gerando'], ['validating', 'Validando'], ['executing', 'Executando'], ['comparing', 'Comparando']];
+const STAGE_EXTRA = { preparing: 'Preparando a conversa e o contexto', waiting: 'Aguardando o provedor' };
+const KIND = { query: 'consulta', clarification: 'esclarecimento', ask_user: 'pergunta ao usuário',
+  structure_request: 'pedido de estrutura', answer: 'resposta em texto', code: 'código' };
+const FAILED_AT = { guard: 'guard', preflight: 'preflight', execution: 'execução' };
+const MISMATCH = { truncated: 'resultado incompleto', column_count: 'número de colunas', column_names: 'nomes das colunas',
+  row_count: 'número de linhas', values: 'valores', order: 'ordem das linhas' };
+const DIMENSIONS = [['paradigm', 'Paradigma'], ['model', 'Modelo'], ['language', 'Idioma'], ['difficulty', 'Dificuldade']];
+const TABS = [['live', 'Ao vivo'], ['results', 'Resultados'], ['summary', 'Agregado'], ['run', 'Rodada']];
+
+// ── Estado ─────────────────────────────────────────────────────────────────
+const state = {
+  runs: [], run: null, tab: 'live', manifest: null, gold: new Map(), live: null,
+  units: new Map(), order: [], next: 0, selected: null,
+  filters: { paradigm: '', model: '', language: '', difficulty: '', verdict: '', text: '' },
+  sort: { key: 'order', dir: 1 }, by: ['paradigm', 'model', 'language'], summary: null, summaryFor: '',
+};
+
+// ── DOM sem HTML ───────────────────────────────────────────────────────────
+function h(tag, props, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props || {})) {
+    if (value == null || value === false) continue;
+    if (key === 'class') node.className = value;
+    else if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
+    else if (key === 'style') node.style.cssText = value;
+    else node.setAttribute(key, value === true ? '' : value);
+  }
+  for (const child of children.flat()) {
+    if (child == null || child === false) continue;
+    node.append(child.nodeType ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+const $ = (id) => document.getElementById(id);
+const replace = (node, ...children) => { node.replaceChildren(...children.flat().filter(Boolean)); };
+const badge = (kind, text, title) => h('span', { class: 'badge ' + kind, title }, text);
+const seconds = (ms) => (ms == null ? '-' : (ms / 1000).toFixed(1) + ' s');
+const percent = (value) => (value == null ? '-' : (value * 100).toFixed(1) + '%');
+function duration(total) {
+  if (total == null) return '-';
+  const hours = Math.floor(total / 3600), minutes = Math.floor((total % 3600) / 60), rest = Math.round(total % 60);
+  return hours ? `${hours} h ${minutes} min` : minutes ? `${minutes} min ${rest} s` : `${rest} s`;
+}
+function verdict(record) {
+  if (record.correctFinal && record.correctFirst) return badge('ok', '✓ acerto', 'Acertou sem correção');
+  if (record.correctFinal) return badge('ok', '✓ após correção', 'Acertou depois de corrigir');
+  return badge('bad', '✗ erro', 'Não acertou');
+}
+
+async function get(path) {
+  const response = await fetch(path, { cache: 'no-store' });
+  if (!response.ok) throw new Error(path + ': ' + response.status);
+  return response.json();
+}
+
+// ── Endereço (#run=…&tab=…&test=…) ─────────────────────────────────────────
+function readHash() {
+  const params = new URLSearchParams(location.hash.slice(1));
+  return { run: params.get('run'), tab: params.get('tab'), test: params.get('test') };
+}
+function writeHash() {
+  const params = new URLSearchParams();
+  if (state.run) params.set('run', state.run);
+  params.set('tab', state.tab);
+  if (state.selected) params.set('test', state.selected);
+  history.replaceState(null, '', '#' + params.toString());
+}
+
+// ── Carga ──────────────────────────────────────────────────────────────────
+async function loadRuns() {
+  state.runs = (await get('/api/runs')).runs;
+  const select = $('run');
+  const options = state.runs.map((run) => h('option', { value: run.id },
+    `${run.id} · ${run.done ?? 0}/${run.total ?? '?'}${run.simulated ? ' · simulada' : ''}`));
+  if (select.options.length !== options.length || [...select.options].some((o, i) => o.textContent !== options[i].textContent)) {
+    replace(select, options);
+    if (state.run) select.value = state.run;
+  }
+  if (!state.run && state.runs.length) await openRun(state.runs[0].id);
+  if (!state.runs.length) replace($('view'), h('div', { class: 'empty' }, 'Nenhuma rodada nesta pasta ainda.'));
+}
+
+async function openRun(id) {
+  Object.assign(state, { run: id, manifest: null, gold: new Map(), live: null, units: new Map(), order: [], next: 0,
+    summary: null, summaryFor: '' });
+  $('run').value = id;
+  state.manifest = await get(`/api/runs/${id}/manifest`);
+  try {
+    for (const gold of await get(`/api/runs/${id}/gold`)) state.gold.set(gold.questionId + '|' + gold.paradigm, gold);
+  } catch { /* rodada sem gabarito gravado */ }
+  await refresh(true);
+  writeHash();
+}
+
+async function refresh(force) {
+  if (!state.run) return;
+  const id = state.run;
+  let changed = force;
+  try {
+    const live = await get(`/api/runs/${id}/live`);
+    if (JSON.stringify(live) !== JSON.stringify(state.live)) { state.live = live; changed = true; }
+  } catch { if (state.live) { state.live = null; changed = true; } }
+  const page = await get(`/api/runs/${id}/units?from=${state.next}`);
+  if (id !== state.run) return;
+  if (page.next < state.next) { state.units = new Map(); state.order = []; state.next = 0; return refresh(true); }
+  for (const record of page.units) {
+    if (!state.units.has(record.key)) state.order.push(record.key);
+    state.units.set(record.key, record);   // de um teste refeito vale a última linha
+    changed = true;
+  }
+  state.next = page.next;
+  renderHeader();
+  if (changed) { state.summaryFor = ''; renderView(); }
+}
+
+// ── Cabeçalho e progresso ──────────────────────────────────────────────────
+function renderHeader() {
+  const live = state.live, manifest = state.manifest;
+  const total = live?.total ?? manifest?.total ?? 0;
+  const records = [...state.units.values()];
+  const done = live?.done ?? records.length;
+  const correct = live?.correct ?? records.filter((r) => r.correctFinal).length;
+  const [label, kind] = ROUND[live?.status] || ['sem andamento gravado', 'plain'];
+  const stale = live && live.status === 'running' ? Math.round((Date.now() - Date.parse(live.updatedAt)) / 1000) : 0;
+  replace($('status'), badge(stale > 10 ? 'bad' : kind, stale > 10 ? 'sem sinal do processo' : label),
+    manifest?.simulated ? [' ', badge('plain', 'simulada', 'Modelo e registro roteirizados, sem rede')] : null);
+  $('signal').textContent = stale > 10 ? `última atualização há ${duration(stale)}` : '';
+  const tile = (name, value, title) => h('div', { class: 'tile', title }, h('div', { class: 'label' }, name), h('div', { class: 'value' }, value));
+  replace($('progress'),
+    tile('Feitos', `${done} / ${total}`),
+    tile('Acertos', correct),
+    tile('Erros', live?.incorrect ?? done - correct),
+    tile('Acurácia até agora', done ? percent(correct / done) : '-', `${correct} de ${done}`),
+    tile('Não abriram', live?.notOpened ?? 0, live?.lastError ? 'Último erro: ' + live.lastError : 'Testes que nem abriram nesta execução'),
+    tile('Falta (estimativa)', live?.status === 'running' ? duration(live.etaSeconds) : '-'));
+  $('meter').style.width = total ? (100 * done / total).toFixed(1) + '%' : '0';
+  const meter = $('meter').parentElement;
+  meter.setAttribute('aria-valuenow', done); meter.setAttribute('aria-valuemax', total);
+}
+
+function renderTabs() {
+  replace($('tabs'), TABS.map(([id, label]) => h('button', {
+    role: 'tab', 'aria-selected': String(state.tab === id),
+    onclick: () => { state.tab = id; writeHash(); renderTabs(); renderView(); },
+  }, label)));
+}
+
+function renderView() {
+  if (!state.manifest) return;
+  const view = { live: viewLive, results: viewResults, summary: viewSummary, run: viewRun }[state.tab];
+  view();
+  if (state.selected) renderDetail();
+}
+
+// ── Ao vivo ────────────────────────────────────────────────────────────────
+function unitHead(unit) {
+  return [h('strong', {}, unit.questionId), badge('plain', unit.paradigm), badge('plain', unit.model),
+    badge('plain', unit.language), badge('plain', 'rep. ' + unit.repetition), unit.difficulty ? badge('plain', unit.difficulty) : null];
+}
+function failureLine(attempt) {
+  if (!attempt.failedStage) return null;
+  return h('div', {}, badge('bad', '✗ falhou no ' + (FAILED_AT[attempt.failedStage] || attempt.failedStage)),
+    attempt.failureClass ? [' ', h('span', { class: 'muted mono' }, attempt.failureClass)] : null);
+}
+function viewLive() {
+  const live = state.live;
+  const active = live?.status === 'running' ? live.active : [];
+  const cards = active.map((unit) => {
+    const index = STAGES.findIndex(([id]) => id === unit.stage);
+    return h('div', { class: 'card' },
+      h('div', { class: 'head' }, unitHead(unit)),
+      h('div', { style: 'margin-top:6px' }, unit.question),
+      h('div', { class: 'steps' }, STAGES.map(([id, label], position) =>
+        h('span', { class: 'step' + (position === index ? ' now' : position < index ? ' done' : '') }, label)),
+        STAGE_EXTRA[unit.stage] ? h('span', { class: 'step now' }, STAGE_EXTRA[unit.stage]) : null),
+      unit.attempts.map((attempt, position) => h('div', {},
+        h('div', { class: 'muted' }, `Tentativa ${position + 1}`, attempt.kind ? ' · ' + (KIND[attempt.kind] || attempt.kind) : ' · gerando…'),
+        attempt.query ? h('pre', {}, attempt.query) : null,
+        failureLine(attempt),
+        attempt.error ? h('pre', { class: 'error' }, attempt.error) : null)));
+  });
+  const recent = state.order.slice(-10).reverse().map((key) => state.units.get(key));
+  replace($('view'),
+    h('h2', {}, 'Em andamento'),
+    cards.length ? cards : h('div', { class: 'card muted' }, live?.status === 'running'
+      ? 'Nenhum teste em andamento neste instante.'
+      : 'A rodada não está em andamento. A linha de comando inicia e retoma; esta tela só acompanha.'),
+    h('h2', {}, 'Últimos concluídos'),
+    recent.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('tbody', {}, recent.map((record) =>
+      h('tr', { class: 'row', tabindex: 0, onclick: () => select(record.key), onkeydown: (e) => e.key === 'Enter' && select(record.key) },
+        h('td', {}, verdict(record)), h('td', {}, h('strong', {}, record.questionId)),
+        h('td', {}, record.paradigm), h('td', {}, record.model), h('td', {}, record.language),
+        h('td', {}, STATUS[record.status] || record.status),
+        h('td', { class: 'num' }, record.attempts.length + ' tent.'), h('td', { class: 'num' }, seconds(record.turnMs)))))))
+      : h('div', { class: 'card muted' }, 'Nenhum teste concluído ainda.'));
+}
+
+// ── Resultados ─────────────────────────────────────────────────────────────
+const COLUMNS = [
+  ['verdict', 'Veredito', (r) => (r.correctFinal ? (r.correctFirst ? 2 : 1) : 0)],
+  ['questionId', 'Pergunta', (r) => r.questionId],
+  ['paradigm', 'Paradigma', (r) => r.paradigm],
+  ['model', 'Modelo', (r) => r.model],
+  ['language', 'Idioma', (r) => r.language],
+  ['difficulty', 'Dificuldade', (r) => r.difficulty],
+  ['repetition', 'Rep.', (r) => r.repetition],
+  ['status', 'Estado final', (r) => r.status],
+  ['attempts', 'Tentativas', (r) => r.attempts.length],
+  ['turnMs', 'Tempo', (r) => r.turnMs],
+];
+function filtered() {
+  const f = state.filters, text = f.text.trim().toLowerCase();
+  const rows = state.order.map((key, position) => ({ record: state.units.get(key), position })).filter(({ record: r }) =>
+    (!f.paradigm || r.paradigm === f.paradigm) && (!f.model || r.model === f.model) &&
+    (!f.language || r.language === f.language) && (!f.difficulty || r.difficulty === f.difficulty) &&
+    (!f.verdict || (f.verdict === 'correct' ? r.correctFinal : f.verdict === 'wrong' ? !r.correctFinal
+      : f.verdict === 'first' ? r.correctFirst : r.correctFinal && !r.correctFirst)) &&
+    (!text || r.question.toLowerCase().includes(text) || r.questionId.toLowerCase().includes(text)));
+  const column = COLUMNS.find(([key]) => key === state.sort.key);
+  if (column) {
+    rows.sort((a, b) => {
+      const x = column[2](a.record), y = column[2](b.record);
+      return (x < y ? -1 : x > y ? 1 : a.position - b.position) * state.sort.dir;
+    });
+  }
+  return rows.map((row) => row.record);
+}
+function filterSelect(key, label, values, names) {
+  const select = h('select', { 'aria-label': label, onchange: (e) => { state.filters[key] = e.target.value; viewResults(); } },
+    h('option', { value: '' }, label + ': todos'),
+    values.map((value) => h('option', { value }, names ? names[value] : value)));
+  select.value = state.filters[key];
+  return select;
+}
+function viewResults() {
+  const records = [...state.units.values()];
+  const distinct = (pick) => [...new Set(records.map(pick))].sort();
+  const rows = filtered();
+  const search = h('input', { type: 'search', placeholder: 'Buscar no texto ou no id da pergunta', 'aria-label': 'Buscar pergunta',
+    value: state.filters.text, oninput: (e) => { state.filters.text = e.target.value; renderRows(); } });
+  const body = h('tbody', { id: 'rows' });
+  replace($('view'),
+    h('div', { class: 'filters' },
+      filterSelect('paradigm', 'Paradigma', distinct((r) => r.paradigm)),
+      filterSelect('model', 'Modelo', distinct((r) => r.model)),
+      filterSelect('language', 'Idioma', distinct((r) => r.language)),
+      filterSelect('difficulty', 'Dificuldade', distinct((r) => r.difficulty)),
+      filterSelect('verdict', 'Veredito', ['correct', 'wrong', 'first', 'fixed'],
+        { correct: 'acertos', wrong: 'erros', first: 'acerto na 1ª tentativa', fixed: 'acerto só após correção' }),
+      search, h('span', { class: 'muted', id: 'count' })),
+    h('div', { class: 'tablewrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, COLUMNS.map(([key, label]) => h('th', {
+        class: 'sortable' + (key === 'attempts' || key === 'turnMs' || key === 'repetition' ? ' num' : ''),
+        'aria-sort': state.sort.key === key ? (state.sort.dir > 0 ? 'ascending' : 'descending') : 'none',
+        onclick: () => { state.sort = { key, dir: state.sort.key === key ? -state.sort.dir : 1 }; viewResults(); },
+      }, label + (state.sort.key === key ? (state.sort.dir > 0 ? ' ▲' : ' ▼') : ''))))), body)));
+  renderRows(rows);
+}
+function renderRows(rows) {
+  rows = rows || filtered();
+  const body = $('rows');
+  if (!body) return;
+  $('count').textContent = `${rows.length} de ${state.units.size} teste(s)`;
+  replace(body, rows.length ? rows.map((r) => h('tr', {
+    class: 'row' + (state.selected === r.key ? ' selected' : ''), tabindex: 0,
+    onclick: () => select(r.key), onkeydown: (e) => e.key === 'Enter' && select(r.key),
+  },
+    h('td', {}, verdict(r)),
+    h('td', {}, h('strong', {}, r.questionId), h('div', { class: 'question muted', title: r.question }, r.question)),
+    h('td', {}, r.paradigm), h('td', {}, r.model), h('td', {}, r.language), h('td', {}, r.difficulty),
+    h('td', { class: 'num' }, r.repetition),
+    h('td', {}, STATUS[r.status] || r.status, r.errorCode ? h('div', { class: 'muted mono' }, r.errorCode) : null),
+    h('td', { class: 'num' }, r.attempts.length), h('td', { class: 'num' }, seconds(r.turnMs))))
+    : h('tr', {}, h('td', { colspan: COLUMNS.length, class: 'empty' }, state.units.size ? 'Nenhum teste com esses filtros.' : 'Nenhum teste concluído ainda.')));
+}
+
+// ── Um teste ───────────────────────────────────────────────────────────────
+function select(key) { state.selected = key; writeHash(); renderDetail(); renderRows(); }
+function closeDetail() { state.selected = null; $('detail').hidden = true; writeHash(); renderRows(); }
+function field(label, value) { return h('div', {}, h('span', {}, label), value == null || value === '' ? '-' : value); }
+function grid(table, marked, cls, mapping) {
+  if (!table) return h('div', { class: 'card muted' }, 'Nada foi executado.');
+  const set = new Set(marked || []);
+  return h('div', { class: 'tablewrap' }, h('table', {},
+    h('thead', {}, h('tr', {}, h('th', {}, ''), table.columns.map((name, index) =>
+      h('th', { title: mapping ? mapping(index) : null }, name)))),
+    h('tbody', {}, table.rows.length ? table.rows.map((row, index) => h('tr', { class: set.has(index) ? cls : '' },
+      h('td', { class: 'mark', title: set.has(index) ? 'Linha sem par no outro lado' : null }, set.has(index) ? '≠' : ''),
+      row.map((cell) => h('td', {}, cell == null ? h('span', { class: 'subtle' }, 'NULL') : cell))))
+      : h('tr', {}, h('td', { colspan: table.columns.length + 1, class: 'muted' }, '(sem linhas)')))),
+    table.truncated ? h('div', { class: 'muted', style: 'padding:6px 10px' }, 'Havia mais linhas além da página.') : null);
+}
+function renderDetail() {
+  const panel = $('detail'), r = state.units.get(state.selected);
+  if (!r) { panel.hidden = true; return; }
+  const gold = state.gold.get(r.questionId + '|' + r.paradigm);
+  const comparison = r.comparison;
+  const asked = new Map((r.askedUser || []).map((item) => [item.attemptId, item]));
+  const attempts = r.attempts.map((a, position) => {
+    const usage = a.usage, outcome = a.outcome, question = asked.get(a.attemptId);
+    return h('div', { class: 'card' },
+      h('div', { class: 'head' }, h('strong', {}, `Tentativa ${position + 1}`),
+        badge('plain', a.kind ? (KIND[a.kind] || a.kind) : (a.generationError ? 'sem resposta válida' : 'fora do contrato')),
+        a.correct === true ? badge('ok', '✓ resultado correto') : a.correct === false ? badge('bad', '✗ resultado diferente') : null,
+        a.exactMatch === true ? badge('info', 'igual à referência') : null,
+        a.counted ? null : badge('plain', 'não conta no limite')),
+      h('div', { class: 'muted mono' }, a.attemptId, ' · geração ', seconds(a.generationMs),
+        usage ? ` · ${usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens} tokens de entrada, ${usage.outputTokens} de saída` : '',
+        a.rowCount != null ? ` · ${a.rowCount} linha(s)` : ''),
+      a.query ? h('pre', {}, a.query) : null,
+      a.output?.clarificationQuestion ? h('div', {}, h('span', { class: 'muted' }, 'Pergunta do assistente: '), a.output.clarificationQuestion) : null,
+      question ? h('div', { class: 'muted' }, 'Política: ', question.policy === 'reply' ? 'responder com texto fixo' : 'encerrar como esclarecimento',
+        question.reply ? ` · resposta enviada: “${question.reply}”` : ' · ficou sem resposta') : null,
+      a.output?.explanation && a.kind !== 'query' ? h('div', { class: 'muted' }, a.output.explanation) : null,
+      a.raw ? [h('div', { class: 'muted' }, 'Texto do modelo (fora do contrato):'), h('pre', {}, a.raw)] : null,
+      a.generationError ? h('div', {}, badge('bad', a.generationError)) : null,
+      failureLine(a),
+      a.error ? h('pre', { class: 'error' }, a.error) : null,
+      outcome ? h('div', { class: 'muted mono' },
+        `guard: ${outcome.guard.allowed ? 'ok' : 'recusa (' + (outcome.guard.reason || '?') + ')'}`,
+        ` · preflight: ${stageText(outcome.preflight)} · execução: ${stageText(outcome.execution)}`) : null);
+  });
+  replace(panel,
+    h('button', { class: 'close', onclick: closeDetail, 'aria-label': 'Fechar o teste' }, 'Fechar (Esc)'),
+    h('div', { class: 'head', style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, unitHead(r), verdict(r)),
+    h('h3', {}, 'Pergunta'), h('div', {}, r.question),
+    h('div', { class: 'meta' },
+      field('Estado final do turno', STATUS[r.status] || r.status), field('Erro', r.errorCode),
+      field('Tempo total do turno', seconds(r.turnMs)),
+      field('Tentativas (contam no limite)', `${r.attempts.length} (${r.countedAttempts})`),
+      field('Acerto na 1ª tentativa', r.correctFirst ? 'sim' : 'não'), field('Acerto final', r.correctFinal ? 'sim' : 'não'),
+      field('Correspondência exata', r.exactMatch == null ? 'não se aplica' : r.exactMatch ? 'sim' : 'não'),
+      field('Idioma detectado', r.detectedLanguage), field('Prompt', r.promptVersion),
+      field('Contexto', r.contextTables == null ? null : `${r.contextTables} relação(ões)${r.contextTruncated ? ', recortado' : ''}`),
+      field('Conversa na API', h('span', { class: 'mono' }, r.conversationId || '-')),
+      field('Turno na API', h('span', { class: 'mono' }, r.turnId || '-')),
+      field('Início', r.startedAt)),
+    h('h3', {}, 'Gabarito'),
+    r.unanswerable ? h('div', { class: 'card' }, 'Pergunta sem resposta possível: o acerto é o turno terminar em pedido de esclarecimento.')
+      : gold ? h('pre', {}, gold.query) : h('div', { class: 'card muted' }, 'Gabarito não encontrado na pasta da rodada.'),
+    h('h3', {}, 'Tentativas'), attempts.length ? attempts : h('div', { class: 'card muted' }, 'Nenhuma tentativa gerada.'),
+    r.unanswerable ? null : [
+      h('h3', {}, 'Resultado esperado × obtido'),
+      comparison ? h('div', { style: 'margin-bottom:8px' }, comparison.equal ? badge('ok', '✓ iguais pelas regras da pergunta')
+        : badge('bad', '✗ diferem: ' + (MISMATCH[comparison.mismatch] || comparison.mismatch)),
+        comparison.equal ? null : h('span', { class: 'muted' }, `  ${comparison.missingRows.length} linha(s) esperada(s) sem par, ${comparison.extraRows.length} obtida(s) sem par`)) : null,
+      h('div', { class: 'sides' },
+        h('div', {}, h('div', { class: 'muted' }, 'Esperado (gabarito)'),
+          grid(gold?.table, comparison?.missingRows, 'missing', (index) => {
+            const other = comparison?.mapping?.[index];
+            return other == null ? 'Sem coluna pareada no obtido' : 'Pareada com a coluna obtida: ' + (r.result?.columns?.[other] ?? other + 1);
+          })),
+        h('div', {}, h('div', { class: 'muted' }, 'Obtido (última consulta executada)'), grid(r.result, comparison?.extraRows, 'extra'))),
+    ]);
+  panel.hidden = false;
+  panel.scrollTop = 0;
+}
+function stageText(stage) {
+  if (!stage.ran) return 'não rodou';
+  return (stage.ok ? 'ok' : 'falhou' + (stage.failureClass ? ' (' + stage.failureClass + ')' : '')) +
+    (stage.durationMs != null ? ` em ${stage.durationMs} ms` : '');
+}
+
+// ── Agregado ───────────────────────────────────────────────────────────────
+async function viewSummary() {
+  const by = state.by.join(',');
+  if (state.summaryFor !== by) {
+    state.summary = by ? await get(`/api/runs/${state.run}/summary?by=${by}`) : { by: [], rows: [] };
+    state.summaryFor = by;
+    if (state.tab !== 'summary') return;
+  }
+  const bar = (value, part, whole) => h('div', { class: 'bar', title: `${part} de ${whole}` },
+    h('div', { class: 'track' }, h('div', { class: 'fill', style: `width:${(100 * (value || 0)).toFixed(1)}%` })),
+    h('span', { class: 'pct' }, percent(value)));
+  const names = Object.fromEntries(DIMENSIONS);
+  replace($('view'),
+    h('div', { class: 'filters' }, h('span', { class: 'muted' }, 'Agrupar por:'),
+      DIMENSIONS.map(([id, label]) => h('label', { class: 'check' },
+        h('input', { type: 'checkbox', checked: state.by.includes(id), onchange: (e) => {
+          state.by = DIMENSIONS.map(([d]) => d).filter((d) => (d === id ? e.target.checked : state.by.includes(d)));
+          viewSummary();
+        } }), label))),
+    state.summary.rows.length ? h('div', { class: 'tablewrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, state.summary.by.map((d) => h('th', {}, names[d])),
+        h('th', { class: 'num' }, 'Testes'), h('th', {}, 'Acurácia na 1ª tentativa'), h('th', {}, 'Acurácia final'),
+        h('th', { class: 'num', title: 'Das consultas geradas, as que não rodaram até o fim' }, 'Consultas inválidas'),
+        h('th', { class: 'num' }, 'Tentativas (média)'), h('th', { class: 'num' }, 'Tempo médio'), h('th', { class: 'num' }, 'Mediana'),
+        h('th', { class: 'num', title: 'Só PostgreSQL, em perguntas com gabarito' }, 'Corresp. exata'))),
+      h('tbody', {}, state.summary.rows.map((row) => h('tr', {},
+        row.group.map((value) => h('td', {}, value)),
+        h('td', { class: 'num' }, row.tests),
+        h('td', {}, bar(row.accuracyFirst, row.correctFirst, row.tests)),
+        h('td', {}, bar(row.accuracyFinal, row.correctFinal, row.tests)),
+        h('td', { class: 'num', title: `${row.invalidQueries} de ${row.queryAttempts} consulta(s); ${row.invalidOutputs} saída(s) fora do contrato` }, percent(row.invalidQueryRate)),
+        h('td', { class: 'num' }, row.meanAttempts.toFixed(2)),
+        h('td', { class: 'num' }, seconds(row.meanTurnMs)), h('td', { class: 'num' }, seconds(row.medianTurnMs)),
+        h('td', { class: 'num', title: row.exactMatchTests ? `${row.exactMatches} de ${row.exactMatchTests}` : 'Não se aplica' }, percent(row.exactMatchRate)))))))
+      : h('div', { class: 'empty' }, by ? 'Nenhum teste concluído ainda.' : 'Escolha ao menos uma dimensão.'),
+    h('p', { class: 'muted' }, 'Calculado dos testes gravados, pelo mesmo código do summary.csv. A tabela longa (um teste por linha) é o results.csv da pasta da rodada.'));
+}
+
+// ── Rodada ─────────────────────────────────────────────────────────────────
+function viewRun() {
+  const m = state.manifest;
+  replace($('view'),
+    h('div', { class: 'meta', style: 'margin-top:16px' },
+      field('Rodada', m.runId), field('Criada em', m.createdAt), field('Versão do app', m.appVersion),
+      field('Commit', h('span', { class: 'mono' }, (m.commit || '-').slice(0, 12) + (m.commitDirty ? ' (com mudanças fora do commit)' : ''))),
+      field('Contrato da saída', m.contractVersion), field('API', m.simulated ? 'simulada (sem rede)' : m.apiUrl),
+      field('Backend do modelo', m.backend), field('Semente', m.seed), field('Repetições', m.repetitions),
+      field('Concorrência', m.concurrency), field('Idiomas', m.languages.join(', ')), field('Paradigmas', m.paradigms.join(', ')),
+      field('Pergunta ao usuário', m.askUser === 'reply' ? 'responder com texto fixo' : 'encerrar como esclarecimento'),
+      field('Valores de exemplo do MongoDB', m.mongoSampleValues ? 'ligados' : 'desligados'),
+      field('Linhas por página', m.rowLimit), field('Restrita às perguntas', m.only.length ? m.only.join(', ') : 'todas'),
+      field('Conjunto de perguntas', (m.questionsVersion || 'sem versão') + ' · ' + m.questionsSha256.slice(0, 12)),
+      field('Total de testes', m.total)),
+    h('h3', {}, 'Modelos'),
+    h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Id'), h('th', {}, 'Apelido'), h('th', { class: 'num' }, 'Janela de contexto'))),
+      h('tbody', {}, m.models.map((model) => h('tr', {}, h('td', { class: 'mono' }, model.id), h('td', {}, model.alias), h('td', { class: 'num' }, model.contextWindow)))))),
+    h('h3', {}, 'Prompts'),
+    h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Paradigma'), h('th', {}, 'Versão'), h('th', {}, 'SHA-256'))),
+      h('tbody', {}, m.prompts.map((p) => h('tr', {}, h('td', {}, p.paradigm), h('td', {}, p.version), h('td', { class: 'mono' }, p.sha256)))))),
+    m.resumes.length ? [h('h3', {}, 'Retomadas'), h('div', { class: 'tablewrap' }, h('table', {}, h('tbody', {},
+      m.resumes.map((r) => h('tr', {}, h('td', {}, r.at), h('td', {}, r.appVersion), h('td', { class: 'mono' }, (r.commit || '-').slice(0, 12)))))))] : null,
+    h('details', {}, h('summary', {}, 'Conjunto de perguntas usado (como foi lido)'), h('pre', { style: 'max-height:520px' }, m.questionsToml)),
+    h('details', {}, h('summary', {}, 'Ambiente (sem segredos: só o nome das variáveis)'), h('pre', {}, m.environmentToml)));
+}
+
+// ── Partida ────────────────────────────────────────────────────────────────
+$('run').addEventListener('change', (e) => { state.selected = null; $('detail').hidden = true; openRun(e.target.value); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.selected) closeDetail(); });
+async function tick() {
+  try { await loadRuns(); await refresh(false); } catch (error) { $('signal').textContent = 'sem resposta do servidor da tela'; }
+  setTimeout(tick, state.live?.status === 'running' ? 1000 : 4000);
+}
+(async () => {
+  const start = readHash();
+  if (start.tab && TABS.some(([id]) => id === start.tab)) state.tab = start.tab;
+  renderTabs();
+  try {
+    await loadRuns();
+    if (start.run && state.runs.some((run) => run.id === start.run) && start.run !== state.run) await openRun(start.run);
+    if (start.test && state.units.has(start.test)) { state.selected = start.test; renderDetail(); }
+    writeHash();
+  } catch (error) { $('signal').textContent = 'sem resposta do servidor da tela'; }
+  setTimeout(tick, 1000);
+})();
+</script>
+</body>
+</html>

@@ -3625,6 +3625,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tokio-postgres-rustls",
+ "toml 0.8.22",
  "ts-rs",
  "whatlang",
 ]

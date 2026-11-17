@@ -15,6 +15,23 @@ edition = "2021"
 name = "octapus_db_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Executor de rodadas do experimento do TCC (src/experiment): ferramenta
+# privada do autor. Fora do build padrão, então o app e o instalador não a
+# levam; e é um example, não um [[bin]], porque o bundler do Tauri empacota
+# todo binário do pacote. Rodar:
+# `cargo run --example experiment --features experiment -- --help`.
+[features]
+experiment = ["dep:toml"]
+
+[[example]]
+name = "experiment"
+required-features = ["experiment"]
+
+# Arquivos de perguntas e de ambiente do experimento. Já estava no lockfile.
+[dependencies.toml]
+version = "0.8"
+optional = true
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

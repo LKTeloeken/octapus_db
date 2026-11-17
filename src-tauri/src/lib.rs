@@ -26,6 +26,11 @@ const MAINTENANCE_EVERY: Duration = Duration::from_secs(60);
 /// tenant não pode acumular conexões no servidor do cliente)
 const ADAPTER_IDLE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
+// Executor do experimento do TCC: ferramenta privada, fora do build do app
+// (`cargo run --example experiment --features experiment`)
+#[cfg(feature = "experiment")]
+pub mod experiment;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = Builder::default()
