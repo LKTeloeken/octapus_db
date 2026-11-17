@@ -52,6 +52,8 @@ export interface ResultsTableRowCellProps {
   getColumnMatcher: (columnName: string) => GridMatcher | null;
   /** Coluna do resultado atual da busca NESTA linha, ou null (row-scoped) */
   currentMatchColumnName: string | null;
+  /** Coluna selecionada pelo cabeçalho: todas as células dela ficam marcadas */
+  isColumnSelected: (columnName: string) => boolean;
   /** O bloco de células selecionado, só quando ele passa por ESTA linha */
   cellRange: CellRange | null;
   onActivateCell: ActivateCellFn;

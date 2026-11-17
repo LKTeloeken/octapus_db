@@ -134,6 +134,7 @@ export const ResultsTable = memo(
       cellAnchor,
       extendCellSelection,
       getLastSelection,
+      selectedColumns,
       selectedRowIndices,
       rowCells,
       duplicateRows,
@@ -202,6 +203,8 @@ export const ResultsTable = memo(
       cellRange,
       isEditable,
       getLastSelection,
+      selectedColumns,
+      rowCount: displayRows.length,
       selectedRowIndices,
       rowCells,
       pasteRows,
@@ -740,6 +743,9 @@ export const ResultsTable = memo(
                               : undefined
                           }
                           data-column={column.name}
+                          aria-selected={
+                            isColumnSelected(column.name) || undefined
+                          }
                           className="absolute top-0"
                           style={{
                             left: `${GUTTER_WIDTH + virtualColumn.start}px`,
@@ -756,7 +762,9 @@ export const ResultsTable = memo(
                                 ? activeSort.direction
                                 : undefined
                             }
+                            isSelected={isColumnSelected(column.name)}
                             onSort={onSort}
+                            onSelect={toggleColumnSelection}
                             className="w-full h-full"
                           />
                           {/* Alça de resize: arraste muda a largura desta coluna
@@ -828,6 +836,7 @@ export const ResultsTable = memo(
                               ? currentMatch.columnName
                               : null
                           }
+                          isColumnSelected={isColumnSelected}
                           cellRange={
                             cellRange &&
                             virtualRow.index >= cellRange.top &&

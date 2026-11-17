@@ -44,7 +44,8 @@ export interface ResultsTableVerticalProps {
   /** Clique numa célula → move o cursor para ela */
   onFocusCell?: FocusCellFn;
   onSelectRow: (rowIndex: number, event: React.MouseEvent) => void;
-  onSelectColumn: (columnName: string) => void;
+  /** Clique no rótulo do campo: seleciona a coluna; `additive` com Shift/Cmd */
+  onSelectColumn: (columnName: string, additive: boolean) => void;
   hasMore?: boolean;
   isLoadingMore?: boolean;
   onLoadMore?: () => void;

@@ -36,6 +36,7 @@ export const ResultsTableRowCell = memo(
     focusedColumnName,
     getColumnMatcher,
     currentMatchColumnName,
+    isColumnSelected,
     cellRange,
     onActivateCell,
     onCloseCell,
@@ -156,9 +157,10 @@ export const ResultsTableRowCell = memo(
             ? false
             : isAdded || isColumnEditable(column.name);
           const inRange =
-            cellRange !== null &&
-            virtualColumn.index >= cellRange.left &&
-            virtualColumn.index <= cellRange.right;
+            (cellRange !== null &&
+              virtualColumn.index >= cellRange.left &&
+              virtualColumn.index <= cellRange.right) ||
+            isColumnSelected(column.name);
 
           return (
             <div
@@ -184,7 +186,7 @@ export const ResultsTableRowCell = memo(
               }
               className={cn(
                 'absolute top-0 border-r border-b border-line-subtle',
-                // Bloco de células selecionado: o mesmo tom da linha marcada
+                // Bloco de células ou coluna selecionada: o tom da linha marcada
                 inRange && 'bg-iris-soft',
                 // Cursor de teclado: anel inset de 1,5 px, sem fundo.
                 focusedColumnName === column.name &&

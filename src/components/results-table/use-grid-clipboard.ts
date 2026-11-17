@@ -24,6 +24,7 @@ interface Options extends Pick<
   UseResultsTableReturn,
   | 'isEditable'
   | 'getLastSelection'
+  | 'selectedColumns'
   | 'selectedRowIndices'
   | 'rowCells'
   | 'pasteRows'
@@ -37,12 +38,15 @@ interface Options extends Pick<
   visibleColumnIndices: number[];
   focusedCell: FocusedCell;
   cellRange: CellRange | null;
+  /** Linhas da grade (carregadas + novas): a coluna selecionada leva todas */
+  rowCount: number;
 }
 
 /**
  * Copiar e colar na grade. Cmd/Ctrl+C copia, pela última seleção feita:
- * linhas marcadas no gutter (inteiras — só elas colam noutra aba), o bloco de
- * células ou a célula do cursor. Cmd/Ctrl+V cola as linhas copiadas como
+ * linhas marcadas no gutter (inteiras — só elas colam noutra aba), colunas
+ * marcadas no cabeçalho (todos os valores carregados, na ordem da grade), o
+ * bloco de células ou a célula do cursor. Cmd/Ctrl+V cola as linhas copiadas como
  * linhas novas. Num campo de texto as duas teclas continuam nativas.
  */
 export const useGridClipboard = ({
@@ -54,8 +58,10 @@ export const useGridClipboard = ({
   visibleColumnIndices,
   focusedCell,
   cellRange,
+  rowCount,
   isEditable,
   getLastSelection,
+  selectedColumns,
   selectedRowIndices,
   rowCells,
   pasteRows,
@@ -91,6 +97,27 @@ export const useGridClipboard = ({
         rows: full,
       });
       void write(text, `${linesLabel(rows.length)} copiadas`);
+      return;
+    }
+
+    const columnIndices =
+      getLastSelection() === 'columns'
+        ? visibleColumnIndices.filter(index =>
+            selectedColumns.has(columns[index].name),
+          )
+        : [];
+    if (columnIndices.length > 0) {
+      const matrix: CopiedCell[][] = [];
+      for (let row = 0; row < rowCount; row++) {
+        const cells = rowCells(row);
+        matrix.push(columnIndices.map(index => cells[index]));
+      }
+      setCopied(null);
+      const count = matrix.length * columnIndices.length;
+      void write(
+        formatCellsText(matrix),
+        count === 1 ? 'Valor copiado' : `${count} valores copiados`,
+      );
       return;
     }
 

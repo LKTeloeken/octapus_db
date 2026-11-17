@@ -18,7 +18,7 @@ import {
   type ChangeSpec,
   type Extension,
 } from '@codemirror/state';
-import { keywordCompletionSource, sql, PostgreSQL } from '@codemirror/lang-sql';
+import { keywordCompletionSource, PostgreSQL } from '@codemirror/lang-sql';
 import { inkEditorTheme } from '@/lib/codemirror-theme';
 import { useCodeMirrorShortcuts } from '@/lib/keybindings/use-shortcuts';
 import { useLazyLanguage } from '@/lib/use-lazy-language';
@@ -28,6 +28,7 @@ import {
   sqlStaticSource,
   staticOptionCategory,
 } from './sql-completion/sql-static-sources';
+import { postgresSupport } from './sql-language';
 import { useCodeMirrorView } from './use-code-mirror-view';
 
 const disableSpellcheck = EditorView.contentAttributes.of({
@@ -548,10 +549,8 @@ export function QueryEditor({
   const languageExtension = useMemo(() => {
     if (dialect === 'mongo') return mongoLanguage;
 
-    return sql({
-      dialect: PostgreSQL,
-      upperCaseKeywords: true,
-    });
+    // Com o corpo das strings `$$` como SQL (sql-language.ts)
+    return postgresSupport();
   }, [dialect, mongoLanguage]);
 
   const completionExtension = useMemo(() => {

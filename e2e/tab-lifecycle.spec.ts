@@ -2,6 +2,7 @@ import {
   activeWorkspaceTab,
   closeTabDialog,
   columnHeader,
+  sortButton,
   expect,
   grid,
   mod,
@@ -291,7 +292,7 @@ test.describe('estado de cada aba', () => {
       expect(page.getByText(`${text} linhas`, { exact: true })).toBeVisible();
 
     // Em `enderecos`: ordena por cidade, filtra e deixa só cidade e cep
-    await columnHeader(page, 'cidade').click();
+    await sortButton(page, 'cidade').click();
     await expect(columnHeader(page, 'cidade')).toHaveAttribute(
       'aria-sort',
       'ascending',

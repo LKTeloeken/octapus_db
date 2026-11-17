@@ -46,8 +46,11 @@ export type FocusCellFn = (rowIndex: number, columnName: string) => void;
 export interface ResultsTableProps {
   columns: QueryColumnInfo[];
   rows: DataTableRow[];
-  /** Sort by a single column (header click); toggles asc↔desc */
-  onSort: (column: string) => void;
+  /**
+   * Ordena por uma coluna (clique no ícone do cabeçalho; alterna asc↔desc).
+   * Sem ele a grade não ordena e o ícone nem aparece (resultado de query).
+   */
+  onSort?: (column: string) => void;
   onLoadMore: () => void;
   /** Resolve to persist; reject to keep the pending (highlighted) changes */
   onSave: (changes: SaveRowChanges) => void | Promise<void>;
@@ -115,7 +118,16 @@ export type ToggleRowSelectionFn = (
   rowIndex: number,
   mode: RowSelectionMode,
 ) => void;
-export type ToggleColumnSelectionFn = (columnName: string) => void;
+/**
+ * Clique no cabeçalho da coluna: seleciona todos os valores dela. Com
+ * `additive` (Shift/Cmd), soma (ou tira) a coluna da seleção atual.
+ */
+export type ToggleColumnSelectionFn = (
+  columnName: string,
+  additive?: boolean,
+) => void;
+/** O que foi selecionado por último — decide o que o Cmd/Ctrl+C copia */
+export type LastSelection = 'rows' | 'cells' | 'columns';
 export type SelectAllRowsFn = () => void;
 
 export interface UseResultsTableParams {
@@ -155,7 +167,9 @@ export interface UseResultsTableReturn {
   /** Move o cursor mantendo a origem: Shift+clique/setas e arraste */
   extendCellSelection: FocusCellFn;
   /** O que foi selecionado por último — decide o que o Cmd/Ctrl+C copia */
-  getLastSelection: () => 'rows' | 'cells';
+  getLastSelection: () => LastSelection;
+  /** Colunas selecionadas pelo cabeçalho (qualquer ordem) */
+  selectedColumns: ReadonlySet<string>;
   /** Índices na grade das linhas selecionadas (inclui as novas), em ordem */
   selectedRowIndices: () => number[];
   /** Valores da linha em todas as colunas, com as edições pendentes */

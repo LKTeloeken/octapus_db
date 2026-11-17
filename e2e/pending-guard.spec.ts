@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import {
   columnHeader,
+  sortButton,
   expect,
   grid,
   mod,
@@ -77,7 +78,7 @@ test.describe('ordenar com pendências', () => {
       await rowCount(page, '3 de 3');
       await g.edit(0, 'logradouro', NOVO);
 
-      await columnHeader(page, 'cidade').click();
+      await sortButton(page, 'cidade').click();
       await choose(page, choice);
       await expectPending(g, choice);
 
@@ -198,7 +199,7 @@ test('sem pendências, ordenar, filtrar, recarregar e reexecutar não perguntam'
   const g = grid(page);
   await rowCount(page, '3 de 3');
 
-  await columnHeader(page, 'cidade').click();
+  await sortButton(page, 'cidade').click();
   await expect(columnHeader(page, 'cidade')).toHaveAttribute(
     'aria-sort',
     'ascending',

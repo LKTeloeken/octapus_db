@@ -205,6 +205,12 @@ export const columnHeader = (page: Page, column: string): Locator =>
     .getByRole('grid')
     .locator(`[role=columnheader][data-column="${column}"]`);
 
+/** Ícone de ordenação do cabeçalho — o clique no resto seleciona a coluna */
+export const sortButton = (page: Page, column: string): Locator =>
+  columnHeader(page, column).getByRole('button', {
+    name: `Ordenar por ${column}`,
+  });
+
 /** A próxima chamada ao backend simulado falha (`setFailMode('next')`) */
 export const failNextCommand = (page: Page): Promise<void> =>
   page.evaluate(() => {

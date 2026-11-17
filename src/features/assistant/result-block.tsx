@@ -50,7 +50,6 @@ export function ResultBlock({
         exportFileName="assistente"
         searchScopeId={`assistant:${attemptId}`}
         keyboardScope
-        onSort={noop}
         onLoadMore={onLoadMore}
         onSave={noop}
       />

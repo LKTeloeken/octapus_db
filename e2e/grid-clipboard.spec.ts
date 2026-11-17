@@ -1,8 +1,10 @@
 import {
+  columnHeader,
   expect,
   grid,
   mod,
   openApp,
+  sortButton,
   test,
   workspaceTab,
   type Grid,
@@ -216,6 +218,111 @@ test.describe('copiar células', () => {
       await rowText(g, 1, ['id', 'tenant_ref']),
     ].join('\n');
     await expect.poll(() => clipboard(page)).toBe(expected);
+  });
+});
+
+test.describe('selecionar colunas pelo cabeçalho', () => {
+  const selectedCells = (g: Grid) =>
+    g.root.locator('[role=gridcell][aria-selected=true]');
+
+  test('10. clicar no nome seleciona a coluna e copia os valores carregados', async ({
+    page,
+  }) => {
+    await openApp(page, { tabs: [EVENTS_1] });
+    const g = grid(page);
+    await rowCount(page, '3 de 3');
+    const names = [
+      await text(g, 0, 'name'),
+      await text(g, 1, 'name'),
+      await text(g, 2, 'name'),
+    ];
+
+    await columnHeader(page, 'name').click();
+    await expect(columnHeader(page, 'name')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    // Selecionar não ordena
+    await expect(columnHeader(page, 'name')).not.toHaveAttribute(
+      'aria-sort',
+      /.+/,
+    );
+    await expect(selectedCells(g)).toHaveCount(3);
+
+    await page.keyboard.press(mod('c'));
+    await expect.poll(() => clipboard(page)).toBe(names.join('\n'));
+  });
+
+  test('11. Shift+clique soma colunas não vizinhas, na ordem da grade', async ({
+    page,
+  }) => {
+    await openApp(page, { tabs: [EVENTS_1] });
+    const g = grid(page);
+    await rowCount(page, '3 de 3');
+    const expected = [
+      await rowText(g, 0, ['id', 'name']),
+      await rowText(g, 1, ['id', 'name']),
+      await rowText(g, 2, ['id', 'name']),
+    ].join('\n');
+
+    await columnHeader(page, 'name').click();
+    await columnHeader(page, 'id').click({ modifiers: ['Shift'] });
+    await expect(selectedCells(g)).toHaveCount(6);
+
+    await page.keyboard.press(mod('c'));
+    await expect.poll(() => clipboard(page)).toBe(expected);
+
+    // Shift+clique de novo tira a coluna; Esc limpa o resto
+    await columnHeader(page, 'id').click({ modifiers: ['Shift'] });
+    await expect(selectedCells(g)).toHaveCount(3);
+    await page.keyboard.press('Escape');
+    await expect(selectedCells(g)).toHaveCount(0);
+  });
+
+  test('12. clicar numa célula desfaz a seleção de colunas', async ({
+    page,
+  }) => {
+    await openApp(page, { tabs: [EVENTS_1] });
+    const g = grid(page);
+    await rowCount(page, '3 de 3');
+
+    await columnHeader(page, 'name').click();
+    await expect(selectedCells(g)).toHaveCount(3);
+    await g.cell(0, 'id').click();
+    await expect(selectedCells(g)).toHaveCount(0);
+    await expect(columnHeader(page, 'name')).not.toHaveAttribute(
+      'aria-selected',
+      /.+/,
+    );
+  });
+
+  test('13. só o ícone ordena; o resultado de query nem tem o ícone', async ({
+    page,
+  }) => {
+    await openApp(page, {
+      tabs: [
+        EVENTS_1,
+        {
+          kind: 'query',
+          id: 'query-enderecos',
+          title: 'Consulta',
+          content: 'SELECT * FROM enderecos',
+        },
+      ],
+    });
+    await rowCount(page, '3 de 3');
+    await sortButton(page, 'name').click();
+    await expect(columnHeader(page, 'name')).toHaveAttribute(
+      'aria-sort',
+      /ascending|descending/,
+    );
+
+    await workspaceTab(page, 'Consulta').click();
+    await page.locator('.cm-content').click();
+    await page.keyboard.press(mod('Enter'));
+    await expect(grid(page).value(0, 'logradouro')).not.toBeEmpty();
+    await expect(columnHeader(page, 'logradouro')).toBeVisible();
+    await expect(sortButton(page, 'logradouro')).toHaveCount(0);
   });
 });
 

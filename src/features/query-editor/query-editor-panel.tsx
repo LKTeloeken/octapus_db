@@ -195,7 +195,6 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
                 }
                 exportFileName={tab.title}
                 searchScopeId={tab.id}
-                onSort={() => {}}
                 onLoadMore={loadMore}
                 onSave={save}
                 onFetchAllRows={fetchAllRows}

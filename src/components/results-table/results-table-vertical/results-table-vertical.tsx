@@ -186,7 +186,12 @@ export const ResultsTableVertical = memo(
               >
                 <button
                   type="button"
-                  onClick={() => onSelectColumn(column.name)}
+                  onClick={event =>
+                    onSelectColumn(
+                      column.name,
+                      event.shiftKey || event.metaKey || event.ctrlKey,
+                    )
+                  }
                   className={cn(
                     'sticky left-0 z-10 flex w-full cursor-pointer flex-col justify-center border-r border-b border-line-subtle bg-surface-1 px-2.5 text-left outline-none',
                     columnSelected && 'bg-iris-soft',

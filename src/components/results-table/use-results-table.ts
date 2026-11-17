@@ -22,8 +22,10 @@ import type {
   IsColumnEditableFn,
   IsPrimaryKeyColumnFn,
   IsRowFlagFn,
+  LastSelection,
   SaveRowChanges,
   SelectAllRowsFn,
+  ToggleColumnSelectionFn,
   ToggleRowSelectionFn,
   UpdateCellFn,
   UseResultsTableReturn,
@@ -76,7 +78,7 @@ const useResultsTable = (
       updatePending(scopeId, signature, recipe),
     [updatePending, scopeId, signature],
   );
-  // Selection (stable ids) for bulk remove; columns are visual-only.
+  // Selection (stable ids) for bulk remove; columns servem para copiar.
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(
     new Set(),
@@ -92,12 +94,23 @@ const useResultsTable = (
   const focusedCell = cursor.focused;
   // A última seleção feita (linhas no gutter ou células) decide o que o
   // Cmd/Ctrl+C copia quando as duas estão na tela.
-  const lastSelection = useRef<'rows' | 'cells'>('cells');
+  const lastSelection = useRef<LastSelection>('cells');
 
-  const setFocusedCell = useCallback((cell: FocusedCell) => {
-    lastSelection.current = 'cells';
-    setCursor({ focused: cell, anchor: null });
-  }, []);
+  // Clicar numa célula ou no gutter desfaz a seleção de colunas. Sem nada
+  // selecionado devolve o mesmo Set: a grade não redesenha à toa.
+  const clearColumnSelection = useCallback(
+    () => setSelectedColumns(prev => (prev.size === 0 ? prev : new Set())),
+    [],
+  );
+
+  const setFocusedCell = useCallback(
+    (cell: FocusedCell) => {
+      lastSelection.current = 'cells';
+      setCursor({ focused: cell, anchor: null });
+      clearColumnSelection();
+    },
+    [clearColumnSelection],
+  );
 
   const isEditable =
     !!editableInfo && editableInfo.primaryKeyColumns.length > 0;
@@ -336,8 +349,9 @@ const useResultsTable = (
         const focused = { rowIndex, columnName };
         return { focused, anchor: prev.anchor ?? prev.focused ?? focused };
       });
+      clearColumnSelection();
     },
-    [],
+    [clearColumnSelection],
   );
 
   // ── Selection ──────────────────────────────────────────────────────────
@@ -351,6 +365,7 @@ const useResultsTable = (
       // the `selectionAnchor.current = rowIndex` line would have mutated it.
       const anchor = selectionAnchor.current;
       lastSelection.current = 'rows';
+      clearColumnSelection();
 
       setSelectedRowIds(prev => {
         if (mode === 'range' && anchor !== null) {
@@ -382,7 +397,7 @@ const useResultsTable = (
         selectionAnchor.current = rowIndex;
       }
     },
-    [rowId],
+    [rowId, clearColumnSelection],
   );
 
   // Ids de todas as linhas selecionáveis da grade — sem PK não há identidade
@@ -417,14 +432,23 @@ const useResultsTable = (
     selectAllRows();
   }, [allRowsSelected, selectAllRows]);
 
-  const toggleColumnSelection = useCallback((columnName: string) => {
-    setSelectedColumns(prev => {
-      const next = new Set(prev);
-      if (next.has(columnName)) next.delete(columnName);
-      else next.add(columnName);
-      return next;
-    });
-  }, []);
+  // Clique no cabeçalho: a coluna passa a ser a seleção (todos os valores
+  // carregados dela). Com Shift/Cmd soma ou tira a coluna das já marcadas. O
+  // bloco de células sai de cena — senão duas seleções disputariam o Cmd+C.
+  const toggleColumnSelection = useCallback<ToggleColumnSelectionFn>(
+    (columnName, additive = false) => {
+      lastSelection.current = 'columns';
+      setCursor(prev => (prev.anchor ? { ...prev, anchor: null } : prev));
+      setSelectedColumns(prev => {
+        if (!additive) return new Set([columnName]);
+        const next = new Set(prev);
+        if (next.has(columnName)) next.delete(columnName);
+        else next.add(columnName);
+        return next;
+      });
+    },
+    [],
+  );
 
   const clearSelection = useCallback(() => {
     setSelectedRowIds(new Set());
@@ -633,7 +657,12 @@ const useResultsTable = (
         removeSelected();
       },
       'grid.clearSelection': () => {
-        // Esc desfaz primeiro o bloco de células, depois a seleção de linhas
+        // Esc desfaz primeiro as colunas e o bloco de células, depois a
+        // seleção de linhas
+        if (selectedColumns.size > 0) {
+          clearColumnSelection();
+          return;
+        }
         if (cursor.anchor) {
           setCursor(prev => ({ ...prev, anchor: null }));
           return;
@@ -669,6 +698,7 @@ const useResultsTable = (
     cellAnchor: cursor.anchor,
     extendCellSelection,
     getLastSelection: () => lastSelection.current,
+    selectedColumns,
     selectedRowIndices,
     rowCells,
     duplicateRows,
