@@ -22,8 +22,10 @@
 //! - **log sem conteúdo**: ids, contagens e códigos. Pergunta e consulta só
 //!   nos arquivos da rodada.
 
+mod catalog;
 mod compare;
 mod config;
+mod editor;
 mod lab;
 mod plan;
 mod questions;
@@ -61,26 +63,34 @@ use crate::models::{AssistantModel, AssistantModelSelection};
 const USAGE: &str = "\
 Executor de rodadas do experimento (TCC)
 
-  check   --questions ARQ [--env ARQ]     confere as perguntas; com --env, executa cada
-                                          gabarito duas vezes (não chama a API)
-  run     --questions ARQ --env ARQ       roda a bateria (pede confirmação no terminal)
-          [--out PASTA] [--only id,id]    --only restringe a algumas perguntas
-          [--dry-run]                     --dry-run só informa quantos testes rodariam
-          [--accept-consent]              aceita o termo vigente da API, se faltar
+  serve   [--port N] [--read-only]        abre a tela (só em 127.0.0.1): rodadas e
+                                          cadastro de perguntas
+  catalog [--no-env]                      monta o catálogo de perguntas dos benchmarks
+                                          baixados e executa cada gabarito nos bancos
+  check   [--no-env]                      confere as perguntas e executa cada gabarito
+                                          duas vezes nos bancos (não chama a API);
+                                          --no-env confere só o arquivo
+  models                                  lista os modelos que a API oferece
+  run     [--only id,id] [--dry-run]      roda a bateria (pede confirmação no terminal);
+          [--accept-consent]              --dry-run só informa quantos testes rodariam
   resume  PASTA_DA_RODADA                 continua de onde parou, sem repetir
           [--redo-failed] [--dry-run]     --redo-failed refaz os turnos que falharam
           [--allow-version-change]        aceita app ou prompt diferente do início
   report  PASTA_DA_RODADA                 regrava results.csv e summary.csv
-  serve   [--runs PASTA] [--port N]       abre a tela (só em 127.0.0.1)
-  demo    [--out PASTA] [--delay-ms N]    rodada simulada, sem rede nem cota
-          [--concurrency N]
+  demo    [--delay-ms N] [--concurrency N]  rodada simulada, sem rede nem cota
 
-  --verbose   mostra o log (ids, contagens e códigos) no terminal
+  --questions ARQ   o conjunto de perguntas  (padrão: experiment/perguntas.toml)
+  --env ARQ         o ambiente               (padrão: experiment/ambiente.toml)
+  --runs PASTA      a pasta das rodadas      (padrão: experiment/runs/)
+  --verbose         mostra o log (ids, contagens e códigos) no terminal";
 
-Pasta padrão das rodadas: experiment-runs/";
-
-const DEFAULT_RUNS: &str = "experiment-runs";
 const DEFAULT_PORT: u16 = 7878;
+
+/// A pasta `experiment/` do repositório: perguntas, ambiente, dados baixados e
+/// rodadas. A ferramenta roda de dentro do repositório (é um example).
+fn home() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap_or(Path::new(".")).join("experiment")
+}
 
 /// A entrada do example `experiment`.
 pub fn main() {
@@ -117,9 +127,10 @@ struct Cli {
 }
 
 impl Cli {
-    const VALUED: [&'static str; 8] =
-        ["--questions", "--env", "--out", "--only", "--runs", "--port", "--delay-ms", "--concurrency"];
-    const FLAGS: [&'static str; 4] = ["--dry-run", "--accept-consent", "--redo-failed", "--allow-version-change"];
+    const VALUED: [&'static str; 7] =
+        ["--questions", "--env", "--only", "--runs", "--port", "--delay-ms", "--concurrency"];
+    const FLAGS: [&'static str; 6] =
+        ["--dry-run", "--accept-consent", "--redo-failed", "--allow-version-change", "--read-only", "--no-env"];
 
     fn parse(args: &[String]) -> Result<Self, String> {
         let mut cli = Self::default();
@@ -149,8 +160,21 @@ impl Cli {
         self.options.get(name).map(String::as_str)
     }
 
-    fn required(&self, name: &str) -> Result<&str, String> {
-        self.option(name).ok_or_else(|| format!("falta {name}"))
+    /// O caminho de uma opção, ou o padrão dentro de `experiment/`.
+    fn path(&self, name: &str, default: &str) -> PathBuf {
+        self.option(name).map(PathBuf::from).unwrap_or_else(|| home().join(default))
+    }
+
+    fn questions(&self) -> PathBuf {
+        self.path("--questions", "perguntas.toml")
+    }
+
+    fn environment(&self) -> PathBuf {
+        self.path("--env", "ambiente.toml")
+    }
+
+    fn runs(&self) -> PathBuf {
+        self.path("--runs", "runs")
     }
 
     fn flag(&self, name: &str) -> bool {
@@ -182,10 +206,18 @@ fn execute(cli: Cli) -> Result<(), String> {
             Ok(())
         }
         "serve" => {
-            let root = PathBuf::from(cli.option("--runs").unwrap_or(DEFAULT_RUNS));
-            let port = cli.number("--port", DEFAULT_PORT)?;
-            runtime()?.block_on(serve::serve(root, port)).map_err(text)
+            let desk = serve::Desk {
+                port: cli.number("--port", DEFAULT_PORT)?,
+                runs: cli.runs(),
+                questions: cli.questions(),
+                catalog: home().join("data").join("catalog.json"),
+                environment: cli.environment(),
+                read_only: cli.flag("--read-only"),
+            };
+            runtime()?.block_on(serve::serve(desk)).map_err(text)
         }
+        "catalog" => build_catalog(&cli),
+        "models" => models(&cli),
         "demo" => demo(&cli),
         other => Err(format!("comando desconhecido: {other} (veja --help)")),
     }
@@ -203,8 +235,69 @@ fn env_var(name: &str) -> Option<String> {
     std::env::var(name).ok()
 }
 
-fn read_file(path: &str) -> Result<String, String> {
-    std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))
+fn read_file(path: &Path) -> Result<String, String> {
+    std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+/// `catalog`: junta as perguntas do BIRD Mini-Dev e do AptMQL-Bench baixados
+/// em `experiment/data/` no catálogo que a tela de cadastro mostra.
+fn build_catalog(cli: &Cli) -> Result<(), String> {
+    let data = home().join("data");
+    let hint = "rode ./experiment/db.sh download";
+    let bird = read_file(&data.join("bird/minidev/MINIDEV/mini_dev_postgresql.json")).map_err(|error| format!("{error} ({hint})"))?;
+    let aptmql = read_file(&data.join("aptmql/aptmqlbench_data.jsonl")).map_err(|error| format!("{error} ({hint})"))?;
+    let mut catalog = catalog::build(&bird, &aptmql)?;
+
+    let both = catalog.entries.iter().filter(|entry| entry.gold.len() > 1).count();
+    let refused = catalog.entries.iter().filter(|entry| !entry.problems.is_empty()).count();
+    println!(
+        "{} pergunta(s) no catálogo: {both} com gabarito de PostgreSQL e de MongoDB, {refused} com gabarito que o guard recusa.",
+        catalog.entries.len()
+    );
+
+    // Com os bancos no ar, cada gabarito é executado (só leitura, sem API)
+    if cli.flag("--no-env") {
+        println!("--no-env: os gabaritos não foram executados.");
+    } else {
+        let environment = config::load(&read_file(&cli.environment())?)?;
+        println!("Executando os gabaritos nos bancos de teste (alguns minutos)…");
+        match runtime()?.block_on(catalog::verify(&mut catalog, &environment, &env_var)) {
+            Ok(()) => {
+                let verified = |keep: &dyn Fn(&catalog::Verified) -> bool| {
+                    catalog.entries.iter().filter(|entry| entry.verified.as_ref().is_some_and(keep)).count()
+                };
+                println!(
+                    "{} pergunta(s) com os paradigmas de acordo, {} com respostas diferentes, {} com gabarito que não roda como está.",
+                    verified(&|found| found.agree == Some(true)),
+                    verified(&|found| found.agree == Some(false)),
+                    verified(&|found| !found.problems.is_empty())
+                );
+            }
+            Err(message) => println!("aviso: gabaritos não conferidos ({message}). Suba os bancos: ./experiment/db.sh up"),
+        }
+    }
+
+    let path = data.join("catalog.json");
+    std::fs::write(&path, serde_json::to_string(&catalog).map_err(text)?).map_err(text)?;
+    println!("{}", path.display());
+    Ok(())
+}
+
+/// `models`: os modelos que a API oferece a este participante, para o
+/// `models = [...]` do ambiente. Não gera tentativa nem gasta cota.
+fn models(cli: &Cli) -> Result<(), String> {
+    let environment = config::load(&read_file(&cli.environment())?)?;
+    if let Some(url) = &environment.api.url {
+        std::env::set_var(config::API_URL_ENV, url);
+    }
+    runtime()?.block_on(async {
+        let api = |error: crate::error::Error| format!("API do assistente: {error}");
+        let session = ApiSession::connect(&environment.api, &env_var).await.map_err(api)?;
+        for model in session.models().await.map_err(api)? {
+            println!("{:<40} {:<28} {} tokens de contexto", model.id, model.alias, model.context_window);
+        }
+        Ok(())
+    })
 }
 
 fn load_questions(source: &str) -> Result<QuestionSet, String> {
@@ -224,21 +317,21 @@ fn only(cli: &Cli) -> Vec<String> {
 
 /// `check`: a validação prévia. Não chama a API.
 fn check(cli: &Cli) -> Result<(), String> {
-    let questions = load_questions(&read_file(cli.required("--questions")?)?)?;
+    let questions = load_questions(&read_file(&cli.questions())?)?;
     let with_gold = questions.questions.iter().filter(|question| !question.unanswerable).count();
     println!(
         "{} pergunta(s): {with_gold} com gabarito, {} sem resposta possível. Formato, idiomas e leitura conferidos.",
         questions.questions.len(),
         questions.questions.len() - with_gold
     );
-    let Some(path) = cli.option("--env") else {
-        println!("Sem --env: os gabaritos não foram executados.");
+    if cli.flag("--no-env") {
+        println!("--no-env: os gabaritos não foram executados.");
         return Ok(());
-    };
+    }
 
-    let environment = config::load(&read_file(path)?)?;
+    let environment = config::load(&read_file(&cli.environment())?)?;
     runtime()?.block_on(async {
-        let databases = Databases::connect(&environment, &env_var).await?;
+        let databases = Databases::connect(&environment, &questions, &[], false, &env_var).await?;
         let (gold, warnings) = lab::run_gold(&questions, &[], &databases, environment.run.row_limit)
             .await
             .map_err(|problems| problems_text("os gabaritos têm problemas", &problems))?;
@@ -319,11 +412,7 @@ impl Inputs {
 
 /// `run`: uma rodada nova.
 fn run(cli: &Cli) -> Result<(), String> {
-    let inputs = Inputs::new(
-        &read_file(cli.required("--questions")?)?,
-        &read_file(cli.required("--env")?)?,
-        only(cli),
-    )?;
+    let inputs = Inputs::new(&read_file(&cli.questions())?, &read_file(&cli.environment())?, only(cli))?;
     println!("{}", inputs.describe(&inputs.units.iter().collect::<Vec<_>>()));
     if cli.flag("--dry-run") {
         println!("--dry-run: nada foi executado.");
@@ -331,7 +420,7 @@ fn run(cli: &Cli) -> Result<(), String> {
     }
     inputs.apply_api_url();
 
-    let out = PathBuf::from(cli.option("--out").unwrap_or(DEFAULT_RUNS));
+    let out = cli.runs();
     let run_id = format!("{}-s{}", chrono::Local::now().format("%Y%m%d-%H%M%S"), inputs.environment.run.seed);
     runtime()?.block_on(async {
         let (databases, gold) = prepare_databases(&inputs).await?;
@@ -405,7 +494,7 @@ fn resume(cli: &Cli) -> Result<(), String> {
 
 /// `demo`: uma rodada inteira com a API simulada, num SQLite descartável.
 fn demo(cli: &Cli) -> Result<(), String> {
-    let out = PathBuf::from(cli.option("--out").unwrap_or(DEFAULT_RUNS));
+    let out = cli.runs();
     let delay = Duration::from_millis(cli.number("--delay-ms", 400)?);
     let concurrency: usize = cli.number("--concurrency", 1)?;
     let run_id = format!("{}-demo", chrono::Local::now().format("%Y%m%d-%H%M%S"));
@@ -433,7 +522,7 @@ fn demo_session(questions: &QuestionSet, delay: Duration) -> SimSession {
 
 /// Conecta nos bancos e executa os gabaritos (a validação prévia inteira).
 async fn prepare_databases(inputs: &Inputs) -> Result<(Databases, Vec<GoldResult>), String> {
-    let databases = Databases::connect(&inputs.environment, &env_var).await?;
+    let databases = Databases::connect(&inputs.environment, &inputs.questions, &inputs.only, true, &env_var).await?;
     let (gold, warnings) = lab::run_gold(&inputs.questions, &inputs.only, &databases, inputs.environment.run.row_limit)
         .await
         .map_err(|problems| problems_text("os gabaritos têm problemas", &problems))?;
@@ -609,12 +698,7 @@ async fn drive(
         })
     };
 
-    println!(
-        "\nRodada {} em {}\nTela: cargo run --example experiment --features experiment -- serve --runs {}\n",
-        manifest.run_id,
-        dir.path().display(),
-        dir.path().parent().unwrap_or(Path::new(".")).display()
-    );
+    println!("\nRodada {} em {}\nTela: ./experiment/x serve\n", manifest.run_id, dir.path().display());
     let lab = Lab {
         session,
         databases,
@@ -635,10 +719,7 @@ async fn drive(
 
     write_reports(dir, &manifest.run_id)?;
     println!("\n{}", summary_text(&dir.units().map_err(text)?));
-    let resume_hint = format!(
-        "Para continuar: cargo run --example experiment --features experiment -- resume {}",
-        dir.path().display()
-    );
+    let resume_hint = format!("Para continuar: ./experiment/x resume {}", dir.path().display());
     match outcome.status {
         RoundStatus::Finished => println!("Rodada completa: {} de {} testes.", outcome.done, outcome.total),
         RoundStatus::Interrupted => {
@@ -739,7 +820,7 @@ mod cli_tests {
     fn parses_commands_options_and_flags() {
         let cli = parse("run --questions q.toml --env e.toml --only a,b --dry-run").unwrap();
         assert_eq!(cli.command, "run");
-        assert_eq!(cli.required("--questions"), Ok("q.toml"));
+        assert_eq!((cli.questions(), cli.environment()), (PathBuf::from("q.toml"), PathBuf::from("e.toml")));
         assert_eq!(only(&cli), ["a", "b"]);
         assert!(cli.flag("--dry-run") && !cli.flag("--redo-failed"));
 
@@ -750,7 +831,10 @@ mod cli_tests {
         assert!(parse("run --questions").unwrap_err().contains("precisa de um valor"));
         assert!(parse("run --yes").unwrap_err().contains("opção desconhecida"));
         assert_eq!(parse("--help").unwrap_err(), "");
-        assert!(parse("run").unwrap().required("--env").is_err());
+        // Sem as opções, os arquivos da pasta `experiment/` do repositório
+        let defaults = parse("run").unwrap();
+        assert!(defaults.questions().ends_with("experiment/perguntas.toml"));
+        assert!(defaults.environment().ends_with("experiment/ambiente.toml") && defaults.runs().ends_with("experiment/runs"));
     }
 
     /// Não existe opção que confirme uma rodada real: só o terminal.

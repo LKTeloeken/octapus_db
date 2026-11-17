@@ -103,6 +103,27 @@ td.mark { width: 20px; color: var(--fg-muted); }
 .empty { padding: 28px; text-align: center; color: var(--fg-muted); }
 label.check { display: inline-flex; gap: 5px; align-items: center; }
 details { margin: 8px 0; } summary { cursor: pointer; color: var(--fg-muted); }
+.desk { display: grid; grid-template-columns: minmax(340px, 5fr) 7fr; gap: 16px; align-items: start; margin-top: 14px; }
+.list { background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px; max-height: calc(100vh - 150px); overflow: auto; }
+.item { padding: 8px 12px; border-bottom: 1px solid var(--line-subtle); cursor: pointer; }
+.item:hover { background: var(--surface-2); } .item.selected { background: var(--iris-soft); }
+.item .head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.switch { display: flex; gap: 4px; margin-bottom: 8px; }
+.switch button, .btn { background: var(--surface-1); border: 1px solid var(--line-strong); border-radius: 6px; padding: 5px 12px; cursor: pointer; min-height: 30px; }
+.switch button[aria-pressed=true] { background: var(--iris-soft); border-color: var(--iris); color: var(--iris-text); font-weight: 600; }
+.btn.primary { background: var(--iris); border-color: var(--iris); color: white; font-weight: 600; }
+.btn.danger { color: var(--danger); } .btn:disabled { opacity: .5; cursor: default; }
+.form { background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.form label { display: block; color: var(--fg-muted); font-size: 12px; margin: 10px 0 3px; }
+.form input[type=text], .form textarea, .form select { width: 100%; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 8px; }
+.form textarea { font: 12px/1.5 var(--mono); resize: vertical; min-height: 54px; }
+.form textarea.prose { font: inherit; }
+.form .row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.form .actions { display: flex; gap: 8px; margin-top: 14px; align-items: center; flex-wrap: wrap; }
+.note { padding: 8px 10px; border-radius: 6px; margin: 8px 0; }
+.note.bad { background: var(--danger-soft); } .note.warn { background: var(--warning-soft); } .note.ok { background: var(--success-soft); } .note.info { background: var(--surface-2); }
+.note ul { margin: 4px 0 0 18px; padding: 0; }
+@media (max-width: 900px) { .desk { grid-template-columns: 1fr; } .form .row { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 900px) { #progress { grid-template-columns: repeat(3, 1fr); } .sides { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -138,7 +159,8 @@ const FAILED_AT = { guard: 'guard', preflight: 'preflight', execution: 'execuç�
 const MISMATCH = { truncated: 'resultado incompleto', column_count: 'número de colunas', column_names: 'nomes das colunas',
   row_count: 'número de linhas', values: 'valores', order: 'ordem das linhas' };
 const DIMENSIONS = [['paradigm', 'Paradigma'], ['model', 'Modelo'], ['language', 'Idioma'], ['difficulty', 'Dificuldade']];
-const TABS = [['live', 'Ao vivo'], ['results', 'Resultados'], ['summary', 'Agregado'], ['run', 'Rodada']];
+const TABS = [['live', 'Ao vivo'], ['results', 'Resultados'], ['summary', 'Agregado'], ['run', 'Rodada'], ['questions', 'Perguntas']];
+const PARADIGMS = ['postgres', 'mongodb', 'redis'];
 
 // ── Estado ─────────────────────────────────────────────────────────────────
 const state = {
@@ -210,7 +232,7 @@ async function loadRuns() {
     if (state.run) select.value = state.run;
   }
   if (!state.run && state.runs.length) await openRun(state.runs[0].id);
-  if (!state.runs.length) replace($('view'), h('div', { class: 'empty' }, 'Nenhuma rodada nesta pasta ainda.'));
+  if (!state.runs.length && state.tab !== 'questions') replace($('view'), h('div', { class: 'empty' }, 'Nenhuma rodada nesta pasta ainda.'));
 }
 
 async function openRun(id) {
@@ -243,7 +265,8 @@ async function refresh(force) {
   }
   state.next = page.next;
   renderHeader();
-  if (changed) { state.summaryFor = ''; renderView(); }
+  // A aba de perguntas tem um formulário aberto: o andamento não a redesenha
+  if (changed) { state.summaryFor = ''; if (state.tab !== 'questions') renderView(); }
 }
 
 // ── Cabeçalho e progresso ──────────────────────────────────────────────────
@@ -279,6 +302,7 @@ function renderTabs() {
 }
 
 function renderView() {
+  if (state.tab === 'questions') return viewQuestions();
   if (!state.manifest) return;
   const view = { live: viewLive, results: viewResults, summary: viewSummary, run: viewRun }[state.tab];
   view();
@@ -559,6 +583,257 @@ function viewRun() {
     h('details', {}, h('summary', {}, 'Ambiente (sem segredos: só o nome das variáveis)'), h('pre', {}, m.environmentToml)));
 }
 
+// ── Perguntas (cadastro) ───────────────────────────────────────────────────
+// A única parte da tela que escreve, e só no arquivo do conjunto de perguntas.
+const desk = { set: null, catalog: null, mode: 'set', form: null, replaces: null, messages: null, checked: null,
+  busy: false, shown: 100, filters: { dataset: '', difficulty: '', status: 'agree', hide: true, text: '' } };
+
+async function post(path, body) {
+  const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  let data = null;
+  try { data = await response.json(); } catch { /* resposta sem corpo */ }
+  return { ok: response.ok, status: response.status, data };
+}
+async function loadDesk() {
+  desk.set = await get('/api/questions');
+  if (!desk.catalog) {
+    try { desk.catalog = (await get('/api/catalog')).entries; } catch { desk.catalog = []; }
+  }
+}
+const registered = () => new Set(desk.set.questions.map((q) => q.source).filter(Boolean));
+function catalogStatus(entry) {
+  const v = entry.verified;
+  if (Object.keys(entry.problems).length) return ['bad', 'guard recusa'];
+  if (!v) return ['plain', 'não conferida'];
+  if (Object.keys(v.problems).length) return ['warn', 'gabarito não roda'];
+  if (v.agree === true) return ['ok', '✓ paradigmas de acordo'];
+  if (v.agree === false) return ['warn', '≠ respostas diferentes'];
+  return ['plain', 'um paradigma só'];
+}
+function catalogRows() {
+  const f = desk.filters, text = f.text.trim().toLowerCase(), have = registered();
+  return desk.catalog.filter((e) => {
+    const v = e.verified;
+    const status = f.status === 'agree' ? v?.agree === true && !Object.keys(v.problems).length
+      : f.status === 'differ' ? v?.agree === false
+      : f.status === 'broken' ? Boolean(Object.keys(e.problems).length || (v && Object.keys(v.problems).length))
+      : f.status === 'mongo' ? !e.gold.postgres : true;
+    return status && (!f.dataset || e.dataset === f.dataset) && (!f.difficulty || e.difficulty === f.difficulty) &&
+      (!f.hide || !have.has(e.source)) && (!text || e.question.toLowerCase().includes(text) || e.source.includes(text));
+  });
+}
+function blankQuestion() {
+  return { id: '', difficulty: '', pt: '', en: '', dataset: '', source: '', unanswerable: false, gold: {}, order: '', decimals: '' };
+}
+function fromCatalog(entry) {
+  const gold = {};
+  for (const paradigm of Object.keys(entry.gold)) if (!entry.problems[paradigm]) gold[paradigm] = entry.gold[paradigm];
+  return { ...blankQuestion(), id: entry.source.replace(':', '_'), difficulty: entry.difficulty || '', en: entry.question,
+    dataset: entry.dataset, source: entry.source, gold };
+}
+function fromSet(question) {
+  const gold = {};
+  for (const [paradigm, value] of Object.entries(question.gold || {})) gold[paradigm] = value.query;
+  return { ...blankQuestion(), ...question, dataset: question.dataset || '', source: question.source || '', gold,
+    order: question.compare?.order || '', decimals: question.compare?.decimals ?? '' };
+}
+function toQuestion(form) {
+  const gold = {};
+  for (const [paradigm, query] of Object.entries(form.gold)) if (query.trim()) gold[paradigm] = { query };
+  const compare = {};
+  if (form.order) compare.order = form.order;
+  if (form.decimals !== '') compare.decimals = Number(form.decimals);
+  // Os campos que a tela não edita voltam como estavam
+  const kept = desk.set.questions.find((q) => q.id === desk.replaces) || {};
+  const question = { id: form.id, difficulty: form.difficulty, pt: form.pt, en: form.en, dataset: form.dataset || null,
+    source: form.source || null, unanswerable: Boolean(form.unanswerable), gold };
+  if (kept.paradigms) question.paradigms = kept.paradigms;
+  if (kept.skip_language_check) question.skip_language_check = true;
+  const merged = { ...(kept.compare || {}), ...compare };
+  if (!form.order) delete merged.order;
+  if (form.decimals === '') delete merged.decimals;
+  if (Object.keys(merged).length) question.compare = merged;
+  return question;
+}
+function openForm(form, replaces) {
+  Object.assign(desk, { form, replaces, messages: null, checked: null });
+  renderDesk();
+}
+async function saveForm() {
+  desk.busy = true; renderForm();
+  const id = desk.form.id.trim();
+  const result = await post('/api/questions/save', { question: toQuestion(desk.form), replaces: desk.replaces });
+  desk.busy = false;
+  if (result.ok) {
+    await loadDesk();
+    Object.assign(desk, { replaces: id, messages: { kind: 'ok', title: 'Pergunta gravada no conjunto.', items: [] }, checked: null });
+  } else {
+    desk.messages = { kind: 'bad', title: 'Não foi gravada:', items: result.data?.problems || ['erro ' + result.status] };
+  }
+  renderDesk();
+}
+async function deleteForm() {
+  if (!desk.replaces || !confirm(`Tirar a pergunta ${desk.replaces} do conjunto?`)) return;
+  const result = await post('/api/questions/delete', { id: desk.replaces });
+  if (result.ok) { await loadDesk(); Object.assign(desk, { form: null, replaces: null, messages: null, checked: null }); }
+  else desk.messages = { kind: 'bad', title: 'Não foi tirada:', items: result.data?.problems || [] };
+  renderDesk();
+}
+async function checkForm() {
+  desk.busy = true; desk.checked = null; renderForm();
+  const result = await post('/api/questions/check', { id: desk.replaces });
+  desk.busy = false;
+  desk.checked = result.ok ? result.data : { ok: false, results: [], warnings: [], problems: result.data?.problems || ['erro ' + result.status] };
+  renderForm();
+}
+function field2(label, key, kind, options) {
+  const form = desk.form;
+  const input = kind === 'area' || kind === 'prose'
+    ? h('textarea', { class: kind === 'prose' ? 'prose' : '', rows: options?.rows || 3, spellcheck: 'false' })
+    : kind === 'select' ? h('select', {}, options.values.map(([value, text]) => h('option', { value }, text)))
+    : h('input', { type: 'text', list: options?.list });
+  input.value = form[key] ?? '';
+  input.addEventListener('input', () => { form[key] = input.value; });
+  if (desk.set.readOnly) input.disabled = true;
+  return h('div', {}, h('label', {}, label), input);
+}
+function goldField(paradigm) {
+  const area = h('textarea', { rows: paradigm === 'postgres' ? 5 : 8, spellcheck: 'false',
+    placeholder: desk.form.unanswerable ? 'pergunta sem resposta: sem gabarito' : 'sem gabarito neste paradigma' });
+  area.value = desk.form.gold[paradigm] || '';
+  area.addEventListener('input', () => { desk.form.gold[paradigm] = area.value; });
+  if (desk.set.readOnly) area.disabled = true;
+  return h('div', {}, h('label', {}, 'Gabarito: ' + paradigm), area);
+}
+function renderForm() {
+  const panel = $('qform');
+  if (!panel) return;
+  const form = desk.form;
+  if (!form) {
+    replace(panel, h('div', { class: 'empty' }, 'Escolha uma pergunta do conjunto ou do catálogo, ou crie uma nova.'));
+    return;
+  }
+  const entry = desk.catalog.find((e) => e.source === form.source);
+  const flag = h('input', { type: 'checkbox' });
+  flag.checked = Boolean(form.unanswerable);
+  flag.addEventListener('change', () => { form.unanswerable = flag.checked; });
+  const messages = desk.messages && h('div', { class: 'note ' + desk.messages.kind }, h('strong', {}, desk.messages.title),
+    desk.messages.items.length ? h('ul', {}, desk.messages.items.map((item) => h('li', {}, item))) : null);
+  const checked = desk.checked && h('div', {},
+    desk.checked.problems.length ? h('div', { class: 'note bad' }, h('strong', {}, 'Gabarito com problema:'),
+      h('ul', {}, desk.checked.problems.map((item) => h('li', {}, item)))) : null,
+    desk.checked.warnings.length ? h('div', { class: 'note warn' }, h('strong', {}, 'Avisos:'),
+      h('ul', {}, desk.checked.warnings.map((item) => h('li', {}, item)))) : null,
+    desk.checked.ok && !desk.checked.warnings.length ? h('div', { class: 'note ok' }, '✓ Os gabaritos rodaram duas vezes com o mesmo resultado e os paradigmas concordam.') : null,
+    h('div', { class: 'sides' }, desk.checked.results.map((result) => h('div', {},
+      h('div', { class: 'muted' }, `${result.paradigm} · ${result.rowCount} linha(s)`),
+      grid({ columns: result.columns, rows: result.rows, truncated: result.rowCount > result.rows.length })))));
+  replace(panel,
+    h('div', { class: 'head', style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' },
+      h('strong', {}, desk.replaces ? 'Editar ' + desk.replaces : 'Nova pergunta'),
+      desk.replaces ? badge('info', 'no conjunto') : badge('plain', 'ainda não gravada'),
+      entry ? badge(...catalogStatus(entry)) : null),
+    h('div', { class: 'row' },
+      field2('Id', 'id'), field2('Banco (dataset)', 'dataset', 'text', { list: 'datasets' }),
+      field2('Dificuldade', 'difficulty', 'text', { list: 'difficulties' }), field2('Origem', 'source')),
+    field2('Texto em inglês', 'en', 'prose', { rows: 2 }),
+    field2('Texto em português', 'pt', 'prose', { rows: 2 }),
+    entry?.evidence ? h('div', { class: 'note info' }, h('strong', {}, 'Dica do benchmark (não vai para o modelo): '), entry.evidence,
+      h('div', { class: 'muted' }, 'O app não tem campo para a dica. Se a pergunta depende dela, escreva a informação no próprio texto.')) : null,
+    entry?.otherQuestion ? h('div', { class: 'note warn' }, 'O gabarito do MongoDB foi escrito para outro texto: ', h('em', {}, entry.otherQuestion)) : null,
+    h('label', { class: 'check', style: 'display:inline-flex;margin-top:10px;color:var(--fg)' }, flag,
+      'Pergunta sem resposta possível (o acerto é pedir esclarecimento)'),
+    PARADIGMS.map(goldField),
+    h('div', { class: 'row' },
+      field2('Ordem das linhas', 'order', 'select', { values: [['', 'padrão do conjunto'], ['ignore', 'não importa'], ['strict', 'tem que ser a mesma']] }),
+      field2('Casas decimais', 'decimals')),
+    desk.set.readOnly ? h('div', { class: 'note info' }, 'A tela foi aberta com --read-only: sem cadastro.') : h('div', { class: 'actions' },
+      h('button', { class: 'btn primary', onclick: saveForm, disabled: desk.busy }, 'Gravar'),
+      h('button', { class: 'btn', onclick: checkForm, disabled: desk.busy || !desk.replaces,
+        title: 'Executa cada gabarito duas vezes nos bancos de teste (só leitura) e compara os paradigmas' }, 'Conferir nos bancos'),
+      desk.replaces ? h('button', { class: 'btn danger', onclick: deleteForm, disabled: desk.busy }, 'Tirar do conjunto') : null,
+      desk.busy ? h('span', { class: 'muted' }, 'aguarde…') : null),
+    messages, checked);
+}
+function renderDesk() {
+  const problems = new Map();
+  for (const problem of desk.set.problems) {
+    const key = problem.question || '';
+    problems.set(key, [...(problems.get(key) || []), problem.message]);
+  }
+  const distinct = (pick) => [...new Set(desk.catalog.map(pick).filter(Boolean))].sort();
+  const select = (key, label, values) => {
+    const node = h('select', { 'aria-label': label, onchange: (e) => { desk.filters[key] = e.target.value; desk.shown = 100; renderDesk(); } },
+      values.map(([value, text]) => h('option', { value }, text)));
+    node.value = desk.filters[key];
+    return node;
+  };
+  const mode = (id, label) => h('button', { 'aria-pressed': String(desk.mode === id), onclick: () => { desk.mode = id; renderDesk(); } }, label);
+  let list;
+  if (desk.mode === 'set') {
+    list = desk.set.questions.length ? desk.set.questions.map((q) => h('div', {
+      class: 'item' + (desk.replaces === q.id ? ' selected' : ''), tabindex: 0, onclick: () => openForm(fromSet(q), q.id),
+    },
+      h('div', { class: 'head' }, h('strong', {}, q.id), q.dataset ? badge('plain', q.dataset) : null, badge('plain', q.difficulty),
+        q.unanswerable ? badge('info', 'sem resposta') : Object.keys(q.gold || {}).map((p) => badge('plain', p)),
+        problems.has(q.id) ? badge('bad', 'com problema', problems.get(q.id).join('; ')) : null),
+      h('div', { class: 'muted question', style: 'max-width:none' }, q.pt)))
+      : h('div', { class: 'empty' }, 'O conjunto está vazio. Escolha perguntas no catálogo.');
+  } else {
+    const rows = catalogRows();
+    list = rows.length ? [rows.slice(0, desk.shown).map((entry) => h('div', {
+      class: 'item' + (desk.form?.source === entry.source && !desk.replaces ? ' selected' : ''), tabindex: 0,
+      onclick: () => openForm(fromCatalog(entry), null),
+    },
+      h('div', { class: 'head' }, h('strong', {}, entry.source), badge('plain', entry.dataset),
+        entry.difficulty ? badge('plain', entry.difficulty) : null, badge(...catalogStatus(entry)),
+        entry.evidence ? null : badge('info', 'sem dica')),
+      h('div', { class: 'muted' }, entry.question))),
+      rows.length > desk.shown ? h('div', { class: 'item muted', onclick: () => { desk.shown += 200; renderDesk(); } },
+        `Mostrar mais (${rows.length - desk.shown} restantes)`) : null]
+      : h('div', { class: 'empty' }, desk.catalog.length ? 'Nenhuma pergunta do catálogo com esses filtros.'
+        : 'Sem catálogo. Rode: ./experiment/db.sh download e ./experiment/x catalog');
+  }
+  const search = h('input', { type: 'search', id: 'qsearch', placeholder: 'Buscar no texto ou no id', 'aria-label': 'Buscar no catálogo',
+    value: desk.filters.text, oninput: (e) => {
+      desk.filters.text = e.target.value; desk.shown = 100; renderDesk();
+      // A lista foi redesenhada: o cursor volta para a busca
+      const again = $('qsearch'); again.focus(); again.setSelectionRange(again.value.length, again.value.length);
+    } });
+  const hide = h('input', { type: 'checkbox', onchange: (e) => { desk.filters.hide = e.target.checked; renderDesk(); } });
+  hide.checked = desk.filters.hide;
+  replace($('view'),
+    h('datalist', { id: 'datasets' }, distinct((e) => e.dataset).map((value) => h('option', { value }))),
+    h('datalist', { id: 'difficulties' }, ['simple', 'moderate', 'challenging'].map((value) => h('option', { value }))),
+    h('div', { class: 'desk' },
+      h('div', {},
+        h('div', { class: 'switch' }, mode('set', `Conjunto (${desk.set.questions.length})`), mode('catalog', `Catálogo (${desk.catalog.length})`),
+          desk.set.readOnly ? null : h('button', { onclick: () => openForm(blankQuestion(), null) }, '+ Nova pergunta')),
+        desk.mode === 'catalog' ? h('div', { class: 'filters', style: 'margin:0 0 8px' },
+          select('status', 'Situação', [['agree', 'paradigmas de acordo'], ['differ', 'respostas diferentes'], ['broken', 'gabarito não serve'],
+            ['mongo', 'só MongoDB'], ['', 'todas']]),
+          select('dataset', 'Banco', [['', 'todos os bancos'], ...distinct((e) => e.dataset).map((value) => [value, value])]),
+          select('difficulty', 'Dificuldade', [['', 'toda dificuldade'], ...distinct((e) => e.difficulty).map((value) => [value, value])]),
+          h('label', { class: 'check' }, hide, 'esconder as já cadastradas'), search,
+          h('span', { class: 'muted' }, `${catalogRows().length} pergunta(s)`)) : null,
+        problems.has('') ? h('div', { class: 'note bad' }, problems.get('').join('; ')) : null,
+        h('div', { class: 'list' }, list),
+        h('p', { class: 'muted' }, 'Arquivo: ', h('span', { class: 'mono' }, desk.set.path))),
+      h('div', { class: 'form', id: 'qform' })));
+  renderForm();
+}
+async function viewQuestions() {
+  if (!desk.set) {
+    replace($('view'), h('div', { class: 'empty' }, 'Carregando as perguntas…'));
+    try { await loadDesk(); } catch (error) {
+      replace($('view'), h('div', { class: 'empty' }, 'Não foi possível ler o conjunto de perguntas: ' + error.message));
+      return;
+    }
+    if (state.tab !== 'questions') return;
+  }
+  renderDesk();
+}
+
 // ── Partida ────────────────────────────────────────────────────────────────
 $('run').addEventListener('change', (e) => { state.selected = null; $('detail').hidden = true; openRun(e.target.value); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.selected) closeDetail(); });
@@ -574,6 +849,7 @@ async function tick() {
     await loadRuns();
     if (start.run && state.runs.some((run) => run.id === start.run) && start.run !== state.run) await openRun(start.run);
     if (start.test && state.units.has(start.test)) { state.selected = start.test; renderDetail(); }
+    if (state.tab === 'questions') renderView();
     writeHash();
   } catch (error) { $('signal').textContent = 'sem resposta do servidor da tela'; }
   setTimeout(tick, 1000);

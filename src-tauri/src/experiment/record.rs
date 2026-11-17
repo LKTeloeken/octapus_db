@@ -76,6 +76,9 @@ pub struct UnitRecord {
     #[serde(flatten)]
     pub unit: Unit,
     pub difficulty: String,
+    /// O banco da pergunta, quando há um por conjunto de dados
+    #[serde(default)]
+    pub dataset: Option<String>,
     pub unanswerable: bool,
     /// O texto perguntado
     pub question: String,

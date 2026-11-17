@@ -461,6 +461,7 @@ pub fn blank(base: Base<'_>) -> UnitRecord {
         key: base.unit.key(),
         unit: base.unit.clone(),
         difficulty: base.difficulty.to_string(),
+        dataset: base.dataset.map(str::to_string),
         unanswerable: base.unanswerable,
         question: base.question.to_string(),
         detected_language: base.detected.language,
@@ -490,6 +491,7 @@ pub fn blank(base: Base<'_>) -> UnitRecord {
 pub struct Base<'a> {
     pub unit: &'a super::plan::Unit,
     pub difficulty: &'a str,
+    pub dataset: Option<&'a str>,
     pub unanswerable: bool,
     pub question: &'a str,
     pub detected: Detected,

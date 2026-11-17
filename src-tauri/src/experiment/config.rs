@@ -23,6 +23,11 @@
 //! database = "loja"
 //! ```
 //!
+//! Quando cada pergunta tem o seu banco (os do BIRD), `{dataset}` é trocado
+//! pelo `dataset` da pergunta: `schemas = ["{dataset}"]` num PostgreSQL com um
+//! schema por conjunto, `database = "{dataset}"` num MongoDB com um database
+//! por conjunto.
+//!
 //! Senha, token, convite e URI de conexão nunca ficam no arquivo: ele só diz
 //! em que variável de ambiente cada um está. Por isso o arquivo inteiro pode
 //! ser guardado com a rodada.
@@ -214,7 +219,33 @@ impl Environment {
     }
 }
 
+/// O que a configuração de um banco troca pelo `dataset` da pergunta.
+pub const DATASET: &str = "{dataset}";
+
 impl DatabaseConfig {
+    /// O banco muda com o `dataset` da pergunta (`{dataset}` em `database`,
+    /// `schemas` ou `path`)?
+    pub fn per_dataset(&self) -> bool {
+        self.database.contains(DATASET)
+            || self.path.as_deref().is_some_and(|path| path.contains(DATASET))
+            || self.schemas.as_ref().is_some_and(|schemas| schemas.iter().any(|schema| schema.contains(DATASET)))
+    }
+
+    /// A configuração para as perguntas de um `dataset`.
+    pub fn for_dataset(&self, dataset: Option<&str>) -> Result<Self, String> {
+        if !self.per_dataset() {
+            return Ok(self.clone());
+        }
+        let dataset = dataset.ok_or("o banco usa `{dataset}`, mas a pergunta não tem `dataset`")?;
+        let fill = |text: &String| text.replace(DATASET, dataset);
+        Ok(Self {
+            database: fill(&self.database),
+            path: self.path.as_ref().map(fill),
+            schemas: self.schemas.as_ref().map(|schemas| schemas.iter().map(fill).collect()),
+            ..self.clone()
+        })
+    }
+
     /// O servidor como o app o teria cadastrado, com os segredos lidos do
     /// ambiente. `env` é de onde ler (o do processo, fora dos testes).
     pub fn server(&self, db_type: DatabaseType, env: &dyn Fn(&str) -> Option<String>) -> Result<Server, String> {
@@ -312,6 +343,26 @@ database = "main"
         let inline = VALID.replace("password_env = \"SENHA_PG\"", "password = \"1234\"");
         let error = load(&inline).unwrap_err();
         assert!(error.contains("`password`") && error.contains("password_env"), "{error}");
+    }
+
+    #[test]
+    fn the_dataset_of_the_question_picks_the_database() {
+        let source = VALID
+            .replace("schemas = [\"public\", \"vendas\"]", "schemas = [\"{dataset}\"]")
+            .replace("database = \"main\"", "database = \"{dataset}\"");
+        let environment = load(&source).unwrap();
+
+        let postgres = &environment.database["postgres"];
+        assert!(postgres.per_dataset());
+        let financial = postgres.for_dataset(Some("financial")).unwrap();
+        assert_eq!((financial.database.as_str(), financial.schemas), ("loja", Some(vec!["financial".to_string()])));
+        assert_eq!(environment.database["sqlite"].for_dataset(Some("financial")).unwrap().database, "financial");
+        assert!(postgres.for_dataset(None).unwrap_err().contains("`dataset`"));
+
+        // Sem `{dataset}`, um banco só para todas as perguntas
+        let fixed = &load(VALID).unwrap().database["postgres"];
+        assert!(!fixed.per_dataset());
+        assert_eq!(fixed.for_dataset(Some("financial")).unwrap(), *fixed);
     }
 
     #[test]

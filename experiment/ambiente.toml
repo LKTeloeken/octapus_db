@@ -1,0 +1,33 @@
+# O ambiente das rodadas do experimento: a API, os modelos e os bancos de
+# teste que o ./experiment/db.sh sobe. Formato: src-tauri/src/experiment/config.rs
+#
+# Aqui não entra segredo: só o NOME da variável de ambiente em que ele está.
+
+[api]
+# A API é a de OCTAPUS_ASSISTANT_URL, como no app. O convite fica na variável:
+invite_env = "OCTAPUS_E2E_INVITE"
+# Os ids dos modelos da rodada. `./experiment/x models` lista os que a API oferece.
+models = ["TROCAR-PELO-ID-DO-MODELO"]
+
+[run]
+repetitions = 1
+languages = ["pt", "en"]
+seed = 42
+concurrency = 1                # 1 = sequencial
+ask_user = "clarify"           # ninguém responde: o turno encerra como esclarecimento
+mongo_sample_values = false
+row_limit = 200                # a página do app
+
+# Cada pergunta diz o seu banco (`dataset`): um schema por conjunto no
+# PostgreSQL, um database por conjunto no MongoDB.
+[database.postgres]
+host = "127.0.0.1"
+port = 55440
+username = "postgres"
+database = "bird"
+schemas = ["{dataset}"]
+
+[database.mongodb]
+host = "127.0.0.1"
+port = 57040
+database = "{dataset}"

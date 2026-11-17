@@ -100,14 +100,20 @@ impl Default for Rules {
 }
 
 /// O que um nível (arquivo, pergunta, gabarito) muda nas regras.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RulesPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order: Option<RowOrder>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub columns: Option<ColumnMatch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_columns: Option<ExtraColumns>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decimals: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub null_equals_empty: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub truncated: Option<Truncated>,
 }
 

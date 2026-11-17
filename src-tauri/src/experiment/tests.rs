@@ -40,7 +40,7 @@ impl Bench {
         let environment = sim::demo_environment(&database, 1).replace("seed = 7\n", &format!("seed = 7\n{environment_extra}"));
         let only = only.iter().map(|id| id.to_string()).collect();
         let inputs = Inputs::new(sim::DEMO_QUESTIONS, &environment, only).unwrap();
-        let databases = Databases::connect(&inputs.environment, &|_| None).await.unwrap();
+        let databases = Databases::connect(&inputs.environment, &inputs.questions, &inputs.only, true, &|_| None).await.unwrap();
         let (gold, warnings) = run_gold(&inputs.questions, &inputs.only, &databases, inputs.environment.run.row_limit)
             .await
             .unwrap();
@@ -84,7 +84,7 @@ impl Bench {
     }
 
     async fn orders(&self) -> Option<String> {
-        self.databases.by_paradigm["sqlite"].read("SELECT count(*) FROM orders", 10).await.unwrap().rows[0][0].clone()
+        self.databases.get("sqlite", None).unwrap().read("SELECT count(*) FROM orders", 10).await.unwrap().rows[0][0].clone()
     }
 }
 
@@ -268,7 +268,7 @@ async fn an_interrupted_round_resumes_without_repeating() {
 #[tokio::test]
 async fn gold_must_run_fit_the_page_and_be_deterministic() {
     let bench = Bench::new("gold", "", &[]).await;
-    let database = &bench.databases.by_paradigm["sqlite"];
+    let database = bench.databases.get("sqlite", None).unwrap();
 
     let with_gold = |query: &str| {
         let source = sim::DEMO_QUESTIONS.replace("SELECT count(*) FROM customers", query);
@@ -317,8 +317,8 @@ fn e2e_inputs() -> Option<Inputs> {
         eprintln!("sem OCTAPUS_EXPERIMENT_E2E_QUESTIONS/OCTAPUS_EXPERIMENT_E2E_ENV: nada a fazer");
         return None;
     };
-    let inputs = Inputs::new(&super::read_file(&questions).unwrap(), &super::read_file(&environment).unwrap(), Vec::new())
-        .unwrap();
+    let read = |path: String| super::read_file(std::path::Path::new(&path)).unwrap();
+    let inputs = Inputs::new(&read(questions), &read(environment), Vec::new()).unwrap();
     inputs.apply_api_url();
     Some(inputs)
 }
@@ -336,7 +336,7 @@ async fn e2e_gold_runs_on_the_real_databases() {
     let Some(inputs) = e2e_inputs() else {
         return;
     };
-    let databases = Databases::connect(&inputs.environment, &super::env_var).await.unwrap();
+    let databases = Databases::connect(&inputs.environment, &inputs.questions, &inputs.only, true, &super::env_var).await.unwrap();
     let (gold, warnings) = run_gold(&inputs.questions, &[], &databases, inputs.environment.run.row_limit)
         .await
         .unwrap_or_else(|problems| panic!("{}", super::problems_text("gabaritos", &problems)));
@@ -357,7 +357,7 @@ async fn e2e_real_round_with_the_api() {
     let Some(inputs) = e2e_inputs() else {
         return;
     };
-    let databases = Databases::connect(&inputs.environment, &super::env_var).await.unwrap();
+    let databases = Databases::connect(&inputs.environment, &inputs.questions, &inputs.only, true, &super::env_var).await.unwrap();
     let (gold, _) = run_gold(&inputs.questions, &[], &databases, inputs.environment.run.row_limit)
         .await
         .unwrap_or_else(|problems| panic!("{}", super::problems_text("gabaritos", &problems)));

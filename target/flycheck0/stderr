@@ -1,0 +1,221 @@
+   0.332256417s  INFO prepare_target{force=false package_id=octapus-cli v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli) target="octapus"}: cargo::core::compiler::fingerprint: fingerprint error for octapus-cli v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli)/Check { test: false }/TargetInner { name: "octapus", doc: true, ..: with_path("/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli/src/main.rs", Edition2021) }
+   0.332289625s  INFO prepare_target{force=false package_id=octapus-cli v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli) target="octapus"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/lucasteloeken/Documents/projects/personal/octapus_db/target/debug/.fingerprint/octapus-cli-54ec42a4a002eddd/bin-octapus`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: <std::backtrace::Backtrace>::create
+   1: cargo_util::paths::read_bytes
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   4: cargo::core::compiler::fingerprint::prepare_target
+   5: cargo::core::compiler::compile
+   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   7: cargo::ops::cargo_compile::compile_ws
+   8: cargo::ops::cargo_compile::compile_with_exec
+   9: cargo::ops::cargo_compile::compile
+  10: cargo::commands::check::exec
+  11: <cargo::cli::Exec>::exec
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+   0.353886875s  INFO prepare_target{force=false package_id=octapus-core v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-core) target="octapus_core"}: cargo::core::compiler::fingerprint: fingerprint error for octapus-core v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-core)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("octapus_core", ["lib"], "/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-core/src/lib.rs", Edition2021) }
+   0.354046000s  INFO prepare_target{force=false package_id=octapus-core v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-core) target="octapus_core"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/lucasteloeken/Documents/projects/personal/octapus_db/target/debug/.fingerprint/octapus-core-19cb5e0ff803cef0/lib-octapus_core`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: <std::backtrace::Backtrace>::create
+   1: cargo_util::paths::read_bytes
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   4: cargo::core::compiler::fingerprint::prepare_target
+   5: cargo::core::compiler::compile
+   6: cargo::core::compiler::compile
+   7: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   8: cargo::ops::cargo_compile::compile_ws
+   9: cargo::ops::cargo_compile::compile_with_exec
+  10: cargo::ops::cargo_compile::compile
+  11: cargo::commands::check::exec
+  12: <cargo::cli::Exec>::exec
+  13: cargo::main
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  15: std::rt::lang_start::<()>::{closure#0}
+  16: std::rt::lang_start_internal
+  17: _main
+   0.424896917s  INFO prepare_target{force=false package_id=octapus-cli v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli) target="octapus"}: cargo::core::compiler::fingerprint: fingerprint error for octapus-cli v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli)/Check { test: true }/TargetInner { name: "octapus", doc: true, ..: with_path("/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli/src/main.rs", Edition2021) }
+   0.424908584s  INFO prepare_target{force=false package_id=octapus-cli v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli) target="octapus"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/lucasteloeken/Documents/projects/personal/octapus_db/target/debug/.fingerprint/octapus-cli-20dbac7e020374ab/test-bin-octapus`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: <std::backtrace::Backtrace>::create
+   1: cargo_util::paths::read_bytes
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   4: cargo::core::compiler::fingerprint::prepare_target
+   5: cargo::core::compiler::compile
+   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   7: cargo::ops::cargo_compile::compile_ws
+   8: cargo::ops::cargo_compile::compile_with_exec
+   9: cargo::ops::cargo_compile::compile
+  10: cargo::commands::check::exec
+  11: <cargo::cli::Exec>::exec
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+   0.427192750s  INFO prepare_target{force=false package_id=octapus-cli v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli) target="cli"}: cargo::core::compiler::fingerprint: fingerprint error for octapus-cli v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli)/Check { test: true }/TargetInner { kind: "test", name: "cli", benched: false, ..: with_path("/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli/tests/cli.rs", Edition2021) }
+   0.427199917s  INFO prepare_target{force=false package_id=octapus-cli v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli) target="cli"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/lucasteloeken/Documents/projects/personal/octapus_db/target/debug/.fingerprint/octapus-cli-8d9f1fe3383a9495/test-integration-test-cli`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: <std::backtrace::Backtrace>::create
+   1: cargo_util::paths::read_bytes
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   4: cargo::core::compiler::fingerprint::prepare_target
+   5: cargo::core::compiler::compile
+   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   7: cargo::ops::cargo_compile::compile_ws
+   8: cargo::ops::cargo_compile::compile_with_exec
+   9: cargo::ops::cargo_compile::compile
+  10: cargo::commands::check::exec
+  11: <cargo::cli::Exec>::exec
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+   0.429663584s  INFO prepare_target{force=false package_id=octapus-core v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-core) target="octapus_core"}: cargo::core::compiler::fingerprint: fingerprint error for octapus-core v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-core)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("octapus_core", ["lib"], "/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-core/src/lib.rs", Edition2021) }
+   0.429670834s  INFO prepare_target{force=false package_id=octapus-core v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-core) target="octapus_core"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/lucasteloeken/Documents/projects/personal/octapus_db/target/debug/.fingerprint/octapus-core-ac7934ca88018f40/test-lib-octapus_core`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: <std::backtrace::Backtrace>::create
+   1: cargo_util::paths::read_bytes
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   4: cargo::core::compiler::fingerprint::prepare_target
+   5: cargo::core::compiler::compile
+   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   7: cargo::ops::cargo_compile::compile_ws
+   8: cargo::ops::cargo_compile::compile_with_exec
+   9: cargo::ops::cargo_compile::compile
+  10: cargo::commands::check::exec
+  11: <cargo::cli::Exec>::exec
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+   0.474186792s  INFO prepare_target{force=false package_id=octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri) target="octapus_db_lib"}: cargo::core::compiler::fingerprint: fingerprint error for octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri)/Check { test: false }/TargetInner { ..: lib_target("octapus_db_lib", ["staticlib", "cdylib", "rlib"], "/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri/src/lib.rs", Edition2021) }
+   0.474201459s  INFO prepare_target{force=false package_id=octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri) target="octapus_db_lib"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/lucasteloeken/Documents/projects/personal/octapus_db/target/debug/.fingerprint/octapus_db-d9b26aab5be6583f/lib-octapus_db_lib`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: <std::backtrace::Backtrace>::create
+   1: cargo_util::paths::read_bytes
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   4: cargo::core::compiler::fingerprint::prepare_target
+   5: cargo::core::compiler::compile
+   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   7: cargo::ops::cargo_compile::compile_ws
+   8: cargo::ops::cargo_compile::compile_with_exec
+   9: cargo::ops::cargo_compile::compile
+  10: cargo::commands::check::exec
+  11: <cargo::cli::Exec>::exec
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+   0.518286334s  INFO prepare_target{force=false package_id=octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri) target="octapus_db_lib"}: cargo::core::compiler::fingerprint: fingerprint error for octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri)/Check { test: true }/TargetInner { ..: lib_target("octapus_db_lib", ["staticlib", "cdylib", "rlib"], "/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri/src/lib.rs", Edition2021) }
+   0.518303084s  INFO prepare_target{force=false package_id=octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri) target="octapus_db_lib"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/lucasteloeken/Documents/projects/personal/octapus_db/target/debug/.fingerprint/octapus_db-8502767e19021262/test-lib-octapus_db_lib`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: <std::backtrace::Backtrace>::create
+   1: cargo_util::paths::read_bytes
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   4: cargo::core::compiler::fingerprint::prepare_target
+   5: cargo::core::compiler::compile
+   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   7: cargo::ops::cargo_compile::compile_ws
+   8: cargo::ops::cargo_compile::compile_with_exec
+   9: cargo::ops::cargo_compile::compile
+  10: cargo::commands::check::exec
+  11: <cargo::cli::Exec>::exec
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+   0.519572959s  INFO prepare_target{force=false package_id=octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri) target="octapus_db"}: cargo::core::compiler::fingerprint: fingerprint error for octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri)/Check { test: false }/TargetInner { name: "octapus_db", doc: true, ..: with_path("/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri/src/main.rs", Edition2021) }
+   0.519578917s  INFO prepare_target{force=false package_id=octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri) target="octapus_db"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/lucasteloeken/Documents/projects/personal/octapus_db/target/debug/.fingerprint/octapus_db-41beda8699a6dd66/bin-octapus_db`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: <std::backtrace::Backtrace>::create
+   1: cargo_util::paths::read_bytes
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   4: cargo::core::compiler::fingerprint::prepare_target
+   5: cargo::core::compiler::compile
+   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   7: cargo::ops::cargo_compile::compile_ws
+   8: cargo::ops::cargo_compile::compile_with_exec
+   9: cargo::ops::cargo_compile::compile
+  10: cargo::commands::check::exec
+  11: <cargo::cli::Exec>::exec
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+   0.520643959s  INFO prepare_target{force=false package_id=octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri) target="octapus_db"}: cargo::core::compiler::fingerprint: fingerprint error for octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri)/Check { test: true }/TargetInner { name: "octapus_db", doc: true, ..: with_path("/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri/src/main.rs", Edition2021) }
+   0.520647834s  INFO prepare_target{force=false package_id=octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri) target="octapus_db"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/lucasteloeken/Documents/projects/personal/octapus_db/target/debug/.fingerprint/octapus_db-08b5dc718cb8c152/test-bin-octapus_db`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: <std::backtrace::Backtrace>::create
+   1: cargo_util::paths::read_bytes
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   4: cargo::core::compiler::fingerprint::prepare_target
+   5: cargo::core::compiler::compile
+   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   7: cargo::ops::cargo_compile::compile_ws
+   8: cargo::ops::cargo_compile::compile_with_exec
+   9: cargo::ops::cargo_compile::compile
+  10: cargo::commands::check::exec
+  11: <cargo::cli::Exec>::exec
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+    Checking octapus-core v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-core)
+    Checking octapus_db v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/src-tauri)
+    Checking octapus-cli v1.1.0 (/Users/lucasteloeken/Documents/projects/personal/octapus_db/crates/octapus-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.56s

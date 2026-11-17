@@ -11,6 +11,8 @@
 //! [[question]]
 //! id = "q001"
 //! difficulty = "easy"
+//! dataset = "student_club"           # opcional: o banco da pergunta
+//! source = "bird:1312"               # opcional: de onde ela veio
 //! pt = "Quantos clientes existem?"
 //! en = "How many customers are there?"
 //! [question.gold.postgres]
@@ -96,6 +98,10 @@ pub struct Question {
     pub en: String,
     /// Sem resposta possível: o acerto é o turno pedir esclarecimento
     pub unanswerable: bool,
+    /// O banco da pergunta, quando o ambiente tem um por conjunto de dados
+    pub dataset: Option<String>,
+    /// De onde a pergunta veio (`bird:1312`)
+    pub source: Option<String>,
     /// O gabarito de cada paradigma (vazio numa pergunta sem resposta)
     pub gold: BTreeMap<String, Gold>,
     /// Em que paradigmas a pergunta roda: os do gabarito, ou os listados em
@@ -150,53 +156,92 @@ impl fmt::Display for Problem {
     }
 }
 
-#[derive(Deserialize)]
+/// O arquivo como está escrito: é o que a tela de cadastro lê e regrava
+/// ([`parse`] e [`to_toml`]).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawFile {
-    version: Option<String>,
+pub struct RawFile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "RawDefaults::is_empty")]
+    pub defaults: RawDefaults,
     #[serde(default)]
-    defaults: RawDefaults,
-    #[serde(default)]
-    question: Vec<RawQuestion>,
+    pub question: Vec<RawQuestion>,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawDefaults {
-    compare: Option<RulesPatch>,
+pub struct RawDefaults {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compare: Option<RulesPatch>,
 }
 
-#[derive(Deserialize)]
+impl RawDefaults {
+    fn is_empty(&self) -> bool {
+        self.compare.is_none()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawQuestion {
-    id: String,
-    difficulty: String,
-    pt: String,
-    en: String,
-    #[serde(default)]
-    unanswerable: bool,
-    paradigms: Option<Vec<String>>,
-    #[serde(default)]
-    gold: BTreeMap<String, RawGold>,
-    compare: Option<RulesPatch>,
+pub struct RawQuestion {
+    pub id: String,
+    pub difficulty: String,
+    pub pt: String,
+    pub en: String,
+    /// O banco da pergunta, quando o ambiente tem um por conjunto de dados
+    /// (`{dataset}` no `ambiente.toml`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset: Option<String>,
+    /// De onde a pergunta veio (`bird:1312`), para a rastreabilidade
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub unanswerable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paradigms: Option<Vec<String>>,
     /// Aceita o texto mesmo que o detector do app veja outro idioma
-    #[serde(default)]
-    skip_language_check: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub skip_language_check: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compare: Option<RulesPatch>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub gold: BTreeMap<String, RawGold>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawGold {
-    query: String,
-    compare: Option<RulesPatch>,
+pub struct RawGold {
+    pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compare: Option<RulesPatch>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// Lê o arquivo sem conferir o conteúdo (só o formato).
+pub fn parse(source: &str) -> Result<RawFile, String> {
+    toml::from_str(source).map_err(|error| format!("formato inválido: {}", error.message()))
+}
+
+/// O arquivo de um conjunto, como a tela o regrava. Comentários escritos à
+/// mão não sobrevivem: o arquivo é reescrito por inteiro.
+pub fn to_toml(file: &RawFile) -> Result<String, String> {
+    let body = toml::to_string_pretty(file).map_err(|error| error.to_string())?;
+    Ok(format!(
+        "# Conjunto de perguntas do experimento. Formato: src-tauri/src/experiment/questions.rs\n\
+         # Regravado por inteiro pela tela de cadastro (comentários não são mantidos).\n\n{body}"
+    ))
 }
 
 /// Lê e confere o conjunto. Devolve todos os problemas de uma vez.
 pub fn load(source: &str) -> Result<QuestionSet, Vec<Problem>> {
-    let raw: RawFile = toml::from_str(source).map_err(|error| {
+    let raw = parse(source).map_err(|message| {
         vec![Problem {
             question: None,
-            message: format!("formato inválido: {}", error.message()),
+            message,
         }]
     })?;
 
@@ -229,6 +274,10 @@ pub fn load(source: &str) -> Result<QuestionSet, Vec<Problem>> {
         }
         if entry.difficulty.trim().is_empty() {
             problem("`difficulty` vazio".into());
+        }
+        let dataset = entry.dataset.as_deref().map(str::trim).filter(|name| !name.is_empty());
+        if dataset.is_some_and(|name| !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+            problem("`dataset` precisa ter só letras, números, `_` e `-`".into());
         }
 
         for (lang, text) in [(Lang::Pt, &entry.pt), (Lang::En, &entry.en)] {
@@ -304,6 +353,8 @@ pub fn load(source: &str) -> Result<QuestionSet, Vec<Problem>> {
             pt: entry.pt.trim().to_string(),
             en: entry.en.trim().to_string(),
             unanswerable: entry.unanswerable,
+            dataset: dataset.map(str::to_string),
+            source: entry.source.clone(),
             gold,
             paradigms,
         });
@@ -375,6 +426,29 @@ unanswerable = true
         let second = set.get("q002").unwrap();
         assert!(second.unanswerable && second.gold.is_empty());
         assert!(second.runs_on("redis"), "sem resposta roda em todos os paradigmas da rodada");
+    }
+
+    /// O que a tela regrava é lido de volta igual, com as consultas em
+    /// várias linhas.
+    #[test]
+    fn the_rewritten_file_reads_back_the_same() {
+        let mut raw = parse(VALID).unwrap();
+        raw.question[0].dataset = Some("student_club".into());
+        raw.question[0].source = Some("bird:1312".into());
+        raw.question[0].gold.get_mut("postgres").unwrap().query =
+            "SELECT count(*)\nFROM customers\nWHERE name = 'Ana \"A\"'".into();
+
+        let written = to_toml(&raw).unwrap();
+        assert_eq!(parse(&written).unwrap(), raw, "{written}");
+        let set = load(&written).unwrap();
+        let first = set.get("q001").unwrap();
+        assert_eq!((first.dataset.as_deref(), first.source.as_deref()), (Some("student_club"), Some("bird:1312")));
+        assert_eq!(first.gold["postgres"].query, "SELECT count(*)\nFROM customers\nWHERE name = 'Ana \"A\"'");
+        // O que não foi preenchido não aparece no arquivo
+        assert!(!written.contains("unanswerable = false") && !written.contains("skip_language_check"), "{written}");
+        assert!(written.contains("unanswerable = true"));
+
+        assert!(load(&VALID.replace("id = \"q001\"", "id = \"q001\"\ndataset = \"a b\"")).is_err());
     }
 
     #[test]

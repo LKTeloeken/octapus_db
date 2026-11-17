@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 
-use super::compare::{compare, Table};
+use super::compare::{compare, Mismatch, Table};
 use super::config::{ApiConfig, AskUser, Environment, RunConfig};
 use super::plan::Unit;
 use super::questions::{db_type, Lang, Problem, QuestionSet};
@@ -200,33 +200,85 @@ impl Database {
     }
 }
 
-/// Os bancos da rodada, por paradigma, e o serviço de catálogo deles (em
-/// memória: nada vai para a pasta de dados do app).
+/// Os bancos da rodada e o serviço de catálogo deles (em memória: nada vai
+/// para a pasta de dados do app). Um por paradigma, ou um por paradigma e
+/// `dataset` quando o ambiente usa `{dataset}`.
 pub struct Databases {
     pub catalogs: CatalogService,
-    pub by_paradigm: BTreeMap<String, Database>,
+    by_target: BTreeMap<(String, String), Database>,
+    /// Os paradigmas com um banco por `dataset`
+    per_dataset: Vec<String>,
 }
 
 impl Databases {
-    /// Conecta nos bancos do ambiente e deixa o catálogo de cada um
-    /// sincronizado, como num app com a conexão já aberta.
+    /// O banco de um paradigma para as perguntas de um `dataset`.
+    pub fn get(&self, paradigm: &str, dataset: Option<&str>) -> Option<&Database> {
+        let dataset = match self.per_dataset.iter().any(|name| name == paradigm) {
+            true => dataset.unwrap_or_default(),
+            false => "",
+        };
+        self.by_target.get(&(paradigm.to_string(), dataset.to_string()))
+    }
+
+    /// Conecta nos bancos que as perguntas usam. Com `structure`, deixa o
+    /// catálogo de cada um sincronizado, como num app com a conexão já aberta
+    /// (a rodada precisa; conferir gabaritos, não).
     pub async fn connect(
         environment: &Environment,
+        questions: &QuestionSet,
+        only: &[String],
+        structure: bool,
         env: &(dyn Fn(&str) -> Option<String> + Sync),
     ) -> std::result::Result<Self, String> {
         let catalogs = CatalogService::default();
-        let mut by_paradigm = BTreeMap::new();
+        let mut by_target = BTreeMap::new();
+        let per_dataset: Vec<String> = environment
+            .database
+            .iter()
+            .filter(|(_, config)| config.per_dataset())
+            .map(|(paradigm, _)| paradigm.clone())
+            .collect();
 
-        for (server_id, (paradigm, config)) in environment.database.iter().enumerate() {
-            let fail = |error: Error| format!("[database.{paradigm}]: {error}");
-            let db_type = db_type(paradigm).ok_or_else(|| format!("[database.{paradigm}]: paradigma desconhecido"))?;
+        // Um banco por (paradigma, dataset) que alguma pergunta da rodada usa
+        let mut targets: Vec<(String, Option<String>)> = Vec::new();
+        for (paradigm, _) in &environment.database {
+            for question in &questions.questions {
+                if (!only.is_empty() && !only.contains(&question.id)) || !question.runs_on(paradigm) {
+                    continue;
+                }
+                let dataset = match per_dataset.contains(paradigm) {
+                    true => question.dataset.clone(),
+                    false => None,
+                };
+                if per_dataset.contains(paradigm) && dataset.is_none() {
+                    return Err(format!(
+                        "{}: o banco de `{paradigm}` usa `{{dataset}}`, mas a pergunta não tem `dataset`",
+                        question.id
+                    ));
+                }
+                if !targets.contains(&(paradigm.clone(), dataset.clone())) {
+                    targets.push((paradigm.clone(), dataset));
+                }
+            }
+        }
+
+        for (server_id, (paradigm, dataset)) in targets.into_iter().enumerate() {
+            let label = match &dataset {
+                Some(dataset) => format!("[database.{paradigm}] ({dataset})"),
+                None => format!("[database.{paradigm}]"),
+            };
+            let fail = |error: Error| format!("{label}: {error}");
+            let db_type = db_type(&paradigm).ok_or_else(|| format!("{label}: paradigma desconhecido"))?;
+            let config = environment.database[&paradigm]
+                .for_dataset(dataset.as_deref())
+                .map_err(|message| format!("{label}: {message}"))?;
             let server = config
                 .server(db_type, &|name| env(name))
-                .map_err(|message| format!("[database.{paradigm}]: {message}"))?;
+                .map_err(|message| format!("{label}: {message}"))?;
             let adapter = create_adapter(&server, &config.database).await.map_err(fail)?;
             adapter.test_connection().await.map_err(fail)?;
 
-            let entry = match has_catalog(db_type) {
+            let entry = match structure && has_catalog(db_type) {
                 true => {
                     let (source_server, database) = (server.clone(), config.database.clone());
                     let opener: SourceOpener = Arc::new(move || {
@@ -240,20 +292,20 @@ impl Databases {
                     let started = Instant::now();
                     while catalogs.status(&entry).syncing {
                         if started.elapsed() > CATALOG_SYNC_TIMEOUT {
-                            return Err(format!("[database.{paradigm}]: o catálogo não sincronizou a tempo"));
+                            return Err(format!("{label}: o catálogo não sincronizou a tempo"));
                         }
                         tokio::time::sleep(Duration::from_millis(50)).await;
                     }
                     if catalogs.status(&entry).error.is_some() {
-                        return Err(format!("[database.{paradigm}]: falha ao ler a estrutura do banco"));
+                        return Err(format!("{label}: falha ao ler a estrutura do banco"));
                     }
                     Some(entry)
                 }
                 false => None,
             };
             log::info!("experimento: banco do paradigma {paradigm} conectado");
-            by_paradigm.insert(
-                paradigm.clone(),
+            by_target.insert(
+                (paradigm, dataset.unwrap_or_default()),
                 Database {
                     db_type,
                     adapter,
@@ -262,7 +314,56 @@ impl Databases {
                 },
             );
         }
-        Ok(Self { catalogs, by_paradigm })
+        Ok(Self {
+            catalogs,
+            by_target,
+            per_dataset,
+        })
+    }
+}
+
+/// Um gabarito que não serve como está.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoldProblem {
+    pub question_id: String,
+    pub paradigm: String,
+    pub message: String,
+}
+
+/// Dois paradigmas com respostas diferentes para a mesma pergunta.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Disagreement {
+    pub question_id: String,
+    pub first: String,
+    pub second: String,
+    pub mismatch: Option<Mismatch>,
+}
+
+/// O que a execução dos gabaritos mostrou.
+#[derive(Debug, Default)]
+pub struct GoldReport {
+    pub results: Vec<GoldResult>,
+    pub problems: Vec<GoldProblem>,
+    pub disagreements: Vec<Disagreement>,
+    /// Gabaritos que não devolvem linhas: (pergunta, paradigma)
+    pub empty: Vec<(String, String)>,
+}
+
+impl GoldReport {
+    pub fn warnings(&self) -> Vec<String> {
+        let empty = self.empty.iter().map(|(question, paradigm)| {
+            format!("{question}: gabarito `{paradigm}` não devolve linhas (qualquer resultado vazio contaria como acerto)")
+        });
+        let disagreements = self.disagreements.iter().map(|found| {
+            format!(
+                "{}: os gabaritos de `{}` e `{}` dão resultados diferentes ({})",
+                found.question_id,
+                found.first,
+                found.second,
+                found.mismatch.map(mismatch_name).unwrap_or_default()
+            )
+        });
+        empty.chain(disagreements).collect()
     }
 }
 
@@ -275,22 +376,41 @@ pub async fn run_gold(
     databases: &Databases,
     row_limit: i64,
 ) -> std::result::Result<(Vec<GoldResult>, Vec<String>), Vec<Problem>> {
-    let mut results = Vec::new();
-    let mut warnings = Vec::new();
-    let mut problems = Vec::new();
+    let report = gold_report(questions, only, databases, row_limit).await;
+    if !report.problems.is_empty() {
+        return Err(report
+            .problems
+            .into_iter()
+            .map(|problem| Problem {
+                question: Some(problem.question_id),
+                message: format!("gabarito `{}` {}", problem.paradigm, problem.message),
+            })
+            .collect());
+    }
+    let warnings = report.warnings();
+    Ok((report.results, warnings))
+}
+
+/// A execução dos gabaritos, sempre pelo caminho só-leitura, com tudo que ela
+/// mostrou (o `run_gold` para no primeiro conjunto de problemas; o catálogo
+/// quer o retrato inteiro).
+pub async fn gold_report(questions: &QuestionSet, only: &[String], databases: &Databases, row_limit: i64) -> GoldReport {
+    let mut report = GoldReport::default();
 
     for question in &questions.questions {
         if !only.is_empty() && !only.contains(&question.id) {
             continue;
         }
+        let before = report.results.len();
         for (paradigm, gold) in &question.gold {
-            let Some(database) = databases.by_paradigm.get(paradigm) else {
+            let Some(database) = databases.get(paradigm, question.dataset.as_deref()) else {
                 continue;
             };
             let mut problem = |message: String| {
-                problems.push(Problem {
-                    question: Some(question.id.clone()),
-                    message: format!("gabarito `{paradigm}` {message}"),
+                report.problems.push(GoldProblem {
+                    question_id: question.id.clone(),
+                    paradigm: paradigm.clone(),
+                    message,
                 })
             };
             let first = match database.read(&gold.query, row_limit).await {
@@ -316,24 +436,40 @@ pub async fn run_gold(
                 }
             }
             if first.rows.is_empty() {
-                warnings.push(format!(
-                    "{}: gabarito `{paradigm}` não devolve linhas (qualquer resultado vazio contaria como acerto)",
-                    question.id
-                ));
+                report.empty.push((question.id.clone(), paradigm.clone()));
             }
-            results.push(GoldResult {
+            report.results.push(GoldResult {
                 question_id: question.id.clone(),
                 paradigm: paradigm.clone(),
                 query: gold.query.clone(),
                 table: first,
             });
         }
-    }
 
-    match problems.is_empty() {
-        true => Ok((results, warnings)),
-        false => Err(problems),
+        // A mesma pergunta deveria ter a mesma resposta em todo paradigma
+        let of_question = &report.results[before..];
+        for (index, first) in of_question.iter().enumerate() {
+            for second in &of_question[index + 1..] {
+                let verdict = compare(&first.table, &second.table, &question.gold[&first.paradigm].rules);
+                if !verdict.equal {
+                    report.disagreements.push(Disagreement {
+                        question_id: question.id.clone(),
+                        first: first.paradigm.clone(),
+                        second: second.paradigm.clone(),
+                        mismatch: verdict.mismatch,
+                    });
+                }
+            }
+        }
     }
+    report
+}
+
+fn mismatch_name(mismatch: Mismatch) -> String {
+    serde_json::to_value(mismatch)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_default()
 }
 
 /// O laboratório de uma rodada: monta e roda cada teste.
@@ -355,6 +491,7 @@ impl Runner for Lab<'_> {
             unit,
             difficulty: question.map_or("", |question| question.difficulty.as_str()),
             unanswerable: question.is_some_and(|question| question.unanswerable),
+            dataset: question.and_then(|question| question.dataset.as_deref()),
             question: text,
             detected: language::detect(text),
         });
@@ -407,7 +544,10 @@ impl Lab<'_> {
         }
         let missing = |what: &str| Error::InvalidState(format!("{what} is not part of this round"));
         let question = check!(self.questions.get(&unit.question_id).ok_or_else(|| missing("the question")));
-        let database = check!(self.databases.by_paradigm.get(&unit.paradigm).ok_or_else(|| missing("the paradigm")));
+        let database = check!(self
+            .databases
+            .get(&unit.paradigm, question.dataset.as_deref())
+            .ok_or_else(|| missing("the database")));
         let db_type = database.db_type;
         let prompt = check!(prompts::for_db(db_type).ok_or_else(|| missing("the prompt")));
         record.prompt_version = Some(prompt.version.to_string());

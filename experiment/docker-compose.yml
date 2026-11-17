@@ -1,0 +1,55 @@
+# Os bancos de teste do experimento. Portas próprias, só em 127.0.0.1, para
+# não cruzar com os bancos dos e2e (5432, 27017, 6380) nem com os de
+# desempenho (55432, 57017). Sem senha: são dados públicos de benchmark e só a
+# própria máquina alcança as portas.
+#
+# Use pelo ./experiment/db.sh (up, status, down, reset).
+name: octapus-experiment
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: bird
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "127.0.0.1:55440:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./data:/import:ro
+      - ./postgres:/scripts:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bird"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mongo:
+    image: mongo:8
+    ports:
+      - "127.0.0.1:57040:27017"
+    volumes:
+      - mongo:/data/db
+      - ./data:/import:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7
+    ports:
+      - "127.0.0.1:56390:6379"
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  postgres:
+  mongo:
+  redis:

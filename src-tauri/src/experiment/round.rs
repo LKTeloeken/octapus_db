@@ -264,6 +264,7 @@ mod tests {
             let mut record = blank(Base {
                 unit,
                 difficulty: "easy",
+                dataset: None,
                 unanswerable: false,
                 question: "?",
                 detected: Detected {

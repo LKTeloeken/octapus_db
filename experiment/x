@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Atalho do executor: ./experiment/x <comando> roda o example `experiment` do
+# Cargo (./experiment/x --help lista os comandos).
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec cargo run --quiet --manifest-path "$ROOT/src-tauri/Cargo.toml" --example experiment --features experiment -- "$@"
