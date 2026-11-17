@@ -24,9 +24,9 @@
 //! ```
 //!
 //! Quando cada pergunta tem o seu banco (os do BIRD), `{dataset}` é trocado
-//! pelo `dataset` da pergunta: `schemas = ["{dataset}"]` num PostgreSQL com um
-//! schema por conjunto, `database = "{dataset}"` num MongoDB com um database
-//! por conjunto.
+//! pelo `dataset` da pergunta: `database = "{dataset}"` com um database por
+//! conjunto (como o `./experiment/db.sh` carrega o PostgreSQL e o MongoDB), ou
+//! `schemas = ["{dataset}"]` num PostgreSQL com um schema por conjunto.
 //!
 //! Senha, token, convite e URI de conexão nunca ficam no arquivo: ele só diz
 //! em que variável de ambiente cada um está. Por isso o arquivo inteiro pode

@@ -10,7 +10,6 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_DB: bird
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "127.0.0.1:55440:5432"
@@ -19,7 +18,7 @@ services:
       - ./data:/import:ro
       - ./postgres:/scripts:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d bird"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 2s
       timeout: 3s
       retries: 30

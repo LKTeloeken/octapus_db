@@ -9,7 +9,8 @@
 #   ./experiment/db.sh reset      para e apaga os dados carregados
 #
 # DATASETS="student_club financial" limita os bancos do MongoDB a baixar e
-# carregar (padrão: os 11 do BIRD dev). O PostgreSQL vem num dump só.
+# carregar (padrão: os 11 do BIRD dev). O PostgreSQL vem num dump só, e cada
+# banco vira um database próprio, com as tabelas no `public`.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -50,13 +51,18 @@ download() {
   echo "Pronto: dados em $DATA"
 }
 
-psql_value() { compose exec -T postgres psql -U postgres -d bird -tA -c "$1"; }
+# psql_value "<sql>" [database]
+psql_value() { compose exec -T postgres psql -U postgres -d "${2:-postgres}" -tA -c "$1"; }
 mongo_value() { compose exec -T mongo mongosh --quiet --eval "$1"; }
+
+# O database de passagem: o dump vem inteiro nele, e cada banco sai dele
+STAGING=bird_staging
 
 load_postgres() {
   local dump="$DATA/bird/minidev/MINIDEV_postgresql/BIRD_dev.sql"
-  # O último schema a ser criado: se está completo, a carga terminou
-  if [ "$(psql_value "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'toxicology'")" = "4" ]; then
+  # O último database a ser criado: se está completo, a carga terminou
+  if [ "$(psql_value "SELECT 1 FROM pg_database WHERE datname = 'toxicology'")" = "1" ] \
+    && [ "$(psql_value "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'" toxicology)" = "4" ]; then
     echo "   PostgreSQL: já carregado"
     return
   fi
@@ -64,14 +70,28 @@ load_postgres() {
 
   echo ">> PostgreSQL: carregando o dump (1 GB; alguns minutos)"
   # Do zero: uma carga interrompida deixa tabelas pela metade
-  for dataset in $ALL_DATASETS; do psql_value "DROP SCHEMA IF EXISTS $dataset CASCADE" >/dev/null 2>&1; done
-  psql_value "DROP SCHEMA public CASCADE; CREATE SCHEMA public" >/dev/null 2>&1
+  for dataset in $ALL_DATASETS; do psql_value "DROP DATABASE IF EXISTS $dataset" >/dev/null; done
+  psql_value "DROP DATABASE IF EXISTS $STAGING" >/dev/null
+  # A versão antiga, com um schema por banco num database `bird`
+  psql_value "DROP DATABASE IF EXISTS bird" >/dev/null
+  psql_value "CREATE DATABASE $STAGING" >/dev/null
   # O dump dá as tabelas a quem o gerou
   psql_value "DO \$\$ BEGIN CREATE ROLE xiaolongli; EXCEPTION WHEN duplicate_object THEN NULL; END \$\$" >/dev/null
-  compose exec -T postgres psql -q -U postgres -d bird -v ON_ERROR_STOP=1 \
+  compose exec -T postgres psql -q -U postgres -d "$STAGING" -v ON_ERROR_STOP=1 \
     -f /import/bird/minidev/MINIDEV_postgresql/BIRD_dev.sql >/dev/null
-  compose exec -T postgres psql -q -U postgres -d bird -v ON_ERROR_STOP=1 -f /scripts/schemas.sql
-  psql_value "ANALYZE" >/dev/null
+  # Separa as 75 tabelas por banco, cada um num schema
+  compose exec -T postgres psql -q -U postgres -d "$STAGING" -v ON_ERROR_STOP=1 -f /scripts/schemas.sql
+
+  # Cada schema vira um database, com as tabelas no `public`
+  for dataset in $ALL_DATASETS; do
+    echo "   PostgreSQL: $dataset"
+    psql_value "CREATE DATABASE $dataset" >/dev/null
+    psql_value "DROP SCHEMA public" "$dataset" >/dev/null
+    compose exec -T postgres sh -c \
+      "pg_dump -U postgres -d $STAGING -n $dataset --no-owner --no-privileges | psql -q -U postgres -d $dataset -v ON_ERROR_STOP=1" >/dev/null
+    psql_value "ALTER SCHEMA $dataset RENAME TO public; GRANT USAGE ON SCHEMA public TO PUBLIC; ANALYZE" "$dataset" >/dev/null
+  done
+  psql_value "DROP DATABASE $STAGING" >/dev/null
 }
 
 load_mongo() {
@@ -98,11 +118,11 @@ up() {
 }
 
 status() {
-  echo "PostgreSQL (127.0.0.1:55440, database bird): tabelas por schema"
-  psql_value "SELECT format('  %-26s %s', table_schema, tables) FROM (
-                SELECT table_schema, count(*) AS tables FROM information_schema.tables
-                WHERE table_schema NOT IN ('pg_catalog', 'information_schema') GROUP BY table_schema
-              ) AS by_schema ORDER BY table_schema"
+  echo "PostgreSQL (127.0.0.1:55440): tabelas por database"
+  for dataset in $(psql_value "SELECT datname FROM pg_database WHERE NOT datistemplate AND datname <> 'postgres' ORDER BY datname"); do
+    printf '  %-26s %s\n' "$dataset" \
+      "$(psql_value "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'" "$dataset")"
+  done
   echo "MongoDB (127.0.0.1:57040): coleções por database"
   mongo_value "db.adminCommand('listDatabases').databases.filter(d => !['admin','config','local'].includes(d.name))
                .forEach(d => print('  ' + d.name.padEnd(26) + ' ' + db.getSiblingDB(d.name).getCollectionNames().length))"

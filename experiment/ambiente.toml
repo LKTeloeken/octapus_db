@@ -18,14 +18,13 @@ ask_user = "clarify"           # ninguém responde: o turno encerra como esclare
 mongo_sample_values = false
 row_limit = 200                # a página do app
 
-# Cada pergunta diz o seu banco (`dataset`): um schema por conjunto no
-# PostgreSQL, um database por conjunto no MongoDB.
+# Cada pergunta diz o seu banco (`dataset`): um database por conjunto, tanto
+# no PostgreSQL (tabelas no `public`) quanto no MongoDB.
 [database.postgres]
 host = "127.0.0.1"
 port = 55440
 username = "postgres"
-database = "bird"
-schemas = ["{dataset}"]
+database = "{dataset}"
 
 [database.mongodb]
 host = "127.0.0.1"

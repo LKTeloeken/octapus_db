@@ -1,6 +1,6 @@
 -- Um schema por banco do BIRD. O dump do Mini-Dev põe as 75 tabelas no
--- `public`; aqui cada uma vai para o schema do seu conjunto de dados, para
--- o assistente ver só a estrutura do banco da pergunta (o `dataset`).
+-- `public`; aqui cada uma vai para o schema do seu conjunto de dados, e o
+-- db.sh copia cada schema para um database próprio (o `dataset` da pergunta).
 -- Gerado do dev_tables.json do BIRD. Pode rodar de novo: o que já foi
 -- movido é pulado.
 

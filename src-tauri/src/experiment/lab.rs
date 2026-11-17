@@ -241,7 +241,7 @@ impl Databases {
 
         // Um banco por (paradigma, dataset) que alguma pergunta da rodada usa
         let mut targets: Vec<(String, Option<String>)> = Vec::new();
-        for (paradigm, _) in &environment.database {
+        for paradigm in environment.database.keys() {
             for question in &questions.questions {
                 if (!only.is_empty() && !only.contains(&question.id)) || !question.runs_on(paradigm) {
                     continue;
