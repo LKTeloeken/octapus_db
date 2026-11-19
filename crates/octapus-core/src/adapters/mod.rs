@@ -19,7 +19,7 @@ pub use row_stream::{
 pub(crate) use row_stream::{send, send_whole_result, BatchAccumulator};
 #[cfg(test)]
 pub(crate) use row_stream::{all_rows, collect, column};
-pub use sql_text::statement_body;
+pub use sql_text::{split_statements, statement_body};
 pub use traits::*;
 
 use std::sync::Arc;

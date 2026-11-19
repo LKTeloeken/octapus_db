@@ -62,6 +62,79 @@ pub fn statement_body(sql: &str) -> &str {
     start.map_or("", |start| &sql[start..end])
 }
 
+/// Os statements de um script, como intervalos de bytes em `sql`: do
+/// primeiro ao último caractere significativo de cada um, sem o `;` que o
+/// fecha. Comentários e espaços entre statements ficam de fora; um `;` entre
+/// aspas, cifrões (`$tag$ … $tag$`) ou dentro de comentário não separa.
+///
+/// O editor usa para rodar o statement do cursor e para saber se o texto é
+/// um script; o streaming do Postgres, para não embrulhar um script na
+/// subquery do teto.
+pub fn split_statements(sql: &str) -> Vec<std::ops::Range<usize>> {
+    let bytes = sql.as_bytes();
+    let mut statements = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut end = 0;
+    let mut i = 0;
+
+    while i < bytes.len() {
+        let token = i;
+        let significant = match bytes[i] {
+            byte if byte.is_ascii_whitespace() => {
+                i += 1;
+                false
+            }
+            b';' => {
+                i += 1;
+                if let Some(start) = start.take() {
+                    statements.push(start..end);
+                }
+                false
+            }
+            b'-' if bytes.get(i + 1) == Some(&b'-') => {
+                i = line_comment_end(bytes, i);
+                false
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                i = block_comment_end(bytes, i);
+                false
+            }
+            b'\'' => {
+                i = quoted_end(bytes, i, b'\'', is_escape_string(bytes, i));
+                true
+            }
+            b'"' => {
+                i = quoted_end(bytes, i, b'"', false);
+                true
+            }
+            b'$' => {
+                i = dollar_quoted_end(sql, i).unwrap_or(i + 1);
+                true
+            }
+            _ => {
+                i += 1;
+                true
+            }
+        };
+
+        if significant {
+            start.get_or_insert(token);
+            end = i;
+        }
+    }
+    if let Some(start) = start {
+        statements.push(start..end);
+    }
+    // Os cortes caem num byte ASCII ou no fim de um caractere inteiro, exceto
+    // numa aspa sem fechar que termina no meio de um: o fim vira o do texto
+    for range in &mut statements {
+        while !sql.is_char_boundary(range.end) {
+            range.end += 1;
+        }
+    }
+    statements
+}
+
 /// `-- …` até o fim da linha (a quebra fica de fora).
 fn line_comment_end(bytes: &[u8], from: usize) -> usize {
     bytes[from..]
@@ -194,6 +267,35 @@ mod tests {
         assert_eq!(statement_body("  ;; \n"), "");
         assert_eq!(statement_body("-- só comentário"), "");
         assert_eq!(statement_body("/* aberto"), "");
+    }
+
+    fn pieces(sql: &str) -> Vec<&str> {
+        split_statements(sql).into_iter().map(|range| &sql[range]).collect()
+    }
+
+    #[test]
+    fn splits_a_script_into_statements() {
+        assert_eq!(pieces("select 1; select 2"), ["select 1", "select 2"]);
+        assert_eq!(pieces("  select 1 ;\n\n-- dois\nselect 2;\n"), ["select 1", "select 2"]);
+        assert_eq!(pieces("select 1 -- um\n, 2; ;;"), ["select 1 -- um\n, 2"]);
+        assert!(pieces("  ;; -- nada\n").is_empty());
+    }
+
+    #[test]
+    fn semicolons_inside_quotes_and_comments_do_not_split() {
+        assert_eq!(pieces("select ';' ; select 2"), ["select ';'", "select 2"]);
+        assert_eq!(pieces("select \"a;b\" from t"), ["select \"a;b\" from t"]);
+        assert_eq!(pieces("select 1 /* a; b */ + 1"), ["select 1 /* a; b */ + 1"]);
+        assert_eq!(
+            pieces("create function f() returns int as $$ begin; return 1; end $$ language plpgsql; select f()"),
+            ["create function f() returns int as $$ begin; return 1; end $$ language plpgsql", "select f()"]
+        );
+        assert_eq!(pieces(r"select E'a\';b'; select 2"), [r"select E'a\';b'", "select 2"]);
+    }
+
+    #[test]
+    fn split_handles_accents_and_open_quotes() {
+        assert_eq!(pieces("select 'ação'; select 'pão"), ["select 'ação'", "select 'pão"]);
     }
 
     #[test]

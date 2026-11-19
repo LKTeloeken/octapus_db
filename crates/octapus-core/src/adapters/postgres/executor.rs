@@ -8,7 +8,7 @@ use tokio_postgres::{Column, Row, SimpleQueryMessage, SimpleQueryRow, Statement,
 use super::notices::{message_from_db_error, NoticeHub};
 use super::QueryRegistry;
 
-use crate::adapters::{send, statement_body, BatchAccumulator, MessageSink, RowBatchSender, StreamSummary};
+use crate::adapters::{send, split_statements, statement_body, BatchAccumulator, MessageSink, RowBatchSender, StreamSummary};
 use crate::error::{Error, Result};
 use crate::models::{
     EditableInfo, QueryColumnInfo, QueryMessage, QueryOptions, QueryResult, RowChanges, RowEdit,
@@ -336,11 +336,14 @@ pub async fn execute_query_streamed(
 
     let is_select = is_select_query(trimmed);
     let limit = (!options.unlimited).then_some(options.limit.max(0) as usize);
+    // Um script (`select …; select …`) não cabe na subquery: roda como veio
+    // e o teto vale só aqui, na leitura do primeiro result set
+    let single = split_statements(trimmed).len() <= 1;
 
     // SELECT com teto vai numa subquery com LIMIT: o servidor não gera (nem
     // manda) o que passaria do teto. O resto tem o teto aplicado aqui.
     let exec_query = match limit {
-        Some(limit) if is_select => format!(
+        Some(limit) if is_select && single => format!(
             "SELECT * FROM ({}) AS __q LIMIT {} OFFSET {}",
             trimmed,
             limit + 1, // +1 to detect has_more
@@ -1073,11 +1076,16 @@ mod tests {
         // Vazio manda as colunas; script vira linhas só no primeiro result set
         let (summary, batches) = run("SELECT 1 AS a WHERE false", QueryOptions::default()).await;
         assert_eq!((batches.len(), summary.unwrap().row_count), (1, 0));
-        // (com teto, um script que começa por SELECT iria para a subquery — como no execute_query)
         let unlimited = QueryOptions { unlimited: true, ..Default::default() };
         let (summary, batches) = run("SELECT 1 AS a; SELECT 2 AS b, 3 AS c", unlimited).await;
         assert_eq!(all_rows(&batches), [[Some("1".into())]]);
         assert_eq!(summary.unwrap().columns.len(), 1);
+        // Com teto, o script não vai para a subquery: o teto vale na leitura
+        let capped = QueryOptions { limit: 3, ..Default::default() };
+        let (summary, batches) =
+            run("SELECT n FROM generate_series(1, 10) n; SELECT 2 AS b", capped).await;
+        let summary = summary.unwrap();
+        assert_eq!((all_rows(&batches).len(), summary.row_count, summary.has_more), (3, 3, true));
 
         // Sem colunas: as afetadas
         let (summary, batches) = run(
