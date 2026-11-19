@@ -176,18 +176,18 @@ query perigosa (`DELETE` sem `WHERE`, `DROP`, `TRUNCATE` — o núcleo já tem
 
 ```
 ~/Documents/projects/personal/
-├── octapus_db/                    público. main intocada.
-│   └── (branch feat/native-core, a partir da feat/core-cli)
-│       └── crates/octapus-core/   núcleo: só adições
-│
-├── octapus_db-native-core/        git worktree do octapus_db na feat/native-core
-│                                  (você pode trocar de branch no octapus_db sem
-│                                   quebrar o build da UI)
+├── octapus_db/                    público. main intocada. Durante a UI nova, esta
+│   │                              mesma pasta fica na branch feat/native-core
+│   │                              (a partir da feat/core-cli). Sem worktree: um
+│   │                              target/ só (o atual já tem 17 GB).
+│   └── crates/octapus-core/       núcleo: só adições
 │
 └── octapus-native/                PRIVADO. Só a UI. Cargo.lock próprio.
     ├── Cargo.toml                 [workspace] members = ["crates/*"]
-    ├── rust-toolchain.toml        1.96.0
-    ├── .cargo/config.toml         [patch] → ../octapus_db-native-core (gitignored)
+    ├── rust-toolchain.toml        1.100.0
+    ├── .cargo/config.toml         [patch] → ../octapus_db/crates/octapus-core
+    │                              (gitignored). A UI só compila com o octapus_db
+    │                              na feat/native-core.
     ├── crates/
     │   ├── octapus-ui-kit/        tema Ink → Theme do gpui-component, tokens, ícones,
     │   │                          primitivas. Não conhece o núcleo.
@@ -306,17 +306,22 @@ tokio (adapter) ──RowBatch──► canal limitado ──► task de 1º pla
 | `octapus_db` / `feat/native-core` (a partir da `feat/core-cli`) | Só adições no `crates/octapus-core` | Código de UI; mudanças em `src-tauri/`, `src/`, CLI |
 | `octapus-native` (privado) | Toda a UI | Cópia do núcleo |
 
-### 4.2 Branch do núcleo + worktree
+### 4.2 Branch do núcleo (na mesma pasta)
 
 ```bash
 cd ~/Documents/projects/personal/octapus_db
 git branch feat/native-core feat/core-cli
+git switch feat/native-core
 git push -u origin feat/native-core          # público: o rev precisa existir no GitHub
-git worktree add ../octapus_db-native-core feat/native-core
 ```
 
-O worktree deixa o `octapus_db` livre para você trocar de branch (hotfix na `main`,
-trabalho na `feat/core-cli`) sem quebrar o build da UI.
+**Sem worktree:** um segundo checkout teria um segundo `target/` (o atual já tem
+17 GB). Consequência: **a UI só compila com o `octapus_db` na `feat/native-core`**,
+porque o `[patch]` aponta para `../octapus_db/crates/octapus-core`. Para um hotfix na
+`main` ou trabalho na `feat/core-cli`, troque de branch, faça o que precisa e volte para
+a `feat/native-core` antes de compilar a UI. Mudanças no núcleo e as verificações da
+raiz (`cargo build --workspace`, clippy, test) rodam no próprio `octapus_db`, com o
+`target/` que já existe lá.
 
 **Sincronização (sempre merge, nunca rebase — a branch é publicada e longa):**
 
@@ -325,7 +330,7 @@ main ──(hotfix, seu fluxo atual)──► feat/core-cli ──(merge)──�
 ```
 
 ```bash
-cd ~/Documents/projects/personal/octapus_db-native-core
+cd ~/Documents/projects/personal/octapus_db    # já na feat/native-core
 git fetch origin && git merge --no-ff origin/feat/core-cli
 ```
 
@@ -357,10 +362,10 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 octapus-core   = { git = "https://github.com/LKTeloeken/octapus_db", rev = "<sha da feat/native-core>" }
-# Par conferido no DBFlux em 17/11/2026: gpui-pre =0.3.9 + gpui-component =0.7.3.
-# Confirmar o par mais novo no dia; sempre versão exata.
-gpui           = { package = "gpui-pre", version = "=0.3.9" }
-gpui-component = { version = "=0.7.3" }
+# Fase 0 (19/11/2026): gpui-kit =0.10.0, a fachada oficial que fixa o par
+# gpui-pre =0.3.12 + gpui-component =0.10.0. Exige Rust ≥1.97 (o repositório
+# da UI fixa 1.100.0 no rust-toolchain.toml). Sempre versão exata.
+gpui-kit       = { version = "=0.10.0", features = ["tree-sitter-sql"] }
 tokio          = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 futures        = "0.3"
 
@@ -370,11 +375,16 @@ debug = "line-tables-only"
 debug = false
 ```
 
-`.cargo/config.toml` (local, fora do git) — o build usa o seu worktree, não o `rev`:
+`.cargo/config.toml` (local, fora do git) — o build usa o seu checkout do `octapus_db`
+(na `feat/native-core`), não o `rev`:
 
 ```toml
 [patch."https://github.com/LKTeloeken/octapus_db"]
-octapus-core = { path = "../octapus_db-native-core/crates/octapus-core" }
+octapus-core = { path = "../octapus_db/crates/octapus-core" }
+
+# Um target/ só no notebook: o da UI reaproveita o do octapus_db
+[build]
+target-dir = "../octapus_db/target"
 ```
 
 **Atualizar o `rev`** só quando for gerar um build para alguém testar ou marcar um
@@ -414,7 +424,7 @@ on:
    `#[deprecated]` quando o Tauri for aposentado.
 3. **Feature flags** só se a adição trouxer dependência pesada (não é o caso previsto).
 4. Tipos que não cruzam IPC ficam fora de `models/` → nada de `pnpm gen:types` à toa.
-5. Todo commit na `feat/native-core` passa pelos dois lados: no worktree,
+5. Todo commit na `feat/native-core` passa pelos dois lados: no `octapus_db`,
    `cargo build --workspace && cargo clippy --workspace --all-targets && cargo test --workspace`
    (Tauri e CLI continuam verdes) **e** `cargo check` no `octapus-native`.
 6. **Estado da UI fora do `app.db` até a migração:** sessão e preferências da UI nova
@@ -450,7 +460,7 @@ extra.
 manual do Windows e testar o que a fase entregou numa máquina ou VM Windows.
 
 ### Fase 0 — Repositório, esqueleto e spikes (1,5–2 semanas)
-- Branch + worktree + repositório privado (§4.2–4.3).
+- Branch + repositório privado (§4.2–4.3).
 - Janela com `gpui_component::Root`, tema Ink claro/escuro/sistema, shell vazio.
 - `AppState::open(paths::data_dir())` + bridge tokio: listar os servidores salvos.
 - **Spike grade:** 1M linhas sintéticas × 12 colunas em `uniform_list`; medir.
@@ -553,7 +563,7 @@ branch, mas a importação espera.
 | **IME e acentos** | Spike na Fase 0 nos 3 SOs. Se falhar: issue upstream + teste manual a cada upgrade |
 | **Acessibilidade** | Suporte a leitor de tela no GPUI é limitado. Limitação documentada na beta; 100% por teclado (teste de cobertura, como o DBFlux) |
 | **Edição de célula, menus de contexto** | O gpui-component cobre `Input`, `NumberInput`, `DatePicker`, `Switch`, `Select`, `ContextMenu`, `Popover`. O resto (array, JSON em modal) é composição. Orçado nas Fases 2 e 4 |
-| **Branch paralela do núcleo diverge** | Só adições; merge da `feat/core-cli` a cada mudança relevante e no mínimo semanal; build do Tauri/CLI verde no worktree a cada commit |
+| **Branch paralela do núcleo diverge** | Só adições; merge da `feat/core-cli` a cada mudança relevante e no mínimo semanal; build do Tauri/CLI verde no `octapus_db` a cada commit |
 | **Estado da UI colidindo no app.db** | Arquivo próprio até a Fase 6 (§4.5, regra 6) |
 | **Disco do notebook** | Núcleo compila também no `target/` da UI; GPUI em debug é pesado. `[profile.dev]` enxuto, `cargo clean` quando precisar |
 | **Licenças** | gpui e gpui-component: Apache-2.0; octapus é MIT OR Apache-2.0 — compatível. Gramáticas tree-sitter: MIT. Fontes embutidas: OFL, exige aviso. `cargo deny check licenses` antes da beta, junto da pendência do THIRD_PARTY_LICENSES. Código do DBFlux: só referência |
@@ -661,8 +671,8 @@ resolução de janela; resultado num CSV por versão.
 
 ## 10. Primeiros 5 passos
 
-1. **Branch e worktree do núcleo** (§4.2): criar `feat/native-core` a partir da
-   `feat/core-cli`, dar push, criar o worktree `../octapus_db-native-core`. ~15 min.
+1. **Branch do núcleo** (§4.2): criar `feat/native-core` a partir da `feat/core-cli`,
+   deixar o `octapus_db` nela e dar push. ~15 min.
 2. **Repositório privado** (§4.3): `git init`, `.gitignore`, `Cargo.toml` com o par atual
    `gpui-pre` + `gpui-component` (conferir no crates.io), `.cargo/config.toml` com o
    `[patch]`, `cargo check`. ~1 h.
