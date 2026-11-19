@@ -20,11 +20,11 @@ const message = (overrides: Partial<QueryMessage> = {}): QueryMessage => ({
 });
 
 describe('texto copiado do log de mensagens', () => {
-  it('leva a severidade e a mensagem, sem hora', () => {
-    expect(formatMessageText(message())).toBe('NOTICE: olá');
+  it('leva só a mensagem, sem hora nem severidade', () => {
+    expect(formatMessageText(message())).toBe('olá');
   });
 
-  it('acrescenta as linhas extras na ordem da tela', () => {
+  it('deixa de fora DETAIL, HINT, CONTEXT, SQLSTATE e POSITION', () => {
     const text = formatMessageText(
       message({
         kind: 'error',
@@ -37,16 +37,7 @@ describe('texto copiado do log de mensagens', () => {
         position: 0,
       }),
     );
-    expect(text).toBe(
-      [
-        'ERROR: falhou',
-        'DETAIL: d',
-        'HINT: h',
-        'CONTEXT: PL/pgSQL function f() line 3',
-        'SQLSTATE: P0001',
-        'POSITION: 0',
-      ].join('\n'),
-    );
+    expect(text).toBe('falhou');
   });
 
   it('junta as mensagens da execução e separa as execuções', () => {
@@ -57,11 +48,9 @@ describe('texto copiado do log de mensagens', () => {
       messages: texts.map(text => message({ message: text })),
     });
 
-    expect(formatEntryText(entry('a', ['um', 'dois']))).toBe(
-      'NOTICE: um\nNOTICE: dois',
-    );
+    expect(formatEntryText(entry('a', ['um', 'dois']))).toBe('um\ndois');
     expect(
       formatLogText([entry('a', ['um']), entry('b', []), entry('c', ['três'])]),
-    ).toBe('NOTICE: um\n\nNOTICE: três');
+    ).toBe('um\n\ntrês');
   });
 });

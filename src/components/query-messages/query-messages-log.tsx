@@ -42,9 +42,10 @@ const querySummary = (query: string) => {
 };
 
 /**
- * Seleção com o mouse: hora, chip e cabeçalho da execução são `select-none`,
- * então arrastar sobre o log pega só o texto das mensagens. Para levar tudo
- * limpo há os botões Copiar (por execução e no rodapé).
+ * Seleção com o mouse: só o texto da mensagem é selecionável. Hora, chip,
+ * cabeçalho da execução e as linhas de DETAIL/CONTEXT/SQLSTATE… são
+ * `select-none` — continuam na tela, mas arrastar sobre o log (ou os botões
+ * Copiar) leva só as mensagens.
  */
 const MessageRow = memo(({ message }: { message: QueryMessage }) => {
   const extras = messageExtras(message);
@@ -64,17 +65,17 @@ const MessageRow = memo(({ message }: { message: QueryMessage }) => {
       >
         {message.severity}
       </span>
-      <div className="min-w-0 flex-1 select-text">
+      <div className="min-w-0 flex-1">
         <p
           className={cn(
-            'whitespace-pre-wrap wrap-break-word',
+            'whitespace-pre-wrap wrap-break-word select-text',
             message.kind === 'error' ? 'text-danger' : 'text-fg',
           )}
         >
           {message.message}
         </p>
         {extras.length > 0 && (
-          <pre className="mt-0.5 whitespace-pre-wrap wrap-break-word text-fg-muted">
+          <pre className="mt-0.5 select-none whitespace-pre-wrap wrap-break-word text-fg-muted">
             {extras.join('\n')}
           </pre>
         )}
