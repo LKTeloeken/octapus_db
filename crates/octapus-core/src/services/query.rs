@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::adapters::{DatabaseAdapter, MessageSink};
+use crate::adapters::{DatabaseAdapter, MessageSink, RowBatchSender, StreamSummary};
 use crate::error::Result;
 use crate::models::{QueryOptions, QueryResult, StatementResult};
 
@@ -33,6 +33,19 @@ impl QueryService {
     ) -> Result<QueryResult> {
         // Future: log to query history, track active queries, etc.
         adapter.execute_query_with_messages(query, options, sink).await
+    }
+
+    /// Como [`QueryService::execute_query`], com as linhas em lotes pelo canal
+    /// `rows` (ver `DatabaseAdapter::execute_query_streamed`).
+    pub async fn execute_query_streamed(
+        &self,
+        adapter: Arc<dyn DatabaseAdapter>,
+        query: &str,
+        options: QueryOptions,
+        sink: Option<Arc<dyn MessageSink>>,
+        rows: RowBatchSender,
+    ) -> Result<StreamSummary> {
+        adapter.execute_query_streamed(query, options, sink, rows).await
     }
 
     /// Execute a statement (INSERT, UPDATE, DELETE, etc.)

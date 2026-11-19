@@ -8,6 +8,7 @@ mod read_only;
 pub(crate) mod shape;
 mod types;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -15,7 +16,7 @@ use mongodb::bson::doc;
 use mongodb::options::{ClientOptions, Credential, ServerAddress, Tls, TlsOptions};
 use mongodb::{Client, Database};
 
-use crate::adapters::{DatabaseAdapter, ReadOnlyLimits, ReadOnlyOp};
+use crate::adapters::{DatabaseAdapter, MessageSink, ReadOnlyLimits, ReadOnlyOp, RowBatchSender, StreamSummary};
 use crate::error::{Error, Result};
 use crate::models::*;
 
@@ -103,6 +104,16 @@ impl DatabaseAdapter for MongoAdapter {
         options: QueryOptions,
     ) -> Result<QueryResult> {
         executor::execute_query(&self.db(), &self.database, query, options).await
+    }
+
+    async fn execute_query_streamed(
+        &self,
+        query: &str,
+        options: QueryOptions,
+        _messages: Option<Arc<dyn MessageSink>>,
+        rows: RowBatchSender,
+    ) -> Result<StreamSummary> {
+        executor::execute_query_streamed(&self.db(), &self.database, query, options, &rows).await
     }
 
     async fn execute_read_only(&self, op: &ReadOnlyOp, page: QueryOptions) -> Result<QueryResult> {

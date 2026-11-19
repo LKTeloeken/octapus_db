@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::adapters::redisdb::patterns::KeyPatterns;
-use crate::adapters::{MessageSink, ReadOnlyOp};
+use crate::adapters::{send_whole_result, MessageSink, ReadOnlyOp, RowBatchSender, StreamSummary};
 use crate::error::{Error, Result};
 use crate::models::{
     AdapterCapabilities, ColumnInfo, DatabaseInfo, DatabaseStructure, EditableInfo, IndexInfo,
@@ -56,6 +56,29 @@ pub trait DatabaseAdapter: Send + Sync {
         _sink: Option<Arc<dyn MessageSink>>,
     ) -> Result<QueryResult> {
         self.execute_query(query, options).await
+    }
+
+    /// Igual ao [`DatabaseAdapter::execute_query_with_messages`], mas as
+    /// linhas saem em lotes compactos ([`RowBatch`](crate::adapters::RowBatch))
+    /// pelo canal `rows`, à medida que o banco as devolve. O primeiro lote traz
+    /// as colunas (sai mesmo sem linhas). O canal é limitado: se ninguém
+    /// consome, a leitura pausa; se o receptor some, a execução para com
+    /// `Error::Cancelled`.
+    ///
+    /// Sem `unlimited`, para em `options.limit` linhas (`has_more` diz se
+    /// havia mais); `count_total` é ignorado — quem consome conta os lotes.
+    ///
+    /// O default roda o [`DatabaseAdapter::execute_query_with_messages`] e
+    /// manda o resultado inteiro em lotes no fim (Redis).
+    async fn execute_query_streamed(
+        &self,
+        query: &str,
+        options: QueryOptions,
+        messages: Option<Arc<dyn MessageSink>>,
+        rows: RowBatchSender,
+    ) -> Result<StreamSummary> {
+        let result = self.execute_query_with_messages(query, options, messages).await?;
+        send_whole_result(result, &rows).await
     }
 
     /// Executa uma operação de leitura do assistente sem que nada possa

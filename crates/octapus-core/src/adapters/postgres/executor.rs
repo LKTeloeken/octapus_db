@@ -8,7 +8,7 @@ use tokio_postgres::{Column, Row, SimpleQueryMessage, SimpleQueryRow, Statement,
 use super::notices::{message_from_db_error, NoticeHub};
 use super::QueryRegistry;
 
-use crate::adapters::{statement_body, MessageSink};
+use crate::adapters::{send, statement_body, BatchAccumulator, MessageSink, RowBatchSender, StreamSummary};
 use crate::error::{Error, Result};
 use crate::models::{
     EditableInfo, QueryColumnInfo, QueryMessage, QueryOptions, QueryResult, RowChanges, RowEdit,
@@ -280,6 +280,253 @@ pub async fn execute_query(
     })
 }
 
+/// Como [`execute_query`], mas as linhas saem em lotes pelo canal `rows`
+/// enquanto o servidor as devolve (`DatabaseAdapter::execute_query_streamed`).
+///
+/// Vai pelo protocolo simples em stream (`simple_query_raw`): o Postgres
+/// manda cada valor como texto, igual à execução normal, sem decodificar por
+/// tipo — o `query_raw` traria os valores em binário. O `prepare` em paralelo
+/// dá os tipos das colunas e a detecção de editável. Num script, só o
+/// primeiro result set com colunas vira linhas; os demais contam como
+/// afetadas.
+pub async fn execute_query_streamed(
+    pool: &Pool,
+    query: &str,
+    options: QueryOptions,
+    registry: &QueryRegistry,
+    hub: &Arc<NoticeHub>,
+    sink: Option<Arc<dyn MessageSink>>,
+    rows: RowBatchSender,
+) -> Result<StreamSummary> {
+    let client = pool.get().await?;
+    let trimmed = statement_body(query);
+
+    if trimmed.is_empty() {
+        return Err(Error::InvalidQuery("Empty query".into()));
+    }
+
+    // search_path, PID, cancelamento e notices: igual ao execute_query
+    if let Some(schema) = options.schema.as_deref() {
+        let path = format!("{}, public", quote_ident(schema));
+        client
+            .batch_execute(&format!("SET search_path TO {path}"))
+            .await?;
+    }
+
+    let pid: Option<i32> = if sink.is_some() || options.query_id.is_some() {
+        Some(
+            client
+                .query_one("SELECT pg_backend_pid()", &[])
+                .await?
+                .get(0),
+        )
+    } else {
+        None
+    };
+
+    let _pid_guard = match (options.query_id.as_deref(), pid) {
+        (Some(query_id), Some(pid)) => Some(PidGuard::register(registry, query_id, pid)),
+        _ => None,
+    };
+
+    let _notice_sub = match (sink.as_ref(), pid) {
+        (Some(sink), Some(pid)) => Some(hub.subscribe(pid, Arc::clone(sink))),
+        _ => None,
+    };
+
+    let is_select = is_select_query(trimmed);
+    let limit = (!options.unlimited).then_some(options.limit.max(0) as usize);
+
+    // SELECT com teto vai numa subquery com LIMIT: o servidor não gera (nem
+    // manda) o que passaria do teto. O resto tem o teto aplicado aqui.
+    let exec_query = match limit {
+        Some(limit) if is_select => format!(
+            "SELECT * FROM ({}) AS __q LIMIT {} OFFSET {}",
+            trimmed,
+            limit + 1, // +1 to detect has_more
+            options.offset.max(0)
+        ),
+        _ => trimmed.to_string(),
+    };
+
+    let started = Instant::now();
+    let (stmt, stream) = tokio::join!(client.prepare(trimmed), client.simple_query_raw(&exec_query));
+    let stmt = stmt.ok();
+
+    let streamed = match stream {
+        Ok(stream) => stream_simple_rows(stream, stmt.as_ref(), limit, &rows).await,
+        Err(err) => Err(StreamError::Db(err)),
+    };
+
+    let streamed = match streamed {
+        Ok(streamed) => streamed,
+        Err(StreamError::ReceiverGone) => {
+            // O resto do resultado é descartado pela própria conexão
+            if options.schema.is_some() {
+                let _ = client.batch_execute("RESET search_path").await;
+            }
+            return Err(Error::Cancelled);
+        }
+        Err(StreamError::Db(err)) => {
+            let cancelled = was_cancelled(registry, options.query_id.as_deref());
+            if let (Some(sink), Some(db_error), false) = (sink.as_ref(), err.as_db_error(), cancelled) {
+                sink.push(message_from_db_error(db_error, true));
+            }
+            if options.schema.is_some() {
+                let _ = client.batch_execute("RESET search_path").await;
+            }
+            if cancelled {
+                return Err(Error::Cancelled);
+            }
+            return Err(err.into());
+        }
+    };
+    let execution_time_ms = started.elapsed().as_millis() as u64;
+
+    if let Some(sink) = sink.as_ref() {
+        sink.push(QueryMessage::status(status_text(
+            streamed.row_count,
+            streamed.affected,
+            execution_time_ms,
+        )));
+    }
+
+    let editable_info = match &stmt {
+        Some(stmt) if is_select && !streamed.columns.is_empty() => {
+            detect_editable_info(&client, stmt.columns(), &streamed.columns).await
+        }
+        _ => None,
+    };
+
+    if options.schema.is_some() {
+        client.batch_execute("RESET search_path").await?;
+    }
+
+    Ok(StreamSummary {
+        columns: streamed.columns,
+        row_count: streamed.row_count,
+        has_more: streamed.has_more,
+        // Só quando nada devolveu colunas (INSERT, UPDATE, DDL…)
+        affected_rows: (!streamed.columns_seen).then_some(streamed.affected),
+        execution_time_ms,
+        editable_info,
+    })
+}
+
+enum StreamError {
+    Db(tokio_postgres::Error),
+    ReceiverGone,
+}
+
+impl From<tokio_postgres::Error> for StreamError {
+    fn from(err: tokio_postgres::Error) -> Self {
+        StreamError::Db(err)
+    }
+}
+
+struct StreamedRows {
+    columns: Vec<QueryColumnInfo>,
+    /// Algum result set descreveu colunas (mesmo vazio)
+    columns_seen: bool,
+    row_count: usize,
+    has_more: bool,
+    /// `CommandComplete` dos comandos fora do result set que virou linhas
+    affected: u64,
+}
+
+/// Lê o stream do protocolo simples e manda as linhas do primeiro result set
+/// em lotes. Um lote com linhas sai cheio ou quando a primeira dele espera
+/// [`BATCH_MAX_WAIT`](crate::adapters::BATCH_MAX_WAIT), mesmo que o servidor
+/// esteja demorando para mandar a próxima.
+async fn stream_simple_rows(
+    stream: tokio_postgres::SimpleQueryStream,
+    stmt: Option<&Statement>,
+    limit: Option<usize>,
+    rows: &RowBatchSender,
+) -> std::result::Result<StreamedRows, StreamError> {
+    use futures_util::StreamExt;
+
+    let mut stream = std::pin::pin!(stream);
+    let mut accumulator: Option<BatchAccumulator> = None;
+    let mut out = StreamedRows {
+        columns: Vec::new(),
+        columns_seen: false,
+        row_count: 0,
+        has_more: false,
+        affected: 0,
+    };
+    // Dentro do result set que vira linhas (entre a descrição e o fim dele)
+    let mut in_rows = false;
+
+    loop {
+        let next = match accumulator.as_ref().and_then(BatchAccumulator::time_left) {
+            Some(wait) => match tokio::time::timeout(wait, stream.next()).await {
+                Ok(next) => next,
+                Err(_) => {
+                    // O lote venceu pelo tempo com o servidor ainda calado
+                    if !send(rows, accumulator.as_mut().and_then(BatchAccumulator::take)).await {
+                        return Err(StreamError::ReceiverGone);
+                    }
+                    continue;
+                }
+            },
+            None => stream.next().await,
+        };
+        let Some(message) = next else { break };
+
+        match message? {
+            SimpleQueryMessage::RowDescription(description) if !out.columns_seen => {
+                out.columns_seen = true;
+                in_rows = true;
+                // Os tipos vêm do prepare quando ele descreve o mesmo result
+                // set (statement único); senão, só os nomes.
+                out.columns = match stmt.map(columns_from_statement) {
+                    Some(columns) if columns.len() == description.len() => columns,
+                    _ => description
+                        .iter()
+                        .map(|column| QueryColumnInfo {
+                            name: column.name().to_string(),
+                            type_name: String::new(),
+                            type_oid: None,
+                        })
+                        .collect(),
+                };
+                accumulator = Some(BatchAccumulator::new(out.columns.clone()));
+            }
+            SimpleQueryMessage::Row(row) if in_rows => {
+                if out.has_more {
+                    continue;
+                }
+                if limit.is_some_and(|limit| out.row_count >= limit) {
+                    out.has_more = true;
+                    continue;
+                }
+                let Some(acc) = accumulator.as_mut() else { continue };
+                acc.push_row((0..row.len()).map(|index| row.get(index)));
+                out.row_count += 1;
+                if acc.is_full() && !send(rows, acc.take()).await {
+                    return Err(StreamError::ReceiverGone);
+                }
+            }
+            SimpleQueryMessage::CommandComplete(count) => {
+                if in_rows {
+                    in_rows = false;
+                } else {
+                    out.affected += count;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(acc) = accumulator.as_mut() {
+        if !send(rows, acc.take()).await {
+            return Err(StreamError::ReceiverGone);
+        }
+    }
+    Ok(out)
+}
+
 /// Texto da linha de conclusão. O `CommandComplete` do tokio-postgres carrega
 /// só o número de linhas, não a tag textual do Postgres ("INSERT 0 5"), então o
 /// texto é montado aqui.
@@ -288,10 +535,6 @@ fn completion_status(
     returned_rows: usize,
     execution_time_ms: u64,
 ) -> String {
-    if returned_rows > 0 {
-        return format!("{returned_rows} linha(s) retornada(s) · {execution_time_ms} ms");
-    }
-
     let affected: u64 = messages
         .iter()
         .filter_map(|m| match m {
@@ -299,6 +542,16 @@ fn completion_status(
             _ => None,
         })
         .sum();
+
+    status_text(returned_rows, affected, execution_time_ms)
+}
+
+/// A linha de conclusão a partir das contagens (a execução normal e a em
+/// streaming dizem o mesmo).
+fn status_text(returned_rows: usize, affected: u64, execution_time_ms: u64) -> String {
+    if returned_rows > 0 {
+        return format!("{returned_rows} linha(s) retornada(s) · {execution_time_ms} ms");
+    }
 
     if affected > 0 {
         format!("{affected} linha(s) afetada(s) · {execution_time_ms} ms")
@@ -764,6 +1017,115 @@ mod tests {
     use super::*;
 
     // ── End-to-end (requires a local Postgres; run with `cargo test -- --ignored`) ──
+
+    fn e2e_server() -> crate::models::Server {
+        crate::models::Server {
+            id: Some(1),
+            name: "e2e".into(),
+            db_type: crate::models::DatabaseType::Postgres,
+            host: "localhost".into(),
+            port: 5432,
+            username: "postgres".into(),
+            password: "1234".into(),
+            default_database: None,
+            ssl_mode: crate::models::SslMode::Disable,
+            ssl_root_cert: None,
+            connection_uri: None,
+            scope_databases: None,
+            scope_schemas: None,
+            group_id: None,
+            assistant_sample_values: false,
+            display_timezone: None,
+            created_at: 0,
+        }
+    }
+
+    /// Streaming pelo protocolo simples: lotes com as colunas (tipadas) no
+    /// primeiro, teto com `has_more`, script, comando sem linhas e receptor
+    /// que some no meio.
+    #[tokio::test]
+    #[ignore = "requires local postgres on localhost:5432 (postgres/1234)"]
+    async fn e2e_execute_query_streamed() {
+        use crate::adapters::postgres::PostgresAdapter;
+        use crate::adapters::{all_rows, collect, DatabaseAdapter};
+
+        let adapter = Arc::new(PostgresAdapter::new(&e2e_server(), "postgres").unwrap());
+        let run = |query: &'static str, options: QueryOptions| {
+            let adapter = Arc::clone(&adapter);
+            collect(move |tx| async move { adapter.execute_query_streamed(query, options, None, tx).await })
+        };
+
+        let options = QueryOptions { limit: 4500, ..Default::default() };
+        let (summary, batches) = run(
+            "SELECT n, 'ção ' || n AS nome, NULLIF(n % 10, 0) AS resto FROM generate_series(1, 5000) n",
+            options,
+        )
+        .await;
+        let summary = summary.unwrap();
+        assert!(batches.len() >= 3, "{} lotes", batches.len());
+        let types: Vec<&str> = batches[0].columns().unwrap().iter().map(|c| c.type_name.as_str()).collect();
+        assert_eq!(types, ["int4", "text", "int4"]);
+        let rows = all_rows(&batches);
+        assert_eq!((rows.len(), summary.row_count, summary.has_more), (4500, 4500, true));
+        assert_eq!(rows[9], [Some("10".into()), Some("ção 10".into()), None]);
+        assert!(summary.affected_rows.is_none());
+
+        // Vazio manda as colunas; script vira linhas só no primeiro result set
+        let (summary, batches) = run("SELECT 1 AS a WHERE false", QueryOptions::default()).await;
+        assert_eq!((batches.len(), summary.unwrap().row_count), (1, 0));
+        // (com teto, um script que começa por SELECT iria para a subquery — como no execute_query)
+        let unlimited = QueryOptions { unlimited: true, ..Default::default() };
+        let (summary, batches) = run("SELECT 1 AS a; SELECT 2 AS b, 3 AS c", unlimited).await;
+        assert_eq!(all_rows(&batches), [[Some("1".into())]]);
+        assert_eq!(summary.unwrap().columns.len(), 1);
+
+        // Sem colunas: as afetadas
+        let (summary, batches) = run(
+            "CREATE TEMP TABLE tmp_stream AS SELECT 1 AS x; DROP TABLE tmp_stream",
+            QueryOptions::default(),
+        )
+        .await;
+        assert!(batches.is_empty());
+        assert!(summary.unwrap().affected_rows.is_some());
+
+        // O receptor some: Cancelled, e o pool segue servindo
+        let (tx, rx) = crate::adapters::row_batch_channel();
+        drop(rx);
+        let options = QueryOptions { unlimited: true, ..Default::default() };
+        let result = adapter
+            .execute_query_streamed("SELECT n FROM generate_series(1, 100000) n", options, None, tx)
+            .await;
+        assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
+        let after = adapter.execute_query("SELECT 1", QueryOptions::default()).await.unwrap();
+        assert_eq!(after.rows.len(), 1);
+    }
+
+    /// O cancelamento pelo `query_id` também para a execução em streaming.
+    #[tokio::test]
+    #[ignore = "requires local postgres on localhost:5432 (postgres/1234)"]
+    async fn e2e_cancel_streamed_query() {
+        use std::time::Duration;
+
+        use crate::adapters::postgres::PostgresAdapter;
+        use crate::adapters::DatabaseAdapter;
+
+        let adapter = Arc::new(PostgresAdapter::new(&e2e_server(), "postgres").unwrap());
+        let (tx, _rx) = crate::adapters::row_batch_channel();
+        let runner = Arc::clone(&adapter);
+        let handle = tokio::spawn(async move {
+            let options = QueryOptions { query_id: Some("e2e-stream-cancel".into()), ..Default::default() };
+            runner.execute_query_streamed("SELECT pg_sleep(30)", options, None, tx).await
+        });
+        for _ in 0..50 {
+            if adapter.active_queries.lock().unwrap().contains_key("e2e-stream-cancel") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        adapter.cancel_query("e2e-stream-cancel").await.unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(5), handle).await.unwrap().unwrap();
+        assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
+    }
 
     #[tokio::test]
     #[ignore = "requires local postgres on localhost:5432 (postgres/1234)"]

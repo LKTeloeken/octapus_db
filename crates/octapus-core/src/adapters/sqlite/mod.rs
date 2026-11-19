@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use rusqlite::{Connection, InterruptHandle, OpenFlags};
 
-use crate::adapters::{DatabaseAdapter, ReadOnlyLimits, ReadOnlyOp};
+use crate::adapters::{DatabaseAdapter, MessageSink, ReadOnlyLimits, ReadOnlyOp, RowBatchSender, StreamSummary};
 use crate::error::{Error, Result};
 use crate::models::*;
 
@@ -59,6 +59,28 @@ impl SqliteAdapter {
         tokio::task::spawn_blocking(move || work(&mut conn.lock()))
             .await
             .map_err(|e| Error::InvalidState(format!("SQLite task failed: {e}")))?
+    }
+}
+
+/// Roda uma execução do editor marcada com o `query_id` (quando há), para o
+/// `cancel_query` saber o que interromper. Marcada só com a conexão na mão:
+/// o interrupt nunca acerta a execução de outra aba que estava na frente.
+fn run_marked<T>(
+    running: &Mutex<Option<RunningQuery>>,
+    query_id: Option<String>,
+    work: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    let marked = query_id.is_some();
+    if let Some(id) = query_id {
+        *running.lock() = Some(RunningQuery { id, cancelled: false });
+    }
+    let result = work();
+    let cancelled = marked && running.lock().take().is_some_and(|query| query.cancelled);
+
+    match result {
+        // Interrompida a pedido: não é falha do banco
+        Err(_) if cancelled => Err(Error::Cancelled),
+        other => other,
     }
 }
 
@@ -135,21 +157,28 @@ impl DatabaseAdapter for SqliteAdapter {
         let running = Arc::clone(&self.running);
 
         self.with_conn(move |conn| {
-            // Marcada só com a conexão na mão: o interrupt do `cancel_query`
-            // nunca acerta a execução de outra aba que estava na frente.
             let query_id = options.query_id.clone();
-            if let Some(id) = query_id.clone() {
-                *running.lock() = Some(RunningQuery { id, cancelled: false });
-            }
-            let result = executor::execute_query(conn, &query, options, &database);
-            let cancelled = query_id.is_some()
-                && running.lock().take().is_some_and(|query| query.cancelled);
+            run_marked(&running, query_id, || executor::execute_query(conn, &query, options, &database))
+        })
+        .await
+    }
 
-            match result {
-                // Interrompida a pedido: não é falha do banco
-                Err(_) if cancelled => Err(Error::Cancelled),
-                other => other,
-            }
+    async fn execute_query_streamed(
+        &self,
+        query: &str,
+        options: QueryOptions,
+        _messages: Option<Arc<dyn MessageSink>>,
+        rows: RowBatchSender,
+    ) -> Result<StreamSummary> {
+        let query = query.to_string();
+        let database = self.database.clone();
+        let running = Arc::clone(&self.running);
+
+        self.with_conn(move |conn| {
+            let query_id = options.query_id.clone();
+            run_marked(&running, query_id, || {
+                executor::execute_query_streamed(conn, &query, options, &database, &rows)
+            })
         })
         .await
     }
@@ -377,6 +406,98 @@ mod tests {
         assert!(adapter.running.lock().is_none());
 
         // A conexão segue utilizável
+        let after = adapter.execute_query("SELECT 1", QueryOptions::default()).await.unwrap();
+        assert_eq!(after.rows.len(), 1);
+        let _ = std::fs::remove_file(path);
+    }
+
+    fn streaming_fixture(name: &str) -> (Arc<SqliteAdapter>, std::path::PathBuf) {
+        let (server, path) = fixture(
+            name,
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, nome TEXT, valor REAL);
+             WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 5000)
+             INSERT INTO t SELECT x, CASE WHEN x % 10 = 0 THEN NULL ELSE 'ção ' || x END, x / 2.0 FROM n;",
+        );
+        (Arc::new(SqliteAdapter::new(&server, "main").unwrap()), path)
+    }
+
+    async fn stream(
+        adapter: &Arc<SqliteAdapter>,
+        query: &str,
+        options: QueryOptions,
+    ) -> (Result<crate::adapters::StreamSummary>, Vec<crate::adapters::RowBatch>) {
+        let adapter = Arc::clone(adapter);
+        let query = query.to_string();
+        crate::adapters::collect(move |tx| async move {
+            adapter.execute_query_streamed(&query, options, None, tx).await
+        })
+        .await
+    }
+
+    /// As linhas saem em lotes, as colunas (com tipo) no primeiro, e o teto
+    /// corta com `has_more`.
+    #[tokio::test]
+    async fn streamed_rows_come_in_batches_up_to_the_limit() {
+        let (adapter, path) = streaming_fixture("stream_batches");
+        let options = QueryOptions { limit: 4500, ..Default::default() };
+        let (summary, batches) = stream(&adapter, "SELECT id, nome, valor, 1 + 1 AS conta FROM t ORDER BY id", options).await;
+        let summary = summary.unwrap();
+
+        assert!(batches.len() >= 3, "{} lotes", batches.len());
+        let columns = batches[0].columns().unwrap();
+        let types: Vec<&str> = columns.iter().map(|c| c.type_name.as_str()).collect();
+        assert_eq!(types, ["INTEGER", "TEXT", "REAL", "integer"]);
+        assert!(batches[1..].iter().all(|batch| batch.columns().is_none()));
+
+        let rows = crate::adapters::all_rows(&batches);
+        assert_eq!((rows.len(), summary.row_count, summary.has_more), (4500, 4500, true));
+        assert_eq!(rows[0], [Some("1".into()), Some("ção 1".into()), Some("0.5".into()), Some("2".into())]);
+        assert_eq!(rows[9][1], None);
+        assert_eq!(summary.columns.len(), 4);
+        assert_eq!(summary.editable_info.unwrap().primary_key_columns, ["id"]);
+
+        // Sem teto vem tudo; o OFFSET pula no step
+        let options = QueryOptions { unlimited: true, ..Default::default() };
+        let (summary, _) = stream(&adapter, "SELECT id FROM t", options).await;
+        assert_eq!((summary.as_ref().unwrap().row_count, summary.unwrap().has_more), (5000, false));
+        let options = QueryOptions { limit: 2, offset: 4998, ..Default::default() };
+        let (summary, batches) = stream(&adapter, "SELECT id FROM t ORDER BY id", options).await;
+        assert_eq!(crate::adapters::all_rows(&batches), [[Some("4999".into())], [Some("5000".into())]]);
+        assert!(!summary.unwrap().has_more);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn streamed_edge_cases() {
+        let (adapter, path) = streaming_fixture("stream_edges");
+
+        // Resultado vazio ainda manda as colunas
+        let (summary, batches) = stream(&adapter, "SELECT id FROM t WHERE id < 0", QueryOptions::default()).await;
+        assert_eq!(batches.len(), 1);
+        assert_eq!((batches[0].rows(), batches[0].columns().unwrap().len()), (0, 1));
+        assert_eq!(summary.unwrap().row_count, 0);
+
+        // PRAGMA não entra em subquery, mas sai em lotes
+        let (summary, _) = stream(&adapter, "PRAGMA table_info(t)", QueryOptions::default()).await;
+        let summary = summary.unwrap();
+        assert_eq!(summary.row_count, 3);
+        assert!(summary.editable_info.is_none());
+
+        // Comando sem linhas: nenhum lote, só as afetadas
+        let (summary, batches) = stream(&adapter, "UPDATE t SET valor = 0 WHERE id <= 7", QueryOptions::default()).await;
+        assert!(batches.is_empty());
+        assert_eq!(summary.unwrap().affected_rows, Some(7));
+
+        // Linhas no meio de um script: recusa, como o execute_query
+        let (summary, _) = stream(&adapter, "SELECT 1; SELECT 2", QueryOptions::default()).await;
+        assert!(matches!(summary, Err(Error::InvalidQuery(_))), "{summary:?}");
+
+        // Quem recebia foi embora: para com Cancelled e a conexão segue livre
+        let (tx, rx) = crate::adapters::row_batch_channel();
+        drop(rx);
+        let options = QueryOptions { unlimited: true, ..Default::default() };
+        let result = adapter.execute_query_streamed("SELECT * FROM t", options, None, tx).await;
+        assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
         let after = adapter.execute_query("SELECT 1", QueryOptions::default()).await.unwrap();
         assert_eq!(after.rows.len(), 1);
         let _ = std::fs::remove_file(path);

@@ -18,7 +18,9 @@ use deadpool_postgres::Pool;
 
 use crate::error::{Error, Result};
 use crate::models::*;
-use crate::adapters::{DatabaseAdapter, MessageSink, PoolStats, ReadOnlyLimits, ReadOnlyOp};
+use crate::adapters::{
+    DatabaseAdapter, MessageSink, PoolStats, ReadOnlyLimits, ReadOnlyOp, RowBatchSender, StreamSummary,
+};
 
 use self::notices::NoticeHub;
 
@@ -90,6 +92,25 @@ impl DatabaseAdapter for PostgresAdapter {
             &self.active_queries,
             &self.notice_hub,
             sink,
+        )
+        .await
+    }
+
+    async fn execute_query_streamed(
+        &self,
+        query: &str,
+        options: QueryOptions,
+        messages: Option<Arc<dyn MessageSink>>,
+        rows: RowBatchSender,
+    ) -> Result<StreamSummary> {
+        executor::execute_query_streamed(
+            &self.pool,
+            query,
+            options,
+            &self.active_queries,
+            &self.notice_hub,
+            messages,
+            rows,
         )
         .await
     }

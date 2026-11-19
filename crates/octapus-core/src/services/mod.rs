@@ -3,6 +3,7 @@ mod catalog;
 pub mod cli_install;
 mod connection;
 pub mod connection_import;
+pub mod export;
 mod query;
 mod structure;
 

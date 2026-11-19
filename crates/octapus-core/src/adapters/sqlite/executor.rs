@@ -7,7 +7,7 @@ use sqlparser::ast::{GroupByExpr, SetExpr, Statement as SqlStatement, TableFacto
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
-use crate::adapters::statement_body;
+use crate::adapters::{statement_body, BatchAccumulator, RowBatch, RowBatchSender, StreamSummary};
 use crate::error::{Error, Result};
 use crate::models::{
     EditableInfo, QueryColumnInfo, QueryOptions, QueryResult, RowChanges, RowEdit, RowInsert,
@@ -156,6 +156,126 @@ pub fn execute_query(
         rows: result_rows,
         total_count,
         has_more,
+        execution_time_ms,
+        editable_info,
+    })
+}
+
+/// Como [`execute_query`], mas as linhas saem em lotes pelo canal `rows`
+/// enquanto o `step` avança (`DatabaseAdapter::execute_query_streamed`).
+/// Roda dentro do `spawn_blocking` do adapter: espera o canal com
+/// `blocking_send`, segurando a conexão enquanto quem consome não acompanha.
+///
+/// Sem subquery: o `OFFSET` é pulado no `step` e o teto para a leitura (um
+/// passo a mais diz se havia mais). Assim um `PRAGMA` também sai em lotes.
+pub fn execute_query_streamed(
+    conn: &Connection,
+    query: &str,
+    options: QueryOptions,
+    database: &str,
+    rows: &RowBatchSender,
+) -> Result<StreamSummary> {
+    let trimmed = statement_body(query);
+
+    if trimmed.is_empty() {
+        return Err(Error::InvalidQuery("Empty query".into()));
+    }
+
+    // Mesmas regras do execute_query: script sem linhas roda inteiro; o que
+    // devolve linhas roda sozinho.
+    let mut batch = Batch::new(conn, trimmed);
+    let returns_rows = match batch.next().map_err(db_err)? {
+        Some(first) => first.column_count() > 0,
+        None => false,
+    };
+
+    if !returns_rows {
+        let statement = execute_statement(conn, trimmed)?;
+        return Ok(StreamSummary {
+            affected_rows: Some(statement.affected_rows),
+            execution_time_ms: statement.execution_time_ms,
+            ..StreamSummary::default()
+        });
+    }
+
+    if batch.next().map_err(db_err)?.is_some() {
+        return Err(Error::InvalidQuery(
+            "A query that returns rows must be run on its own, not as part of a script".into(),
+        ));
+    }
+
+    let start = Instant::now();
+    let limit = (!options.unlimited).then_some(options.limit.max(0) as usize);
+    let mut stmt = conn.prepare(trimmed).map_err(db_err)?;
+
+    let mut columns: Vec<QueryColumnInfo> = stmt
+        .columns()
+        .iter()
+        .map(|column| QueryColumnInfo {
+            name: column.name().to_string(),
+            type_name: column.decl_type().unwrap_or_default().to_string(),
+            type_oid: None,
+        })
+        .collect();
+
+    let send = |batch: Option<RowBatch>| -> Result<()> {
+        match batch {
+            Some(batch) => rows.blocking_send(batch).map_err(|_| Error::Cancelled),
+            None => Ok(()),
+        }
+    };
+
+    let mut accumulator: Option<BatchAccumulator> = None;
+    let mut cursor = stmt.query([]).map_err(db_err)?;
+    let mut skipped = 0i64;
+    let mut row_count = 0usize;
+    let mut has_more = false;
+    let mut cells: Vec<Option<String>> = Vec::with_capacity(columns.len());
+
+    while let Some(row) = cursor.next().map_err(db_err)? {
+        if skipped < options.offset {
+            skipped += 1;
+            continue;
+        }
+        if limit.is_some_and(|limit| row_count >= limit) {
+            has_more = true;
+            break;
+        }
+
+        cells.clear();
+        for (index, column) in columns.iter_mut().enumerate() {
+            let value = row.get_ref(index).map_err(db_err)?;
+            // Expressão não tem tipo declarado: vale a classe da primeira linha
+            if accumulator.is_none() && column.type_name.is_empty() {
+                column.type_name = storage_class_name(value).to_string();
+            }
+            cells.push(value_to_string(value));
+        }
+
+        let acc = accumulator.get_or_insert_with(|| BatchAccumulator::new(columns.clone()));
+        acc.push_row(cells.iter().map(Option::as_deref));
+        row_count += 1;
+        if acc.is_full() {
+            send(acc.take())?;
+        }
+    }
+    drop(cursor);
+
+    let acc = accumulator.get_or_insert_with(|| BatchAccumulator::new(columns.clone()));
+    send(acc.take())?;
+    let execution_time_ms = start.elapsed().as_millis() as u64;
+
+    let editable_info = if is_wrappable(trimmed) {
+        detect_editable_info(conn, trimmed, database, &columns)
+    } else {
+        None
+    };
+
+    Ok(StreamSummary {
+        columns,
+        row_count,
+        has_more,
+        affected_rows: None,
         execution_time_ms,
         editable_info,
     })

@@ -8,9 +8,11 @@ pub mod assistant;
 pub mod catalog;
 pub mod error;
 pub mod logging;
+pub mod maintenance;
 pub mod models;
 pub mod paths;
 pub mod services;
+pub mod sql_complete;
 pub mod state;
 pub mod storage;
 

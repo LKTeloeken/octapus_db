@@ -4,6 +4,7 @@ use std::time::Instant;
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::{Client, ClientSession, Collection, Cursor, Database};
 
+use crate::adapters::{send, send_whole_result, BatchAccumulator, RowBatchSender, StreamSummary};
 use crate::error::{Error, Result};
 use crate::models::{
     EditableInfo, QueryColumnInfo, QueryOptions, QueryResult, RowChanges, RowEdit, RowInsert,
@@ -193,6 +194,149 @@ pub async fn execute_query(
     Ok(QueryResult {
         execution_time_ms: start.elapsed().as_millis() as u64,
         ..result
+    })
+}
+
+/// Como [`execute_query`], mas `find` e `aggregate` saem em lotes pelo canal
+/// `rows` enquanto o cursor avança (`DatabaseAdapter::execute_query_streamed`).
+/// Os outros comandos (contagem, distinct, escrita) devolvem pouco: rodam pelo
+/// [`execute_query`] e saem num lote só.
+pub async fn execute_query_streamed(
+    db: &Database,
+    database_name: &str,
+    query: &str,
+    options: QueryOptions,
+    rows: &RowBatchSender,
+) -> Result<StreamSummary> {
+    let start = Instant::now();
+    let limit = (!options.unlimited).then_some(options.limit.max(0) as usize);
+
+    let (cursor, collection) = match parse_command(query)? {
+        MongoCommand::Find {
+            collection,
+            filter,
+            projection,
+        } => {
+            let coll = db.collection::<Document>(&collection);
+            let mut find = coll.find(filter);
+            if let Some(p) = projection {
+                find = find.projection(p);
+            }
+            if let Some(limit) = limit {
+                find = find
+                    .skip(options.offset.max(0) as u64)
+                    .limit(limit as i64 + 1); // +1 to detect has_more
+            }
+            (find.await?, Some(collection))
+        }
+        MongoCommand::Aggregate {
+            collection,
+            pipeline,
+        } => (db.collection::<Document>(&collection).aggregate(pipeline).await?, None),
+        _ => {
+            let result = execute_query(db, database_name, query, options).await?;
+            return send_whole_result(result, rows).await;
+        }
+    };
+
+    let mut summary = stream_cursor(cursor, limit, rows).await?;
+    summary.execution_time_ms = start.elapsed().as_millis() as u64;
+    summary.editable_info = collection.and_then(|collection| editable_for(database_name, &collection, &summary.columns));
+    Ok(summary)
+}
+
+/// As colunas de documentos que chegam aos poucos: a união dos campos de topo
+/// na ordem em que aparecem (o `_id` costuma vir primeiro), com o tipo do
+/// primeiro valor não nulo — o mesmo critério do [`documents_to_table`], só
+/// que sem ver todos os documentos antes.
+#[derive(Default)]
+struct StreamColumns {
+    names: Vec<String>,
+    types: Vec<&'static str>,
+}
+
+impl StreamColumns {
+    /// Acrescenta os campos novos do documento e completa os tipos que só
+    /// tinham `null`. `true` = as colunas mudaram.
+    fn absorb(&mut self, doc: &Document) -> bool {
+        let mut changed = false;
+        for (key, value) in doc {
+            match self.names.iter().position(|name| name == key) {
+                Some(index) => {
+                    if self.types[index] == "null" && !matches!(value, Bson::Null) {
+                        self.types[index] = bson_type_name(value);
+                        changed = true;
+                    }
+                }
+                None => {
+                    self.names.push(key.clone());
+                    self.types.push(bson_type_name(value));
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    fn infos(&self) -> Vec<QueryColumnInfo> {
+        self.names
+            .iter()
+            .zip(&self.types)
+            .map(|(name, type_name)| QueryColumnInfo {
+                name: name.clone(),
+                type_name: type_name.to_string(),
+                type_oid: None,
+            })
+            .collect()
+    }
+}
+
+async fn stream_cursor(
+    mut cursor: Cursor<Document>,
+    limit: Option<usize>,
+    rows: &RowBatchSender,
+) -> Result<StreamSummary> {
+    let mut columns = StreamColumns::default();
+    let mut accumulator = BatchAccumulator::new(Vec::new());
+    let mut row_count = 0usize;
+    let mut has_more = false;
+    let mut cells: Vec<Option<String>> = Vec::new();
+
+    // Sem prazo em volta do `advance`: o driver não garante que interromper
+    // um getMore no meio seja seguro. O lote fecha pelo tempo no documento
+    // seguinte — os de um mesmo lote do servidor já estão na memória.
+    while cursor.advance().await? {
+        if limit.is_some_and(|limit| row_count >= limit) {
+            has_more = true;
+            break;
+        }
+
+        let doc = cursor.deserialize_current()?;
+        if columns.absorb(&doc) {
+            let flushed = accumulator.set_columns(columns.infos());
+            if !send(rows, flushed).await {
+                return Err(Error::Cancelled);
+            }
+        }
+        cells.clear();
+        cells.extend(columns.names.iter().map(|name| doc.get(name).and_then(bson_to_string)));
+        accumulator.push_row(cells.iter().map(Option::as_deref));
+        row_count += 1;
+
+        if accumulator.is_full() && !send(rows, accumulator.take()).await {
+            return Err(Error::Cancelled);
+        }
+    }
+
+    if !send(rows, accumulator.take()).await {
+        return Err(Error::Cancelled);
+    }
+
+    Ok(StreamSummary {
+        columns: columns.infos(),
+        row_count,
+        has_more,
+        ..StreamSummary::default()
     })
 }
 
@@ -726,6 +870,67 @@ mod tests {
             display_timezone: None,
             created_at: 0,
         }
+    }
+
+    /// Campos novos entram no fim; o tipo de uma coluna só com `null` fica
+    /// conhecido no primeiro valor.
+    #[test]
+    fn stream_columns_grow_with_new_fields() {
+        let mut columns = StreamColumns::default();
+        assert!(columns.absorb(&doc! { "_id": 1, "nome": Bson::Null }));
+        assert!(!columns.absorb(&doc! { "_id": 2 }));
+        assert!(columns.absorb(&doc! { "_id": 3, "nome": "Ana" }));
+        assert!(columns.absorb(&doc! { "idade": 30, "_id": 4 }));
+        let infos = columns.infos();
+        let shape: Vec<(&str, &str)> = infos.iter().map(|c| (c.name.as_str(), c.type_name.as_str())).collect();
+        assert_eq!(shape, [("_id", "int"), ("nome", "string"), ("idade", "int")]);
+    }
+
+    /// `find` em lotes, com as colunas crescendo quando aparece campo novo;
+    /// contagem num lote só.
+    #[tokio::test]
+    #[ignore = "requires local mongodb on localhost:27017 (no auth)"]
+    async fn e2e_execute_query_streamed() {
+        use crate::adapters::{all_rows, collect};
+        use std::sync::Arc;
+
+        let adapter = Arc::new(
+            MongoAdapter::new(&server("mongodb://localhost:27017"), "octapus_e2e_stream")
+                .await
+                .unwrap(),
+        );
+        let coll = adapter.db().collection::<Document>("itens");
+        coll.drop().await.unwrap();
+        let mut docs: Vec<Document> = (0..3000).map(|i| doc! { "_id": i, "nome": format!("ção {i}") }).collect();
+        docs.push(doc! { "_id": 3000, "nome": "último", "extra": true });
+        coll.insert_many(docs).await.unwrap();
+
+        let run = |query: &'static str, options: QueryOptions| {
+            let adapter = Arc::clone(&adapter);
+            collect(move |tx| async move { adapter.execute_query_streamed(query, options, None, tx).await })
+        };
+
+        let options = QueryOptions { unlimited: true, ..Default::default() };
+        let (summary, batches) = run("db.itens.find({})", options).await;
+        let summary = summary.unwrap();
+        assert_eq!((summary.row_count, summary.has_more), (3001, false));
+        assert_eq!(summary.columns.len(), 3);
+        assert!(batches.len() >= 2);
+        let last = batches.last().unwrap();
+        assert_eq!(last.columns().unwrap().len(), 3);
+        assert_eq!(last.cell(last.rows() - 1, 2), Some("true"));
+        assert_eq!(all_rows(&batches)[0], [Some("0".into()), Some("ção 0".into())]);
+        assert_eq!(summary.editable_info.unwrap().primary_key_columns, ["_id"]);
+
+        let options = QueryOptions { limit: 10, ..Default::default() };
+        let (summary, _) = run("db.itens.find({})", options).await;
+        assert_eq!((summary.as_ref().unwrap().row_count, summary.unwrap().has_more), (10, true));
+
+        let (summary, batches) = run("db.itens.countDocuments({})", QueryOptions::default()).await;
+        assert_eq!(all_rows(&batches), [[Some("3001".into())]]);
+        assert_eq!(summary.unwrap().row_count, 1);
+
+        adapter.db().drop().await.unwrap();
     }
 
     /// Recria `pessoas` com os `_id` 1, 2 e 3.

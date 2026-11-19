@@ -1,6 +1,7 @@
 pub mod ddl;
 mod message_sink;
 mod read_only;
+mod row_stream;
 mod sql_text;
 mod traits;
 pub mod mongo;
@@ -11,6 +12,13 @@ pub mod tls;
 
 pub use message_sink::*;
 pub use read_only::*;
+pub use row_stream::{
+    row_batch_channel, RowBatch, RowBatchParts, RowBatchReceiver, RowBatchSender, StreamSummary, BATCH_MAX_BYTES,
+    BATCH_MAX_ROWS, BATCH_MAX_WAIT, STREAM_CHANNEL_BATCHES,
+};
+pub(crate) use row_stream::{send, send_whole_result, BatchAccumulator};
+#[cfg(test)]
+pub(crate) use row_stream::{all_rows, collect, column};
 pub use sql_text::statement_body;
 pub use traits::*;
 

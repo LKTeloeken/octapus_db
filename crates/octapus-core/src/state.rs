@@ -8,13 +8,17 @@ use rusqlite::Connection;
 use crate::adapters::{self, create_catalog_source, has_catalog, DatabaseAdapter};
 use crate::assistant::AssistantService;
 use crate::error::{Error, Result};
-use crate::models::{Server, ServerInput};
+use crate::catalog::{CatalogPath, NameScope};
+use crate::models::{CatalogNode, CatalogPathInput, DatabaseInfo, Page, Server, ServerInput};
 use crate::services::{connection_identity, CatalogEntry, SourceOpener};
 use crate::storage::repositories::servers as server_store;
 use crate::storage::{init_storage, vault};
 use crate::services::backup::BackupService;
 use crate::services::connection_import::ConnectionImportService;
 use crate::services::{CatalogService, ConnectionService, QueryService, StructureService};
+
+/// Teto de itens por fatia do catálogo — a árvore pede janelas, não listas inteiras.
+pub const MAX_CATALOG_PAGE: usize = 1_000;
 
 /// Um adapter parado há mais que isto leva um ping antes de ser usado.
 const PING_AFTER_IDLE: Duration = Duration::from_secs(30);
@@ -136,6 +140,67 @@ impl AppState {
         Ok(entry)
     }
 
+    /// Os databases do servidor que o escopo salvo deixa ver
+    /// (`scope_databases`) — o mesmo do comando `list_databases` do app.
+    pub async fn list_databases(&self, server_id: i64) -> Result<Vec<DatabaseInfo>> {
+        let server = server_store::get_by_id_meta(&self.storage, server_id)?;
+        let database = self.default_database(server_id)?;
+        let adapter = self.adapter(server_id, &database).await?;
+        let databases = self.structure.list_databases(adapter).await?;
+
+        // Escopo salvo: um database por tenant, e o usuário só quer alguns
+        let scope = NameScope::parse(server.scope_databases.as_deref());
+        Ok(databases
+            .into_iter()
+            .filter(|database| scope.allows(&database.name))
+            .collect())
+    }
+
+    /// Filhos de um nó do catálogo, filtrados e paginados (até
+    /// [`MAX_CATALOG_PAGE`] por vez) — o mesmo do comando `catalog_children`.
+    /// Abrir um schema que a sincronização ainda não alcançou carrega só ele.
+    pub async fn catalog_children(
+        &self,
+        server_id: i64,
+        database: &str,
+        path: CatalogPathInput,
+        filter: Option<&str>,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Page<CatalogNode>> {
+        let entry = self.catalog_entry(server_id, database).await?;
+        if let Some(schema) = path.schema() {
+            self.catalog.ensure_schemas(&entry, &[schema.to_string()]).await?;
+        }
+
+        let path = CatalogPath::from(path);
+        let page = entry.read().children(&path, filter, offset, limit.min(MAX_CATALOG_PAGE));
+        page.ok_or_else(|| Error::NotFound(format!("{path:?} in {database}")))
+    }
+
+    /// Testa os dados do formulário do servidor sem gravar: conecta fora do
+    /// pool, faz o ping e descarta a conexão — o mesmo do comando
+    /// `test_server_input`. Na edição (`server_id`), a senha em branco é a
+    /// salva, decifrada só aqui e que não sai daqui.
+    pub async fn test_server_input(
+        &self,
+        input: &ServerInput,
+        server_id: Option<i64>,
+        timeout: Duration,
+    ) -> Result<()> {
+        let mut server = input.to_server(server_id);
+        // Sem senha no formulário (`None`), vale a salva; `Some("")` é sem senha
+        if let (None, Some(id)) = (&input.password, server_id) {
+            server.password = server_store::get_by_id(&self.storage, id)?.password;
+        }
+        let result = test_server(&server, timeout).await;
+        match &result {
+            Ok(()) => log::info!("teste de conexão ({:?}): ok", server.db_type),
+            Err(error) => log::info!("teste de conexão ({:?}): falhou ({})", server.db_type, error.code()),
+        }
+        result
+    }
+
     /// Grava a edição do servidor. Só o que muda a conexão ou o que se enxerga
     /// do banco derruba as conexões e tira o catálogo da memória e do disco:
     /// renomear o servidor ou trocá-lo de grupo não refaz nada.
@@ -195,5 +260,67 @@ pub async fn test_server(server: &Server, timeout: Duration) -> Result<()> {
     match tokio::time::timeout(timeout, test).await {
         Ok(result) => result,
         Err(_) => Err(Error::ConnectionTimeout),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{DatabaseType, NodeKind};
+
+    fn sqlite_input(path: &Path) -> ServerInput {
+        ServerInput {
+            name: "arquivo".into(),
+            db_type: DatabaseType::Sqlite,
+            host: String::new(),
+            port: 0,
+            username: String::new(),
+            password: None,
+            default_database: None,
+            ssl_mode: None,
+            ssl_root_cert: None,
+            connection_uri: Some(path.to_string_lossy().into_owned()),
+            scope_databases: None,
+            scope_schemas: None,
+            group_id: None,
+            assistant_sample_values: false,
+            display_timezone: None,
+        }
+    }
+
+    /// O que a UI nativa usa no lugar dos comandos do Tauri: testar o
+    /// formulário, listar databases e pedir fatias do catálogo.
+    #[tokio::test]
+    async fn form_test_databases_and_catalog_slices() {
+        let dir = std::env::temp_dir().join(format!("octapus_state_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let state = AppState::open(&dir).unwrap();
+        state.catalog.init(dir.join("catalog"), Arc::new(|_| {}));
+        let file = dir.join("dados.db");
+        Connection::open(&file)
+            .unwrap()
+            .execute_batch("CREATE TABLE a (id INTEGER); CREATE TABLE b (id INTEGER); CREATE VIEW v AS SELECT 1;")
+            .unwrap();
+
+        let timeout = Duration::from_secs(5);
+        state.test_server_input(&sqlite_input(&file), None, timeout).await.unwrap();
+        let missing = sqlite_input(&dir.join("nao-existe.db"));
+        assert!(state.test_server_input(&missing, None, timeout).await.is_err());
+
+        let id = server_store::create(&state.storage, sqlite_input(&file)).unwrap().id.unwrap();
+        let databases = state.list_databases(id).await.unwrap();
+        assert_eq!(databases.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["main"]);
+
+        // SQLite não tem schema: as relações moram no schema sem nome
+        let schema = crate::catalog::FLAT_SCHEMA.to_string();
+        let path = CatalogPathInput::Schema { schema: schema.clone() };
+        let page = state.catalog_children(id, "main", path, None, 0, 1).await.unwrap();
+        assert_eq!((page.total, page.items.len()), (3, 1));
+        let path = CatalogPathInput::Schema { schema };
+        let filtered = state.catalog_children(id, "main", path, Some("v"), 0, 50).await.unwrap();
+        assert_eq!(filtered.items.iter().map(|n| (n.name.as_str(), n.kind)).collect::<Vec<_>>(), [("v", NodeKind::View)]);
+
+        state.delete_server(id).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
