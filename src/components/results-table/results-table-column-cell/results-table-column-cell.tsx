@@ -14,7 +14,7 @@ import { resolveCellEditor } from '../results-table-cell/use-resolve-cell-editor
  * Cabeçalho de coluna (40 px): nome 12/500 + tipo em mono. Clicar nele
  * seleciona a coluna (Shift/Cmd soma outras); ordenar é só pelo ícone, que só
  * existe quando a grade ordena (`onSort`). A ordenação ativa é marcada pelo
- * ícone neutro — Iris não marca coluna (DESIGN.md §2.2). As numéricas alinham
+ * ícone neutro — Tinta não marca coluna (DESIGN.md §2.2). As numéricas alinham
  * à direita, como os valores.
  */
 const ColumnCell = ({
@@ -47,7 +47,7 @@ const ColumnCell = ({
       className={cn(
         'group flex h-full cursor-pointer items-center border-r border-line-subtle px-2.5 select-none',
         // A coluna selecionada usa o mesmo tom das células dela
-        isSelected && 'bg-iris-soft',
+        isSelected && 'bg-tinta-soft',
         className,
       )}
     >
@@ -79,7 +79,7 @@ const ColumnCell = ({
               className={cn(
                 '-my-0.5 flex shrink-0 cursor-pointer items-center rounded-[4px] p-0.5 outline-none transition-[opacity,background-color] hover:bg-hover',
                 isSorted
-                  ? 'text-fg'
+                  ? 'text-tinta-text'
                   : 'text-fg-subtle opacity-0 group-hover:opacity-100',
               )}
             >

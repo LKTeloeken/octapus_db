@@ -4,7 +4,7 @@ import {
   ServerStack01Icon,
   StopIcon,
 } from '@hugeicons/core-free-icons';
-import { memo, type FC } from 'react';
+import { memo, useEffect, useRef, useState, type FC } from 'react';
 import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
 import { Spinner } from '@/components/ui/spinner';
@@ -14,7 +14,21 @@ import { cn } from '@/lib/utils';
 import type { QueryEditorToolbarProps } from './query-editor-toolbar.types';
 
 /**
- * Toolbar do editor (44 px): Executar é a ação primária da área (Iris); ao
+ * Conta as partidas da consulta (repouso → rodando): cada uma remonta o anel
+ * do jato de tinta, pelo botão ou pelo atalho.
+ */
+function useInkJets(isLoading: boolean) {
+  const [jets, setJets] = useState(0);
+  const was = useRef(isLoading);
+  useEffect(() => {
+    if (isLoading && !was.current) setJets(count => count + 1);
+    was.current = isLoading;
+  }, [isLoading]);
+  return jets;
+}
+
+/**
+ * Toolbar do editor (44 px): Executar é a ação primária da área (Tinta); ao
  * lado, o servidor/banco onde a consulta roda.
  */
 export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
@@ -29,35 +43,46 @@ export const QueryEditorToolbar: FC<QueryEditorToolbarProps> = memo(
     dbType,
   }) => {
     const runKey = useShortcutLabel('editor.run');
+    const jets = useInkJets(isLoading);
 
     return (
       // `@container`: a dica some quando a barra (não a janela) fica estreita
       <div className="@container flex h-11 shrink-0 items-center gap-1.5 border-b border-line-subtle px-2">
-        {isLoading && onCancel ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onCancel}
-            disabled={isCancelling}
-          >
-            {isCancelling ? (
-              <Spinner className="size-4" />
-            ) : (
-              <HugeiconsIcon icon={StopIcon} />
-            )}
-            {isCancelling ? 'Cancelando…' : 'Cancelar'}
-          </Button>
-        ) : (
-          <Button size="sm" onClick={onRun} disabled={disabled || isLoading}>
-            {isLoading ? (
-              <Spinner className="size-4" />
-            ) : (
-              <HugeiconsIcon icon={PlayIcon} />
-            )}
-            Executar
-            {runKey && <Kbd variant="inverse">{runKey}</Kbd>}
-          </Button>
-        )}
+        <span className="relative inline-flex shrink-0">
+          {/* Jato de tinta: um anel sai do botão quando a consulta parte */}
+          {jets > 0 && (
+            <span
+              key={jets}
+              aria-hidden
+              className="pointer-events-none absolute inset-0 animate-ink-jet rounded-sm ring-2 ring-tinta-text motion-reduce:hidden"
+            />
+          )}
+          {isLoading && onCancel ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onCancel}
+              disabled={isCancelling}
+            >
+              {isCancelling ? (
+                <Spinner className="size-4" />
+              ) : (
+                <HugeiconsIcon icon={StopIcon} />
+              )}
+              {isCancelling ? 'Cancelando…' : 'Cancelar'}
+            </Button>
+          ) : (
+            <Button size="sm" onClick={onRun} disabled={disabled || isLoading}>
+              {isLoading ? (
+                <Spinner className="size-4" />
+              ) : (
+                <HugeiconsIcon icon={PlayIcon} />
+              )}
+              Executar
+              {runKey && <Kbd variant="inverse">{runKey}</Kbd>}
+            </Button>
+          )}
+        </span>
 
         <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-line" />
 

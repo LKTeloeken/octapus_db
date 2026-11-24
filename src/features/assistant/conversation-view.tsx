@@ -152,7 +152,7 @@ export function ConversationView({
       <div className="shrink-0 border-t border-line-subtle p-3">
         <div
           className={cn(
-            'rounded-md border border-line bg-field focus-within:border-iris-text focus-within:ring-3 focus-within:ring-iris-soft',
+            'rounded-md border border-line bg-field focus-within:border-tinta-text focus-within:ring-3 focus-within:ring-tinta-soft',
             wide && WIDE_COLUMN,
           )}
         >

@@ -117,7 +117,7 @@ export const Sidebar = memo(() => {
       </div>
 
       <div className="flex shrink-0 items-center justify-between px-4 py-1.5">
-        <span className="text-micro font-medium uppercase text-fg-subtle">
+        <span className="font-display text-section font-semibold text-fg-subtle">
           Conexões
         </span>
         <span className="text-[11px] tabular-nums text-fg-subtle">

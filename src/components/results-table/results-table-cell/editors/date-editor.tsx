@@ -54,7 +54,7 @@ export const DateEditor = memo(function DateEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-micro font-medium uppercase text-fg-subtle">
+      <label className="font-display text-section font-semibold text-fg-subtle">
         Editar{' '}
         {type === 'date' ? 'data' : type === 'time' ? 'hora' : 'data/hora'}
       </label>
@@ -63,7 +63,7 @@ export const DateEditor = memo(function DateEditor({
         step={type === 'time' || type === 'datetime' ? '1' : undefined}
         className={
           'w-full p-2 text-small font-mono text-fg bg-field border rounded-sm ' +
-          'outline-none transition-[border-color,box-shadow] focus:border-iris-text focus:ring-3 focus:ring-iris-soft ' +
+          'outline-none transition-[border-color,box-shadow] focus:border-tinta-text focus:ring-3 focus:ring-tinta-soft ' +
           (error ? 'border-danger' : 'border-line')
         }
         value={editValue}

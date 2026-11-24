@@ -11,7 +11,7 @@ export interface MarkdownProps {
 /**
  * Markdown de texto vindo de fora (termo de consentimento). Sem HTML cru: o
  * `react-markdown` não interpreta tags, só a sintaxe do Markdown. Tipografia do
- * Ink (DESIGN.md §3) — nada passa de 16 px. Carregado sob demanda
+ * Abissal (DESIGN.md §3) — nada passa de 16 px. Carregado sob demanda
  * (`React.lazy`), fora do bundle principal.
  */
 export default function Markdown({
@@ -51,7 +51,7 @@ export default function Markdown({
     a: ({ children, href }) => (
       <a
         href={href}
-        className="text-iris-text underline underline-offset-2 outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring"
+        className="text-tinta-text underline underline-offset-2 outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring"
         onClick={event => {
           event.preventDefault();
           if (href) onOpenLink?.(href);

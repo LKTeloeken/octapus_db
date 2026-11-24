@@ -9,7 +9,7 @@ import type { FilterInputProps } from './filter-input.types';
  * WHERE do Postgres em mono 12 px; Enter aplica, Esc volta ao filtro aplicado.
  *
  * É o mesmo `QueryEditor` da aba de query, em modo de uma linha, com a moldura do
- * `Input` do Ink — então herda o autocomplete com as colunas da tabela aberta. O popup
+ * `Input` do Abissal — então herda o autocomplete com as colunas da tabela aberta. O popup
  * de sugestão vive no `body`, por isso não é cortado pela toolbar baixa.
  */
 export const FilterInput = memo(

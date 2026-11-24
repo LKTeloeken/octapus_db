@@ -6,15 +6,15 @@ import type { InputFieldProps } from './input.types';
 import { useInput } from './use-input';
 
 /**
- * Campo do Ink: fundo rebaixado (`--field`), borda `--line` que reforça no
- * hover; no foco a borda vira Iris com halo de 3 px (`--iris-soft`); em erro,
+ * Campo do Abissal: fundo rebaixado (`--field`, o abismo), borda
+ * `--edge-control` (3:1) que reforça no hover; no foco a borda vira Tinta com halo de 3 px (`--tinta-soft`); em erro,
  * o mesmo desenho em `--danger`.
  */
 export const inputControlVariants = cva(
   [
-    'flex min-w-0 items-center rounded-sm border border-line bg-field text-fg',
-    'transition-[border-color,box-shadow] outline-none hover:border-line-strong',
-    'focus-within:border-iris-text focus-within:ring-3 focus-within:ring-iris-soft focus-within:hover:border-iris-text',
+    'flex min-w-0 items-center rounded-sm border border-edge-control bg-field text-fg',
+    'transition-[border-color,box-shadow] outline-none hover:border-fg-subtle',
+    'focus-within:border-tinta-text focus-within:ring-3 focus-within:ring-tinta-soft focus-within:hover:border-tinta-text',
     'has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:opacity-50',
     "[&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0",
   ],
@@ -149,7 +149,7 @@ export function Input({
             className={cn(
               'h-full min-w-0 flex-1 bg-transparent outline-none',
               'file:text-fg placeholder:text-fg-subtle',
-              'selection:bg-iris/40 selection:text-fg',
+              'selection:bg-tinta/40 selection:text-fg',
               'file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium',
               'disabled:pointer-events-none disabled:cursor-not-allowed',
               inputClassName,

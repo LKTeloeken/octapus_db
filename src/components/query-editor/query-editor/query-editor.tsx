@@ -1,4 +1,12 @@
-import { useImperativeHandle, useMemo, useRef, type Ref } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  type Ref,
+} from 'react';
+import { runningBand, setRunningRange } from './running-band';
 import { getDefaultExtensions } from '@uiw/react-codemirror';
 import {
   autocompletion,
@@ -22,7 +30,7 @@ import { keywordCompletionSource, PostgreSQL } from '@codemirror/lang-sql';
 import { inkEditorTheme } from '@/lib/codemirror-theme';
 import { useCodeMirrorShortcuts } from '@/lib/keybindings/use-shortcuts';
 import { useLazyLanguage } from '@/lib/use-lazy-language';
-import { useUiStore } from '@/stores/ui-store';
+import { useColorMode } from '@/stores/ui-store';
 import { withClauseBoost } from './sql-completion/sql-clause-boost';
 import {
   sqlStaticSource,
@@ -40,7 +48,7 @@ const disableSpellcheck = EditorView.contentAttributes.of({
 /**
  * Popups (autocomplete, info) montados no `body`, fora da árvore do editor. Dentro dela
  * ficam presos a qualquer ancestral com `overflow: hidden` — e, com `transform` ou
- * `backdrop-filter` no caminho (o vidro do Ink), nem o `position: fixed` escapa. Num
+ * `backdrop-filter` no caminho (o vidro do Abissal), nem o `position: fixed` escapa. Num
  * editor baixo, como o filtro WHERE, o menu simplesmente sumia. O contêiner herda as
  * classes de tema do editor, então o visual não muda.
  */
@@ -76,7 +84,7 @@ const singleLineFilter = EditorState.transactionFilter.of(tr => {
 
 /**
  * Ajustes visuais do modo `singleLine`: sem respiro vertical, rolagem só horizontal.
- * `Prec.highest` porque o tema do Ink (prop `theme`) entra depois e venceria o empate.
+ * `Prec.highest` porque o tema do Abissal (prop `theme`) entra depois e venceria o empate.
  */
 const singleLineTheme = Prec.highest(
   EditorView.theme({
@@ -157,6 +165,8 @@ export interface QueryEditorProps {
 
   runMode?: QueryEditorRunMode;
   onRun?: (query: string, context: QueryEditorRunContext) => void;
+  /** A consulta disparada pelo editor ainda roda: mantém a faixa biolume */
+  isRunning?: boolean;
 
   className?: string;
 
@@ -504,6 +514,20 @@ function getRunnableQuery(
   };
 }
 
+/** Onde a faixa da instrução rodando vai: a seleção, ou o documento todo */
+function runningRangeOf(
+  view: EditorView,
+  context: QueryEditorRunContext,
+): { from: number; to: number } {
+  if (context.selections.length > 0) {
+    return {
+      from: Math.min(...context.selections.map(selection => selection.from)),
+      to: Math.max(...context.selections.map(selection => selection.to)),
+    };
+  }
+  return { from: 0, to: view.state.doc.length };
+}
+
 export function QueryEditor({
   value,
   onChange,
@@ -521,13 +545,14 @@ export function QueryEditor({
   placeholderText = 'Write your query...',
   fontSize = 13,
   runMode = 'selection-or-all',
-  onRun,
+  onRun: onRunProp,
+  isRunning = false,
   singleLine = false,
   onEscape,
   className,
   ref,
 }: QueryEditorProps) {
-  const appTheme = useUiStore(state => state.theme);
+  const appTheme = useColorMode();
   const resolvedTheme = theme ?? appTheme;
   const editorTheme = useMemo(
     () => inkEditorTheme(resolvedTheme === 'dark'),
@@ -578,7 +603,7 @@ export function QueryEditor({
 
   /**
    * Cabeçalho de grupo do popup de sugestão (`<completion-section>`, elemento próprio do
-   * CodeMirror). As cores vêm dos tokens do Ink, as mesmas do resto do popup
+   * CodeMirror). As cores vêm dos tokens do Abissal, as mesmas do resto do popup
    * (lib/codemirror-theme.ts), então acompanham claro/escuro sozinhas.
    *
    * O `z-index` e o fundo opaco são o que segura o cabeçalho acima das opções ao rolar: os
@@ -599,14 +624,31 @@ export function QueryEditor({
           borderBottom: '1px solid var(--line-subtle)',
           color: 'var(--fg-subtle)',
           opacity: '1',
-          fontSize: '11px',
-          fontWeight: '500',
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
+          // Rótulo de seção do Abissal: Bricolage 12 px, caixa normal
+          fontFamily:
+            "'Bricolage Grotesque Variable', var(--app-font-ui), sans-serif",
+          fontSize: '12px',
+          fontWeight: '600',
+          letterSpacing: '0.01em',
           padding: '6px 8px 4px',
         },
       }),
     [],
+  );
+
+  // Executar marca a faixa biolume no trecho que vai rodar (DESIGN.md, Editor)
+  const viewForRun = useRef<EditorView | null>(null);
+  const onRun = useCallback(
+    (query: string, context: QueryEditorRunContext) => {
+      const view = viewForRun.current;
+      if (view && !singleLine) {
+        view.dispatch({
+          effects: setRunningRange.of(runningRangeOf(view, context)),
+        });
+      }
+      onRunProp?.(query, context);
+    },
+    [onRunProp, singleLine],
   );
 
   // Executar (Cmd/Ctrl+Enter) e sugestão explícita — teclas do registro de
@@ -732,6 +774,7 @@ export function QueryEditor({
       placeholder(placeholderText),
       runQueryKeymap,
       ...singleLineExtensions,
+      runningBand,
     ];
   }, [
     defaultExtensions,
@@ -752,6 +795,15 @@ export function QueryEditor({
     documentId,
     autoFocus,
   });
+  useEffect(() => {
+    viewForRun.current = viewRef.current;
+  });
+
+  // Terminou (ou nem começou): a faixa some
+  useEffect(() => {
+    if (isRunning) return;
+    viewRef.current?.dispatch({ effects: setRunningRange.of(null) });
+  }, [isRunning, viewRef]);
 
   useImperativeHandle(
     ref,

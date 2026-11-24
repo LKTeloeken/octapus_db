@@ -4,7 +4,7 @@
  * (§9 e checklist do §12). Sai com código 1 se achar violação.
  *
  * - cor crua: paleta do Tailwind (`bg-red-500`, `text-white/60`), `#hex`,
- *   `rgb()`/`hsl()`/`oklch()`… em TS/TSX — só tokens do Ink;
+ *   `rgb()`/`hsl()`/`oklch()`… em TS/TSX — só tokens do Abissal;
  * - aliases do shadcn que não existem mais (`bg-background`, `text-muted-foreground`…);
  * - `transition-all` (e `transition: all` no CSS).
  *
@@ -31,7 +31,8 @@ const SHADCN_ALIAS =
 export const CODE_RULES = [
   {
     id: 'raw-palette',
-    message: 'cor da paleta do Tailwind — use um token do Ink (DESIGN.md §9)',
+    message:
+      'cor da paleta do Tailwind — use um token do Abissal (DESIGN.md §9)',
     pattern: new RegExp(
       `(?<![a-zA-Z0-9-])(?:${COLOR_UTILITY})-(?:(?:${PALETTE})-\\d{2,3}|white|black)(?:\\/\\d+)?(?![\\w-])`,
       'g',
@@ -40,7 +41,7 @@ export const CODE_RULES = [
   {
     id: 'shadcn-alias',
     message:
-      'alias do shadcn que não gera CSS — traduza para o Ink (DESIGN.md §9)',
+      'alias do shadcn que não gera CSS — traduza para o Abissal (DESIGN.md §9)',
     pattern: new RegExp(
       `(?<![a-zA-Z0-9-])(?:${COLOR_UTILITY})-(?:${SHADCN_ALIAS})(?![\\w-])|var\\(--(?:${SHADCN_ALIAS})\\)`,
       'g',
@@ -48,13 +49,13 @@ export const CODE_RULES = [
   },
   {
     id: 'hex-color',
-    message: 'cor em hex — use um token do Ink ou leia a variável CSS',
+    message: 'cor em hex — use um token do Abissal ou leia a variável CSS',
     pattern:
       /(?<![a-zA-Z0-9&])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g,
   },
   {
     id: 'color-function',
-    message: 'cor literal (rgb/hsl/oklch…) — use um token do Ink',
+    message: 'cor literal (rgb/hsl/oklch…) — use um token do Abissal',
     pattern:
       /(?<![a-zA-Z0-9-])(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb|color-mix)\(/g,
   },

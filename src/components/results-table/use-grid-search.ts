@@ -379,6 +379,8 @@ export const useGridSearch = ({
     /** Colunas no escopo; 0 com "Somente" sem nenhuma marcada */
     searchColumnCount: searchColumns.length,
     matchCount: matches.count,
+    /** Os resultados (pares linha/coluna), para os marcadores da scrollbar */
+    matches,
     capped: matches.capped,
     currentIndex,
     next,

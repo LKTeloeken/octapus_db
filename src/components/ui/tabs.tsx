@@ -4,10 +4,12 @@ import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { cn } from '@/lib/utils';
 
 /**
- * Duas formas de aba (DESIGN.md §8):
+ * Duas formas de aba (DESIGN.md, Abas):
  * - `document` — barra de abas abertas: a ativa sobe de camada
- *   (`--surface-1` + `shadow-raised`), sem violeta;
- * - `view` — alternância de visões (Resultados/Mensagens): sublinhado neutro.
+ *   (`--surface-1` + `shadow-raised`) e ganha o tentáculo: uma pílula de
+ *   2 px em `--tinta` no topo;
+ * - `view` — alternância de visões (Resultados/Mensagens): sublinhado neutro
+ *   em pílula.
  * A variante é do `TabsList` e chega aos triggers por contexto.
  */
 type TabsVariant = 'document' | 'view';
@@ -60,9 +62,15 @@ const TRIGGER_BASE = [
 ].join(' ');
 
 const TRIGGER_CLASS: Record<TabsVariant, string> = {
-  document:
-    'h-[30px] rounded-md px-2.5 hover:bg-hover data-[state=active]:bg-surface-1 data-[state=active]:text-fg data-[state=active]:shadow-raised data-[state=active]:ring-1 data-[state=active]:ring-inset data-[state=active]:ring-line',
-  view: 'h-10 px-0.5 data-[state=active]:text-fg data-[state=active]:shadow-[inset_0_-2px_0_var(--fg)]',
+  document: [
+    'relative h-8 rounded-md px-2.5 hover:bg-hover data-[state=active]:bg-surface-1 data-[state=active]:text-fg data-[state=active]:shadow-raised data-[state=active]:ring-1 data-[state=active]:ring-inset data-[state=active]:ring-line',
+    // Tentáculo: aparece em 180 ms na aba que fica ativa
+    'before:pointer-events-none before:absolute before:inset-x-2.5 before:top-0 before:h-0.5 before:rounded-b-full before:bg-tinta before:opacity-0 before:transition-opacity before:duration-180 data-[state=active]:before:opacity-100',
+  ].join(' '),
+  view: [
+    'relative h-10 px-0.5 data-[state=active]:text-fg',
+    'after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full after:bg-fg after:opacity-0 after:transition-opacity data-[state=active]:after:opacity-100',
+  ].join(' '),
 };
 
 function TabsTrigger({

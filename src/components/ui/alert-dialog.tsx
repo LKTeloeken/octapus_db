@@ -81,7 +81,7 @@ function AlertDialogFooter({
     <div
       data-slot="alert-dialog-footer"
       className={cn(
-        '-mx-6 -mb-6 mt-2 flex flex-col-reverse gap-2 rounded-b-[15px] border-t border-line-subtle bg-surface-2 px-5 py-3.5 sm:flex-row sm:justify-end',
+        '-mx-6 -mb-6 mt-2 flex flex-col-reverse gap-2 rounded-b-[17px] border-t border-line-subtle bg-surface-2 px-5 py-3.5 sm:flex-row sm:justify-end',
         className,
       )}
       {...props}
@@ -96,7 +96,7 @@ function AlertDialogTitle({
   return (
     <AlertDialogPrimitive.Title
       data-slot="alert-dialog-title"
-      className={cn('text-title font-semibold text-fg', className)}
+      className={cn('font-display text-title font-semibold text-fg', className)}
       {...props}
     />
   );

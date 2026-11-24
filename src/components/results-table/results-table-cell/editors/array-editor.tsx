@@ -112,7 +112,7 @@ export const ArrayEditor = memo(function ArrayEditor({
   return (
     <div className="flex flex-col gap-2" onKeyDown={handleKeyDown}>
       <div className="flex items-center justify-between">
-        <label className="text-micro font-medium uppercase text-fg-subtle">
+        <label className="font-display text-section font-semibold text-fg-subtle">
           Editar {pgArrayTypeLabel(columnType)}
         </label>
         <button
@@ -149,7 +149,7 @@ export const ArrayEditor = memo(function ArrayEditor({
                   className={cn(
                     'flex-1 min-w-0 px-2 py-1 text-small font-mono',
                     'border border-line bg-field text-fg rounded-sm',
-                    'outline-none focus:border-iris-text focus:ring-3 focus:ring-iris-soft',
+                    'outline-none focus:border-tinta-text focus:ring-3 focus:ring-tinta-soft',
                     item === null && 'text-fg-subtle italic',
                   )}
                   value={item ?? 'NULL'}
@@ -208,7 +208,7 @@ export const ArrayEditor = memo(function ArrayEditor({
           className={cn(
             'w-full min-h-[120px] max-h-[240px] p-2 text-small font-mono',
             'bg-field text-fg border rounded-sm resize-y',
-            'outline-none focus:border-iris-text focus:ring-3 focus:ring-iris-soft',
+            'outline-none focus:border-tinta-text focus:ring-3 focus:ring-tinta-soft',
             error ? 'border-danger' : 'border-line',
           )}
           value={raw}

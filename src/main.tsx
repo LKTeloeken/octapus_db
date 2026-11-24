@@ -3,6 +3,11 @@ import { StrictMode, createElement } from 'react';
 // Fontes empacotadas: o app roda offline, então nada de Google Fonts.
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
+// Display do Abissal (títulos e estados vazios) e as fontes opcionais das
+// preferências: o @font-face só baixa o arquivo quando a família é usada.
+import '@fontsource-variable/bricolage-grotesque';
+import '@fontsource-variable/inter';
+import '@fontsource-variable/jetbrains-mono';
 import App from '@/app';
 import { disableNativeSpellcheck } from '@/lib/disable-native-spellcheck';
 import { restoreTabsSession } from '@/stores/tabs-session';

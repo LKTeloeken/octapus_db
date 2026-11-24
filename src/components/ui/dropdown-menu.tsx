@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { POPPER_MOTION } from './motion';
 
 // Menu sólido (superfície 3 + sombra de sobreposição); item de 28 px com realce
-// neutro `--active` — Iris nunca marca item de menu (DESIGN.md §2.2).
+// neutro `--active` — Tinta nunca marca item de menu (DESIGN.md §2.2).
 const CONTENT_CLASS = cn(
   'z-50 min-w-[8rem] overflow-x-hidden overflow-y-auto rounded-lg border border-line bg-surface-3 p-1.5 text-fg shadow-overlay',
   POPPER_MOTION,
@@ -154,7 +154,7 @@ function DropdownMenuLabel({
     <DropdownMenuPrimitive.Label
       data-slot="dropdown-menu-label"
       className={cn(
-        'px-2 pt-1.5 pb-1 text-micro font-medium uppercase text-fg-subtle',
+        'px-2 pt-1.5 pb-1 font-display text-section font-semibold text-fg-subtle',
         inset && 'pl-8',
         className,
       )}

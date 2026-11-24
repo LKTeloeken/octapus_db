@@ -85,9 +85,10 @@ const RELATION_ICONS: Partial<Record<CatalogNodeKind, typeof DatabaseIcon>> = {
 };
 
 /**
- * Linha da árvore (28 px). O ícone é neutro, exceto o do servidor, que leva a
- * cor do banco; o chevron gira em vez de trocar de ícone; a tabela aberta na
- * aba ativa fica em `--active`; o cursor do teclado é um anel, não um fundo.
+ * Linha da árvore (altura da densidade). O ícone é neutro, exceto o do
+ * servidor, que leva a cor do banco; o chevron gira em vez de trocar de
+ * ícone; a tabela aberta na aba ativa fica em `--tinta-soft` com a pílula de
+ * tinta; o cursor do teclado é um anel, não um fundo.
  */
 export const NodeRow = memo(
   ({
@@ -106,6 +107,7 @@ export const NodeRow = memo(
     badge,
     isOpen,
     isFocused,
+    isConnected,
     onClick,
     actions,
   }: NodeRowProps) => {
@@ -124,9 +126,12 @@ export const NodeRow = memo(
     return (
       <div
         className={cn(
-          'group relative flex h-7 cursor-pointer items-center gap-1.5 rounded-sm pr-2 text-body transition-colors',
+          'group relative flex h-(--tree-row-h) cursor-pointer items-center gap-1.5 rounded-sm pr-2 text-body transition-colors',
           isTopLevel ? 'font-medium text-fg' : 'text-fg-muted',
-          isOpen ? 'bg-active text-fg' : 'hover:bg-hover hover:text-fg',
+          // Aberta na aba ativa: tinta-soft + pílula de 3 px (DESIGN.md, Árvore)
+          isOpen
+            ? 'bg-tinta-soft text-fg before:absolute before:top-1.5 before:bottom-1.5 before:left-0 before:w-[3px] before:rounded-full before:bg-tinta'
+            : 'hover:bg-hover hover:text-fg',
           isFocused && 'ring-[1.5px] ring-inset ring-ring',
           // Espaço reservado para o botão absoluto de ações
           hasActions && !contextMenuOnly && 'pr-8',
@@ -147,7 +152,7 @@ export const NodeRow = memo(
         <span className="flex size-3.5 shrink-0 items-center justify-center">
           {hasChildren &&
             (isLoading ? (
-              <Spinner className="size-3 text-fg-subtle" />
+              <Spinner className="size-3.5 text-fg-subtle" />
             ) : (
               <HugeiconsIcon
                 icon={ArrowRight01Icon}
@@ -177,6 +182,13 @@ export const NodeRow = memo(
 
         {/* O nome tem prioridade: o rótulo secundário (tipo, contagem) encolhe antes. */}
         <span className="min-w-0 truncate">{name}</span>
+        {isConnected && (
+          <span
+            aria-label="conectado"
+            role="img"
+            className="size-1.5 shrink-0 rounded-full bg-biolume"
+          />
+        )}
         {subLabel && (
           <span className="min-w-0 shrink-[3] truncate text-small font-normal text-fg-subtle tabular-nums">
             {subLabel}

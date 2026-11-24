@@ -58,7 +58,7 @@ RAM parado (macOS, M3 Pro, somando os processos do WebKit).
   progresso, log e cancelamento; detecta as ferramentas instaladas.
 
 ### App
-- **Temas claro e escuro** (design system Ink, contraste AA).
+- **Temas claro e escuro** (design system Abissal: quatro temas, seis acentos e três densidades, contraste AA).
 - **Atualização automática**, com canal beta opcional.
 - **macOS, Windows e Linux** (`.dmg`, `.exe`, `.deb`, `.rpm`, AppImage) e pacote Nix.
 
@@ -199,7 +199,7 @@ reinstalar à mão. A branch `nix` se atualiza quando a versão nova é publicad
   de dados e como cada tela consome o back.
 - **[FRONTEND.md](FRONTEND.md)** — referência do frontend: estrutura, gerência de estado,
   camada de API e o componente de tabela.
-- **[DESIGN.md](DESIGN.md)** — design system (Ink): cor, tipografia, espaço, movimento,
+- **[DESIGN.md](DESIGN.md)** — design system (Abissal): cor, tipografia, espaço, movimento,
   vidro, componentes e o roteiro de migração visual.
 
 ## Licença

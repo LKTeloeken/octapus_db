@@ -119,7 +119,7 @@ function ShortcutRow({ row, section }: ShortcutRowProps) {
             <span className="inline-flex items-center gap-1">
               <Kbd
                 className={cn(
-                  'px-1.5 text-iris-text',
+                  'px-1.5 text-tinta-text',
                   !recordingLabel && 'font-sans',
                 )}
               >

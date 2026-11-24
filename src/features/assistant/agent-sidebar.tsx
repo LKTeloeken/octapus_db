@@ -64,7 +64,7 @@ export function AgentSidebar({
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2 scrollbar-thin">
         {tabs.length > 0 && (
           <>
-            <p className="px-2 pt-1.5 pb-1 text-micro font-medium uppercase text-fg-subtle">
+            <p className="px-2 pt-1.5 pb-1 font-display text-section font-semibold text-fg-subtle">
               Abertas
             </p>
             <ul className="flex flex-col">
@@ -106,7 +106,7 @@ export function AgentSidebar({
           </>
         )}
 
-        <p className="px-2 pt-3 pb-1 text-micro font-medium uppercase text-fg-subtle">
+        <p className="px-2 pt-3 pb-1 font-display text-section font-semibold text-fg-subtle">
           Anteriores
         </p>
         {history.isLoading ? (

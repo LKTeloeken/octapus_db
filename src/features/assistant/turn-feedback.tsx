@@ -79,7 +79,7 @@ export function TurnFeedback(props: TurnFeedbackProps) {
               size="xs"
               aria-pressed={selected}
               onClick={() => fb.toggleReason(reason)}
-              className="rounded-full aria-pressed:border-iris-text aria-pressed:bg-iris-soft"
+              className="rounded-full aria-pressed:border-tinta-text aria-pressed:bg-tinta-soft"
             >
               {selected && (
                 <HugeiconsIcon icon={Tick01Icon} strokeWidth={1.5} />
@@ -115,7 +115,7 @@ export function TurnFeedback(props: TurnFeedbackProps) {
             aria-describedby={`${hintId} ${countId}`}
             aria-invalid={fb.commentTooLong || undefined}
             className={cn(
-              'w-full resize-y rounded-sm border border-line bg-field p-2 text-small text-fg outline-none placeholder:text-fg-subtle focus:border-iris-text focus:ring-3 focus:ring-iris-soft',
+              'w-full resize-y rounded-sm border border-line bg-field p-2 text-small text-fg outline-none placeholder:text-fg-subtle focus:border-tinta-text focus:ring-3 focus:ring-tinta-soft',
               fb.commentTooLong &&
                 'border-danger focus:border-danger focus:ring-danger-soft',
             )}

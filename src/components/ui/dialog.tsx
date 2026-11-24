@@ -56,7 +56,7 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          // Sólido: superfície 3, raio 16 e sombra modal (DESIGN.md §8).
+          // Sólido: superfície 3, raio 18 e sombra modal (DESIGN.md §8).
           // Coluna `minmax(0, 1fr)`: com `auto`, um texto longo sem quebra (um
           // caminho de arquivo truncado) alargava a coluna além do diálogo no
           // WebKit, e o conteúdo e o rodapé vazavam para fora.
@@ -94,7 +94,7 @@ function DialogFooter({ className, ...props }: React.ComponentProps<'div'>) {
       data-slot="dialog-footer"
       className={cn(
         // Faixa de rodapé em superfície 2, colada nas bordas do diálogo.
-        '-mx-6 -mb-6 mt-2 flex flex-col-reverse gap-2 rounded-b-[15px] border-t border-line-subtle bg-surface-2 px-5 py-3.5 sm:flex-row sm:justify-end',
+        '-mx-6 -mb-6 mt-2 flex flex-col-reverse gap-2 rounded-b-[17px] border-t border-line-subtle bg-surface-2 px-5 py-3.5 sm:flex-row sm:justify-end',
         className,
       )}
       {...props}
@@ -109,7 +109,7 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn('text-title font-semibold text-fg', className)}
+      className={cn('font-display text-title font-semibold text-fg', className)}
       {...props}
     />
   );

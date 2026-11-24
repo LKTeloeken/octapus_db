@@ -50,7 +50,7 @@ export const UuidEditor = memo(function UuidEditor({
     <div className="flex flex-col gap-2">
       <label
         htmlFor={fieldId}
-        className="text-micro font-medium uppercase text-fg-subtle"
+        className="font-display text-section font-semibold text-fg-subtle"
       >
         Editar UUID
       </label>
@@ -59,7 +59,7 @@ export const UuidEditor = memo(function UuidEditor({
         type="text"
         className={
           'w-full p-2 text-small font-mono text-fg bg-field border rounded-sm ' +
-          'outline-none transition-[border-color,box-shadow] focus:border-iris-text focus:ring-3 focus:ring-iris-soft ' +
+          'outline-none transition-[border-color,box-shadow] focus:border-tinta-text focus:ring-3 focus:ring-tinta-soft ' +
           (error ? 'border-danger' : 'border-line')
         }
         value={editValue}

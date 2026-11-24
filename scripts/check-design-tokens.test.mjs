@@ -9,10 +9,10 @@ const rulesIn = (text, rules = CODE_RULES) =>
   findViolations(text, rules).map(v => `${v.rule}:${v.match}`);
 
 describe('check-design-tokens', () => {
-  it('aceita os tokens do Ink', () => {
+  it('aceita os tokens do Abissal', () => {
     expect(
       rulesIn(
-        "cn('bg-surface-1 text-fg-muted border-line hover:bg-hover ring-ring bg-iris-soft text-danger transition-colors')",
+        "cn('bg-surface-1 text-fg-muted border-line hover:bg-hover ring-ring bg-tinta-soft text-danger transition-colors')",
       ),
     ).toEqual([]);
   });
@@ -69,7 +69,7 @@ describe('check-design-tokens', () => {
     expect(
       rulesIn(
         [
-          '// design-tokens-ignore: branco sobre Iris',
+          '// design-tokens-ignore: branco sobre Tinta',
           "'text-white'",
           "'bg-white' // design-tokens-ignore: idem",
           "'text-black'",

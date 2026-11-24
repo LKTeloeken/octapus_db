@@ -82,7 +82,7 @@ export const JsonEditor = memo(function JsonEditor({
       <div className="flex items-center justify-between">
         <label
           htmlFor={fieldId}
-          className="text-micro font-medium uppercase text-fg-subtle"
+          className="font-display text-section font-semibold text-fg-subtle"
         >
           Editar JSON
         </label>
@@ -108,7 +108,7 @@ export const JsonEditor = memo(function JsonEditor({
         className={
           'w-full min-h-[120px] max-h-[240px] p-2 text-small font-mono ' +
           'bg-field text-fg border rounded-sm resize-y ' +
-          'outline-none transition-[border-color,box-shadow] focus:border-iris-text focus:ring-3 focus:ring-iris-soft ' +
+          'outline-none transition-[border-color,box-shadow] focus:border-tinta-text focus:ring-3 focus:ring-tinta-soft ' +
           (error ? 'border-danger' : 'border-line')
         }
         value={editValue}

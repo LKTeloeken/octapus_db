@@ -1,5 +1,6 @@
 import {
   Add01Icon,
+  ArrowDown01Icon,
   AiChat02Icon,
   Cancel01Icon,
   CommandIcon,
@@ -9,9 +10,15 @@ import {
   TableIcon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { memo } from 'react';
+import { memo, useEffect, useState, type RefObject } from 'react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ContentState } from '@/components/ui/content-state';
 import { Kbd } from '@/components/ui/kbd';
 import { Separator } from '@/components/ui/separator';
@@ -28,6 +35,8 @@ import {
   withShortcut,
 } from '@/lib/keybindings/use-shortcuts';
 import { cn } from '@/lib/utils';
+import { useIsTabRunning } from '@/stores/activity-store';
+import { usePendingChangesStore } from '@/stores/pending-changes-store';
 import type { WorkspaceTab } from '@/stores/tabs-store';
 import { CloseTabDialog } from './close-tab-dialog';
 import { useQueryTabs } from './use-query-tabs';
@@ -38,6 +47,114 @@ const TAB_ICONS: Record<WorkspaceTab['kind'], typeof TableIcon> = {
   browse: TableIcon,
   definition: FileCodeIcon,
 };
+
+/**
+ * O controle à direita da aba (DESIGN.md, Abas): × na ativa e no hover; nas
+ * outras, uma ventosa diz o estado — biolume pulsando enquanto a consulta
+ * roda, neutra quando há alterações não salvas. No hover a ventosa vira ×.
+ */
+function TabStatus({
+  tabId,
+  title,
+  active,
+  onClose,
+}: {
+  tabId: string;
+  title: string;
+  active: boolean;
+  onClose: () => void;
+}) {
+  const running = useIsTabRunning(tabId);
+  const dirty = usePendingChangesStore(state => state.byScope.has(tabId));
+  const dot = running ? 'live' : dirty ? 'dirty' : null;
+
+  return (
+    <button
+      type="button"
+      data-tab-close
+      aria-label={`Fechar aba ${title}${dirty ? ' (alterações não salvas)' : ''}${running ? ' (rodando)' : ''}`}
+      className={cn(
+        'group/close absolute top-1/2 right-1.5 z-10 inline-flex size-[18px] -translate-y-1/2 cursor-pointer items-center justify-center rounded-xs text-fg-subtle transition-[opacity,color,background-color] outline-none hover:bg-hover hover:text-fg focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring',
+        active || dot ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+      )}
+      onClick={onClose}
+    >
+      {dot && (
+        <span
+          aria-hidden
+          className={cn(
+            'size-[7px] rounded-full group-hover:hidden group-focus-visible/close:hidden',
+            dot === 'live' ? 'animate-live bg-biolume' : 'bg-fg-muted',
+          )}
+        />
+      )}
+      <HugeiconsIcon
+        icon={Cancel01Icon}
+        className={cn(
+          'size-3',
+          dot && 'hidden group-hover:block group-focus-visible/close:block',
+        )}
+      />
+    </button>
+  );
+}
+
+/** A linha de abas transborda? (as que não cabem ficam no menu ▾) */
+function useOverflowing(ref: RefObject<HTMLElement | null>, count: number) {
+  const [overflowing, setOverflowing] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setOverflowing(el.scrollWidth > el.clientWidth + 1);
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, count]);
+  return overflowing;
+}
+
+/** Lista de todas as abas, quando a linha não comporta todas (DESIGN.md, Abas) */
+function TabOverflowMenu({
+  tabs,
+  activeTabId,
+  listRef,
+  onSelect,
+}: {
+  tabs: WorkspaceTab[];
+  activeTabId: string | null;
+  listRef: RefObject<HTMLDivElement | null>;
+  onSelect: (id: string) => void;
+}) {
+  const overflowing = useOverflowing(listRef, tabs.length);
+  if (!overflowing) return null;
+  return (
+    <DropdownMenu>
+      <Tooltip content="Todas as abas" position="bottom">
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label="Todas as abas">
+            <HugeiconsIcon icon={ArrowDown01Icon} />
+          </Button>
+        </DropdownMenuTrigger>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="max-h-96 min-w-56">
+        {tabs.map(tab => (
+          <DropdownMenuItem
+            key={tab.id}
+            onSelect={() => onSelect(tab.id)}
+            className={cn(tab.id === activeTabId && 'bg-active')}
+          >
+            <HugeiconsIcon
+              icon={TAB_ICONS[tab.kind]}
+              className="size-3.5 text-fg-subtle"
+            />
+            <span className="truncate">{tab.title}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 /** Assistente e Comandos; na barra estreita só o ícone (padding simétrico) */
 const HEADER_BUTTON_CLASS =
@@ -94,20 +211,35 @@ export const QueryTabs = memo(() => {
   if (tabs.length === 0) {
     const emptyState = (
       <ContentState
+        mascot
         icon={TableIcon}
-        title="Nenhuma aba aberta"
+        title="Nada por aqui ainda"
         description="Abra uma tabela na árvore ao lado ou busque por ela na paleta de comandos."
         action={
           <>
-            <Button variant="outline" size="sm" onClick={openPalette}>
-              <HugeiconsIcon icon={Search01Icon} />
-              Buscar tabelas
+            <Button
+              variant="ghost"
+              size="sm"
+              className="justify-between"
+              onClick={openPalette}
+            >
+              <span className="flex items-center gap-2">
+                <HugeiconsIcon icon={Search01Icon} />
+                Buscar tabelas
+              </span>
               {paletteKey && <Kbd>{paletteKey}</Kbd>}
             </Button>
             {assistantAvailable && !assistantOpen && (
-              <Button variant="outline" size="sm" onClick={toggleAssistant}>
-                <HugeiconsIcon icon={AiChat02Icon} />
-                Perguntar ao assistente
+              <Button
+                variant="ghost"
+                size="sm"
+                className="justify-between"
+                onClick={toggleAssistant}
+              >
+                <span className="flex items-center gap-2">
+                  <HugeiconsIcon icon={AiChat02Icon} />
+                  Perguntar ao assistente
+                </span>
                 {assistantKey && <Kbd>{assistantKey}</Kbd>}
               </Button>
             )}
@@ -144,7 +276,7 @@ export const QueryTabs = memo(() => {
           ícone e as abas ganham o espaço. */}
       <div
         data-tauri-drag-region="deep"
-        className="@container flex h-9 shrink-0 items-center gap-1"
+        className="@container flex h-[38px] shrink-0 items-center gap-1"
       >
         <TabsList
           ref={tabListRef}
@@ -204,29 +336,28 @@ export const QueryTabs = memo(() => {
                   <span
                     aria-hidden
                     className={cn(
-                      'pointer-events-none absolute top-1 bottom-1 z-20 w-0.5 rounded-full bg-iris',
+                      'pointer-events-none absolute top-1 bottom-1 z-20 w-0.5 rounded-full bg-tinta',
                       dropBefore ? '-left-0.5' : '-right-0.5',
                     )}
                   />
                 )}
-                <button
-                  type="button"
-                  data-tab-close
-                  aria-label={`Fechar aba ${tab.title}`}
-                  className={cn(
-                    'absolute top-1/2 right-1.5 z-10 inline-flex size-[18px] -translate-y-1/2 cursor-pointer items-center justify-center rounded-xs text-fg-subtle transition-[opacity,color,background-color] outline-none hover:bg-hover hover:text-fg focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring',
-                    tab.id === activeTabId
-                      ? 'opacity-100'
-                      : 'opacity-0 group-hover:opacity-100',
-                  )}
-                  onClick={() => closeTab(tab.id)}
-                >
-                  <HugeiconsIcon icon={Cancel01Icon} className="size-3" />
-                </button>
+                <TabStatus
+                  tabId={tab.id}
+                  title={tab.title}
+                  active={tab.id === activeTabId}
+                  onClose={() => closeTab(tab.id)}
+                />
               </div>
             );
           })}
         </TabsList>
+
+        <TabOverflowMenu
+          tabs={tabs}
+          activeTabId={activeTabId}
+          listRef={tabListRef}
+          onSelect={setActiveTab}
+        />
 
         <Tooltip content="Nova consulta neste banco" position="bottom">
           <Button

@@ -1,3 +1,5 @@
+import { OctapusAnimated } from '@/components/octapus-animated/octapus-animated';
+import { useUiStore } from '@/stores/ui-store';
 import {
   Layers01Icon,
   PackageIcon,
@@ -73,7 +75,7 @@ const iconOf = (target: PaletteTarget) => {
  * avoids a stale virtualizer rendering an empty list on reopen.
  *
  * Visual (DESIGN.md §7): vidro vem do DialogContent; o item ativo é realce
- * neutro (`--active`), nunca Iris; o ícone da tabela leva a cor do banco.
+ * neutro (`--active`), nunca Tinta; o ícone da tabela leva a cor do banco.
  */
 export function PaletteContent({
   query,
@@ -91,6 +93,7 @@ export function PaletteContent({
 }: PaletteContentProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const mascot = useUiStore(state => state.mascot);
 
   // Um item reescreveu a busca (`.orders`, `tenant_42.`): o cursor vai para
   // onde o usuário continua digitando
@@ -185,7 +188,13 @@ export function PaletteContent({
         className="max-h-96 overflow-x-hidden overflow-y-auto scrollbar-thin px-2 pt-1 pb-2"
       >
         {!hasResults ? (
-          <div className="py-8 text-center text-body text-fg-subtle">
+          <div className="flex flex-col items-center gap-2 py-8 text-center text-body text-fg-subtle">
+            {query.trim() && !isSearching && mascot !== 'never' && (
+              <OctapusAnimated
+                scene="scratch"
+                className="size-10 text-tinta-text"
+              />
+            )}
             {pinnedSchema !== null
               ? isSearching
                 ? 'Buscando…'
@@ -213,7 +222,7 @@ export function PaletteContent({
                 return (
                   <div
                     key={virtualRow.key}
-                    className="absolute top-0 left-0 flex w-full items-end px-2.5 pb-1 text-micro font-medium uppercase text-fg-subtle"
+                    className="absolute top-0 left-0 flex w-full items-end px-2.5 pb-1 font-display text-section font-semibold text-fg-subtle"
                     style={{
                       height: `${virtualRow.size}px`,
                       transform: `translateY(${virtualRow.start}px)`,
@@ -236,7 +245,9 @@ export function PaletteContent({
                   aria-selected={isActive}
                   className={cn(
                     'absolute top-0 left-0 flex w-full cursor-default items-center gap-2.5 rounded-md px-2.5 select-none',
-                    isActive && 'bg-active',
+                    // Item ativo: active + a pílula de tinta (DESIGN.md, Paleta)
+                    isActive &&
+                      'bg-active before:absolute before:top-2.5 before:bottom-2.5 before:left-0 before:w-[3px] before:rounded-full before:bg-tinta',
                     isConnecting && 'pointer-events-none opacity-50',
                   )}
                   style={{

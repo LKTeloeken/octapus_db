@@ -96,7 +96,7 @@ export const DataTableCell = memo(
           />
           <span
             className={cn(
-              'font-mono text-small',
+              'font-mono text-cell',
               isNull ? 'text-fg-subtle italic' : 'text-data-bool',
               isRemoved && 'text-fg-subtle line-through',
             )}
@@ -119,7 +119,7 @@ export const DataTableCell = memo(
 
     // Cor pelo tipo; números à direita e tabulares; NULL em itálico apagado.
     const triggerClassName = cn(
-      'block h-full w-full truncate px-2.5 text-left font-mono text-small leading-[27px]',
+      'block h-full w-full truncate px-2.5 text-left font-mono text-cell leading-[calc(var(--row-h)-1px)]',
       'cursor-pointer outline-none',
       // A tinta aparece na hora e some devagar (600 ms) depois do salvar: o
       // CSS usa a transição do estado de destino, então ela só vale sem tinta.

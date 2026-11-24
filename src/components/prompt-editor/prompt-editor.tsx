@@ -18,7 +18,7 @@ import {
   type ViewUpdate,
 } from '@codemirror/view';
 import { inkEditorTheme } from '@/lib/codemirror-theme';
-import { useUiStore } from '@/stores/ui-store';
+import { useColorMode } from '@/stores/ui-store';
 
 export interface PromptEditorProps {
   value: string;
@@ -46,7 +46,7 @@ const bodyTooltips = tooltips({
 
 /**
  * Texto corrido, não código: fonte da interface, quebra de linha, sem gutter.
- * `Prec.highest` porque o tema do Ink (prop `theme`) entra depois.
+ * `Prec.highest` porque o tema do Abissal (prop `theme`) entra depois.
  */
 const proseTheme = Prec.highest(
   EditorView.theme({
@@ -108,7 +108,7 @@ export function PromptEditor({
   ariaLabel,
   className,
 }: PromptEditorProps) {
-  const appTheme = useUiStore(state => state.theme);
+  const appTheme = useColorMode();
   const editorTheme = useMemo(
     () => inkEditorTheme(appTheme === 'dark'),
     [appTheme],

@@ -112,7 +112,7 @@ export const ResultsTableVertical = memo(
           style={{ width: `${contentWidth}px`, height: `${HEADER_HEIGHT}px` }}
         >
           <div
-            className="sticky left-0 z-30 flex items-center border-r border-line-subtle bg-surface-2 px-2.5 text-micro font-medium uppercase text-fg-subtle"
+            className="sticky left-0 z-30 flex items-center border-r border-line-subtle bg-surface-2 px-2.5 font-display text-section font-semibold text-fg-subtle"
             style={{ width: `${LABEL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}
           >
             Coluna
@@ -129,9 +129,9 @@ export const ResultsTableVertical = memo(
                 onClick={event => onSelectRow(virtualRecord.index, event)}
                 className={cn(
                   'absolute top-0 cursor-pointer border-r border-line-subtle px-2.5 text-left font-mono text-[11px] tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
-                  // Mesma codificação da grade: estado pendente + seleção em Iris.
+                  // Mesma codificação da grade: estado pendente + seleção em Tinta.
                   selected
-                    ? 'bg-iris-soft text-iris-text'
+                    ? 'bg-tinta-soft text-tinta-text'
                     : removed
                       ? 'bg-danger-soft text-danger line-through'
                       : added
@@ -194,7 +194,7 @@ export const ResultsTableVertical = memo(
                   }
                   className={cn(
                     'sticky left-0 z-10 flex w-full cursor-pointer flex-col justify-center border-r border-b border-line-subtle bg-surface-1 px-2.5 text-left outline-none',
-                    columnSelected && 'bg-iris-soft',
+                    columnSelected && 'bg-tinta-soft',
                   )}
                   style={{
                     width: `${LABEL_WIDTH}px`,

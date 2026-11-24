@@ -6,7 +6,7 @@ import { EditorView, keymap, placeholder } from '@codemirror/view';
 import { inkEditorTheme } from '@/lib/codemirror-theme';
 import { useLazyLanguage } from '@/lib/use-lazy-language';
 import type { ValueFormat } from '@/lib/value-format';
-import { useUiStore } from '@/stores/ui-store';
+import { useColorMode } from '@/stores/ui-store';
 
 const disableSpellcheck = EditorView.contentAttributes.of({
   spellcheck: 'false',
@@ -41,7 +41,7 @@ export const ValueEditor = memo(
     onChange,
     onEscape,
   }: ValueEditorProps) => {
-    const theme = useUiStore(state => state.theme);
+    const theme = useColorMode();
     const editorTheme = useMemo(
       () => inkEditorTheme(theme === 'dark'),
       [theme],

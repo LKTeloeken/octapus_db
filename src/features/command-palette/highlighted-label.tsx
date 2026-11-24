@@ -41,7 +41,7 @@ export const HighlightedLabel = memo(
       <span className="text-fg-muted">
         {segments.map((segment, i) =>
           segment.highlight ? (
-            <span key={i} className="font-semibold text-fg">
+            <span key={i} className="font-semibold text-tinta-text">
               {segment.text}
             </span>
           ) : (

@@ -64,7 +64,9 @@ export interface NodeRowProps {
   folderKind?: TreeFolderKind;
   /** Texto completo ao parar o mouse (a assinatura longa de uma função) */
   title?: string;
-  /** Tabela aberta na aba ativa: a linha fica realçada (`--active`) */
+  /** Servidor que já respondeu nesta sessão: ventosa biolume ao lado do nome */
+  isConnected?: boolean;
+  /** Tabela aberta na aba ativa: a linha fica realçada (`--tinta-soft`) */
   isOpen?: boolean;
   /** Nó sob o cursor do teclado (setas na árvore) */
   isFocused?: boolean;

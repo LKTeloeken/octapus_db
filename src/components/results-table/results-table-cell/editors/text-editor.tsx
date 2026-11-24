@@ -33,13 +33,13 @@ export const TextEditor = memo(function TextEditor({
     <div className="flex flex-col gap-2">
       <label
         htmlFor={fieldId}
-        className="text-micro font-medium uppercase text-fg-subtle"
+        className="font-display text-section font-semibold text-fg-subtle"
       >
         Editar texto
       </label>
       <textarea
         id={fieldId}
-        className="w-full min-h-[80px] max-h-[200px] p-2 text-small font-mono bg-field text-fg border border-line rounded-sm resize-y outline-none focus:border-iris-text focus:ring-3 focus:ring-iris-soft"
+        className="w-full min-h-[80px] max-h-[200px] p-2 text-small font-mono bg-field text-fg border border-line rounded-sm resize-y outline-none focus:border-tinta-text focus:ring-3 focus:ring-tinta-soft"
         value={editValue}
         onChange={e => setEditValue(e.target.value)}
         onKeyDown={handleKeyDown}

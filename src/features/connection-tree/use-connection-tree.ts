@@ -1810,6 +1810,8 @@ export const useConnectionTree = ({
         level: 0,
         kind: 'server',
         name: server.name,
+        // Já respondeu nesta sessão: o ponto biolume de conexão viva
+        isConnected: dbQuery?.isSuccess ?? false,
         // Quantos databases (o filtro aparece acima de 50)
         subLabel:
           isExpanded &&

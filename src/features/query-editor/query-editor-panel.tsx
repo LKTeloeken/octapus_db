@@ -125,6 +125,7 @@ export const QueryEditorPanel = memo(({ tab }: QueryEditorPanelProps) => {
               placeholderText={placeholder}
               onChange={setContent}
               onRun={executeRun}
+              isRunning={isRunning}
               runMode="selection-or-all"
             />
           </div>

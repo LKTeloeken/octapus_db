@@ -96,7 +96,7 @@ const ExpandedPanel = ({ onClose }: { onClose: () => void }) => {
           step={50}
           value={latencyMs}
           onChange={event => setLatency(Number(event.target.value))}
-          className="w-full accent-iris"
+          className="w-full accent-tinta"
         />
       </Field>
 
@@ -110,7 +110,7 @@ const ExpandedPanel = ({ onClose }: { onClose: () => void }) => {
               className={cn(
                 'flex-1 rounded border border-line px-1.5 py-1 transition-colors',
                 failMode === mode.value
-                  ? 'bg-iris text-white border-iris'
+                  ? 'bg-tinta text-white border-tinta'
                   : 'hover:bg-hover',
               )}
             >
@@ -125,7 +125,7 @@ const ExpandedPanel = ({ onClose }: { onClose: () => void }) => {
             onBlur={() => {
               if (!errorMessage.trim()) setErrorMessage(DEFAULT_ERROR_MESSAGE);
             }}
-            className="mt-1.5 w-full rounded border border-line bg-transparent px-1.5 py-1 font-mono text-[10px] outline-none focus:border-iris-text"
+            className="mt-1.5 w-full rounded border border-line bg-transparent px-1.5 py-1 font-mono text-[10px] outline-none focus:border-tinta-text"
           />
         )}
       </Field>
@@ -154,7 +154,7 @@ const ExpandedPanel = ({ onClose }: { onClose: () => void }) => {
               className={cn(
                 'flex-1 rounded border border-line px-1.5 py-1 transition-colors',
                 assistantMode === mode.value
-                  ? 'bg-iris text-white border-iris'
+                  ? 'bg-tinta text-white border-tinta'
                   : 'hover:bg-hover',
               )}
             >

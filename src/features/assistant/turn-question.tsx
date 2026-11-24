@@ -95,7 +95,7 @@ export function TurnQuestion({
             aria-describedby={countId}
             aria-invalid={reply.tooLong || undefined}
             className={cn(
-              'w-full resize-y rounded-sm border border-line bg-field p-2 text-body text-fg outline-none placeholder:text-fg-subtle focus:border-iris-text focus:ring-3 focus:ring-iris-soft',
+              'w-full resize-y rounded-sm border border-line bg-field p-2 text-body text-fg outline-none placeholder:text-fg-subtle focus:border-tinta-text focus:ring-3 focus:ring-tinta-soft',
               reply.tooLong &&
                 'border-danger focus:border-danger focus:ring-danger-soft',
             )}

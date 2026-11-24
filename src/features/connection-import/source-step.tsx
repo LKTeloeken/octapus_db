@@ -128,7 +128,7 @@ export function SourceStep({
           }
           value={urls}
           onChange={event => setUrls(event.target.value)}
-          className="w-full resize-y rounded-sm border border-line bg-field p-2 font-mono text-small text-fg outline-none placeholder:text-fg-subtle focus:border-iris-text focus:ring-3 focus:ring-iris-soft"
+          className="w-full resize-y rounded-sm border border-line bg-field p-2 font-mono text-small text-fg outline-none placeholder:text-fg-subtle focus:border-tinta-text focus:ring-3 focus:ring-tinta-soft"
         />
         <div className="flex items-center justify-between gap-2">
           <span className="text-small text-fg-subtle">

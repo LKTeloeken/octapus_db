@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { hasErrorCode } from '@/api/client';
 import type { QueryColumnInfo, QueryMessage } from '@/api/types/query.types';
@@ -19,6 +19,7 @@ import {
   type BottomTab,
   type QueryLogEntry,
 } from '@/stores/query-results-store';
+import { useActivityStore } from '@/stores/activity-store';
 import { useTabsStore, type QueryTab } from '@/stores/tabs-store';
 import { useSqlCompletion } from './use-sql-completion';
 
@@ -58,6 +59,14 @@ export const useQueryRunner = (tab: QueryTab) => {
   const saveRowChangesMutation = useSaveRowChanges();
   const cancelQueryMutation = useCancelQuery();
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // Sinal de vida da aba (ponto na aba, chip da barra de status, polvo)
+  const setTabRunning = useActivityStore(state => state.setRunning);
+  const running = executeQuery.isPending && !isLoadingMore;
+  useEffect(() => {
+    setTabRunning(tab.id, running);
+    return () => setTabRunning(tab.id, false);
+  }, [tab.id, running, setTabRunning]);
   // Id da execução em andamento: é ele que o `cancel_query` mira
   const runningQueryId = useRef<string | null>(null);
 

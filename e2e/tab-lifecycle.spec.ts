@@ -173,7 +173,7 @@ test.describe('abrir, trocar e fechar abas', () => {
     await expect(closeTabDialog(page)).toHaveCount(0);
 
     await page.keyboard.press(mod('w'));
-    await expect(page.getByText('Nenhuma aba aberta')).toBeVisible();
+    await expect(page.getByText('Nada por aqui ainda')).toBeVisible();
     await expect(closeTabDialog(page)).toHaveCount(0);
   });
 
@@ -245,7 +245,7 @@ test.describe('abrir, trocar e fechar abas', () => {
     await openApp(page, { tabs: [RASCUNHO] });
 
     await page.getByRole('button', { name: 'Fechar aba Rascunho' }).click();
-    await expect(page.getByText('Nenhuma aba aberta')).toBeVisible();
+    await expect(page.getByText('Nada por aqui ainda')).toBeVisible();
     await expect(page.getByRole('tab')).toHaveCount(0);
   });
 

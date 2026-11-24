@@ -5,7 +5,7 @@ import * as CheckboxPrimitive from '@radix-ui/react-checkbox';
 import { cn } from '@/lib/utils';
 
 /**
- * Controle ligado é um dos papéis de Iris. `indeterminate` (o NULL das
+ * Controle ligado é um dos papéis de Tinta. `indeterminate` (o NULL das
  * colunas booleanas) mostra um traço em vez do ✓.
  */
 function Checkbox({
@@ -16,9 +16,9 @@ function Checkbox({
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        // design-tokens-ignore: o check é branco sobre Iris (DESIGN.md §2.2)
-        'peer size-4 shrink-0 cursor-pointer rounded-xs border-[1.5px] border-line-strong bg-transparent text-white transition-colors',
-        'data-[state=checked]:border-iris data-[state=checked]:bg-iris data-[state=indeterminate]:border-iris data-[state=indeterminate]:bg-iris',
+        // O check é `--on-tinta` sobre Tinta; a borda desligada é `--edge-control` (3:1)
+        'peer size-4 shrink-0 cursor-pointer rounded-[5px] border-[1.5px] border-edge-control bg-transparent text-on-tinta transition-colors',
+        'data-[state=checked]:border-tinta data-[state=checked]:bg-tinta data-[state=indeterminate]:border-tinta data-[state=indeterminate]:bg-tinta',
         'outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring',
         'aria-invalid:border-danger disabled:cursor-not-allowed disabled:opacity-50',
         className,

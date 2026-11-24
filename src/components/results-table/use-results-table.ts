@@ -23,6 +23,7 @@ import type {
   IsPrimaryKeyColumnFn,
   IsRowFlagFn,
   LastSelection,
+  PendingMarker,
   SaveRowChanges,
   SelectAllRowsFn,
   ToggleColumnSelectionFn,
@@ -292,6 +293,26 @@ const useResultsTable = (
     },
     [existingCount, changes, generateRowKey],
   );
+
+  // Marcadores da scrollbar (DESIGN.md, Scrollbar): onde estão as linhas
+  // pendentes. Só varre as linhas quando há alteração.
+  const pendingMarkers = useMemo<PendingMarker[]>(() => {
+    const markers: PendingMarker[] = [];
+    if (changes.size > 0 || removedRowKeys.size > 0) {
+      for (let index = 0; index < existingCount; index++) {
+        const pkKey = rowKeys[index];
+        if (pkKey == null) continue;
+        if (removedRowKeys.has(pkKey))
+          markers.push({ row: index, kind: 'removed' });
+        else if (changes.has(pkKey))
+          markers.push({ row: index, kind: 'edited' });
+      }
+    }
+    for (let index = 0; index < addedRows.length; index++) {
+      markers.push({ row: existingCount + index, kind: 'added' });
+    }
+    return markers;
+  }, [changes, removedRowKeys, rowKeys, existingCount, addedRows]);
 
   const isCellModified = useCallback<IsCellModifiedFn>(
     (rowIndex, columnId) => {
@@ -682,6 +703,7 @@ const useResultsTable = (
     updateCell,
     isRowModified,
     isCellModified,
+    pendingMarkers,
     isCellDefault,
     isRowAdded,
     isRowRemoved,

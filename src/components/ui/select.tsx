@@ -40,7 +40,7 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "flex w-fit cursor-pointer items-center justify-between gap-2 rounded-sm border border-line bg-field px-2.5 text-body text-fg whitespace-nowrap transition-[border-color,box-shadow] outline-none hover:border-line-strong data-[state=open]:border-line-strong focus-visible:border-iris-text focus-visible:ring-3 focus-visible:ring-iris-soft data-[placeholder]:text-fg-subtle aria-invalid:border-danger disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-fg-subtle",
+        "flex w-fit cursor-pointer items-center justify-between gap-2 rounded-sm border border-edge-control bg-field px-2.5 text-body text-fg whitespace-nowrap transition-[border-color,box-shadow] outline-none hover:border-line-strong data-[state=open]:border-line-strong focus-visible:border-tinta-text focus-visible:ring-3 focus-visible:ring-tinta-soft data-[placeholder]:text-fg-subtle aria-invalid:border-danger disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-fg-subtle",
         className,
       )}
       {...props}
@@ -98,7 +98,7 @@ function SelectLabel({
     <SelectPrimitive.Label
       data-slot="select-label"
       className={cn(
-        'px-2 pt-1.5 pb-1 text-micro font-medium uppercase text-fg-subtle',
+        'px-2 pt-1.5 pb-1 font-display text-section font-semibold text-fg-subtle',
         className,
       )}
       {...props}

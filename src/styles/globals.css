@@ -6,101 +6,122 @@
 @custom-variant reduced-transparency (@media (prefers-reduced-transparency: reduce));
 
 /*
- * Ink — design system do octapus_db (ver DESIGN.md). Valores em OKLCH.
- * `:root` é o tema claro e `.dark` o escuro (padrão do app, no <html>).
- * Os aliases do shadcn (background, primary, muted…) saíram no fim da
- * migração: use sempre os nomes do Ink (DESIGN.md §9).
+ * Abissal — design system do octapus_db (ver DESIGN.md). Valores em OKLCH.
+ * `:root` é o tema claro (Nácar) e `.dark` o escuro (Abissal, padrão do app).
+ * Fossa e Recife são variantes escuras: `.dark[data-theme='fossa' | 'recife']`
+ * trocam só as superfícies e a rampa de texto. O acento escolhido vem de
+ * `[data-accent]` e a densidade de `[data-density]`, todos no <html>.
  */
 
-:root {
-  /* Superfícies */
-  --bg: oklch(0.955 0.004 265);
-  --surface-1: oklch(0.995 0.001 265);
-  --surface-2: oklch(0.975 0.003 265);
+:root,
+.light {
+  /* Superfícies — `--bg` é o abismo: a janela sob os painéis */
+  --bg: oklch(0.945 0.012 290);
+  --surface-1: oklch(0.988 0.005 290);
+  --surface-2: oklch(0.965 0.01 290);
   --surface-3: oklch(1 0 0);
-  --hover: oklch(0 0 0 / 4%);
-  --active: oklch(0 0 0 / 7%);
+  --hover: oklch(0.2 0.05 282 / 4.5%);
+  --active: oklch(0.2 0.05 282 / 8%);
 
   /* Linhas */
-  --line-subtle: oklch(0 0 0 / 6%);
-  --line: oklch(0 0 0 / 10%);
-  --line-strong: oklch(0 0 0 / 18%);
+  --line-subtle: oklch(0.2 0.05 282 / 7%);
+  --line: oklch(0.2 0.05 282 / 12%);
+  --line-strong: oklch(0.2 0.05 282 / 22%);
+  /* Borda de input e checkbox: 3:1 sobre qualquer camada */
+  --edge-control: oklch(0.62 0.035 282);
 
   /* Texto */
-  --fg: oklch(0.22 0.012 265);
-  --fg-muted: oklch(0.44 0.014 265);
-  --fg-subtle: oklch(0.5 0.014 265);
-  --fg-disabled: oklch(0.7 0.01 265);
+  --fg: oklch(0.21 0.035 282);
+  --fg-muted: oklch(0.44 0.035 282);
+  --fg-subtle: oklch(0.52 0.035 282);
+  --fg-disabled: oklch(0.72 0.02 285);
 
-  /* Iris — acento: ação primária, foco, seleção, controle ligado */
-  --iris: oklch(0.52 0.18 282);
-  --iris-hover: oklch(0.47 0.18 282);
-  --iris-text: oklch(0.5 0.18 282);
-  --iris-soft: oklch(0.55 0.18 282 / 10%);
-  --ring: oklch(0.55 0.18 282 / 50%);
+  /* Tinta — acento: ação primária, foco, seleção, controle ligado */
+  --tinta: oklch(0.5 0.22 295);
+  --tinta-hover: oklch(0.45 0.22 295);
+  --tinta-text: oklch(0.48 0.22 295);
+  --tinta-soft: oklch(0.55 0.22 295 / 12%);
+  --on-tinta: oklch(1 0 0);
+  --ring: oklch(0.48 0.22 295);
+
+  /* Biolume — sinal de vida: conexão aberta, consulta rodando, cursor */
+  --biolume: oklch(0.5 0.1 190);
+  --biolume-soft: oklch(0.6 0.12 190 / 14%);
 
   /* Semânticas */
-  --success: oklch(0.5 0.13 158);
-  --success-soft: oklch(0.6 0.13 158 / 12%);
-  --warning: oklch(0.52 0.12 70);
-  --warning-soft: oklch(0.75 0.14 75 / 18%);
-  --danger: oklch(0.53 0.19 25);
-  --danger-soft: oklch(0.6 0.19 25 / 10%);
-  /* Preenchimento do destrutivo (hover do botão), com branco em cima */
-  --danger-solid: oklch(0.53 0.19 25);
-  --info: oklch(0.51 0.13 240);
-  --info-soft: oklch(0.6 0.13 240 / 10%);
+  --success: oklch(0.5 0.13 152);
+  --success-soft: oklch(0.6 0.13 152 / 13%);
+  --warning: oklch(0.51 0.12 68);
+  --warning-soft: oklch(0.78 0.14 75 / 22%);
+  --danger: oklch(0.53 0.2 25);
+  --danger-soft: oklch(0.6 0.2 25 / 11%);
+  /* Preenchimento do destrutivo, com branco em cima */
+  --danger-solid: oklch(0.53 0.2 25);
+  --info: oklch(0.5 0.14 245);
+  --info-soft: oklch(0.6 0.14 245 / 11%);
 
   /* Identidade dos bancos */
-  --db-postgres: oklch(0.52 0.11 250);
-  --db-mongo: oklch(0.55 0.14 150);
-  --db-redis: oklch(0.55 0.19 27);
-  --db-sqlite: oklch(0.56 0.1 220);
+  --db-postgres: oklch(0.5 0.13 252);
+  --db-mongo: oklch(0.5 0.14 150);
+  --db-redis: oklch(0.54 0.19 28);
+  --db-sqlite: oklch(0.5 0.1 220);
+  --db-mysql: oklch(0.53 0.12 60);
 
   /* Tipos de dado na grade */
-  --data-number: oklch(0.5 0.12 240);
-  --data-date: oklch(0.5 0.09 185);
-  --data-bool: oklch(0.52 0.15 350);
-  --data-json: oklch(0.53 0.13 55);
+  --data-number: oklch(0.48 0.13 242);
+  --data-date: oklch(0.48 0.09 185);
+  --data-bool: oklch(0.5 0.17 345);
+  --data-json: oklch(0.52 0.13 55);
 
   /* Busca na grade (Cmd/Ctrl+F): fundo do trecho casado, com texto --fg */
-  --match: oklch(0.6 0.15 90);
+  --match: oklch(0.6 0.13 95);
   --match-soft: oklch(0.9 0.17 100 / 70%);
   --match-strong: oklch(0.85 0.17 95);
 
   /* Sintaxe (CodeMirror) */
-  --syn-keyword: oklch(0.5 0.18 285);
-  --syn-function: oklch(0.5 0.12 240);
-  --syn-string: oklch(0.5 0.12 150);
-  --syn-number: oklch(0.53 0.13 55);
-  --syn-type: oklch(0.5 0.09 185);
+  --syn-keyword: oklch(0.48 0.22 295);
+  --syn-function: oklch(0.47 0.1 190);
+  --syn-string: oklch(0.48 0.13 150);
+  --syn-number: oklch(0.52 0.13 55);
+  --syn-type: oklch(0.48 0.13 242);
 
   /* Semáforo do macOS — cinza em repouso, cores do sistema no hover */
-  --traffic-rest: oklch(0 0 0 / 14%);
-  --traffic-edge: oklch(0 0 0 / 12%);
+  --traffic-rest: oklch(0.2 0.05 282 / 14%);
+  --traffic-edge: oklch(0.2 0.05 282 / 12%);
   --traffic-glyph: oklch(0 0 0 / 55%);
   --traffic-close: oklch(0.68 0.2 27);
   --traffic-minimize: oklch(0.83 0.16 80);
   --traffic-zoom: oklch(0.72 0.19 145);
 
   /* Vidro */
-  --glass: oklch(1 0 0 / 80%);
-  --glass-border: oklch(0 0 0 / 8%);
+  --glass: oklch(1 0 0 / 82%);
+  --glass-border: oklch(0.2 0.05 282 / 9%);
   --glass-highlight: oklch(1 0 0 / 70%);
-  --scrim: oklch(0 0 0 / 25%);
+  --scrim: oklch(0.2 0.05 282 / 28%);
 
-  /* Controles — campo rebaixado; botão secundário branco com sombra leve */
-  --field: oklch(1 0 0);
-  --control: oklch(1 0 0);
-  --control-border: var(--line-strong);
-  --control-shadow: 0 1px 2px oklch(0.21 0.034 265 / 6%);
+  /* Controles — campo rebaixado (o abismo); botão secundário em surface-2 */
+  --field: oklch(0.945 0.012 290);
+  --control: oklch(0.965 0.01 290);
+  --control-border: var(--line);
+  --control-shadow: 0 1px 2px oklch(0.2 0.05 282 / 8%);
 
   /* Elevação — só a sombra; o contorno de 1 px vem da borda do componente */
-  --elev-1: 0 1px 2px oklch(0.21 0.034 265 / 10%);
-  --elev-2: 0 12px 32px -8px oklch(0.21 0.034 265 / 16%);
-  --elev-3: 0 24px 64px -12px oklch(0.21 0.034 265 / 25%);
+  --elev-1: 0 1px 2px oklch(0.2 0.05 282 / 12%);
+  --elev-2: 0 12px 32px -8px oklch(0.2 0.05 282 / 20%);
+  --elev-3: 0 28px 72px -16px oklch(0.2 0.05 282 / 28%);
+  /* Halo do sinal de vida (chip de conexão com consulta rodando) */
+  --glow-live: 0 0 0 3px oklch(0.6 0.12 190 / 14%);
 
-  /* Movimento (iguais nos dois temas) */
+  /* Densidade (Normal): linhas da grade, árvore e menus */
+  --row-h: 28px;
+  --tree-row-h: 28px;
+  --cell-text: 12.5px;
+
+  /* Fontes escolhidas nas preferências */
+  --app-font-ui: 'Geist Variable';
+  --app-font-mono: 'Geist Mono Variable';
+
+  /* Movimento (iguais nos temas) */
   --duration-press: 80ms;
   --duration-fast: 120ms;
   --duration-base: 180ms;
@@ -110,69 +131,76 @@
 }
 
 .dark {
-  /* Superfícies */
-  --bg: oklch(0.165 0.006 265);
-  --surface-1: oklch(0.2 0.007 265);
-  --surface-2: oklch(0.228 0.008 265);
-  --surface-3: oklch(0.26 0.009 265);
-  --hover: oklch(1 0 0 / 4.5%);
-  --active: oklch(1 0 0 / 7.5%);
+  /* Superfícies — índigo profundo */
+  --bg: oklch(0.145 0.022 278);
+  --surface-1: oklch(0.178 0.026 278);
+  --surface-2: oklch(0.205 0.029 278);
+  --surface-3: oklch(0.24 0.032 278);
+  --hover: oklch(1 0 0 / 5%);
+  --active: oklch(1 0 0 / 8.5%);
 
   /* Linhas */
-  --line-subtle: oklch(1 0 0 / 5.5%);
-  --line: oklch(1 0 0 / 8.5%);
-  --line-strong: oklch(1 0 0 / 15%);
+  --line-subtle: oklch(1 0 0 / 6%);
+  --line: oklch(1 0 0 / 10%);
+  --line-strong: oklch(1 0 0 / 18%);
+  --edge-control: oklch(0.53 0.035 282);
 
   /* Texto */
-  --fg: oklch(0.95 0.004 265);
-  --fg-muted: oklch(0.76 0.01 265);
-  --fg-subtle: oklch(0.7 0.012 265);
-  --fg-disabled: oklch(0.45 0.01 265);
+  --fg: oklch(0.95 0.012 285);
+  --fg-muted: oklch(0.79 0.028 282);
+  --fg-subtle: oklch(0.7 0.032 282);
+  --fg-disabled: oklch(0.46 0.025 280);
 
-  /* Iris — acento: ação primária, foco, seleção, controle ligado */
-  --iris: oklch(0.55 0.16 282);
-  --iris-hover: oklch(0.57 0.16 282);
-  --iris-text: oklch(0.77 0.12 282);
-  --iris-soft: oklch(0.66 0.15 282 / 16%);
-  --ring: oklch(0.7 0.15 282 / 60%);
+  /* Tinta */
+  --tinta: oklch(0.56 0.2 295);
+  --tinta-hover: oklch(0.52 0.2 295);
+  --tinta-text: oklch(0.8 0.13 295);
+  --tinta-soft: oklch(0.62 0.2 295 / 20%);
+  --on-tinta: oklch(1 0 0);
+  --ring: oklch(0.8 0.13 295);
+
+  /* Biolume */
+  --biolume: oklch(0.86 0.13 182);
+  --biolume-soft: oklch(0.86 0.13 182 / 14%);
 
   /* Semânticas */
-  --success: oklch(0.76 0.14 158);
-  --success-soft: oklch(0.76 0.14 158 / 14%);
-  --warning: oklch(0.82 0.13 78);
-  --warning-soft: oklch(0.82 0.13 78 / 14%);
-  --danger: oklch(0.72 0.17 22);
-  --danger-soft: oklch(0.7 0.17 22 / 14%);
+  --success: oklch(0.79 0.15 152);
+  --success-soft: oklch(0.79 0.15 152 / 14%);
+  --warning: oklch(0.85 0.14 80);
+  --warning-soft: oklch(0.85 0.14 80 / 15%);
+  --danger: oklch(0.72 0.18 22);
+  --danger-soft: oklch(0.72 0.18 22 / 15%);
   /* O --danger do escuro é claro (é texto): o preenchimento escurece */
-  --danger-solid: oklch(0.55 0.18 25);
-  --info: oklch(0.76 0.11 235);
-  --info-soft: oklch(0.76 0.11 235 / 14%);
+  --danger-solid: oklch(0.55 0.19 25);
+  --info: oklch(0.79 0.11 240);
+  --info-soft: oklch(0.79 0.11 240 / 14%);
 
   /* Identidade dos bancos */
-  --db-postgres: oklch(0.68 0.1 250);
-  --db-mongo: oklch(0.74 0.15 150);
-  --db-redis: oklch(0.66 0.19 27);
-  --db-sqlite: oklch(0.76 0.09 220);
+  --db-postgres: oklch(0.74 0.11 250);
+  --db-mongo: oklch(0.78 0.15 150);
+  --db-redis: oklch(0.72 0.17 28);
+  --db-sqlite: oklch(0.8 0.1 215);
+  --db-mysql: oklch(0.8 0.12 65);
 
   /* Tipos de dado na grade */
-  --data-number: oklch(0.8 0.09 235);
-  --data-date: oklch(0.8 0.08 185);
-  --data-bool: oklch(0.78 0.1 350);
-  --data-json: oklch(0.8 0.1 60);
+  --data-number: oklch(0.82 0.1 235);
+  --data-date: oklch(0.82 0.09 182);
+  --data-bool: oklch(0.8 0.12 345);
+  --data-json: oklch(0.83 0.11 65);
 
-  /* Busca na grade (Cmd/Ctrl+F): fundo do trecho casado, com texto --fg */
-  --match: oklch(0.85 0.17 100);
-  --match-soft: oklch(0.85 0.17 100 / 28%);
-  --match-strong: oklch(0.85 0.17 100 / 38%);
+  /* Busca na grade */
+  --match: oklch(0.88 0.17 102);
+  --match-soft: oklch(0.88 0.17 102 / 28%);
+  --match-strong: oklch(0.88 0.17 102 / 38%);
 
   /* Sintaxe (CodeMirror) */
-  --syn-keyword: oklch(0.76 0.12 285);
-  --syn-function: oklch(0.8 0.09 235);
-  --syn-string: oklch(0.8 0.1 150);
-  --syn-number: oklch(0.8 0.1 60);
-  --syn-type: oklch(0.8 0.08 185);
+  --syn-keyword: oklch(0.8 0.13 295);
+  --syn-function: oklch(0.84 0.11 182);
+  --syn-string: oklch(0.82 0.12 150);
+  --syn-number: oklch(0.83 0.11 65);
+  --syn-type: oklch(0.82 0.09 235);
 
-  /* Semáforo do macOS — as cores do hover são as mesmas nos dois temas */
+  /* Semáforo do macOS */
   --traffic-rest: oklch(1 0 0 / 20%);
   --traffic-edge: oklch(0 0 0 / 20%);
   --traffic-glyph: oklch(0 0 0 / 55%);
@@ -181,30 +209,206 @@
   --traffic-zoom: oklch(0.72 0.19 145);
 
   /* Vidro */
-  --glass: oklch(0.26 0.009 265 / 78%);
-  --glass-border: oklch(1 0 0 / 9%);
+  --glass: oklch(0.24 0.032 278 / 84%);
+  --glass-border: oklch(1 0 0 / 10%);
   --glass-highlight: oklch(1 0 0 / 6%);
-  --scrim: oklch(0 0 0 / 45%);
+  --scrim: oklch(0.08 0.03 278 / 55%);
 
-  /* Controles — campo rebaixado (mais escuro que o painel); botão secundário claro */
-  --field: oklch(0 0 0 / 20%);
-  --control: oklch(1 0 0 / 6%);
+  /* Controles */
+  --field: oklch(0.145 0.022 278);
+  --control: oklch(0.205 0.029 278);
   --control-border: var(--line);
-  --control-shadow: 0 0 #0000;
+  --control-shadow:
+    0 1px 0 oklch(1 0 0 / 5%) inset, 0 1px 2px oklch(0 0 0 / 40%);
 
-  /* Elevação — no escuro a sombra é longa e densa; o nível 1 ganha um brilho no topo */
-  --elev-1: 0 1px 2px oklch(0 0 0 / 40%), inset 0 1px 0 oklch(1 0 0 / 4%);
-  --elev-2: 0 12px 32px -8px oklch(0 0 0 / 65%);
-  --elev-3: 0 24px 64px -12px oklch(0 0 0 / 75%);
+  /* Elevação */
+  --elev-1: 0 1px 2px oklch(0 0 0 / 40%), inset 0 1px 0 oklch(1 0 0 / 5%);
+  --elev-2: 0 12px 32px -8px oklch(0 0 0 / 70%);
+  --elev-3: 0 28px 72px -16px oklch(0 0 0 / 80%);
+  --glow-live:
+    0 0 0 3px oklch(0.86 0.13 182 / 14%), 0 0 12px oklch(0.86 0.13 182 / 20%);
+}
+
+/* Fossa — preto OLED */
+.dark[data-theme='fossa'] {
+  --bg: oklch(0 0 0);
+  --surface-1: oklch(0.11 0.012 278);
+  --surface-2: oklch(0.15 0.012 278);
+  --surface-3: oklch(0.2 0.012 278);
+  --field: oklch(0 0 0);
+  --control: oklch(0.15 0.012 278);
+  --edge-control: oklch(0.5 0.03 282);
+  --glass: oklch(0.2 0.012 278 / 86%);
+}
+
+/* Recife — escuro quente */
+.dark[data-theme='recife'] {
+  --bg: oklch(0.16 0.018 45);
+  --surface-1: oklch(0.19 0.018 45);
+  --surface-2: oklch(0.22 0.018 45);
+  --surface-3: oklch(0.255 0.018 45);
+  --field: oklch(0.16 0.018 45);
+  --control: oklch(0.22 0.018 45);
+  --edge-control: oklch(0.55 0.03 60);
+  --fg: oklch(0.95 0.012 60);
+  --fg-muted: oklch(0.79 0.028 60);
+  --fg-subtle: oklch(0.7 0.03 60);
+  --fg-disabled: oklch(0.46 0.025 60);
+  --glass: oklch(0.255 0.018 45 / 84%);
+}
+
+/*
+ * Acentos — trocam só a tinta; o claro vem primeiro, o escuro em `.dark`.
+ * Biolume e Âmbar no escuro levam texto escuro (o abismo) em cima.
+ */
+/* Tinta explícita: as amostras de acento nas preferências voltam ao padrão */
+[data-accent='tinta'] {
+  --tinta: oklch(0.5 0.22 295);
+  --tinta-hover: oklch(0.45 0.22 295);
+  --tinta-text: oklch(0.48 0.22 295);
+  --tinta-soft: oklch(0.55 0.22 295 / 12%);
+  --on-tinta: oklch(1 0 0);
+  --ring: oklch(0.48 0.22 295);
+  --syn-keyword: oklch(0.48 0.22 295);
+}
+.dark[data-accent='tinta'],
+.dark [data-accent='tinta'] {
+  --tinta: oklch(0.56 0.2 295);
+  --tinta-hover: oklch(0.52 0.2 295);
+  --tinta-text: oklch(0.8 0.13 295);
+  --tinta-soft: oklch(0.62 0.2 295 / 20%);
+  --on-tinta: oklch(1 0 0);
+  --ring: oklch(0.8 0.13 295);
+  --syn-keyword: oklch(0.8 0.13 295);
+}
+
+[data-accent='coral'] {
+  --tinta: oklch(0.55 0.18 32);
+  --tinta-hover: oklch(0.5 0.18 32);
+  --tinta-text: oklch(0.52 0.17 32);
+  --tinta-soft: oklch(0.55 0.18 32 / 10%);
+  --ring: oklch(0.52 0.17 32);
+  --syn-keyword: oklch(0.52 0.17 32);
+}
+.dark[data-accent='coral'],
+.dark [data-accent='coral'] {
+  --tinta: oklch(0.56 0.17 32);
+  --tinta-hover: oklch(0.52 0.17 32);
+  --tinta-text: oklch(0.8 0.12 40);
+  --tinta-soft: oklch(0.6 0.17 32 / 20%);
+  --ring: oklch(0.8 0.12 40);
+  --syn-keyword: oklch(0.8 0.12 40);
+}
+[data-accent='biolume'] {
+  --tinta: oklch(0.52 0.1 190);
+  --tinta-hover: oklch(0.47 0.1 190);
+  --tinta-text: oklch(0.48 0.09 190);
+  --tinta-soft: oklch(0.6 0.12 190 / 14%);
+  --ring: oklch(0.48 0.09 190);
+  --syn-keyword: oklch(0.48 0.09 190);
+  /* Com acento biolume, o sinal de vida passa para o success */
+  --biolume: var(--success);
+  --biolume-soft: var(--success-soft);
+}
+.dark[data-accent='biolume'],
+.dark [data-accent='biolume'] {
+  --tinta: oklch(0.82 0.13 182);
+  --tinta-hover: oklch(0.86 0.13 182);
+  --tinta-text: oklch(0.86 0.13 182);
+  --tinta-soft: oklch(0.82 0.13 182 / 16%);
+  --on-tinta: oklch(0.145 0.022 278);
+  --ring: oklch(0.86 0.13 182);
+  --syn-keyword: oklch(0.86 0.13 182);
+}
+[data-accent='alga'] {
+  --tinta: oklch(0.5 0.13 150);
+  --tinta-hover: oklch(0.45 0.13 150);
+  --tinta-text: oklch(0.47 0.12 150);
+  --tinta-soft: oklch(0.55 0.13 150 / 12%);
+  --ring: oklch(0.47 0.12 150);
+  --syn-keyword: oklch(0.47 0.12 150);
+}
+.dark[data-accent='alga'],
+.dark [data-accent='alga'] {
+  --tinta: oklch(0.55 0.13 150);
+  --tinta-hover: oklch(0.5 0.13 150);
+  --tinta-text: oklch(0.8 0.14 150);
+  --tinta-soft: oklch(0.6 0.14 150 / 18%);
+  --ring: oklch(0.8 0.14 150);
+  --syn-keyword: oklch(0.8 0.14 150);
+}
+[data-accent='ambar'] {
+  --tinta: oklch(0.52 0.13 62);
+  --tinta-hover: oklch(0.47 0.13 62);
+  --tinta-text: oklch(0.5 0.12 60);
+  --tinta-soft: oklch(0.7 0.14 70 / 18%);
+  --ring: oklch(0.5 0.12 60);
+  --syn-keyword: oklch(0.5 0.12 60);
+}
+.dark[data-accent='ambar'],
+.dark [data-accent='ambar'] {
+  --tinta: oklch(0.82 0.15 78);
+  --tinta-hover: oklch(0.86 0.15 78);
+  --tinta-text: oklch(0.85 0.14 80);
+  --tinta-soft: oklch(0.82 0.15 78 / 16%);
+  --on-tinta: oklch(0.145 0.022 278);
+  --ring: oklch(0.85 0.14 80);
+  --syn-keyword: oklch(0.85 0.14 80);
+}
+[data-accent='azul'] {
+  --tinta: oklch(0.5 0.17 258);
+  --tinta-hover: oklch(0.45 0.17 258);
+  --tinta-text: oklch(0.48 0.17 258);
+  --tinta-soft: oklch(0.55 0.17 258 / 12%);
+  --ring: oklch(0.48 0.17 258);
+  --syn-keyword: oklch(0.48 0.17 258);
+}
+.dark[data-accent='azul'],
+.dark [data-accent='azul'] {
+  --tinta: oklch(0.55 0.16 255);
+  --tinta-hover: oklch(0.5 0.16 255);
+  --tinta-text: oklch(0.8 0.1 250);
+  --tinta-soft: oklch(0.6 0.16 255 / 20%);
+  --ring: oklch(0.8 0.1 250);
+  --syn-keyword: oklch(0.8 0.1 250);
+}
+
+/* Densidade — a grade, a árvore e os menus leem estas alturas */
+[data-density='compact'] {
+  --row-h: 24px;
+  --tree-row-h: 24px;
+  --cell-text: 12px;
+}
+[data-density='comfy'] {
+  --row-h: 32px;
+  --tree-row-h: 32px;
+  --cell-text: 13px;
+}
+
+/* Fontes */
+[data-ui-font='inter'] {
+  --app-font-ui: 'Inter Variable';
+}
+[data-ui-font='system'] {
+  --app-font-ui: system-ui, -apple-system, 'Segoe UI';
+}
+[data-mono-font='jetbrains'] {
+  --app-font-mono: 'JetBrains Mono Variable';
+}
+[data-mono-font='system'] {
+  --app-font-mono: ui-monospace, 'SF Mono', Consolas;
 }
 
 @theme inline {
-  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+  --font-sans: var(--app-font-ui), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--app-font-mono), ui-monospace, monospace;
+  --font-display:
+    'Bricolage Grotesque Variable', var(--app-font-ui), ui-sans-serif,
+    sans-serif;
 
   --spacing: 0.25rem;
 
-  /* Ink */
+  /* Abissal */
   --color-bg: var(--bg);
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
@@ -218,11 +422,15 @@
   --color-fg-muted: var(--fg-muted);
   --color-fg-subtle: var(--fg-subtle);
   --color-fg-disabled: var(--fg-disabled);
-  --color-iris: var(--iris);
-  --color-iris-hover: var(--iris-hover);
-  --color-iris-text: var(--iris-text);
-  --color-iris-soft: var(--iris-soft);
+  --color-tinta: var(--tinta);
+  --color-tinta-hover: var(--tinta-hover);
+  --color-tinta-text: var(--tinta-text);
+  --color-tinta-soft: var(--tinta-soft);
   --color-ring: var(--ring);
+  --color-on-tinta: var(--on-tinta);
+  --color-biolume: var(--biolume);
+  --color-biolume-soft: var(--biolume-soft);
+  --color-edge-control: var(--edge-control);
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
@@ -236,6 +444,7 @@
   --color-db-mongo: var(--db-mongo);
   --color-db-redis: var(--db-redis);
   --color-db-sqlite: var(--db-sqlite);
+  --color-db-mysql: var(--db-mysql);
   --color-data-number: var(--data-number);
   --color-data-date: var(--data-date);
   --color-data-bool: var(--data-bool);
@@ -263,18 +472,19 @@
   --color-control-border: var(--control-border);
 
   /* Raio — `rounded` sem sufixo usa --radius: raio de controle */
-  --radius: 6px;
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
+  --radius: 7px;
+  --radius-xs: 3px;
+  --radius-sm: 7px;
+  --radius-md: 9px;
   --radius-lg: 12px;
-  --radius-xl: 16px;
+  --radius-xl: 18px;
 
-  /* Elevação — e os nomes do Tailwind mapeados para os níveis do Ink */
+  /* Elevação — e os nomes do Tailwind mapeados para os níveis do Abissal */
   --shadow-raised: var(--elev-1);
   --shadow-overlay: var(--elev-2);
   --shadow-modal: var(--elev-3);
   --shadow-control: var(--control-shadow);
+  --shadow-live: var(--glow-live);
   /* Botão primário: brilho de 1 px no topo + sombra curta, igual nos dois temas */
   --shadow-cta: inset 0 1px 0 oklch(1 0 0 / 15%), 0 1px 2px oklch(0 0 0 / 25%);
   /* Vidro: sombra modal + brilho de 1 px no topo */
@@ -298,10 +508,15 @@
   --text-body--line-height: 20px;
   --text-heading: 14px;
   --text-heading--line-height: 20px;
-  --text-title: 16px;
+  --text-section: 12px;
+  --text-section--line-height: 16px;
+  --text-section--letter-spacing: 0.01em;
+  --text-cell: var(--cell-text);
+  --text-cell--line-height: 16px;
+  --text-title: 17px;
   --text-title--line-height: 24px;
   --text-title--letter-spacing: -0.01em;
-  --text-display: 24px;
+  --text-display: 28px;
   --text-display--line-height: 32px;
   --text-display--letter-spacing: -0.02em;
 
@@ -318,6 +533,45 @@
   --animate-indeterminate: ink-indeterminate 1.2s cubic-bezier(0.65, 0, 0.35, 1)
     infinite;
   --animate-shimmer: ink-shimmer 1.4s linear infinite;
+  /* Pulso biolume: o sinal de vida enquanto algo roda (DESIGN.md, Movimento) */
+  --animate-live: abissal-live 2.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  /* Ventosas: cinco pontos que acendem em sequência (carregando em linha) */
+  --animate-suck: abissal-suck 960ms cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  /* Jato de tinta: anel que sai do botão Executar e se dissolve */
+  --animate-ink-jet: abissal-ink-jet 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  @keyframes abissal-live {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 var(--biolume-soft);
+    }
+    50% {
+      box-shadow: var(--glow-live);
+    }
+  }
+
+  @keyframes abissal-suck {
+    0%,
+    100% {
+      opacity: 0.3;
+      transform: scale(0.8);
+    }
+    40% {
+      opacity: 1;
+      transform: scale(1.15);
+    }
+  }
+
+  @keyframes abissal-ink-jet {
+    from {
+      opacity: 0.9;
+      transform: scale(0.4);
+    }
+    to {
+      opacity: 0;
+      transform: scale(1.35);
+    }
+  }
 
   @keyframes ink-indeterminate {
     from {
@@ -354,7 +608,7 @@
   }
 }
 
-/* Vidro: só em camadas flutuantes e temporárias (DESIGN.md §7). */
+/* Vidro: só em camadas flutuantes e temporárias (DESIGN.md). */
 @utility glass {
   background: var(--glass);
   backdrop-filter: blur(20px) saturate(1.4);
@@ -499,6 +753,17 @@
   }
 }
 
+/* Movimento reduzido: o pulso biolume fica parado aceso e o jato some */
+@media (prefers-reduced-motion: reduce) {
+  .animate-live {
+    animation: none;
+    box-shadow: var(--glow-live);
+  }
+  .animate-ink-jet {
+    display: none;
+  }
+}
+
 /* Movimento reduzido: nada gira nem desliza; o polvo só pulsa (é informação) */
 @media (prefers-reduced-motion: reduce) {
   .octapus-thinking * {
@@ -514,10 +779,51 @@
   }
 }
 
-/* Barra de rolagem fina nas listas virtualizadas (árvore, grade, paleta). */
+/*
+ * Scrollbar do Abissal (DESIGN.md, Scrollbar) — em toda área que rola.
+ * Sobreposta e fina: some em repouso, aparece no hover da área (4 px), engorda
+ * no hover da faixa (8 px) e fica tinta ao arrastar. A faixa de 12 px é a
+ * área de clique; a borda transparente desenha a pílula mais fina dentro dela.
+ * Sem `scrollbar-width`/`scrollbar-color`: no Chromium eles desligam isto.
+ */
+@layer base {
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+    background: transparent;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    min-height: 24px;
+    min-width: 24px;
+    border: 4px solid transparent;
+    border-radius: 999px;
+    background-color: transparent;
+    background-clip: padding-box;
+  }
+  :hover::-webkit-scrollbar-thumb {
+    background-color: color-mix(in oklch, var(--fg-subtle) 55%, transparent);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    border-width: 2px;
+    background-color: color-mix(in oklch, var(--fg-subtle) 85%, transparent);
+  }
+  ::-webkit-scrollbar-thumb:active {
+    border-width: 2px;
+    background-color: var(--tinta);
+  }
+  ::-webkit-scrollbar-track:hover {
+    background-color: var(--hover);
+    border-radius: 999px;
+  }
+}
+
+/* Mantido por compatibilidade: a scrollbar global já é a fina */
 @utility scrollbar-thin {
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-gutter: auto;
 }
 
 .no-scrollbar::-webkit-scrollbar {

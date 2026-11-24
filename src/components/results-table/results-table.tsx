@@ -1,3 +1,4 @@
+import { useDensityRows } from '@/stores/ui-store';
 import { cn } from '@/lib/utils';
 import type {
   ResultsTableProps,
@@ -23,6 +24,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { DataTableStatusBar } from './results-table-status-bar/results-table-status-bar';
 import { EmptyState } from './empty-state';
 import { LoadingState } from './loading-state';
+import { ResultsTableScrollMarkers } from './results-table-scroll-markers/results-table-scroll-markers';
 import { ResultsTablePendingBar } from './results-table-pending-bar/results-table-pending-bar';
 import { ResultsTableRowCell } from './results-table-row-cell/results-table-row-cell';
 import { ResultsTableVertical } from './results-table-vertical/results-table-vertical';
@@ -34,8 +36,7 @@ import { useGridClipboard } from './use-grid-clipboard';
 import { useGridSearch } from './use-grid-search';
 import type { ValuePanelTarget } from './results-table-value-panel/results-table-value-panel.types';
 
-// Densidade compacta do Ink (DESIGN.md §4): linha de 28, header de 40.
-const ROW_HEIGHT = 28;
+// Cabeçalho de 40 px (DESIGN.md §4); a altura da linha vem da densidade.
 const HEADER_HEIGHT = 40;
 const COLUMN_WIDTH = 192;
 const MIN_COLUMN_WIDTH = 60;
@@ -91,6 +92,8 @@ export const ResultsTable = memo(
     keyboardScope = false,
     className,
   }: ResultsTableProps) => {
+    // Altura da linha vem da densidade escolhida (DESIGN.md §4)
+    const { row: ROW_HEIGHT } = useDensityRows();
     // Região de teclado própria: só com várias grades na tela (assistente)
     const ownScope = keyboardScope ? searchScopeId : null;
     const scopeProps = ownScope ? { [KEYBOARD_SCOPE_ATTR]: ownScope } : {};
@@ -150,6 +153,7 @@ export const ResultsTable = memo(
       addedCount,
       removedCount,
       pendingCount,
+      pendingMarkers,
     } = useResultsTable(
       rows,
       columns,
@@ -281,6 +285,10 @@ export const ResultsTable = memo(
       estimateSize: () => ROW_HEIGHT,
       overscan: OVERSCAN_Y,
     });
+    // Trocar a densidade muda a altura de todas as linhas
+    useEffect(() => {
+      rowVirtualizer.measure();
+    }, [ROW_HEIGHT, rowVirtualizer]);
 
     const columnVirtualizer = useVirtualizer({
       horizontal: true,
@@ -498,6 +506,7 @@ export const ResultsTable = memo(
       });
     }, [
       addedCount,
+      ROW_HEIGHT,
       viewMode,
       displayRows.length,
       focusedCell,
@@ -668,193 +677,207 @@ export const ResultsTable = memo(
                   onKeyDown={onViewKeyDown}
                 />
               ) : (
-                <div
-                  ref={containerRef}
-                  data-results-view="table"
-                  // Grade virtualizada: as contagens e os índices (aria-rowindex
-                  // / aria-colindex, base 1, cabeçalho = linha 1) dizem ao
-                  // leitor de tela onde está cada linha montada.
-                  role="grid"
-                  aria-rowcount={displayRows.length + 1}
-                  aria-colcount={visibleColumns.length}
-                  tabIndex={0}
-                  onKeyDown={event => {
-                    onViewKeyDown(event);
-                    onKeyDown(event);
-                  }}
-                  className="relative h-full w-full overflow-auto scrollbar-thin outline-none"
-                >
-                  {/* Header — sticky gutter + only visible columns */}
+                <div className="relative h-full w-full">
                   <div
-                    role="row"
-                    aria-rowindex={1}
-                    className="sticky top-0 z-20 border-b border-line bg-surface-2"
-                    style={{
-                      width: `${contentWidth}px`,
-                      height: `${HEADER_HEIGHT}px`,
+                    ref={containerRef}
+                    data-results-view="table"
+                    // Grade virtualizada: as contagens e os índices (aria-rowindex
+                    // / aria-colindex, base 1, cabeçalho = linha 1) dizem ao
+                    // leitor de tela onde está cada linha montada.
+                    role="grid"
+                    aria-rowcount={displayRows.length + 1}
+                    aria-colcount={visibleColumns.length}
+                    tabIndex={0}
+                    onKeyDown={event => {
+                      onViewKeyDown(event);
+                      onKeyDown(event);
                     }}
+                    className="relative h-full w-full overflow-auto scrollbar-thin outline-none"
                   >
-                    {/* Canto do gutter: seleciona/limpa todas as linhas */}
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      aria-label={
-                        allRowsSelected
-                          ? 'Limpar seleção'
-                          : 'Selecionar todas as linhas'
-                      }
-                      title={
-                        allRowsSelected
-                          ? 'Limpar seleção'
-                          : 'Selecionar todas as linhas (Ctrl+A)'
-                      }
-                      onClick={toggleAllRowsSelection}
-                      className={cn(
-                        'sticky left-0 z-30 flex cursor-pointer select-none items-center justify-end overflow-hidden border-r border-line-subtle bg-surface-2 px-2 font-mono text-[11px] outline-none transition-colors hover:text-fg',
-                        allRowsSelected ? 'text-iris-text' : 'text-fg-subtle',
-                      )}
+                    {/* Header — sticky gutter + only visible columns */}
+                    <div
+                      role="row"
+                      aria-rowindex={1}
+                      className="sticky top-0 z-20 border-b border-line bg-surface-2"
                       style={{
-                        width: `${GUTTER_WIDTH}px`,
+                        width: `${contentWidth}px`,
                         height: `${HEADER_HEIGHT}px`,
                       }}
                     >
-                      {allRowsSelected && (
-                        <span
-                          aria-hidden
-                          className="absolute inset-0 pointer-events-none bg-iris-soft"
-                        />
-                      )}
-                      <span className="relative">#</span>
-                    </button>
-                    {virtualColumns.map(virtualColumn => {
-                      const column = visibleColumns[virtualColumn.index];
-                      if (!column) return null;
+                      {/* Canto do gutter: seleciona/limpa todas as linhas */}
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        aria-label={
+                          allRowsSelected
+                            ? 'Limpar seleção'
+                            : 'Selecionar todas as linhas'
+                        }
+                        title={
+                          allRowsSelected
+                            ? 'Limpar seleção'
+                            : 'Selecionar todas as linhas (Ctrl+A)'
+                        }
+                        onClick={toggleAllRowsSelection}
+                        className={cn(
+                          'sticky left-0 z-30 flex cursor-pointer select-none items-center justify-end overflow-hidden border-r border-line-subtle bg-surface-2 px-2 font-mono text-[11px] outline-none transition-colors hover:text-fg',
+                          allRowsSelected
+                            ? 'text-tinta-text'
+                            : 'text-fg-subtle',
+                        )}
+                        style={{
+                          width: `${GUTTER_WIDTH}px`,
+                          height: `${HEADER_HEIGHT}px`,
+                        }}
+                      >
+                        {allRowsSelected && (
+                          <span
+                            aria-hidden
+                            className="absolute inset-0 pointer-events-none bg-tinta-soft"
+                          />
+                        )}
+                        <span className="relative">#</span>
+                      </button>
+                      {virtualColumns.map(virtualColumn => {
+                        const column = visibleColumns[virtualColumn.index];
+                        if (!column) return null;
 
-                      return (
-                        <div
-                          key={virtualColumn.key}
-                          role="columnheader"
-                          aria-colindex={virtualColumn.index + 1}
-                          aria-sort={
-                            activeSort?.column === column.name
-                              ? activeSort.direction === 'asc'
-                                ? 'ascending'
-                                : 'descending'
-                              : undefined
-                          }
-                          data-column={column.name}
-                          aria-selected={
-                            isColumnSelected(column.name) || undefined
-                          }
-                          className="absolute top-0"
-                          style={{
-                            left: `${GUTTER_WIDTH + virtualColumn.start}px`,
-                            width: `${virtualColumn.size}px`,
-                            height: `${HEADER_HEIGHT}px`,
-                          }}
-                        >
-                          <ColumnCell
-                            column={column}
-                            isPrimaryKeyColumn={isPrimaryKeyColumn(column.name)}
-                            isSorted={activeSort?.column === column.name}
-                            sortDirection={
+                        return (
+                          <div
+                            key={virtualColumn.key}
+                            role="columnheader"
+                            aria-colindex={virtualColumn.index + 1}
+                            aria-sort={
                               activeSort?.column === column.name
-                                ? activeSort.direction
+                                ? activeSort.direction === 'asc'
+                                  ? 'ascending'
+                                  : 'descending'
                                 : undefined
                             }
-                            isSelected={isColumnSelected(column.name)}
-                            onSort={onSort}
-                            onSelect={toggleColumnSelection}
-                            className="w-full h-full"
-                          />
-                          {/* Alça de resize: arraste muda a largura desta coluna
-                          no header e no corpo (mesmo virtualizador) */}
-                          <div
-                            onMouseDown={event =>
-                              handleResizeStart(
-                                event,
-                                column.name,
-                                virtualColumn.size,
-                              )
+                            data-column={column.name}
+                            aria-selected={
+                              isColumnSelected(column.name) || undefined
                             }
-                            className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize select-none transition-colors hover:bg-line-strong active:bg-ring"
+                            className="absolute top-0"
+                            style={{
+                              left: `${GUTTER_WIDTH + virtualColumn.start}px`,
+                              width: `${virtualColumn.size}px`,
+                              height: `${HEADER_HEIGHT}px`,
+                            }}
+                          >
+                            <ColumnCell
+                              column={column}
+                              isPrimaryKeyColumn={isPrimaryKeyColumn(
+                                column.name,
+                              )}
+                              isSorted={activeSort?.column === column.name}
+                              sortDirection={
+                                activeSort?.column === column.name
+                                  ? activeSort.direction
+                                  : undefined
+                              }
+                              isSelected={isColumnSelected(column.name)}
+                              onSort={onSort}
+                              onSelect={toggleColumnSelection}
+                              className="w-full h-full"
+                            />
+                            {/* Alça de resize: arraste muda a largura desta coluna
+                          no header e no corpo (mesmo virtualizador) */}
+                            <div
+                              onMouseDown={event =>
+                                handleResizeStart(
+                                  event,
+                                  column.name,
+                                  virtualColumn.size,
+                                )
+                              }
+                              className="absolute top-0 -right-px z-10 flex h-full w-2 cursor-col-resize select-none justify-center py-2.5 opacity-0 transition-opacity hover:opacity-100 active:opacity-100 after:h-full after:w-[3px] after:rounded-full after:bg-tinta-text"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Body — only visible rows × visible columns */}
+                    <div
+                      className="relative"
+                      style={{
+                        width: `${contentWidth}px`,
+                        height: `${rowVirtualizer.getTotalSize()}px`,
+                        // A barra de pendências não pode cobrir a última linha
+                        marginBottom:
+                          pendingCount > 0
+                            ? `${PENDING_BAR_SPACE}px`
+                            : undefined,
+                      }}
+                    >
+                      {virtualRows.map(virtualRow => {
+                        const row = displayRows[virtualRow.index];
+                        if (!row) return null;
+
+                        return (
+                          <ResultsTableRowCell
+                            key={virtualRow.key}
+                            row={row}
+                            rowIndex={virtualRow.index}
+                            isModified={isRowModified(virtualRow.index)}
+                            isAdded={isRowAdded(virtualRow.index)}
+                            isRemoved={isRowRemoved(virtualRow.index)}
+                            isSelected={isRowSelected(virtualRow.index)}
+                            rowHeight={ROW_HEIGHT}
+                            rowStart={virtualRow.start}
+                            gutterWidth={GUTTER_WIDTH}
+                            totalWidth={contentWidth}
+                            columns={visibleColumns}
+                            columnIndices={visibleColumnIndices}
+                            virtualColumns={virtualColumns}
+                            getCellDisplayValue={getCellDisplayValue}
+                            isCellModified={isCellModified}
+                            isCellDefault={isCellDefault}
+                            isColumnEditable={isColumnEditable}
+                            updateCell={updateCell}
+                            activeColumnName={
+                              activeCell?.rowIndex === virtualRow.index
+                                ? activeCell.columnName
+                                : null
+                            }
+                            focusedColumnName={
+                              focusedCell?.rowIndex === virtualRow.index
+                                ? focusedCell.columnName
+                                : null
+                            }
+                            getColumnMatcher={getColumnMatcher}
+                            currentMatchColumnName={
+                              currentMatch?.rowIndex === virtualRow.index
+                                ? currentMatch.columnName
+                                : null
+                            }
+                            isColumnSelected={isColumnSelected}
+                            cellRange={
+                              cellRange &&
+                              virtualRow.index >= cellRange.top &&
+                              virtualRow.index <= cellRange.bottom
+                                ? cellRange
+                                : null
+                            }
+                            onActivateCell={handleActivateCell}
+                            onCloseCell={deactivateCell}
+                            onFocusCell={handleFocusCell}
+                            onExtendCell={handleExtendCell}
+                            onHoverCell={handleHoverCell}
+                            onSelectRowBody={handleSelectRowBody}
+                            onSelectRowGutter={handleSelectRowGutter}
                           />
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-
-                  {/* Body — only visible rows × visible columns */}
-                  <div
-                    className="relative"
-                    style={{
-                      width: `${contentWidth}px`,
-                      height: `${rowVirtualizer.getTotalSize()}px`,
-                      // A barra de pendências não pode cobrir a última linha
-                      marginBottom:
-                        pendingCount > 0 ? `${PENDING_BAR_SPACE}px` : undefined,
-                    }}
-                  >
-                    {virtualRows.map(virtualRow => {
-                      const row = displayRows[virtualRow.index];
-                      if (!row) return null;
-
-                      return (
-                        <ResultsTableRowCell
-                          key={virtualRow.key}
-                          row={row}
-                          rowIndex={virtualRow.index}
-                          isModified={isRowModified(virtualRow.index)}
-                          isAdded={isRowAdded(virtualRow.index)}
-                          isRemoved={isRowRemoved(virtualRow.index)}
-                          isSelected={isRowSelected(virtualRow.index)}
-                          rowHeight={ROW_HEIGHT}
-                          rowStart={virtualRow.start}
-                          gutterWidth={GUTTER_WIDTH}
-                          totalWidth={contentWidth}
-                          columns={visibleColumns}
-                          columnIndices={visibleColumnIndices}
-                          virtualColumns={virtualColumns}
-                          getCellDisplayValue={getCellDisplayValue}
-                          isCellModified={isCellModified}
-                          isCellDefault={isCellDefault}
-                          isColumnEditable={isColumnEditable}
-                          updateCell={updateCell}
-                          activeColumnName={
-                            activeCell?.rowIndex === virtualRow.index
-                              ? activeCell.columnName
-                              : null
-                          }
-                          focusedColumnName={
-                            focusedCell?.rowIndex === virtualRow.index
-                              ? focusedCell.columnName
-                              : null
-                          }
-                          getColumnMatcher={getColumnMatcher}
-                          currentMatchColumnName={
-                            currentMatch?.rowIndex === virtualRow.index
-                              ? currentMatch.columnName
-                              : null
-                          }
-                          isColumnSelected={isColumnSelected}
-                          cellRange={
-                            cellRange &&
-                            virtualRow.index >= cellRange.top &&
-                            virtualRow.index <= cellRange.bottom
-                              ? cellRange
-                              : null
-                          }
-                          onActivateCell={handleActivateCell}
-                          onCloseCell={deactivateCell}
-                          onFocusCell={handleFocusCell}
-                          onExtendCell={handleExtendCell}
-                          onHoverCell={handleHoverCell}
-                          onSelectRowBody={handleSelectRowBody}
-                          onSelectRowGutter={handleSelectRowGutter}
-                        />
-                      );
-                    })}
-                  </div>
+                  <ResultsTableScrollMarkers
+                    rowCount={displayRows.length}
+                    matches={search.matches}
+                    pending={pendingMarkers}
+                    top={HEADER_HEIGHT}
+                  />
                 </div>
               )}
             </ResizablePanel>

@@ -4,15 +4,16 @@ import { EditorView } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
 
 /**
- * Tema do CodeMirror derivado dos tokens do Ink (DESIGN.md §2.7): as cores são
+ * Tema do CodeMirror derivado dos tokens do Abissal (DESIGN.md, Editor): as cores são
  * `var(--…)`, então o mesmo tema acompanha claro/escuro sozinho — o `dark` só
  * ajusta os padrões internos do CodeMirror. Substitui o `oneDark`.
  */
 // Mesma pilha do `--font-mono` do tema (o Tailwind não publica a variável).
-const MONO_FONT = "'Geist Mono Variable', ui-monospace, monospace";
+// A fonte escolhida nas preferências chega por `--app-font-mono`.
+const MONO_FONT = 'var(--app-font-mono), ui-monospace, monospace';
 // Os painéis (busca, ir para a linha) são UI do app, não código: a pilha do
 // `--font-sans` (que o Tailwind também não publica).
-const SANS_FONT = "'Geist Variable', ui-sans-serif, system-ui, sans-serif";
+const SANS_FONT = 'var(--app-font-ui), ui-sans-serif, system-ui, sans-serif';
 
 /**
  * Rótulos dos painéis do CodeMirror (busca do Cmd/Ctrl+F, ir para a linha) em
@@ -51,16 +52,17 @@ const editorChrome = (dark: boolean) =>
         fontFamily: MONO_FONT,
         lineHeight: '22px',
       },
+      // Cursor biolume: o sinal de vida do editor (DESIGN.md, Editor)
       '.cm-content': {
-        caretColor: 'var(--iris-text)',
+        caretColor: 'var(--biolume)',
         padding: '10px 0',
       },
       '.cm-cursor, .cm-dropCursor': {
-        borderLeftColor: 'var(--iris-text)',
+        borderLeftColor: 'var(--biolume)',
         borderLeftWidth: '2px',
       },
       '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
-        { backgroundColor: 'var(--iris-soft)' },
+        { backgroundColor: 'var(--tinta-soft)' },
       '.cm-activeLine': { backgroundColor: 'var(--hover)' },
       '.cm-selectionMatch': { backgroundColor: 'var(--active)' },
       '&.cm-focused .cm-matchingBracket': {
@@ -103,7 +105,7 @@ const editorChrome = (dark: boolean) =>
         padding: '4px',
       },
       '.cm-tooltip-autocomplete > ul > li': {
-        borderRadius: '6px',
+        borderRadius: '7px',
         padding: '2px 8px',
         lineHeight: '22px',
       },
@@ -117,10 +119,34 @@ const editorChrome = (dark: boolean) =>
       },
       '.cm-completionMatchedText': {
         textDecoration: 'none',
-        color: 'var(--iris-text)',
+        color: 'var(--tinta-text)',
         fontWeight: '600',
       },
-      '.cm-completionIcon': { opacity: '0.7' },
+      // Tipo da sugestão num chip (t tabela, c coluna, ƒ função…)
+      '.cm-completionIcon': {
+        opacity: '1',
+        width: '18px',
+        height: '16px',
+        marginRight: '8px',
+        borderRadius: '4px',
+        backgroundColor: 'var(--active)',
+        color: 'var(--fg-muted)',
+        textAlign: 'center',
+        fontSize: '10px',
+        lineHeight: '16px',
+        boxSizing: 'border-box',
+        padding: '0',
+      },
+      '.cm-completionIcon-class, .cm-completionIcon-type': {
+        color: 'var(--db-postgres)',
+      },
+      '.cm-completionIcon-property, .cm-completionIcon-variable': {
+        color: 'var(--data-json)',
+      },
+      '.cm-completionIcon-function, .cm-completionIcon-method': {
+        color: 'var(--syn-function)',
+      },
+      '.cm-completionIcon-keyword': { color: 'var(--syn-keyword)' },
       '.cm-panels': {
         backgroundColor: 'var(--surface-2)',
         color: 'var(--fg)',
@@ -208,8 +234,8 @@ const editorChrome = (dark: boolean) =>
         cursor: 'pointer',
       },
       '.cm-panel.cm-search input[type=checkbox]:checked': {
-        backgroundColor: 'var(--iris)',
-        borderColor: 'var(--iris)',
+        backgroundColor: 'var(--tinta)',
+        borderColor: 'var(--tinta)',
         // Miolo vazado no lugar do "✓": só tokens, sem imagem
         boxShadow: 'inset 0 0 0 2px var(--surface-1)',
       },
@@ -243,7 +269,7 @@ const editorChrome = (dark: boolean) =>
         outline: '1px solid var(--warning)',
       },
       '.cm-searchMatch.cm-searchMatch-selected': {
-        backgroundColor: 'var(--iris-soft)',
+        backgroundColor: 'var(--tinta-soft)',
       },
     },
     { dark },

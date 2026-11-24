@@ -102,6 +102,12 @@ export type UpdateCellFn = (
   newValue: string | null,
 ) => void;
 export type IsRowFlagFn = (rowIndex: number) => boolean;
+
+/** Linha pendente, para os marcadores da scrollbar */
+export interface PendingMarker {
+  row: number;
+  kind: 'edited' | 'added' | 'removed';
+}
 export type IsRowModifiedFn = IsRowFlagFn;
 export type IsCellModifiedFn = (rowIndex: number, columnId: string) => boolean;
 export type GetCellDisplayValueFn = (
@@ -137,6 +143,7 @@ export interface UseResultsTableParams {
 }
 
 export interface UseResultsTableReturn {
+  pendingMarkers: PendingMarker[];
   isEditable: boolean;
   isPrimaryKeyColumn: IsPrimaryKeyColumnFn;
   isColumnEditable: IsColumnEditableFn;

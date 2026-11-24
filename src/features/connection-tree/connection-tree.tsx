@@ -1,7 +1,9 @@
+import { useDensityRows } from '@/stores/ui-store';
+import { computeTreeGuides, type GuideKind } from './tree-guides';
 import { FileImportIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { memo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { ErrorRow } from './error-row';
@@ -15,7 +17,8 @@ import { useTreeNavigation } from './use-tree-navigation';
 import type { ConnectionTreeProps } from './connection-tree.types';
 
 // Linha de 28 px + 1 px de respiro entre as linhas.
-const ROW_HEIGHT = 29;
+/** Espaço de 1 px entre as linhas, além da altura da densidade */
+const ROW_GAP = 1;
 const OVERSCAN = 12;
 
 /**
@@ -32,7 +35,16 @@ export const ConnectionTree = memo((props: ConnectionTreeProps) => {
     useConnectionTree(props);
   const parentRef = useRef<HTMLDivElement>(null);
   const { getEnterDelay } = useTreeEnterAnimation(rows);
+  const guides = useMemo(
+    () =>
+      computeTreeGuides(
+        rows.map(row => (row.variant === 'node' ? row.props.level : row.level)),
+      ),
+    [rows],
+  );
 
+  const { tree: treeRow } = useDensityRows();
+  const ROW_HEIGHT = treeRow + ROW_GAP;
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
@@ -40,6 +52,9 @@ export const ConnectionTree = memo((props: ConnectionTreeProps) => {
     overscan: OVERSCAN,
     getItemKey: index => rows[index].id,
   });
+  useEffect(() => {
+    virtualizer.measure();
+  }, [ROW_HEIGHT, virtualizer]);
 
   const { focusedNodeId, setFocusedNode, onKeyDown, onFocus, leaveFilter } =
     useTreeNavigation({
@@ -118,6 +133,7 @@ export const ConnectionTree = memo((props: ConnectionTreeProps) => {
                 transform: `translateY(${virtualRow.start}px)`,
               }}
             >
+              <TreeGuides guides={guides[virtualRow.index]} />
               {/* A animação de entrada vai num elemento interno: o externo já usa
                   `transform` para se posicionar na lista virtual. */}
               <div
@@ -176,3 +192,38 @@ export const ConnectionTree = memo((props: ConnectionTreeProps) => {
 });
 
 ConnectionTree.displayName = 'ConnectionTree';
+
+/** Recuo de um nível e centro do chevron na linha (ver NodeRow) */
+const INDENT = 14;
+const CHEVRON_CENTER = 6 + 7;
+
+/** As guias de tentáculo de uma linha, atrás do conteúdo */
+const TreeGuides = memo(({ guides }: { guides: GuideKind[] | undefined }) => {
+  if (!guides || guides.length === 0) return null;
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0">
+      {guides.map((kind, index) => {
+        if (kind === 'none') return null;
+        const left = CHEVRON_CENTER + index * INDENT - 0.5;
+        if (kind === 'end') {
+          return (
+            <span
+              key={index}
+              className="absolute top-0 h-1/2 w-2 rounded-bl-[7px] border-b border-l border-line-strong"
+              style={{ left: `${left}px` }}
+            />
+          );
+        }
+        return (
+          <span
+            key={index}
+            className="absolute inset-y-0 w-px bg-line-strong"
+            style={{ left: `${left}px` }}
+          />
+        );
+      })}
+    </div>
+  );
+});
+
+TreeGuides.displayName = 'TreeGuides';

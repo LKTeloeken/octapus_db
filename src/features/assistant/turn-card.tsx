@@ -154,7 +154,9 @@ export function TurnCard({
 
       {output && output.assumptions.length > 0 && (
         <div className="flex flex-col gap-1">
-          <span className="text-micro text-fg-subtle uppercase">Premissas</span>
+          <span className="font-display text-section font-semibold text-fg-subtle">
+            Premissas
+          </span>
           <ul className="flex list-disc flex-col gap-0.5 pl-5 text-small text-fg-muted">
             {output.assumptions.map((assumption, index) => (
               <li key={index}>{assumption}</li>

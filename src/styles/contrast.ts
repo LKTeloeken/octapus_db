@@ -1,25 +1,57 @@
 /**
- * Contraste WCAG dos tokens do Ink, calculado direto do `globals.css` — usado
+ * Contraste WCAG dos tokens do Abissal, calculado direto do `globals.css` — usado
  * pelo teste de contraste (contrast.test.ts). OKLCH → sRGB pelas matrizes do
  * CSS Color 4; cor fora do gamut é cortada (os tokens já nascem dentro dele) e
  * a transparência é composta em sRGB, como o navegador pinta.
  */
 
-export type Theme = 'light' | 'dark';
+/** Os temas base e as variantes escuras (Fossa, Recife) */
+export type Theme = 'light' | 'dark' | 'fossa' | 'recife';
+export const ACCENTS = ['coral', 'biolume', 'alga', 'ambar', 'azul'] as const;
+export type Accent = (typeof ACCENTS)[number];
 /** sRGB codificado (0–1) + alpha */
 export type Rgba = [number, number, number, number];
 export type Tokens = Record<string, string>;
 
-/** Os tokens de `:root` (claro) e `.dark` (escuro) */
+/**
+ * Os tokens de `:root` (Nácar) e `.dark` (Abissal), e das variantes escuras,
+ * que só sobrescrevem parte do `.dark`.
+ */
 export function parseThemes(css: string): Record<Theme, Tokens> {
+  const light = parseBlock(css, ':root');
+  const dark = parseBlock(css, '.dark');
   return {
-    light: parseBlock(css, ':root'),
-    dark: parseBlock(css, '.dark'),
+    light,
+    dark,
+    fossa: { ...dark, ...parseBlock(css, ".dark[data-theme='fossa']") },
+    recife: { ...dark, ...parseBlock(css, ".dark[data-theme='recife']") },
+  };
+}
+
+/** Um acento aplicado sobre o tema claro ou o escuro */
+export function withAccent(
+  css: string,
+  base: Tokens,
+  accent: Accent,
+  mode: 'light' | 'dark',
+): Tokens {
+  const light = parseBlock(css, `[data-accent='${accent}']`);
+  if (mode === 'light') return { ...base, ...light };
+  return {
+    ...base,
+    ...light,
+    ...parseBlock(css, `.dark[data-accent='${accent}'],`),
   };
 }
 
 function parseBlock(css: string, selector: string): Tokens {
-  const start = css.indexOf(`${selector} {`);
+  // `\n` antes: `.dark {` não pode casar com `.dark[data-theme…] {`
+  const start =
+    selector === ':root'
+      ? css.indexOf(':root,\n.light {')
+      : selector.endsWith(',')
+        ? css.indexOf(`\n${selector}`)
+        : css.indexOf(`\n${selector} {`);
   if (start < 0) throw new Error(`bloco ${selector} não encontrado`);
   const end = css.indexOf('\n}', start);
   const body = css.slice(start, end);

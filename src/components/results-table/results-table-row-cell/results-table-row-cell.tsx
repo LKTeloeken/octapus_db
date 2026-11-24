@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import type { ResultsTableRowCellProps } from './results-table-row-cell.types';
 import { cn } from '@/lib/utils';
+import { useUiStore } from '@/stores/ui-store';
 import { DataTableCell } from '../results-table-cell/results-table-cell';
 
 /**
@@ -47,20 +48,24 @@ export const ResultsTableRowCell = memo(
     onSelectRowGutter,
   }: ResultsTableRowCellProps) => {
     // Estado pendente (removida > nova) tinge a linha; célula editada tinge só a
-    // célula. A seleção usa `--iris-soft` na linha sem estado e aparece SEMPRE
+    // célula. A seleção usa `--tinta-soft` na linha sem estado e aparece SEMPRE
     // no gutter — o estado pendente nunca a esconde (DESIGN.md §2.4).
+    const zebra = useUiStore(state => state.zebra);
     const rowBg = isRemoved
       ? 'bg-danger-soft'
       : isAdded
         ? 'bg-success-soft'
         : isSelected
-          ? 'bg-iris-soft'
-          : null;
+          ? 'bg-tinta-soft'
+          : // Listras opcionais (Preferências › Aparência)
+            zebra && rowIndex % 2 === 1
+            ? 'bg-hover'
+            : null;
 
     // O tom do gutter é uma camada sobre o `bg-surface-1` opaco: um fundo
     // translúcido direto deixaria o texto rolado aparecer por trás dele.
     const gutterTint = isSelected
-      ? 'bg-iris-soft'
+      ? 'bg-tinta-soft'
       : isRemoved
         ? 'bg-danger-soft'
         : isAdded
@@ -97,7 +102,7 @@ export const ResultsTableRowCell = memo(
           if (!startedInsideRow(event)) return;
           onSelectRowBody(rowIndex, event);
         }}
-        className={cn('absolute top-0 left-0', rowBg)}
+        className={cn('absolute top-0 left-0', rowBg ?? 'hover:bg-hover')}
         style={{
           height: `${rowHeight}px`,
           width: `${totalWidth}px`,
@@ -137,7 +142,7 @@ export const ResultsTableRowCell = memo(
           <span
             className={cn(
               'relative',
-              isSelected ? 'text-iris-text' : 'text-fg-subtle',
+              isSelected ? 'text-tinta-text' : 'text-fg-subtle',
             )}
           >
             {rowIndex + 1}
@@ -187,7 +192,7 @@ export const ResultsTableRowCell = memo(
               className={cn(
                 'absolute top-0 border-r border-b border-line-subtle',
                 // Bloco de células ou coluna selecionada: o tom da linha marcada
-                inRange && 'bg-iris-soft',
+                inRange && 'bg-tinta-soft',
                 // Cursor de teclado: anel inset de 1,5 px, sem fundo.
                 focusedColumnName === column.name &&
                   'z-10 ring-[1.5px] ring-inset ring-ring',

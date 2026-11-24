@@ -15,12 +15,12 @@ const badgeVariants = cva(
     variants: {
       variant: {
         neutral: 'bg-hover text-fg-muted',
-        accent: 'bg-iris-soft text-iris-text',
+        accent: 'bg-tinta-soft text-tinta-text',
         success: 'bg-success-soft text-success',
         warning: 'bg-warning-soft text-warning',
         danger: 'bg-danger-soft text-danger',
         info: 'bg-info-soft text-info',
-        default: 'bg-iris-soft text-iris-text',
+        default: 'bg-tinta-soft text-tinta-text',
         secondary: 'bg-hover text-fg-muted',
         outline: 'bg-hover text-fg-muted',
         destructive: 'bg-danger-soft text-danger',

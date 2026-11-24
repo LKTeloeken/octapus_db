@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  ACCENTS,
   composite,
   contrastRatio,
   parseOklch,
@@ -8,16 +9,19 @@ import {
   resolveToken,
   type Rgba,
   type Theme,
+  type Tokens,
+  withAccent,
 } from './contrast';
 
 /**
- * Contraste dos tokens do Ink nos dois temas (DESIGN.md §2 e checklist do
+ * Contraste dos tokens do Abissal nos quatro temas e seis acentos (DESIGN.md §2 e checklist do
  * §12): texto 4,5:1 sobre as camadas em que aparece, inclusive as elevadas e
  * o vidro; ícones de banco 3:1. Token novo de texto ou camada nova entra aqui.
  */
 const css = readFileSync(new URL('./globals.css', import.meta.url), 'utf8');
 const themes = parseThemes(css);
-const THEMES: Theme[] = ['dark', 'light'];
+const THEMES: Theme[] = ['dark', 'light', 'fossa', 'recife'];
+const CONTROL_AA = 3;
 
 const TEXT_AA = 4.5;
 const ICON_AA = 3;
@@ -25,8 +29,8 @@ const ICON_AA = 3;
 const WHITE = parseOklch('oklch(1 0 0)');
 
 /** As camadas em que cada grupo de texto aparece, já compostas */
-function layers(theme: Theme) {
-  const t = (name: string) => resolveToken(themes[theme], name);
+function layers(theme: Theme, tokens: Tokens = themes[theme]) {
+  const t = (name: string) => resolveToken(tokens, name);
   const s1 = t('surface-1');
   const s3 = t('surface-3');
   const glass = composite(t('bg'), t('glass'));
@@ -48,14 +52,14 @@ function layers(theme: Theme) {
     grid: {
       'surface-1': s1,
       'surface-1 + hover': composite(s1, t('hover')),
-      'surface-1 + iris-soft': composite(s1, t('iris-soft')),
+      'surface-1 + tinta-soft': composite(s1, t('tinta-soft')),
       'surface-1 + success-soft': composite(s1, t('success-soft')),
       'surface-1 + warning-soft': composite(s1, t('warning-soft')),
     },
     editor: {
       'surface-1': s1,
       'surface-1 + hover': composite(s1, t('hover')),
-      'surface-1 + iris-soft': composite(s1, t('iris-soft')),
+      'surface-1 + tinta-soft': composite(s1, t('tinta-soft')),
       'surface-1 + active': composite(s1, t('active')),
     },
   };
@@ -99,7 +103,7 @@ function pairs(): Pair[] {
         'fg',
         'fg-muted',
         'fg-subtle',
-        'iris-text',
+        'tinta-text',
         'success',
         'warning',
         'danger',
@@ -136,7 +140,24 @@ function pairs(): Pair[] {
       TEXT_AA,
     );
     // §2.5: ícones dos bancos (nunca texto corrido)
-    each(['db-postgres', 'db-mongo', 'db-redis', 'db-sqlite'], panels, ICON_AA);
+    each(
+      ['db-postgres', 'db-mongo', 'db-redis', 'db-sqlite', 'db-mysql'],
+      panels,
+      ICON_AA,
+    );
+    // Biolume: texto do sinal de vida (status, árvore) e sobre o próprio halo
+    each(['biolume'], panels, TEXT_AA);
+    add(
+      '--biolume',
+      t('biolume'),
+      'surface-1 + biolume-soft',
+      composite(t('surface-1'), t('biolume-soft')),
+      TEXT_AA,
+    );
+    // Borda de input e checkbox: 3:1 sobre as camadas em que aparecem
+    for (const on of ['bg', 'surface-1', 'surface-2', 'surface-3']) {
+      add('--edge-control', t('edge-control'), on, t(on), CONTROL_AA);
+    }
 
     // §2.3: texto de badge sobre o próprio -soft; item destrutivo do menu
     for (const semantic of ['success', 'warning', 'danger', 'info']) {
@@ -203,18 +224,24 @@ function pairs(): Pair[] {
     );
 
     // Assistente: chip de motivo ligado na avaliação (texto --fg sobre o
-    // --iris-soft no painel)
+    // --tinta-soft no painel)
     add(
       '--fg',
       t('fg'),
-      'surface-1 + iris-soft (chip ligado)',
-      composite(t('surface-1'), t('iris-soft')),
+      'surface-1 + tinta-soft (chip ligado)',
+      composite(t('surface-1'), t('tinta-soft')),
       TEXT_AA,
     );
 
-    // §2.2: branco sobre os preenchimentos (botão primário, hover do destrutivo)
-    add('branco', WHITE, '--iris', t('iris'), TEXT_AA);
-    add('branco', WHITE, '--iris-hover', t('iris-hover'), TEXT_AA);
+    // §2.2: on-tinta sobre os preenchimentos (botão primário), branco no destrutivo
+    add('--on-tinta', t('on-tinta'), '--tinta', t('tinta'), TEXT_AA);
+    add(
+      '--on-tinta',
+      t('on-tinta'),
+      '--tinta-hover',
+      t('tinta-hover'),
+      TEXT_AA,
+    );
     add('branco', WHITE, '--danger-solid', t('danger-solid'), TEXT_AA);
 
     // §2.4: trecho casado da busca, também numa linha selecionada
@@ -229,10 +256,47 @@ function pairs(): Pair[] {
       add(
         '--fg',
         t('fg'),
-        `iris-soft + ${match}`,
-        composite(t('surface-1'), t('iris-soft'), t(match)),
+        `tinta-soft + ${match}`,
+        composite(t('surface-1'), t('tinta-soft'), t(match)),
         TEXT_AA,
       );
+    }
+  }
+
+  // Acentos: o texto da tinta sobre as camadas e o on-tinta sobre o preenchimento
+  for (const accent of ACCENTS) {
+    for (const mode of ['light', 'dark'] as const) {
+      const tokens = withAccent(css, themes[mode], accent, mode);
+      const { t, panels } = layers(mode, tokens);
+      const theme = `${mode}+${accent}` as Theme;
+      for (const [on, bg] of Object.entries(panels)) {
+        out.push({
+          theme,
+          text: '--tinta-text',
+          on,
+          ratio: contrastRatio(composite(bg, t('tinta-text')), bg),
+          min: TEXT_AA,
+        });
+      }
+      for (const fill of ['tinta', 'tinta-hover']) {
+        out.push({
+          theme,
+          text: '--on-tinta',
+          on: `--${fill}`,
+          ratio: contrastRatio(t('on-tinta'), t(fill)),
+          min: TEXT_AA,
+        });
+      }
+      out.push({
+        theme,
+        text: '--fg-subtle',
+        on: 'surface-1 + tinta-soft',
+        ratio: contrastRatio(
+          t('fg-subtle'),
+          composite(t('surface-1'), t('tinta-soft')),
+        ),
+        min: TEXT_AA,
+      });
     }
   }
   return out;
@@ -255,15 +319,14 @@ describe('contraste dos tokens (DESIGN.md)', () => {
         resolveToken(themes[theme], 'fg'),
         resolveToken(themes[theme], 'surface-1'),
       );
-    expect(fgOnPanel('dark')).toBeCloseTo(15.6, 1);
-    expect(fgOnPanel('light')).toBeCloseTo(17.1, 1);
-    expect(contrastRatio(WHITE, resolveToken(themes.dark, 'iris'))).toBeCloseTo(
-      5.1,
-      1,
-    );
+    expect(fgOnPanel('dark')).toBeCloseTo(16.3, 1);
+    expect(fgOnPanel('light')).toBeCloseTo(16.7, 0);
     expect(
-      contrastRatio(WHITE, resolveToken(themes.light, 'iris')),
-    ).toBeCloseTo(5.9, 1);
+      contrastRatio(WHITE, resolveToken(themes.dark, 'tinta')),
+    ).toBeCloseTo(5.1, 1);
+    expect(
+      contrastRatio(WHITE, resolveToken(themes.light, 'tinta')),
+    ).toBeCloseTo(6.7, 1);
   });
 
   it('todo par passa o mínimo (fora os conhecidos)', () => {
@@ -282,10 +345,11 @@ describe('contraste dos tokens (DESIGN.md)', () => {
   });
 
   it('todo token existe nos dois temas', () => {
-    // Movimento é igual nos dois temas e só mora no :root
+    // Movimento, densidade e fontes são iguais nos temas e só moram no :root
+    const shared = /^(duration-|row-h|tree-row-h|cell-text|app-font-)/;
     const keys = (theme: Theme) =>
       Object.keys(themes[theme])
-        .filter(name => !name.startsWith('duration-'))
+        .filter(name => !shared.test(name))
         .sort();
     expect(keys('dark')).toEqual(keys('light'));
   });

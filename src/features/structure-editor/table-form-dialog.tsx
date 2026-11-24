@@ -78,7 +78,7 @@ export function TableFormDialog({ open, dialog }: TableFormDialogProps) {
 
           <div className="flex min-w-0 flex-col gap-2">
             <div
-              className={`${GRID} text-micro font-medium uppercase text-fg-subtle`}
+              className={`${GRID} font-display text-section font-semibold text-fg-subtle`}
             >
               <span>Coluna</span>
               <span>Tipo</span>

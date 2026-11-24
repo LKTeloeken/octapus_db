@@ -21,7 +21,8 @@ import { QueryProvider } from '@/providers/query-provider';
 import { useSyncKeybindings } from '@/queries/use-keybindings';
 import { useWebviewDiagnostics } from '@/queries/use-webview-diagnostics';
 import { useAssistantStore } from '@/stores/assistant-store';
-import { useUiStore } from '@/stores/ui-store';
+import { useColorMode, useUiStore } from '@/stores/ui-store';
+import { StatusBar } from '@/features/status-bar/status-bar';
 import { CustomToaster } from './components/Toaster';
 
 /** Painéis laterais em px (convertidos em % da largura atual, ver panel-sizes) */
@@ -46,6 +47,11 @@ const WebviewDiagnostics = () => {
 
 const App = () => {
   const theme = useUiStore(state => state.theme);
+  const accent = useUiStore(state => state.accent);
+  const density = useUiStore(state => state.density);
+  const uiFont = useUiStore(state => state.uiFont);
+  const monoFont = useUiStore(state => state.monoFont);
+  const colorMode = useColorMode();
   const assistantOpen = useAssistantStore(state => state.panelOpen);
   // Em janela compacta não cabe o painel ao lado: o assistente é a janela toda
   const compact = useCompactWindow();
@@ -64,11 +70,21 @@ const App = () => {
     maxPercent: ASSISTANT_MAX_PERCENT,
   });
 
+  // Tema, acento, densidade e fontes viram atributos no <html> (globals.css)
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove('light', 'dark');
-    root.classList.add(theme);
-  }, [theme]);
+    root.classList.add(colorMode);
+    const set = (name: string, value: string | null) =>
+      value === null
+        ? root.removeAttribute(name)
+        : root.setAttribute(name, value);
+    set('data-theme', theme === 'fossa' || theme === 'recife' ? theme : null);
+    set('data-accent', accent === 'tinta' ? null : accent);
+    set('data-density', density === 'normal' ? null : density);
+    set('data-ui-font', uiFont === 'geist' ? null : uiFont);
+    set('data-mono-font', monoFont === 'geist' ? null : monoFont);
+  }, [theme, colorMode, accent, density, uiFont, monoFont]);
 
   return (
     <QueryProvider>
@@ -81,11 +97,16 @@ const App = () => {
               No modo agente o grupo só se esconde: a árvore e as abas de
               query continuam montadas (editor, resultados, scroll). */}
           {/* O `hidden` vai num invólucro: o grupo põe `display: flex` inline */}
-          <div className={cn('h-screen w-full', agentMode && 'hidden')}>
+          <div
+            className={cn(
+              'flex h-screen w-full flex-col bg-bg',
+              agentMode && 'hidden',
+            )}
+          >
             <ResizablePanelGroup
               data-tauri-drag-region
               direction="horizontal"
-              className="h-screen w-full gap-1 bg-bg p-2 text-fg"
+              className="min-h-0 w-full flex-1 gap-1 bg-bg p-2 pb-0 text-fg"
             >
               <ResizablePanel
                 id="sidebar"
@@ -133,6 +154,8 @@ const App = () => {
                 </>
               )}
             </ResizablePanelGroup>
+            {/* Barra de status: direto sobre o abismo, sem painel */}
+            <StatusBar />
           </div>
 
           {/* Modo agente: o assistente é a janela inteira */}

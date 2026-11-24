@@ -165,7 +165,7 @@ export const ResultsTableSearch = memo((props: ResultsTableSearchProps) => {
       {showOptions && (
         <div className="flex flex-col gap-2.5 border-t border-line px-1 pt-2.5 pb-1">
           <div className="flex flex-col gap-1.5">
-            <span className="text-micro font-medium uppercase text-fg-subtle">
+            <span className="font-display text-section font-semibold text-fg-subtle">
               Casamento
             </span>
             <SegmentedControl
@@ -202,7 +202,7 @@ export const ResultsTableSearch = memo((props: ResultsTableSearchProps) => {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-micro font-medium uppercase text-fg-subtle">
+            <span className="font-display text-section font-semibold text-fg-subtle">
               Colunas
             </span>
             <SegmentedControl

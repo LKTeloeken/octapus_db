@@ -8,7 +8,7 @@ interface EmptyStateProps {
 
 export const EmptyState = ({
   className,
-  message = 'Execute uma query para ver resultados',
+  message = 'Execute uma consulta para ver os resultados',
 }: EmptyStateProps) => {
   return (
     <ContentState className={className} icon={TableIcon} title={message} />
