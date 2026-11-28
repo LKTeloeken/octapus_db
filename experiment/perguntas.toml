@@ -703,7 +703,7 @@ id = "bird_82"
 difficulty = "simple"
 dataset = "california_schools"
 source = "bird:82"
-pt = "Qual é a faixa de séries que é oferecida pela escola com a maior longitude de todas?"
+pt = "Qual é a faixa de séries que a escola com a maior longitude oferece?"
 en = "What is the grade span offered in the school with the highest longitude?"
 [question.gold.postgres]
 query = '''
@@ -884,7 +884,7 @@ id = "bird_358"
 difficulty = "simple"
 dataset = "card_games"
 source = "bird:358"
-pt = "Qual é a cor da borda que a carta \"Ancestor's Chosen\" tem? Quero saber só a cor dessa borda."
+pt = "Qual é a cor da borda que a carta \"Ancestor's Chosen\" tem?"
 en = "What is the border color of card \"Ancestor's Chosen\"?"
 [question.gold.postgres]
 query = '''
@@ -2644,7 +2644,7 @@ id = "bird_1472"
 difficulty = "moderate"
 dataset = "debit_card_specializing"
 source = "bird:1472"
-pt = "Em 2012, qual cliente do segmento LAM teve o menor consumo?"
+pt = "Em 2012, quem teve o menor consumo em LAM?"
 en = "In 2012, who had the least consumption in LAM?"
 [question.gold.postgres]
 query = '''
@@ -2895,7 +2895,7 @@ id = "bird_1484"
 difficulty = "simple"
 dataset = "debit_card_specializing"
 source = "bird:1484"
-pt = "Quantos postos de gasolina do segmento \"discount\" a República Tcheca tem a mais que a Eslováquia?"
+pt = "Quantos postos de gasolina \"discount\" a República Tcheca tem a mais que a Eslováquia?"
 en = "How many more \"discount\" gas stations does the Czech Republic have compared to Slovakia?"
 [question.gold.postgres]
 query = '''
@@ -4404,7 +4404,7 @@ id = "bird_89"
 difficulty = "moderate"
 dataset = "financial"
 source = "bird:89"
-pt = "Quantas contas que escolheram a emissão depois de cada transação ficam na região East Bohemia?"
+pt = "Quantas contas que escolheram a emissão após a transação ficam na região East Bohemia?"
 en = "How many accounts who choose issuance after transaction are staying in East Bohemia region?"
 [question.gold.postgres]
 query = '''
@@ -5936,7 +5936,7 @@ id = "bird_879"
 difficulty = "moderate"
 dataset = "formula_1"
 source = "bird:879"
-pt = "Qual é a nacionalidade do piloto que fez a volta mais rápida?"
+pt = "Qual é a nacionalidade do piloto que registrou a velocidade de volta mais rápida?"
 en = "For the driver who set the fastest lap speed, what is his nationality?"
 [question.gold.postgres]
 query = '''
@@ -6696,7 +6696,7 @@ skip_language_check = true   # o texto em inglês é o do BIRD; o detector do ap
 difficulty = "simple"
 dataset = "student_club"
 source = "bird:1312"
-pt = "Qual é o curso que a aluna Angela Sanders faz na universidade?"
+pt = "Qual é o curso de Angela Sanders?"
 en = "What's Angela Sanders's major?"
 [question.gold.postgres]
 query = '''
@@ -6944,7 +6944,7 @@ id = "bird_1346"
 difficulty = "simple"
 dataset = "student_club"
 source = "bird:1346"
-pt = "Informe o número de telefone do membro \"Carlo Jacobs\"."
+pt = "Informe o número de telefone de \"Carlo Jacobs\"."
 en = "Tell the phone number of \"Carlo Jacobs\"."
 [question.gold.postgres]
 query = '''
@@ -6979,7 +6979,7 @@ id = "bird_1351"
 difficulty = "simple"
 dataset = "student_club"
 source = "bird:1351"
-pt = "Qual era o curso que o aluno chamado Brent Thomason fazia na sua faculdade?"
+pt = "Qual era o curso de graduação que Brent Thomason fazia?"
 en = "What was Brent Thomason's major?"
 [question.gold.postgres]
 query = '''
@@ -9323,7 +9323,7 @@ id = "bird_1265"
 difficulty = "moderate"
 dataset = "thrombosis_prediction"
 source = "bird:1265"
-pt = "Quantos pacientes têm nível normal de anticorpo anti-ribonucleoproteína e foram internados no hospital?"
+pt = "Quantos pacientes têm nível normal de proteína anti-ribonuclear e foram internados no hospital?"
 en = "How many patients have a normal level of anti-ribonuclear protein and have been admitted to the hospital?"
 [question.gold.postgres]
 query = '''
@@ -10497,7 +10497,7 @@ id = "bird_249"
 difficulty = "challenging"
 dataset = "toxicology"
 source = "bird:249"
-pt = "Quais são os elementos dos átomos da ligação TR144_8_19?"
+pt = "Quais são os elementos dos átomos de TR144_8_19?"
 en = "What are the elements of the atoms of TR144_8_19?"
 [question.gold.postgres]
 query = '''
@@ -10647,7 +10647,7 @@ id = "sr_california_schools_2"
 difficulty = "moderate"
 dataset = "california_schools"
 source = "autor"
-pt = "Quantos alunos de cada uma das escolas de Los Angeles não passaram de ano e foram reprovados em 2014?"
+pt = "Quantos alunos de cada uma das escolas de Los Angeles foram reprovados no ano letivo de 2014?"
 en = "How many students at each school in Los Angeles failed the 2014 school year?"
 unanswerable = true
 
@@ -10800,7 +10800,7 @@ id = "sr_thrombosis_prediction_1"
 difficulty = "simple"
 dataset = "thrombosis_prediction"
 source = "autor"
-pt = "Qual é o nome do médico que ficou responsável pelo tratamento de cada um dos pacientes?"
+pt = "Qual é o nome do médico que é responsável por cada um dos pacientes?"
 en = "What is the name of the doctor in charge of each patient?"
 unanswerable = true
 
