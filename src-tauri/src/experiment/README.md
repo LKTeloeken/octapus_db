@@ -22,10 +22,26 @@ cargo run --example experiment --features experiment -- --help
 | `report PASTA` | Regrava `results.csv` e `summary.csv`. |
 | `serve [--runs PASTA] [--port N]` | Abre a tela em `http://127.0.0.1:7878`. Só lê a pasta. |
 | `demo [--delay-ms N] [--concurrency N]` | Rodada simulada num SQLite descartável, sem rede nem cota. |
+| `redis-load [--datasets a,b]` | Carrega no Redis de teste os conjuntos do PostgreSQL de teste (o `db.sh up` roda sozinho). Apaga antes o banco do Redis de cada conjunto. |
 
 `Ctrl+C` interrompe: os turnos em andamento são cancelados (não valem como
 resultado) e o que já foi gravado fica. A pasta padrão das rodadas é
 `experiment-runs/`, que se ignora sozinha no git.
+
+**Rodar sem ninguém olhando.** Cada teste é gravado e sincronizado no disco ao
+terminar, e a rodada se controla sozinha (`[run]` do ambiente):
+
+| controle | o que faz | padrão |
+|---|---|---|
+| erros seguidos | teste que não abriu ou turno que falhou no meio pausa a rodada | 3 |
+| pausa | espera e tenta de novo; na pausa seguinte ao limite, para | 10 min, 3 pausas |
+| erro fatal | token, cota, modelo, prompt não registrado: para na hora | — |
+| taxa de falhas | mais de 10% dos testes desta execução em `failed`, depois de 30 | 10% |
+| teto de custo | um modelo passou do gasto em dólares, pelo custo que a API mede (conta as execuções anteriores) | sem teto |
+
+O motivo da parada fica no `live.json` e na tela, e o processo sai com código
+1, para um script avisar: `caffeinate -i ./experiment/x run || notifyq add "Rodada parou"`.
+Depois, `resume PASTA --redo-failed` continua e refaz os turnos que falharam.
 
 ## Entradas
 
@@ -59,6 +75,25 @@ O gabarito é escrito na linguagem que o assistente gera para o banco (SQL, a
 operação do Mongo, o plano do Redis) e passa pelo guard do assistente: escrita
 é recusada. O idioma de cada texto é conferido pelo detector do app.
 
+**Redis com os dados do PostgreSQL.** O BIRD não existe em Redis: o
+`redis-load` copia cada tabela do PostgreSQL de teste para o Redis, um
+conjunto por banco numerado (`datasets` em `[database.redis]`), e confere que
+cada tabela tem as mesmas linhas nos dois. O modelo das chaves está em
+`redis_load.rs`: `t:<id>` (hash da linha), `t:ids` (set dos ids),
+`idx:t:<coluna>:<valor>` (set, nas chaves estrangeiras e colunas categóricas)
+e `idx:t:<coluna>` (zset, nas numéricas e de data), com índices só em tabelas
+de até 100 mil linhas. Como os dados são os mesmos, o gabarito do Redis pode
+usar o resultado do PostgreSQL:
+
+```toml
+[question.gold.redis]
+same_as = "postgres"   # na tela de cadastro: @postgres
+```
+
+A saída de um `foreach` do Redis sempre começa pela coluna do item, então o
+gabarito do Redis aceita colunas a mais (`extra_columns = "allow"`), salvo se
+a pergunta ou o gabarito disserem outra coisa.
+
 **Ambiente** (`config.rs`):
 
 ```toml
@@ -90,7 +125,10 @@ port = 6380
 database = "2"
 ```
 
-Senha, token, convite e URI nunca ficam no arquivo. A API é a de
+Senha, token, convite e URI nunca ficam no arquivo. Para não definir as
+variáveis a cada terminal, ponha em `experiment/.env` (fora do git), que o
+`./experiment/x` lê: `OCTAPUS_ASSISTANT_URL=...` e `OCTAPUS_EXPERIMENT_INVITE=...`,
+uma por linha. A API é a de
 `OCTAPUS_ASSISTANT_URL`, como no app (ou `url` em `[api]`). O participante
 precisa estar no modo de escolha livre de modelo, para a rodada fixar o modelo
 de cada teste.

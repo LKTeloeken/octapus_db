@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Os bancos de teste do experimento: baixa o BIRD Mini-Dev (PostgreSQL) e o
-# AptMQL-Bench (MongoDB), sobe os containers e carrega os dados.
+# AptMQL-Bench (MongoDB), sobe os containers e carrega os dados. O Redis
+# recebe os mesmos dados do PostgreSQL (./experiment/x redis-load), um
+# conjunto em cada banco numerado do mapa `datasets` do ambiente.toml.
 #
 #   ./experiment/db.sh download   baixa os dados para experiment/data/ (retoma de onde parou)
 #   ./experiment/db.sh up         sobe PostgreSQL, MongoDB e Redis e carrega o que faltar
@@ -94,6 +96,16 @@ load_postgres() {
   psql_value "DROP DATABASE $STAGING" >/dev/null
 }
 
+# O último banco do mapa (toxicology = 10): com chaves, a carga terminou
+load_redis() {
+  if [ "$(compose exec -T redis redis-cli -n 10 dbsize | tr -d '\r')" != "0" ]; then
+    echo "   Redis: já carregado"
+    return
+  fi
+  echo ">> Redis: carregando do PostgreSQL (3,9 milhões de linhas; ~10 minutos)"
+  "$HERE/x" redis-load
+}
+
 load_mongo() {
   for dataset in $DATASETS; do
     local dir="$DATA/aptmql/databases/dev/$dataset/dump"
@@ -114,6 +126,7 @@ up() {
   compose up -d --wait
   load_postgres
   load_mongo
+  load_redis
   status
 }
 
@@ -126,7 +139,8 @@ status() {
   echo "MongoDB (127.0.0.1:57040): coleções por database"
   mongo_value "db.adminCommand('listDatabases').databases.filter(d => !['admin','config','local'].includes(d.name))
                .forEach(d => print('  ' + d.name.padEnd(26) + ' ' + db.getSiblingDB(d.name).getCollectionNames().length))"
-  echo "Redis (127.0.0.1:56390): $(compose exec -T redis redis-cli dbsize | tr -d '\r') chave(s)"
+  echo "Redis (127.0.0.1:56390): chaves por banco"
+  compose exec -T redis redis-cli info keyspace | tr -d '\r' | grep '^db' | sed 's/^/  /'
 }
 
 case "${1:-}" in

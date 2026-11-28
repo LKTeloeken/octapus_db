@@ -5,18 +5,38 @@
 
 [api]
 # A API é a de OCTAPUS_ASSISTANT_URL, como no app. O convite fica na variável:
-invite_env = "OCTAPUS_E2E_INVITE"
+invite_env = "OCTAPUS_EXPERIMENT_INVITE"
 # Os ids dos modelos da rodada. `./experiment/x models` lista os que a API oferece.
-models = ["TROCAR-PELO-ID-DO-MODELO"]
+# Topo e pequeno de cada provedor: Opus 5.5 e Haiku 5.5 (Anthropic), GPT 6.2 sol
+# e GPT 6 luna (OpenAI)
+models = [
+  "0a5dd98f-a683-424c-8e8a-518bcfe372b0",  # Opus 5.5
+  "a4ff98fa-fa98-4597-9229-f65376512579",  # Haiku 5.5
+  "6607235f-d58a-4eb9-9c67-05133ae6cc9d",  # GPT 6.2 sol
+  "1a162972-12e2-4d93-9541-302da24b5f76",  # GPT 6 luna
+]
 
 [run]
 repetitions = 1
 languages = ["pt", "en"]
 seed = 42
-concurrency = 1                # 1 = sequencial
+concurrency = 3                # testes ao mesmo tempo (a API aceita 240 pedidos/min por participante; ~8 por teste)
 ask_user = "clarify"           # ninguém responde: o turno encerra como esclarecimento
 mongo_sample_values = false
 row_limit = 200                # a página do app
+
+# Controles para rodar sem ninguém olhando. Erro = teste que não abriu ou turno
+# que falhou no meio (API, provedor, crédito). Erro fatal (token, cota, modelo,
+# prompt não registrado) para na hora. Parada sozinha: `resume` continua.
+max_consecutive_errors = 3     # erros seguidos que pausam a rodada
+pause_minutes = 10             # quanto dura a pausa (0 = para direto)
+max_pauses = 3                 # na pausa seguinte, para
+max_failure_rate = 0.10        # para se mais de 10% dos testes falharem...
+failure_rate_after = 30        # ...contando depois de 30 testes
+# Teto de gasto por modelo, em dólares, pelo custo que a API mede (conta as
+# execuções anteriores). Pelo piloto: Opus ~US$ 0,043 por turno, Sol ~0,007,
+# Haiku ~0,001 e Luna ~0,0005, com folga para as perguntas difíceis.
+max_cost_usd = { "0a5dd98f-a683-424c-8e8a-518bcfe372b0" = 85.0, "a4ff98fa-fa98-4597-9229-f65376512579" = 5.0, "6607235f-d58a-4eb9-9c67-05133ae6cc9d" = 42.0, "1a162972-12e2-4d93-9541-302da24b5f76" = 7.0 }
 
 # Cada pergunta diz o seu banco (`dataset`): um database por conjunto, tanto
 # no PostgreSQL (tabelas no `public`) quanto no MongoDB.
@@ -30,3 +50,11 @@ database = "{dataset}"
 host = "127.0.0.1"
 port = 57040
 database = "{dataset}"
+
+# O Redis só tem bancos numerados: cada conjunto num deles. Os dados vêm do
+# PostgreSQL de teste pelo `./experiment/x redis-load` (o db.sh roda no `up`).
+[database.redis]
+host = "127.0.0.1"
+port = 56390
+database = "{dataset}"
+datasets = { california_schools = "0", card_games = "1", codebase_community = "2", debit_card_specializing = "3", european_football_2 = "4", financial = "5", formula_1 = "6", student_club = "7", superhero = "8", thrombosis_prediction = "9", toxicology = "10" }

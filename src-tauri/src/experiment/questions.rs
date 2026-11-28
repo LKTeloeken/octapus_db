@@ -20,6 +20,8 @@
 //! [question.gold.mongodb]
 //! query = '''{ "collection": "customers", "operation": "countDocuments" }'''
 //! compare = { columns = "position" } # só neste gabarito
+//! [question.gold.redis]
+//! same_as = "postgres"               # o resultado esperado é o do gabarito postgres
 //!
 //! [[question]]
 //! id = "q050"
@@ -30,7 +32,10 @@
 //! ```
 //!
 //! O gabarito de cada paradigma é escrito na linguagem que o assistente gera
-//! para aquele banco: SQL, a operação do Mongo ou o plano do Redis.
+//! para aquele banco: SQL, a operação do Mongo ou o plano do Redis. Com
+//! `same_as`, o paradigma não tem consulta própria: o resultado esperado é o
+//! do gabarito de outro paradigma, o que só vale quando os dois bancos têm os
+//! mesmos dados (o Redis carregado do PostgreSQL pelo `redis-load`).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -38,7 +43,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::compare::{Rules, RulesPatch};
+use super::compare::{ExtraColumns, Rules, RulesPatch};
 use super::setup::query_language;
 use crate::adapters::ReadOnlyOp;
 use crate::assistant::language::{self, Language};
@@ -86,7 +91,10 @@ impl Lang {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Gold {
+    /// A consulta de referência (vazia com `same_as`)
     pub query: String,
+    /// O paradigma de cujo gabarito vem o resultado esperado
+    pub same_as: Option<String>,
     pub rules: Rules,
 }
 
@@ -212,7 +220,10 @@ pub struct RawQuestion {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawGold {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub same_as: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compare: Option<RulesPatch>,
 }
@@ -304,6 +315,26 @@ pub fn load(source: &str) -> Result<QuestionSet, Vec<Problem>> {
                 continue;
             };
             let query = raw_gold.query.trim().to_string();
+            let mut rules = defaults.with(entry.compare.as_ref()).with(raw_gold.compare.as_ref());
+            // A saída de um `foreach` do Redis sempre começa pela coluna do
+            // item (a chave ou o id): o gabarito do Redis aceita colunas a
+            // mais, salvo se a pergunta ou o gabarito disserem outra coisa
+            let explicit = [entry.compare.as_ref(), raw_gold.compare.as_ref()]
+                .iter()
+                .any(|patch| patch.is_some_and(|patch| patch.extra_columns.is_some()));
+            if db_type == DatabaseType::Redis && !explicit {
+                rules.extra_columns = ExtraColumns::Allow;
+            }
+            if let Some(target) = raw_gold.same_as.as_deref().map(str::trim) {
+                if !query.is_empty() {
+                    problem(format!("gabarito `{paradigm}`: use `query` ou `same_as`, não os dois"));
+                } else if target == paradigm || self::db_type(target).is_none() {
+                    problem(format!("gabarito `{paradigm}`: `same_as` precisa citar outro paradigma"));
+                } else {
+                    gold.insert(paradigm, Gold { query, same_as: Some(target.to_string()), rules });
+                }
+                continue;
+            }
             if query.is_empty() {
                 problem(format!("gabarito `{paradigm}` vazio"));
                 continue;
@@ -320,8 +351,18 @@ pub fn load(source: &str) -> Result<QuestionSet, Vec<Problem>> {
                     continue;
                 }
             }
-            let rules = defaults.with(entry.compare.as_ref()).with(raw_gold.compare.as_ref());
-            gold.insert(paradigm, Gold { query, rules });
+            gold.insert(paradigm, Gold { query, same_as: None, rules });
+        }
+        // `same_as` aponta para um gabarito com consulta própria
+        let borrowed: Vec<(String, String)> = gold
+            .iter()
+            .filter_map(|(paradigm, found)| found.same_as.clone().map(|target| (paradigm.clone(), target)))
+            .collect();
+        for (paradigm, target) in borrowed {
+            if gold.get(&target).is_none_or(|found| found.same_as.is_some()) {
+                problem(format!("gabarito `{paradigm}`: `same_as = \"{target}\"`, mas `{target}` não tem consulta própria"));
+                gold.remove(&paradigm);
+            }
         }
 
         if entry.unanswerable && !gold.is_empty() {
@@ -509,6 +550,35 @@ query = "SELECT 1"
             "q2: pergunta sem resposta (`unanswerable`) não leva gabarito",
         ];
         assert_eq!(found, expected);
+    }
+
+    /// O Redis carregado do PostgreSQL usa o resultado do gabarito de lá, e
+    /// aceita a coluna do item que o `foreach` sempre põe na frente.
+    #[test]
+    fn same_as_borrows_the_result_of_another_gold() {
+        let borrowed = VALID.replace(
+            "[question.gold.sqlite]",
+            "[question.gold.redis]\nsame_as = \"postgres\"\n[question.gold.sqlite]",
+        );
+        let set = load(&borrowed).unwrap();
+        let first = set.get("q001").unwrap();
+        let redis = &first.gold["redis"];
+        assert_eq!((redis.query.as_str(), redis.same_as.as_deref()), ("", Some("postgres")));
+        assert_eq!(redis.rules.extra_columns, ExtraColumns::Allow);
+        assert_eq!(first.gold["postgres"].rules.extra_columns, ExtraColumns::Forbid);
+        assert_eq!(first.paradigms, ["postgres", "redis", "sqlite"]);
+        // O que a tela regrava volta igual
+        assert_eq!(parse(&to_toml(&parse(&borrowed).unwrap()).unwrap()).unwrap(), parse(&borrowed).unwrap());
+
+        // A pergunta pode pedir o contrário
+        let strict = borrowed.replace("same_as = \"postgres\"", "same_as = \"postgres\"\ncompare = { extra_columns = \"forbid\" }");
+        assert_eq!(load(&strict).unwrap().get("q001").unwrap().gold["redis"].rules.extra_columns, ExtraColumns::Forbid);
+
+        let to = |target: &str| borrowed.replace("same_as = \"postgres\"", &format!("same_as = \"{target}\""));
+        assert_eq!(problems(&to("redis")), ["q001: gabarito `redis`: `same_as` precisa citar outro paradigma"]);
+        assert_eq!(problems(&to("mongodb")), ["q001: gabarito `redis`: `same_as = \"mongodb\"`, mas `mongodb` não tem consulta própria"]);
+        let both = borrowed.replace("same_as = \"postgres\"", "same_as = \"postgres\"\nquery = \"x\"");
+        assert_eq!(problems(&both), ["q001: gabarito `redis`: use `query` ou `same_as`, não os dois"]);
     }
 
     #[test]

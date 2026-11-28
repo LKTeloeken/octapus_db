@@ -283,6 +283,8 @@ pub fn results_csv(run_id: &str, records: &[UnitRecord]) -> String {
         "turn_id",
         "final_attempt_id",
         "started_at",
+        "final_kind",
+        "final_text",
     ]
     .map(String::from);
     let mut csv = line(&header);
@@ -331,6 +333,67 @@ pub fn results_csv(run_id: &str, records: &[UnitRecord]) -> String {
             record.turn_id.clone().unwrap_or_default(),
             last.map(|attempt| attempt.attempt_id.clone()).unwrap_or_default(),
             record.started_at.clone(),
+            final_response(record).map(|(kind, _)| name(&kind)).unwrap_or_default(),
+            final_response(record).map(|(_, text)| text).unwrap_or_default(),
+        ]));
+    }
+    csv
+}
+
+/// Como o turno terminou na voz do modelo: o tipo da última resposta válida e
+/// o texto dela (a pergunta de esclarecimento, ou a explicação).
+fn final_response(record: &UnitRecord) -> Option<(OutputKind, String)> {
+    let output = record.attempts.iter().rev().find_map(|attempt| attempt.output.as_ref())?;
+    let text = output
+        .clarification_question
+        .clone()
+        .filter(|text| !text.trim().is_empty())
+        .unwrap_or_else(|| output.explanation.clone());
+    Some((output.kind, text))
+}
+
+/// Os testes para revisar à mão: toda pergunta sem resposta possível e todo
+/// turno que terminou em texto (`replied`), com o que o modelo disse e uma
+/// coluna `review` vazia. O veredito automático (`correct_final`) não muda:
+/// a revisão é uma camada à parte, na análise.
+pub fn review_csv(run_id: &str, records: &[UnitRecord]) -> String {
+    let header = [
+        "run_id",
+        "question_id",
+        "repetition",
+        "paradigm",
+        "model",
+        "language",
+        "unanswerable",
+        "status",
+        "correct_final",
+        "question",
+        "final_kind",
+        "final_text",
+        "final_query",
+        "review",
+    ]
+    .map(String::from);
+    let mut csv = line(&header);
+    let flag = |value: bool| if value { "1" } else { "0" }.to_string();
+    for record in records.iter().filter(|record| record.unanswerable || record.status == "replied") {
+        let response = final_response(record);
+        let query = record.attempts.iter().rev().find_map(|attempt| attempt.query.clone());
+        csv.push_str(&line(&[
+            run_id.to_string(),
+            record.unit.question_id.clone(),
+            record.unit.repetition.to_string(),
+            record.unit.paradigm.clone(),
+            record.unit.model.clone(),
+            record.unit.language.code().to_string(),
+            flag(record.unanswerable),
+            record.status.clone(),
+            flag(record.correct_final),
+            record.question.clone(),
+            response.as_ref().map(|(kind, _)| name(kind)).unwrap_or_default(),
+            response.map(|(_, text)| text).unwrap_or_default(),
+            query.unwrap_or_default(),
+            String::new(),
         ]));
     }
     csv
@@ -365,6 +428,7 @@ mod tests {
     use crate::assistant::language::{Detected, Language};
     use crate::experiment::plan::Unit;
     use crate::experiment::questions::Lang;
+    use crate::assistant::output::ModelOutput;
     use crate::experiment::record::AttemptRecord;
     use crate::experiment::unit::{blank, Base};
     use crate::models::AssistantStage;
@@ -453,6 +517,43 @@ mod tests {
         let by_paradigm = summarize(&sample(), &[Dimension::Paradigm]);
         assert_eq!(by_paradigm.iter().map(|row| row.tests).collect::<Vec<_>>(), [1, 3]);
         assert!(summarize(&[], &DEFAULT_DIMENSIONS).is_empty());
+    }
+
+    /// O que o modelo disse fica no `results.csv` e, nos casos a revisar
+    /// (sem resposta possível ou resposta em texto), no `review.csv`.
+    #[test]
+    fn keeps_what_the_model_said_for_the_manual_review() {
+        let said = |kind: OutputKind, explanation: &str, question: Option<&str>| {
+            let mut answer = attempt(Some(kind), None);
+            answer.output = Some(ModelOutput {
+                kind,
+                language: None,
+                query: None,
+                explanation: explanation.into(),
+                assumptions: Vec::new(),
+                clarification_question: question.map(str::to_string),
+                structure_request: None,
+                choices: None,
+            });
+            answer
+        };
+        let mut asked = record("redis", "a", false, true, 1000, vec![said(OutputKind::Clarification, "", Some("Não há salário no banco."))]);
+        (asked.unanswerable, asked.status) = (true, "clarification".into());
+        let mut replied = record("postgres", "a", false, false, 1000, vec![said(OutputKind::Answer, "Não dá para saber, falta a tabela.", None)]);
+        replied.status = "replied".into();
+        let records = vec![asked, replied, sample().remove(0)];
+
+        let results = results_csv("rodada", &records);
+        assert!(results.lines().next().unwrap().ends_with(",final_kind,final_text"));
+        assert!(results.lines().nth(1).unwrap().ends_with(",clarification,Não há salário no banco."), "{results}");
+        assert!(results.lines().nth(2).unwrap().ends_with(",answer,\"Não dá para saber, falta a tabela.\""), "{results}");
+
+        let review = review_csv("rodada", &records);
+        let lines: Vec<&str> = review.lines().collect();
+        assert_eq!(lines.len(), 3, "o teste comum com gabarito não entra: {review}");
+        assert!(lines[0].ends_with(",final_kind,final_text,final_query,review"));
+        assert!(lines[1].contains(",redis,a,pt,1,clarification,1,?,clarification,Não há salário no banco.,,"), "{review}");
+        assert!(lines[2].contains(",postgres,a,pt,0,replied,0,?,answer,"), "{review}");
     }
 
     #[test]

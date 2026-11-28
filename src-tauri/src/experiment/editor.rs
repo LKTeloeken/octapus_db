@@ -86,7 +86,7 @@ pub fn save(path: &Path, request: Save) -> Result<(), Vec<String>> {
     // Vazios não vão para o arquivo
     question.dataset = question.dataset.filter(|text| !text.trim().is_empty());
     question.source = question.source.filter(|text| !text.trim().is_empty());
-    question.gold.retain(|_, gold| !gold.query.trim().is_empty());
+    question.gold.retain(|_, gold| !gold.query.trim().is_empty() || gold.same_as.is_some());
 
     let mut file = read(path).map_err(|message| vec![message])?;
     let position = replaces
@@ -209,6 +209,7 @@ mod tests {
                 "sqlite".to_string(),
                 RawGold {
                     query: query.into(),
+                    same_as: None,
                     compare: None,
                 },
             )]),

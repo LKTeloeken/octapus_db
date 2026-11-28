@@ -187,7 +187,7 @@ pub async fn verify(
                     .gold
                     .iter()
                     .filter(|(paradigm, _)| !entry.problems.contains_key(*paradigm) && environment.database.contains_key(*paradigm))
-                    .map(|(paradigm, query)| (paradigm.clone(), RawGold { query: query.clone(), compare: None }))
+                    .map(|(paradigm, query)| (paradigm.clone(), RawGold { query: query.clone(), same_as: None, compare: None }))
                     .collect(),
                 ..Default::default()
             })

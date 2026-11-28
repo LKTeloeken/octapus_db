@@ -403,6 +403,10 @@ pub async fn gold_report(questions: &QuestionSet, only: &[String], databases: &D
         }
         let before = report.results.len();
         for (paradigm, gold) in &question.gold {
+            // `same_as` não tem consulta: o resultado vem do outro gabarito
+            if gold.same_as.is_some() {
+                continue;
+            }
             let Some(database) = databases.get(paradigm, question.dataset.as_deref()) else {
                 continue;
             };
@@ -446,11 +450,34 @@ pub async fn gold_report(questions: &QuestionSet, only: &[String], databases: &D
             });
         }
 
+        // O resultado esperado de quem tem `same_as`, quando o outro rodou
+        for (paradigm, gold) in &question.gold {
+            let Some(target) = &gold.same_as else { continue };
+            if databases.get(paradigm, question.dataset.as_deref()).is_none() {
+                continue;
+            }
+            let Some(table) = report.results[before..]
+                .iter()
+                .find(|result| &result.paradigm == target)
+                .map(|result| result.table.clone())
+            else {
+                continue;
+            };
+            report.results.push(GoldResult {
+                question_id: question.id.clone(),
+                paradigm: paradigm.clone(),
+                query: format!("-- o mesmo resultado do gabarito de {target} (os dois bancos têm os mesmos dados)"),
+                table,
+            });
+        }
+
         // A mesma pergunta deveria ter a mesma resposta em todo paradigma
         let of_question = &report.results[before..];
         for (index, first) in of_question.iter().enumerate() {
             for second in &of_question[index + 1..] {
-                let verdict = compare(&first.table, &second.table, &question.gold[&first.paradigm].rules);
+                // As regras de quem faz o papel do obtido (o Redis vem por último
+                // e aceita a coluna do item)
+                let verdict = compare(&first.table, &second.table, &question.gold[&second.paradigm].rules);
                 if !verdict.equal {
                     report.disagreements.push(Disagreement {
                         question_id: question.id.clone(),

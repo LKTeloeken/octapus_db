@@ -9,6 +9,7 @@
 //! | `live.json`       | o andamento agora ([`Live`]), regravado por inteiro   |
 //! | `results.csv`     | um teste por linha, para a análise                    |
 //! | `summary.csv`     | o resumo por paradigma, modelo e idioma               |
+//! | `review.csv`      | sem resposta possível e respostas em texto, a revisar |
 //!
 //! Um teste só entra no `units.jsonl` depois de terminar, com a linha inteira
 //! e o arquivo sincronizado: interromper a rodada não perde o que já foi
@@ -36,6 +37,7 @@ pub const DISCARDED: &str = "discarded.jsonl";
 pub const LIVE: &str = "live.json";
 pub const RESULTS_CSV: &str = "results.csv";
 pub const SUMMARY_CSV: &str = "summary.csv";
+pub const REVIEW_CSV: &str = "review.csv";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,8 +104,13 @@ pub enum RoundStatus {
     Finished,
     /// Parada pela linha de comando; `resume` continua
     Interrupted,
-    /// Parada sozinha: testes seguidos sem abrir (API fora, cota)
+    /// Esperando a pausa depois de erros seguidos; volta sozinha
+    Paused,
+    /// Parada sozinha por erros: seguidos depois das pausas, erro fatal ou
+    /// taxa de falhas acima do teto; `resume` continua
     StoppedOnErrors,
+    /// Parada sozinha: um modelo chegou ao teto de custo
+    StoppedOnBudget,
 }
 
 /// O andamento da rodada agora.
@@ -126,6 +133,15 @@ pub struct Live {
     pub last_error: Option<String>,
     pub eta_seconds: Option<u64>,
     pub active: Vec<LiveUnit>,
+    /// Pausas por erros nesta execução
+    #[serde(default)]
+    pub pauses: u32,
+    /// Até quando dura a pausa em curso
+    #[serde(default)]
+    pub paused_until: Option<String>,
+    /// Por que a rodada parou sozinha
+    #[serde(default)]
+    pub stop_reason: Option<String>,
 }
 
 pub struct RunDir {

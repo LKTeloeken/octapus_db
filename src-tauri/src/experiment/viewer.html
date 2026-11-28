@@ -150,7 +150,8 @@ details { margin: 8px 0; } summary { cursor: pointer; color: var(--fg-muted); }
 const STATUS = { answered: 'respondido', clarification: 'esclarecimento', exhausted: 'esgotado', failed: 'falhou',
   code_delivered: 'código entregue', replied: 'resposta em texto', cancelled: 'interrompido', not_opened: 'não abriu', open: 'aberto' };
 const ROUND = { running: ['em andamento', 'info'], finished: ['concluída', 'ok'], interrupted: ['interrompida', 'warn'],
-  stopped_on_errors: ['parada por erros', 'bad'] };
+  paused: ['pausada por erros', 'warn'], stopped_on_errors: ['parada por erros', 'bad'],
+  stopped_on_budget: ['parada pelo teto de custo', 'bad'] };
 const STAGES = [['generating', 'Gerando'], ['validating', 'Validando'], ['executing', 'Executando'], ['comparing', 'Comparando']];
 const STAGE_EXTRA = { preparing: 'Preparando a conversa e o contexto', waiting: 'Aguardando o provedor' };
 const KIND = { query: 'consulta', clarification: 'esclarecimento', ask_user: 'pergunta ao usuário',
@@ -277,10 +278,12 @@ function renderHeader() {
   const done = live?.done ?? records.length;
   const correct = live?.correct ?? records.filter((r) => r.correctFinal).length;
   const [label, kind] = ROUND[live?.status] || ['sem andamento gravado', 'plain'];
-  const stale = live && live.status === 'running' ? Math.round((Date.now() - Date.parse(live.updatedAt)) / 1000) : 0;
+  const stale = live && (live.status === 'running' || live.status === 'paused') ? Math.round((Date.now() - Date.parse(live.updatedAt)) / 1000) : 0;
   replace($('status'), badge(stale > 10 ? 'bad' : kind, stale > 10 ? 'sem sinal do processo' : label),
     manifest?.simulated ? [' ', badge('plain', 'simulada', 'Modelo e registro roteirizados, sem rede')] : null);
-  $('signal').textContent = stale > 10 ? `última atualização há ${duration(stale)}` : '';
+  $('signal').textContent = stale > 10 ? `última atualização há ${duration(stale)}`
+    : live?.status === 'paused' && live.pausedUntil ? `pausa ${live.pauses} até ${new Date(live.pausedUntil).toLocaleTimeString()} (último erro: ${live.lastError || '?'})`
+    : live?.stopReason || '';
   const tile = (name, value, title) => h('div', { class: 'tile', title }, h('div', { class: 'label' }, name), h('div', { class: 'value' }, value));
   replace($('progress'),
     tile('Feitos', `${done} / ${total}`),
@@ -625,21 +628,29 @@ function catalogRows() {
 function blankQuestion() {
   return { id: '', difficulty: '', pt: '', en: '', dataset: '', source: '', unanswerable: false, gold: {}, order: '', decimals: '' };
 }
+// No campo do gabarito, `@postgres` é o `same_as`: o resultado esperado vem do
+// gabarito daquele paradigma (o Redis tem os dados do PostgreSQL)
+const SAME_AS = /^@(\w+)$/;
 function fromCatalog(entry) {
   const gold = {};
   for (const paradigm of Object.keys(entry.gold)) if (!entry.problems[paradigm]) gold[paradigm] = entry.gold[paradigm];
+  if (gold.postgres) gold.redis = '@postgres';
   return { ...blankQuestion(), id: entry.source.replace(':', '_'), difficulty: entry.difficulty || '', en: entry.question,
     dataset: entry.dataset, source: entry.source, gold };
 }
 function fromSet(question) {
   const gold = {};
-  for (const [paradigm, value] of Object.entries(question.gold || {})) gold[paradigm] = value.query;
+  for (const [paradigm, value] of Object.entries(question.gold || {})) gold[paradigm] = value.same_as ? '@' + value.same_as : value.query;
   return { ...blankQuestion(), ...question, dataset: question.dataset || '', source: question.source || '', gold,
     order: question.compare?.order || '', decimals: question.compare?.decimals ?? '' };
 }
 function toQuestion(form) {
   const gold = {};
-  for (const [paradigm, query] of Object.entries(form.gold)) if (query.trim()) gold[paradigm] = { query };
+  for (const [paradigm, query] of Object.entries(form.gold)) {
+    const same = query.trim().match(SAME_AS);
+    if (same) gold[paradigm] = { same_as: same[1] };
+    else if (query.trim()) gold[paradigm] = { query };
+  }
   const compare = {};
   if (form.order) compare.order = form.order;
   if (form.decimals !== '') compare.decimals = Number(form.decimals);
@@ -699,7 +710,9 @@ function field2(label, key, kind, options) {
 }
 function goldField(paradigm) {
   const area = h('textarea', { rows: paradigm === 'postgres' ? 5 : 8, spellcheck: 'false',
-    placeholder: desk.form.unanswerable ? 'pergunta sem resposta: sem gabarito' : 'sem gabarito neste paradigma' });
+    placeholder: desk.form.unanswerable ? 'pergunta sem resposta: sem gabarito'
+      : paradigm === 'redis' ? 'sem gabarito neste paradigma (@postgres = o resultado do gabarito do PostgreSQL)'
+      : 'sem gabarito neste paradigma' });
   area.value = desk.form.gold[paradigm] || '';
   area.addEventListener('input', () => { desk.form.gold[paradigm] = area.value; });
   if (desk.set.readOnly) area.disabled = true;

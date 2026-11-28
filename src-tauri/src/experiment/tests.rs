@@ -69,9 +69,8 @@ impl Bench {
             run_id: "fluxo",
         };
         let options = Options {
-            concurrency: 1,
-            max_consecutive_errors: 3,
-            redo_failed: false,
+            pause: std::time::Duration::ZERO,
+            ..Options::default()
         };
         let stop = CancelFlag::default();
         let ran = std::sync::atomic::AtomicUsize::new(0);
@@ -376,9 +375,9 @@ async fn e2e_real_round_with_the_api() {
         run_id: "e2e",
     };
     let options = Options {
-        concurrency: 1,
         max_consecutive_errors: 1,
-        redo_failed: false,
+        pause: std::time::Duration::ZERO,
+        ..Options::default()
     };
     let outcome = round::run(&lab, units, &dir, "e2e", &options, &CancelFlag::default(), &|record, _, _| {
         println!(

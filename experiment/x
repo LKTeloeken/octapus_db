@@ -1,6 +1,28 @@
 #!/usr/bin/env bash
 # Atalho do executor: ./experiment/x <comando> roda o example `experiment` do
 # Cargo (./experiment/x --help lista os comandos).
+#
+# Os segredos da rodada podem ficar em experiment/.env (fora do git pelo
+# `.env*` da raiz), uma variável por linha:
+#
+#   OCTAPUS_ASSISTANT_URL=https://...
+#   OCTAPUS_EXPERIMENT_INVITE=...
+#
+# Variável já definida no terminal vale mais que a do arquivo.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="$ROOT/experiment/.env"
+if [ -f "$ENV_FILE" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in ''|'#'*) continue ;; esac
+    name="${line%%=*}"
+    value="${line#*=}"
+    # Aspas em volta do valor são opcionais
+    value="${value%\"}"; value="${value#\"}"
+    if [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && [ -z "${!name:-}" ]; then
+      export "$name=$value"
+    fi
+  done < "$ENV_FILE"
+fi
 exec cargo run --quiet --manifest-path "$ROOT/src-tauri/Cargo.toml" --example experiment --features experiment -- "$@"

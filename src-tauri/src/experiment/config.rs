@@ -108,8 +108,21 @@ pub struct RunConfig {
     pub mongo_sample_values: bool,
     /// Linhas da página do resultado (a do app é 200)
     pub row_limit: i64,
-    /// Testes seguidos que nem abriram (API fora, cota) antes de parar a rodada
+    /// Testes seguidos com erro (não abriram ou falharam no meio) antes de
+    /// pausar a rodada
     pub max_consecutive_errors: u32,
+    /// Minutos de pausa depois de `max_consecutive_errors` erros seguidos,
+    /// antes de tentar de novo; 0 = para direto
+    pub pause_minutes: u64,
+    /// Pausas por execução; na seguinte, a rodada para
+    pub max_pauses: u32,
+    /// Fração dos testes desta execução que pode terminar em `failed` antes
+    /// de a rodada parar (0,10 = 10%), contada depois de `failure_rate_after`
+    pub max_failure_rate: f64,
+    pub failure_rate_after: usize,
+    /// Gasto máximo de cada modelo, em dólares, pelo custo que a API mede
+    /// (`{ "id-do-modelo" = 45.0 }`); modelo fora do mapa não tem teto
+    pub max_cost_usd: BTreeMap<String, f64>,
 }
 
 impl Default for RunConfig {
@@ -124,6 +137,11 @@ impl Default for RunConfig {
             mongo_sample_values: false,
             row_limit: FIRST_PAGE_ROWS,
             max_consecutive_errors: 3,
+            pause_minutes: 10,
+            max_pauses: 3,
+            max_failure_rate: 0.10,
+            failure_rate_after: 30,
+            max_cost_usd: BTreeMap::new(),
         }
     }
 }
@@ -143,6 +161,10 @@ pub struct DatabaseConfig {
     pub database: String,
     /// Os schemas da conversa (PostgreSQL); sem isto, `public`
     pub schemas: Option<Vec<String>>,
+    /// O que entra no lugar de `{dataset}` para cada conjunto, quando não é o
+    /// próprio nome: o Redis só tem bancos numerados (`california_schools =
+    /// "0"`). Conjunto fora do mapa usa o nome.
+    pub datasets: Option<BTreeMap<String, String>>,
     #[serde(default)]
     pub ssl_mode: SslMode,
 }
@@ -187,6 +209,17 @@ impl Environment {
         languages.dedup();
         if languages.is_empty() || languages.len() != run.languages.len() {
             return fail("[run] languages: use \"pt\" e/ou \"en\", sem repetir");
+        }
+        if run.max_failure_rate.is_nan() || run.max_failure_rate <= 0.0 || run.max_failure_rate > 1.0 {
+            return fail("[run] max_failure_rate: use uma fração entre 0 e 1 (0.10 = 10%)");
+        }
+        for (model, limit) in &run.max_cost_usd {
+            if !self.api.models.contains(model) {
+                return Err(format!("[run] max_cost_usd: `{model}` não está em [api] models"));
+            }
+            if limit.is_nan() || *limit <= 0.0 {
+                return Err(format!("[run] max_cost_usd: o teto de `{model}` precisa ser maior que zero"));
+            }
         }
         if run.ask_user == AskUser::Reply && run.ask_user_reply.is_none() {
             return fail("[run] ask_user = \"reply\" precisa de `ask_user_reply = { pt = \"...\", en = \"...\" }`");
@@ -237,6 +270,7 @@ impl DatabaseConfig {
             return Ok(self.clone());
         }
         let dataset = dataset.ok_or("o banco usa `{dataset}`, mas a pergunta não tem `dataset`")?;
+        let dataset = self.datasets.as_ref().and_then(|map| map.get(dataset)).map_or(dataset, String::as_str);
         let fill = |text: &String| text.replace(DATASET, dataset);
         Ok(Self {
             database: fill(&self.database),
@@ -323,6 +357,10 @@ database = "main"
         assert_eq!(run.languages, [Lang::Pt, Lang::En]);
         // As decisões padrão: esclarecimento, sem valores de exemplo, página do app
         assert_eq!((run.ask_user, run.mongo_sample_values, run.row_limit), (AskUser::Clarify, false, 200));
+        // Os controles de erro: 3 seguidos pausam 10 minutos, até 3 vezes
+        assert_eq!((run.max_consecutive_errors, run.pause_minutes, run.max_pauses), (3, 10, 3));
+        assert_eq!((run.max_failure_rate, run.failure_rate_after), (0.10, 30));
+        assert!(run.max_cost_usd.is_empty());
     }
 
     #[test]
@@ -359,6 +397,16 @@ database = "main"
         assert_eq!(environment.database["sqlite"].for_dataset(Some("financial")).unwrap().database, "financial");
         assert!(postgres.for_dataset(None).unwrap_err().contains("`dataset`"));
 
+        // O Redis só tem bancos numerados: o mapa diz qual é o de cada conjunto
+        let redis = load(&format!(
+            "{source}\n[database.redis]\nhost = \"localhost\"\ndatabase = \"{{dataset}}\"\ndatasets = {{ financial = \"5\" }}\n"
+        ))
+        .unwrap()
+        .database["redis"]
+            .clone();
+        assert_eq!(redis.for_dataset(Some("financial")).unwrap().database, "5");
+        assert_eq!(redis.for_dataset(Some("outro")).unwrap().database, "outro");
+
         // Sem `{dataset}`, um banco só para todas as perguntas
         let fixed = &load(VALID).unwrap().database["postgres"];
         assert!(!fixed.per_dataset());
@@ -376,6 +424,11 @@ database = "main"
         assert!(check("seed = 42", "seed = 42\nlanguages = [\"pt\", \"pt\"]").contains("languages"));
         assert!(check("host = \"localhost\"\n", "").contains("`host` ou `uri_env`"));
         assert!(check("[database.sqlite]", "[database.oracle]").contains("paradigma desconhecido"));
+        assert!(check("seed = 42", "seed = 42\nmax_failure_rate = 2.0").contains("max_failure_rate"));
+        assert!(check("seed = 42", "seed = 42\nmax_cost_usd = { modelo-c = 10.0 }").contains("não está em [api] models"));
+        assert!(check("seed = 42", "seed = 42\nmax_cost_usd = { modelo-a = 0.0 }").contains("maior que zero"));
+        let limited = load(&VALID.replace("seed = 42", "seed = 42\nmax_cost_usd = { modelo-a = 45.0 }")).unwrap();
+        assert_eq!(limited.run.max_cost_usd["modelo-a"], 45.0);
 
         let reply = VALID.replace(
             "seed = 42",

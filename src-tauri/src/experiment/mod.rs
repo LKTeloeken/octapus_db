@@ -30,6 +30,7 @@ mod lab;
 mod plan;
 mod questions;
 mod record;
+mod redis_load;
 mod report;
 mod round;
 mod serve;
@@ -71,12 +72,16 @@ Executor de rodadas do experimento (TCC)
                                           duas vezes nos bancos (não chama a API);
                                           --no-env confere só o arquivo
   models                                  lista os modelos que a API oferece
+  redis-load [--datasets a,b]             carrega no Redis de teste os conjuntos do
+                                          PostgreSQL de teste (padrão: os do mapa
+                                          `datasets` de [database.redis]); apaga antes
+                                          o banco do Redis de cada conjunto
   run     [--only id,id] [--dry-run]      roda a bateria (pede confirmação no terminal);
           [--accept-consent]              --dry-run só informa quantos testes rodariam
   resume  PASTA_DA_RODADA                 continua de onde parou, sem repetir
           [--redo-failed] [--dry-run]     --redo-failed refaz os turnos que falharam
           [--allow-version-change]        aceita app ou prompt diferente do início
-  report  PASTA_DA_RODADA                 regrava results.csv e summary.csv
+  report  PASTA_DA_RODADA                 regrava results.csv, summary.csv e review.csv
   demo    [--delay-ms N] [--concurrency N]  rodada simulada, sem rede nem cota
 
   --questions ARQ   o conjunto de perguntas  (padrão: experiment/perguntas.toml)
@@ -127,8 +132,8 @@ struct Cli {
 }
 
 impl Cli {
-    const VALUED: [&'static str; 7] =
-        ["--questions", "--env", "--only", "--runs", "--port", "--delay-ms", "--concurrency"];
+    const VALUED: [&'static str; 8] =
+        ["--questions", "--env", "--only", "--runs", "--port", "--delay-ms", "--concurrency", "--datasets"];
     const FLAGS: [&'static str; 6] =
         ["--dry-run", "--accept-consent", "--redo-failed", "--allow-version-change", "--read-only", "--no-env"];
 
@@ -202,7 +207,7 @@ fn execute(cli: Cli) -> Result<(), String> {
             let dir = RunDir::open(cli.target()?).map_err(text)?;
             let manifest = dir.manifest().map_err(text)?;
             write_reports(&dir, &manifest.run_id)?;
-            println!("results.csv e summary.csv regravados em {}", dir.path().display());
+            println!("results.csv, summary.csv e review.csv regravados em {}", dir.path().display());
             Ok(())
         }
         "serve" => {
@@ -218,6 +223,7 @@ fn execute(cli: Cli) -> Result<(), String> {
         }
         "catalog" => build_catalog(&cli),
         "models" => models(&cli),
+        "redis-load" => redis_load(&cli),
         "demo" => demo(&cli),
         other => Err(format!("comando desconhecido: {other} (veja --help)")),
     }
@@ -298,6 +304,36 @@ fn models(cli: &Cli) -> Result<(), String> {
         }
         Ok(())
     })
+}
+
+/// `redis-load`: os mesmos dados do PostgreSQL de teste no Redis de teste
+/// (o modelo das chaves está em `redis_load.rs`).
+fn redis_load(cli: &Cli) -> Result<(), String> {
+    let environment = config::load(&read_file(&cli.environment())?)?;
+    let datasets: Vec<String> = match cli.option("--datasets") {
+        Some(list) => list.split(',').map(|name| name.trim().to_string()).filter(|name| !name.is_empty()).collect(),
+        None => environment
+            .database
+            .get("redis")
+            .and_then(|redis| redis.datasets.as_ref())
+            .map(|map| map.keys().cloned().collect())
+            .unwrap_or_default(),
+    };
+    if datasets.is_empty() {
+        return Err("nenhum conjunto: use --datasets ou o mapa `datasets` de [database.redis]".into());
+    }
+    let loaded = runtime()?.block_on(redis_load::load(&environment, &datasets, &env_var, &|step| {
+        println!("   {step}")
+    }))?;
+    println!("\n{:<26} {:>3} {:>7} {:>10} {:>10}", "conjunto", "db", "tabelas", "linhas", "chaves");
+    for done in &loaded {
+        println!(
+            "{:<26} {:>3} {:>7} {:>10} {:>10}   ({} tabela(s) com índice)",
+            done.dataset, done.redis_db, done.tables, done.rows, done.keys, done.indexed_tables
+        );
+    }
+    println!("Cada tabela confere: as mesmas linhas no PostgreSQL e no Redis.");
+    Ok(())
 }
 
 fn load_questions(source: &str) -> Result<QuestionSet, String> {
@@ -707,9 +743,15 @@ async fn drive(
         run: &inputs.environment.run,
         run_id: &manifest.run_id,
     };
+    let run = &inputs.environment.run;
     let options = Options {
-        concurrency: inputs.environment.run.concurrency,
-        max_consecutive_errors: inputs.environment.run.max_consecutive_errors,
+        concurrency: run.concurrency,
+        max_consecutive_errors: run.max_consecutive_errors,
+        pause: Duration::from_secs(run.pause_minutes * 60),
+        max_pauses: run.max_pauses,
+        max_failure_rate: run.max_failure_rate,
+        failure_rate_after: run.failure_rate_after,
+        max_cost_usd: run.max_cost_usd.clone(),
         redo_failed,
     };
     let outcome = round::run(&lab, &inputs.units, dir, &manifest.run_id, &options, &stop, &progress_line)
@@ -725,12 +767,17 @@ async fn drive(
         RoundStatus::Interrupted => {
             println!("Rodada interrompida: {} de {} testes gravados.\n{resume_hint}", outcome.done, outcome.total)
         }
-        RoundStatus::StoppedOnErrors | RoundStatus::Running => println!(
-            "Rodada parada: testes seguidos não abriram ({}). {} de {} gravados.\n{resume_hint}",
-            outcome.last_error.as_deref().unwrap_or("?"),
-            outcome.done,
-            outcome.total
-        ),
+        // Parada sozinha: o código de saída avisa quem chamou (um script que
+        // notifica, por exemplo)
+        RoundStatus::StoppedOnErrors | RoundStatus::StoppedOnBudget | RoundStatus::Paused | RoundStatus::Running => {
+            return Err(format!(
+                "rodada parada: {}. {} de {} testes gravados.\n{resume_hint} \
+                 (com --redo-failed, refaz também os turnos que falharam)",
+                outcome.stop_reason.as_deref().unwrap_or("motivo desconhecido"),
+                outcome.done,
+                outcome.total
+            ))
+        }
     }
     Ok(())
 }
@@ -761,6 +808,7 @@ fn write_reports(dir: &RunDir, run_id: &str) -> Result<(), String> {
     let records = dir.units().map_err(text)?;
     let summary = report::summarize(&records, &report::DEFAULT_DIMENSIONS);
     dir.write_text(store::RESULTS_CSV, &report::results_csv(run_id, &records)).map_err(text)?;
+    dir.write_text(store::REVIEW_CSV, &report::review_csv(run_id, &records)).map_err(text)?;
     dir.write_text(store::SUMMARY_CSV, &report::summary_csv(&summary, &report::DEFAULT_DIMENSIONS))
         .map_err(text)
 }
